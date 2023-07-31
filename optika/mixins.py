@@ -10,7 +10,7 @@ ItemT = TypeVar("ItemT")
 class DataclassList(
     Generic[ItemT],
 ):
-    data: list[ItemT] = dataclasses.MISSING
+    data: list[ItemT] = dataclasses.MISSING     # type: ignore
 
     def __contains__(self, item: ItemT) -> bool:
         return self.data.__contains__(item)
@@ -22,10 +22,12 @@ class DataclassList(
         return self.data.__reversed__()
 
     @overload
-    def __getitem__(self, item: int) -> ItemT: ...
+    def __getitem__(self, item: int) -> ItemT:
+        ...
 
     @overload
-    def __getitem__(self: Self, item: slice) -> Self: ...
+    def __getitem__(self: Self, item: slice) -> Self:
+        ...
 
     def __getitem__(self: Self, item: int | slice) -> ItemT | Self:
         if isinstance(item, slice):
