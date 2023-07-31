@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Generic, TypeVar, Iterator
+from typing import Self, Generic, TypeVar, Iterator, overload
 import copy
 import dataclasses
 
@@ -10,7 +10,7 @@ ItemT = TypeVar("ItemT")
 class DataclassList(
     Generic[ItemT],
 ):
-    data: list = dataclasses.MISSING
+    data: list[ItemT] = dataclasses.MISSING
 
     def __contains__(self, item: ItemT) -> bool:
         return self.data.__contains__(item)
@@ -21,7 +21,13 @@ class DataclassList(
     def __reversed__(self) -> Iterator[ItemT]:
         return self.data.__reversed__()
 
-    def __getitem__(self, item: int | slice) -> ItemT:
+    @overload
+    def __getitem__(self, item: int) -> ItemT: ...
+
+    @overload
+    def __getitem__(self: Self, item: slice) -> Self: ...
+
+    def __getitem__(self: Self, item: int | slice) -> ItemT | Self:
         if isinstance(item, slice):
             other = copy.copy(self)
             other.data = self.data.__getitem__(item)
