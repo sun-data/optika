@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Self, Generic, TypeVar, Iterator, overload
+from typing import Self, Generic, TypeVar, Iterator, Iterable, overload
 import copy
 import dataclasses
 
@@ -37,7 +37,15 @@ class DataclassList(
         else:
             return self.data.__getitem__(item)
 
-    def __setitem__(self, key: int | slice, value: ItemT):
+    @overload
+    def __setitem__(self, key: int, value: ItemT):
+        ...
+
+    @overload
+    def __setitem__(self, key: slice, value: Iterable[ItemT]):
+        ...
+
+    def __setitem__(self, key, value):
         self.data.__setitem__(key, value)
 
     def __delitem__(self, key: int | slice):
