@@ -3,6 +3,10 @@ from typing import Self, Generic, TypeVar, Iterator, Iterable, overload
 import copy
 import dataclasses
 
+__all__ = [
+    "DataclassList",
+]
+
 ItemT = TypeVar("ItemT")
 
 
