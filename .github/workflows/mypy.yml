@@ -8,11 +8,11 @@ jobs:
     name: Mypy
     steps:
     - uses: actions/checkout@v1
-    - name: Set up Python 3.8
+    - name: Set up Python
       uses: actions/setup-python@v2
     - name: Install Dependencies
       run: |
         pip install mypy
-    - name: mypy
+    - name: Run mypy
       run: |
         mypy optika/
