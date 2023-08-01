@@ -9,21 +9,20 @@ import named_arrays as na   # type: ignore[import]
 import optika.mixins
 
 __all__ = [
-    'AbstractTransform',
-    'Translation',
-    'AbstractRotation',
-    'RotationX',
-    'RotationY',
-    'RotationZ',
-    'TransformList',
-    'Transformable',
+    "AbstractTransform",
+    "Translation",
+    "AbstractRotation",
+    "RotationX",
+    "RotationY",
+    "RotationZ",
+    "TransformList",
+    "Transformable",
 ]
 
 
 class AbstractTransform(
     abc.ABC,
 ):
-
     @property
     def matrix(self) -> na.AbstractCartesian3dMatrixArray:
         return na.Cartesian3dIdentityMatrixArray()
@@ -33,10 +32,10 @@ class AbstractTransform(
         return na.Cartesian3dVectorArray() * u.mm
 
     def __call__(
-            self,
-            value: na.AbstractCartesian3dVectorArray,
-            rotate: bool = True,
-            translate: bool = True,
+        self,
+        value: na.AbstractCartesian3dVectorArray,
+        rotate: bool = True,
+        translate: bool = True,
     ) -> na.AbstractCartesian3dVectorArray:
         if rotate:
             value = self.matrix @ value
@@ -75,7 +74,6 @@ class AbstractRotation(AbstractTransform):
 
 @dataclasses.dataclass
 class RotationX(AbstractRotation):
-
     @property
     def matrix(self) -> na.Cartesian3dXRotationMatrixArray:
         return na.Cartesian3dXRotationMatrixArray(self.angle)
@@ -83,7 +81,6 @@ class RotationX(AbstractRotation):
 
 @dataclasses.dataclass
 class RotationY(AbstractRotation):
-
     @property
     def matrix(self) -> na.Cartesian3dYRotationMatrixArray:
         return na.Cartesian3dYRotationMatrixArray(self.angle)
@@ -91,7 +88,6 @@ class RotationY(AbstractRotation):
 
 @dataclasses.dataclass
 class RotationZ(AbstractRotation):
-
     @property
     def matrix(self) -> na.Cartesian3dZRotationMatrixArray:
         return na.Cartesian3dZRotationMatrixArray(self.angle)
@@ -102,7 +98,6 @@ class TransformList(
     AbstractTransform,
     optika.mixins.DataclassList,
 ):
-
     intrinsic: bool = True
 
     @property
