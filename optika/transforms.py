@@ -98,7 +98,6 @@ class TransformList(
     AbstractTransform,
     optika.mixins.DataclassList,
 ):
-
     intrinsic: bool = True
 
     @property
