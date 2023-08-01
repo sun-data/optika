@@ -15,11 +15,7 @@ ItemT = TypeVar("ItemT")
 class DataclassList(
     Generic[ItemT],
 ):
-    data: None | list[ItemT] = None
-
-    def __post_init__(self):
-        if self.data is None:
-            self.data = list()
+    data: list[ItemT] = dataclasses.MISSING
 
     def __contains__(self, item: ItemT) -> bool:
         return self.data.__contains__(item)
