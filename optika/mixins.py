@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Self, Generic, TypeVar, Iterator, Iterable, overload
+from typing import Generic, TypeVar, Iterator, Iterable, overload
+from typing_extensions import Self
 import copy
 import dataclasses
 
