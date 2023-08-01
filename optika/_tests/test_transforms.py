@@ -1,7 +1,7 @@
 import pytest
-import astropy.units as u
 import numpy as np
-import named_arrays as na
+import astropy.units as u   # type: ignore[import]
+import named_arrays as na   # type: ignore[import]
 import optika
 
 
