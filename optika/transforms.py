@@ -26,6 +26,7 @@ class AbstractTransform(
     """
     An interface for an arbitrary vector transform
     """
+
     @property
     def matrix(self) -> na.AbstractCartesian3dMatrixArray:
         """
@@ -75,6 +76,7 @@ class Translation(AbstractTransform):
     """
     A translation-only vector transformation.
     """
+
     displacement: na.Cartesian3dVectorArray = dataclasses.MISSING
     """The magnitude of the translation along each axis"""
 
@@ -91,6 +93,7 @@ class AbstractRotation(AbstractTransform):
     """
     Any arbitrary rotation
     """
+
     angle: na.ScalarLike
     """The angle of the rotation"""
 
@@ -103,6 +106,7 @@ class RotationX(AbstractRotation):
     """
     A rotation about the :math:`x` axis
     """
+
     @property
     def matrix(self) -> na.Cartesian3dXRotationMatrixArray:
         return na.Cartesian3dXRotationMatrixArray(self.angle)
@@ -113,6 +117,7 @@ class RotationY(AbstractRotation):
     """
     A rotation about the :math:`y` axis
     """
+
     @property
     def matrix(self) -> na.Cartesian3dYRotationMatrixArray:
         return na.Cartesian3dYRotationMatrixArray(self.angle)
@@ -123,6 +128,7 @@ class RotationZ(AbstractRotation):
     """
     A rotation about the :math:`z` axis
     """
+
     @property
     def matrix(self) -> na.Cartesian3dZRotationMatrixArray:
         return na.Cartesian3dZRotationMatrixArray(self.angle)
@@ -136,6 +142,7 @@ class TransformList(
     """
     A sequence of transformations
     """
+
     intrinsic: bool = True
 
     @property
