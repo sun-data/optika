@@ -19,7 +19,8 @@ class AbstractTestAbstractTransform:
     def test_vector(self, transform: optika.transforms.AbstractTransform):
         assert isinstance(
             transform.vector,
-            na.AbstractCartesian3dVectorArray)
+            na.AbstractCartesian3dVectorArray,
+        )
         assert isinstance(
             transform.vector.to(u.mm),
             na.AbstractCartesian3dVectorArray,
@@ -41,7 +42,7 @@ class AbstractTestAbstractTransform:
     argnames="transform",
     argvalues=[
         optika.transforms.Translation(na.Cartesian3dVectorArray() * u.mm),
-        optika.transforms.Translation(na.Cartesian3dVectorArray(1, -2, 3) * u.mm)
+        optika.transforms.Translation(na.Cartesian3dVectorArray(1, -2, 3) * u.mm),
     ],
 )
 class TestTranslation(
@@ -102,15 +103,17 @@ class TestRotationZ(
 
 
 @pytest.mark.parametrize(
-    argnames='transform',
+    argnames="transform",
     argvalues=[
-        optika.transforms.TransformList([
-            optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
-            optika.transforms.RotationZ(90 * u.deg),
-            optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
-            optika.transforms.RotationY(90 * u.deg),
-            optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
-        ])
+        optika.transforms.TransformList(
+            [
+                optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
+                optika.transforms.RotationZ(90 * u.deg),
+                optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
+                optika.transforms.RotationY(90 * u.deg),
+                optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
+            ]
+        )
     ],
 )
 class TestTransformList(

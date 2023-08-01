@@ -4,8 +4,8 @@ from typing_extensions import Self
 import abc
 import dataclasses
 import copy
-import astropy.units as u   # type: ignore[import]
-import named_arrays as na   # type: ignore[import]
+import astropy.units as u  # type: ignore[import]
+import named_arrays as na  # type: ignore[import]
 import optika.mixins
 
 __all__ = [
@@ -98,6 +98,7 @@ class TransformList(
     AbstractTransform,
     optika.mixins.DataclassList,
 ):
+
     intrinsic: bool = True
 
     @property
