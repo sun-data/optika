@@ -23,12 +23,27 @@ __all__ = [
 class AbstractTransform(
     abc.ABC,
 ):
+    """
+    An interface for an arbitrary vector transform
+    """
     @property
     def matrix(self) -> na.AbstractCartesian3dMatrixArray:
+        """
+        The matrix component of the transformation.
+
+        This can contribute to scaling, shearing, or rotating an instance of
+        :class:`named_arrays.AbstractVectorArray`
+        """
         return na.Cartesian3dIdentityMatrixArray()
 
     @property
     def vector(self) -> na.AbstractCartesian3dVectorArray:
+        """
+        The vector component of the transformation
+
+        This can contribute to translation of an instance of
+        :class:`named_arrays.AbstractVectorArray`.
+        """
         return na.Cartesian3dVectorArray() * u.mm
 
     def __call__(
@@ -49,12 +64,19 @@ class AbstractTransform(
 
     @property
     def inverse(self: Self) -> Self:
+        """
+        A new transformation that is the inverse of this transformation.
+        """
         return self.__invert__()
 
 
 @dataclasses.dataclass
 class Translation(AbstractTransform):
+    """
+    A translation-only vector transformation.
+    """
     displacement: na.Cartesian3dVectorArray = dataclasses.MISSING
+    """The magnitude of the translation along each axis"""
 
     @property
     def vector(self) -> na.Cartesian3dVectorArray:
@@ -66,7 +88,11 @@ class Translation(AbstractTransform):
 
 @dataclasses.dataclass
 class AbstractRotation(AbstractTransform):
+    """
+    Any arbitrary rotation
+    """
     angle: na.ScalarLike
+    """The angle of the rotation"""
 
     def __invert__(self: Self) -> Self:
         return type(self)(angle=-self.angle)
@@ -74,6 +100,9 @@ class AbstractRotation(AbstractTransform):
 
 @dataclasses.dataclass
 class RotationX(AbstractRotation):
+    """
+    A rotation about the :math:`x` axis
+    """
     @property
     def matrix(self) -> na.Cartesian3dXRotationMatrixArray:
         return na.Cartesian3dXRotationMatrixArray(self.angle)
@@ -81,6 +110,9 @@ class RotationX(AbstractRotation):
 
 @dataclasses.dataclass
 class RotationY(AbstractRotation):
+    """
+    A rotation about the :math:`y` axis
+    """
     @property
     def matrix(self) -> na.Cartesian3dYRotationMatrixArray:
         return na.Cartesian3dYRotationMatrixArray(self.angle)
@@ -88,6 +120,9 @@ class RotationY(AbstractRotation):
 
 @dataclasses.dataclass
 class RotationZ(AbstractRotation):
+    """
+    A rotation about the :math:`z` axis
+    """
     @property
     def matrix(self) -> na.Cartesian3dZRotationMatrixArray:
         return na.Cartesian3dZRotationMatrixArray(self.angle)
@@ -98,6 +133,9 @@ class TransformList(
     AbstractTransform,
     optika.mixins.DataclassList,
 ):
+    """
+    A sequence of transformations
+    """
     intrinsic: bool = True
 
     @property
