@@ -19,24 +19,24 @@ class AbstractTestAbstractSag(
                 y=na.NormalUncertainScalarArray(
                     nominal=na.ScalarLinearSpace(-1, 0, axis="y", num=6),
                     width=0.1,
-                )
-            ) * u.mm
+                ),
+            ) * u.mm,
         ]
     )
     class TestFunctionsOfPosition:
         def test__call__(
-                self,
-                sag: optika.sags.AbstractSag,
-                position: na.AbstractCartesian2dVectorArray,
+            self,
+            sag: optika.sags.AbstractSag,
+            position: na.AbstractCartesian2dVectorArray,
         ):
             result = sag(position)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
             assert set(na.shape(position)).issubset(na.shape(result))
 
         def test_normal(
-                self,
-                sag: optika.sags.AbstractSag,
-                position: na.AbstractCartesian2dVectorArray,
+            self,
+            sag: optika.sags.AbstractSag,
+            position: na.AbstractCartesian2dVectorArray,
         ):
             result = sag.normal(position)
             assert isinstance(result, na.AbstractCartesian3dVectorArray)
@@ -118,7 +118,10 @@ class TestConicSag(TestConicSag):
 @pytest.mark.parametrize(
     argnames="sag",
     argvalues=[
-        optika.sags.ToroidalSag(radius=radius, radius_of_rotation=2 * radius_of_rotation)
+        optika.sags.ToroidalSag(
+            radius=radius,
+            radius_of_rotation=2 * radius_of_rotation,
+        )
         for radius in _radii()
         for radius_of_rotation in _radii()
     ],
