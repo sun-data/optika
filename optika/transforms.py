@@ -191,4 +191,4 @@ class TransformList(
 
 @dataclasses.dataclass
 class Transformable:
-    transform: TransformList = dataclasses.field(default_factory=TransformList)
+    transform: None | TransformList = None
