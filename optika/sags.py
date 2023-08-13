@@ -27,11 +27,17 @@ class AbstractSag(
     """
 
     @abc.abstractmethod
-    def __call__(self, position: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+    def __call__(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
         pass
 
     @abc.abstractmethod
-    def normal(self, position: na.AbstractCartesian2dVectorArray) -> na.AbstractCartesian3dVectorArray:
+    def normal(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractCartesian3dVectorArray:
         """
         The vector perpendicular to the surface at the given position.
 
@@ -50,6 +56,7 @@ class SphericalSag(
     """
     A spherical sag profile
     """
+
     radius: RadiusT = np.inf * u.mm
     """the radius of the spherical surface"""
 
@@ -57,7 +64,10 @@ class SphericalSag(
     def curvature(self) -> RadiusT:
         return 1 / self.radius
 
-    def __call__(self, position: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+    def __call__(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
 
         radius = self.radius
         c = self.curvature
@@ -73,7 +83,10 @@ class SphericalSag(
         sz[mask] = 0
         return sz
 
-    def normal(self, position: na.AbstractCartesian2dVectorArray) -> na.Cartesian3dVectorArray:
+    def normal(
+            self,
+            position: na.AbstractCartesian2dVectorArray,
+    ) -> na.Cartesian3dVectorArray:
 
         radius = self.radius
         c = self.curvature
@@ -93,7 +106,7 @@ class SphericalSag(
         result = na.Cartesian3dVectorArray(
             x=dzdx,
             y=dzdy,
-            z=-1 * u.dimensionless_unscaled
+            z=-1 * u.dimensionless_unscaled,
         )
         return result / result.length
 
@@ -106,10 +119,14 @@ class ConicSag(
     """
     A conic section sag profile
     """
+
     conic: ConicT = 0 * u.dimensionless_unscaled
     """the conic constant of the conic section"""
 
-    def __call__(self, position: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+    def __call__(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
 
         radius = self.radius
         c = self.curvature
@@ -127,7 +144,10 @@ class ConicSag(
         sz[mask] = 0
         return sz
 
-    def normal(self, position: na.AbstractCartesian2dVectorArray) -> na.Cartesian3dVectorArray:
+    def normal(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.Cartesian3dVectorArray:
 
         radius = self.radius
         c = self.curvature
@@ -150,7 +170,7 @@ class ConicSag(
         result = na.Cartesian3dVectorArray(
             x=dzdx,
             y=dzdy,
-            z=-1 * u.dimensionless_unscaled
+            z=-1 * u.dimensionless_unscaled,
         )
         return result / result.length
 
@@ -166,7 +186,10 @@ class ToroidalSag(
 
     radius_of_rotation: RadiusOfRotationT = 0 * u.mm
 
-    def __call__(self, position: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:\
+    def __call__(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
 
         c = self.curvature
         r = self.radius_of_rotation
@@ -184,7 +207,10 @@ class ToroidalSag(
         z[mask] = (r - np.sqrt(np.square(r - zy) - np.square(r)))[mask]
         return z
 
-    def normal(self, position: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+    def normal(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
 
         c = self.curvature
         r = self.radius_of_rotation
@@ -209,6 +235,6 @@ class ToroidalSag(
         result = na.Cartesian3dVectorArray(
             x=dzdx,
             y=dzdy,
-            z=-1 * u.dimensionless_unscaled
+            z=-1 * u.dimensionless_unscaled,
         )
         return result / result.length
