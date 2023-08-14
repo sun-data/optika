@@ -3,7 +3,7 @@ import abc
 import dataclasses
 import numpy as np
 import astropy.units as u  # type: ignore[import]
-import named_arrays as na
+import named_arrays as na  # type: ignore[import]
 import optika
 
 __all__ = [
@@ -14,16 +14,16 @@ __all__ = [
 ]
 
 RadiusT = TypeVar(
-    name="RadiusT",
-    bound=float | np.ndarray | na.AbstractScalar,
+    "RadiusT",
+    bound=float | u.Quantity | na.AbstractScalar,
 )
 ConicT = TypeVar(
-    name="ConicT",
-    bound=float | np.ndarray | na.AbstractScalar,
+    "ConicT",
+    bound=float | u.Quantity | na.AbstractScalar,
 )
 RadiusOfRotationT = TypeVar(
-    name="RadiusOfRotationT",
-    bound=float | np.ndarray | na.AbstractScalar,
+    "RadiusOfRotationT",
+    bound=float | u.Quantity | na.AbstractScalar,
 )
 
 
@@ -70,7 +70,7 @@ class SphericalSag(
     """the radius of the spherical surface"""
 
     @property
-    def curvature(self) -> RadiusT:
+    def curvature(self) -> float | RadiusT:
         return 1 / self.radius
 
     def __call__(
