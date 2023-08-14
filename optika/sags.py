@@ -13,9 +13,9 @@ __all__ = [
     "ToroidalSag",
 ]
 
-RadiusT = TypeVar("RadiusT", bound=na.ScalarLike)
-ConicT = TypeVar("ConicT", bound=na.ScalarLike)
-RadiusOfRotationT = TypeVar("RadiusOfRotationT", bound=na.ScalarLike)
+RadiusT = TypeVar("RadiusT", bound=float | np.ndarray | na.AbstractScalar)
+ConicT = TypeVar("ConicT", bound=float | np.ndarray | na.AbstractScalar)
+RadiusOfRotationT = TypeVar("RadiusOfRotationT", bound=float | np.ndarray | na.AbstractScalar)
 
 
 @dataclasses.dataclass
@@ -85,7 +85,7 @@ class SphericalSag(
     def normal(
         self,
         position: na.AbstractCartesian2dVectorArray,
-    ) -> na.Cartesian3dVectorArray:
+    ) -> na.AbstractCartesian3dVectorArray:
         radius = self.radius
         c = self.curvature
 
@@ -144,7 +144,7 @@ class ConicSag(
     def normal(
         self,
         position: na.AbstractCartesian2dVectorArray,
-    ) -> na.Cartesian3dVectorArray:
+    ) -> na.AbstractCartesian3dVectorArray:
         radius = self.radius
         c = self.curvature
         conic = self.conic
@@ -205,7 +205,7 @@ class ToroidalSag(
     def normal(
         self,
         position: na.AbstractCartesian2dVectorArray,
-    ) -> na.AbstractScalar:
+    ) -> na.AbstractCartesian3dVectorArray:
         c = self.curvature
         r = self.radius_of_rotation
 
