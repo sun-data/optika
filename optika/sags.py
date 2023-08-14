@@ -83,8 +83,8 @@ class SphericalSag(
         return sz
 
     def normal(
-            self,
-            position: na.AbstractCartesian2dVectorArray,
+        self,
+        position: na.AbstractCartesian2dVectorArray,
     ) -> na.Cartesian3dVectorArray:
         radius = self.radius
         c = self.curvature
@@ -125,7 +125,6 @@ class ConicSag(
         self,
         position: na.AbstractCartesian2dVectorArray,
     ) -> na.AbstractScalar:
-
         radius = self.radius
         c = self.curvature
         conic = self.conic
