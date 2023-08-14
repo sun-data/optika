@@ -8,7 +8,6 @@ import optika
 class AbstractTestAbstractSag(
     abc.ABC,
 ):
-
     @pytest.mark.parametrize(
         argnames="position",
         argvalues=[
@@ -21,7 +20,7 @@ class AbstractTestAbstractSag(
                     width=0.1,
                 ),
             ) * u.mm,
-        ]
+        ],
     )
     class TestFunctionsOfPosition:
         def test__call__(

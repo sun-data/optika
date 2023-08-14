@@ -68,7 +68,6 @@ class SphericalSag(
         self,
         position: na.AbstractCartesian2dVectorArray,
     ) -> na.AbstractScalar:
-
         radius = self.radius
         c = self.curvature
 
@@ -87,7 +86,6 @@ class SphericalSag(
             self,
             position: na.AbstractCartesian2dVectorArray,
     ) -> na.Cartesian3dVectorArray:
-
         radius = self.radius
         c = self.curvature
 
@@ -148,7 +146,6 @@ class ConicSag(
         self,
         position: na.AbstractCartesian2dVectorArray,
     ) -> na.Cartesian3dVectorArray:
-
         radius = self.radius
         c = self.curvature
         conic = self.conic
@@ -190,7 +187,6 @@ class ToroidalSag(
         self,
         position: na.AbstractCartesian2dVectorArray,
     ) -> na.AbstractScalar:
-
         c = self.curvature
         r = self.radius_of_rotation
 
@@ -211,7 +207,6 @@ class ToroidalSag(
         self,
         position: na.AbstractCartesian2dVectorArray,
     ) -> na.AbstractScalar:
-
         c = self.curvature
         r = self.radius_of_rotation
 
