@@ -14,12 +14,12 @@ class AbstractTestAbstractSag(
             na.Cartesian2dVectorArray(0, 0) * u.mm,
             na.Cartesian2dVectorLinearSpace(0, 1, axis="s", num=5) * u.mm,
             na.Cartesian2dVectorArray(
-                x=na.ScalarLinearSpace(0, 1, axis="x", num=5),
+                x=na.ScalarLinearSpace(0, 1, axis="x", num=5) * u.mm,
                 y=na.NormalUncertainScalarArray(
-                    nominal=na.ScalarLinearSpace(-1, 0, axis="y", num=6),
-                    width=0.1,
+                    nominal=na.ScalarLinearSpace(-1, 0, axis="y", num=6) * u.mm,
+                    width=0.1 * u.mm,
                 ),
-            ) * u.mm,
+            ),
         ],
     )
     class TestFunctionsOfPosition:
