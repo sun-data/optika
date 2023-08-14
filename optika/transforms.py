@@ -77,7 +77,9 @@ class Translation(AbstractTransform):
     A translation-only vector transformation.
     """
 
-    displacement: na.Cartesian3dVectorArray = dataclasses.MISSING
+    displacement: na.Cartesian3dVectorArray = dataclasses.field(
+        default_factory=na.Cartesian3dVectorArray
+    )
     """The magnitude of the translation along each axis"""
 
     @property
@@ -157,7 +159,7 @@ class TransformList(
             return iter(self)
 
     @property
-    def matrix(self) -> na.Cartesian3dMatrixArray:
+    def matrix(self) -> na.AbstractCartesian3dMatrixArray:
         rotation = na.Cartesian3dIdentityMatrixArray()
 
         for transform in reversed(list(self.transforms)):
@@ -169,7 +171,7 @@ class TransformList(
     @property
     def vector(self) -> na.Cartesian3dVectorArray:
         rotation = na.Cartesian3dIdentityMatrixArray()
-        translation = 0
+        translation = na.Cartesian3dVectorArray()
 
         for transform in reversed(list(self.transforms)):
             if transform is not None:
