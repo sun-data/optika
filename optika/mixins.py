@@ -15,7 +15,7 @@ ItemT = TypeVar("ItemT")
 class DataclassList(
     Generic[ItemT],
 ):
-    data: list[ItemT] = dataclasses.MISSING
+    data: list[ItemT] = dataclasses.field(default_factory=list)
 
     def __contains__(self, item: ItemT) -> bool:
         return self.data.__contains__(item)
