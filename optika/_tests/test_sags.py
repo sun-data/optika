@@ -1,6 +1,6 @@
 import pytest
 import abc
-import astropy.units as u
+import astropy.units as u   # type: ignore[import]
 import named_arrays as na
 import optika
 
@@ -82,7 +82,7 @@ def _radii() -> list[u.Quantity | na.AbstractScalar]:
     argnames="sag",
     argvalues=[optika.sags.SphericalSag(radius=radius) for radius in _radii()],
 )
-class TestSphericalSag(TestSphericalSag):
+class TestSphericalSag(TestSphericalSag):  # type: ignore[no-redef]
     pass
 
 
@@ -110,7 +110,7 @@ def _conics() -> list[u.Quantity | na.AbstractScalar]:
         for conic in _conics()
     ],
 )
-class TestConicSag(TestConicSag):
+class TestConicSag(TestConicSag):  # type: ignore[no-redef]
     pass
 
 
@@ -125,5 +125,5 @@ class TestConicSag(TestConicSag):
         for radius_of_rotation in _radii()
     ],
 )
-class TestToroidalSag(TestToroidalSag):
+class TestToroidalSag(TestToroidalSag):  # type: ignore[no-redef]
     pass
