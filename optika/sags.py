@@ -13,9 +13,18 @@ __all__ = [
     "ToroidalSag",
 ]
 
-RadiusT = TypeVar("RadiusT", bound=float | np.ndarray | na.AbstractScalar)
-ConicT = TypeVar("ConicT", bound=float | np.ndarray | na.AbstractScalar)
-RadiusOfRotationT = TypeVar("RadiusOfRotationT", bound=float | np.ndarray | na.AbstractScalar)
+RadiusT = TypeVar(
+    name="RadiusT",
+    bound=float | np.ndarray | na.AbstractScalar,
+)
+ConicT = TypeVar(
+    name="ConicT",
+    bound=float | np.ndarray | na.AbstractScalar,
+)
+RadiusOfRotationT = TypeVar(
+    name="RadiusOfRotationT",
+    bound=float | np.ndarray | na.AbstractScalar,
+)
 
 
 @dataclasses.dataclass
