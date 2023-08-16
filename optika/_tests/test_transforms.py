@@ -174,6 +174,24 @@ class TestTransformList(
         assert b == c
 
 
+transform_parameterization = [
+    None,
+    optika.transforms.Translation(na.Cartesian3dVectorArray(5) * u.mm),
+    optika.transforms.RotationX(53 * u.deg),
+    optika.transforms.TransformList([
+        optika.transforms.Translation(na.Cartesian3dVectorArray(5) * u.mm),
+        optika.transforms.RotationX(53 * u.deg),
+        optika.transforms.Translation(na.Cartesian3dVectorArray(5) * u.mm),
+    ]),
+    optika.transforms.RotationX(
+        na.ScalarLinearSpace(0 * u.deg, 90 * u.deg, axis="transform", num=3)
+    ),
+    optika.transforms.RotationX(
+        na.NormalUncertainScalarArray(53 * u.deg, width=5 * u.deg)
+    )
+]
+
+
 class AbstractTestTransformable:
 
     def test_transform(self, a: optika.transforms.Transformable):
