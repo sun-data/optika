@@ -62,8 +62,46 @@ class SphericalSag(
     AbstractSag,
     Generic[RadiusT],
 ):
-    """
-    A spherical sag profile
+    r"""
+    A spherical sag function.
+
+    The sag (:math:`z` coordinate) of a spherical surface is calculated using
+    the expression
+
+    .. math::
+
+        z = \frac{c r^2}{1 + \sqrt{1 - c^2 r^2}}
+
+    where :math:`c` is the curvature (reciprocal of the radius) of the surface,
+    and :math:`r` is the radial distance from the origin to the sampling point.
+
+    Examples
+    --------
+    Plot a slice through the sag surface
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        sag = optika.sags.SphericalSag(
+            radius=na.linspace(100, 300, axis="radius", num=3) * u.mm,
+        )
+
+        position = na.Cartesian3dVectorArray(
+            x=na.linspace(-90, 90, axis="x", num=101) * u.mm,
+            y=0 * u.mm,
+            z=0 * u.mm
+        )
+
+        with astropy.visualization.quantity_support():
+            plt.figure()
+            plt.gca().set_aspect("equal")
+            na.plt.plot(position.x, sag(position), axis="x", label=sag.radius)
+            plt.legend()
     """
 
     radius: RadiusT = np.inf * u.mm
@@ -74,7 +112,7 @@ class SphericalSag(
     def curvature(self) -> float | RadiusT:
         """
         The curvature of the spherical surface.
-        Equal to the inverse of :attr:`radius`.
+        Equal to the reciprocal of :attr:`radius`.
         """
         return 1 / self.radius
 
