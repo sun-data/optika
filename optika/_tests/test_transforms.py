@@ -78,6 +78,16 @@ class AbstractTestAbstractTransform:
     argvalues=[
         optika.transforms.Translation(na.Cartesian3dVectorArray() * u.mm),
         optika.transforms.Translation(na.Cartesian3dVectorArray(1, -2, 3) * u.mm),
+        optika.transforms.Translation(na.Cartesian3dVectorArray(
+            x=1 * u.mm,
+            y=na.linspace(-5, 5, axis="translation", num=4) * u.mm,
+            z=0 * u.mm,
+        )),
+        optika.transforms.Translation(na.Cartesian3dVectorArray(
+            x=0 * u.mm,
+            y=na.linspace(-5, 5, axis="translation", num=4) * u.mm,
+            z=na.NormalUncertainScalarArray(6 * u.mm, width=0.1 * u.mm),
+        ))
     ],
 )
 class TestTranslation(
