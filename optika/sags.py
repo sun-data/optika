@@ -71,6 +71,10 @@ class SphericalSag(
 
     @property
     def curvature(self) -> float | RadiusT:
+        """
+        The curvature of the spherical surface.
+        Equal to the inverse of :attr:`radius`.
+        """
         return 1 / self.radius
 
     def __call__(
