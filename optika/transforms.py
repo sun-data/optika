@@ -95,6 +95,62 @@ class AbstractTransform(
 class Translation(AbstractTransform):
     """
     A translation-only vector transformation.
+
+    Examples
+    --------
+
+    Translate a vector using a single transformation
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        displacement = na.Cartesian3dVectorArray(
+            x=12 * u.mm,
+            y=12 * u.mm,
+        )
+
+        transform = optika.transforms.Translation(displacement)
+
+        square = na.Cartesian3dVectorArray(
+            x=na.ScalarArray([-10, 10, 10, -10, -10] * u.mm, axes="vertex"),
+            y=na.ScalarArray([-10, -10, 10, 10, -10] * u.mm, axes="vertex"),
+        )
+
+        square_transformed = transform(square)
+
+        with astropy.visualization.quantity_support():
+            plt.figure();
+            plt.gca().set_aspect("equal");
+            na.plt.plot(square, label="original");
+            na.plt.plot(square_transformed, label="translated");
+            plt.legend();
+
+    |
+
+    Translate a vector using an array of transformations
+
+    .. jupyter-execute::
+
+        displacement_2 = na.Cartesian3dVectorArray(
+            x=na.ScalarArray([12, -12] * u.mm, axes="transform"),
+            y=9 * u.mm,
+        )
+
+        transform_2 = optika.transforms.Translation(displacement_2)
+
+        square_transformed_2 = transform_2(square)
+
+        with astropy.visualization.quantity_support():
+            plt.figure();
+            plt.gca().set_aspect("equal");
+            na.plt.plot(square, label="original");
+            na.plt.plot(square_transformed_2, axis="vertex", label="translated");
+            plt.legend();
     """
 
     displacement: na.Cartesian3dVectorArray = dataclasses.field(
