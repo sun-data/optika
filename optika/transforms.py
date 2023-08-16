@@ -70,6 +70,26 @@ class AbstractTransform(
         """
         return self.__invert__()
 
+    def __matmul__(self, other: AbstractTransform) -> TransformList:
+
+        if isinstance(self, AbstractTransform):
+            if isinstance(self, TransformList):
+                self_normalized = self
+            else:
+                self_normalized = TransformList([self])
+        else:
+            return NotImplemented
+
+        if isinstance(other, AbstractTransform):
+            if isinstance(other, TransformList):
+                other_normalized = other
+            else:
+                other_normalized = TransformList([other])
+        else:
+            return NotImplemented
+
+        return self_normalized + other_normalized
+
 
 @dataclasses.dataclass
 class Translation(AbstractTransform):

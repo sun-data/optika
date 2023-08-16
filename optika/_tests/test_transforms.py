@@ -37,6 +37,41 @@ class AbstractTestAbstractTransform:
         z = transform.inverse(y)
         assert np.allclose(x, z)
 
+    @pytest.mark.parametrize(
+        argnames="transform_2",
+        argvalues=[
+            optika.transforms.Translation(na.Cartesian3dVectorArray(5) * u.mm),
+            optika.transforms.RotationX(53 * u.deg),
+            optika.transforms.TransformList([
+                optika.transforms.Translation(na.Cartesian3dVectorArray(5) * u.mm),
+                optika.transforms.RotationX(53 * u.deg),
+            ])
+        ]
+    )
+    class TestMatmul:
+        def test__matmul__(
+                self,
+                transform: optika.transforms.AbstractTransform,
+                transform_2: optika.transforms.AbstractTransform,
+        ):
+            result = transform @ transform_2
+            assert isinstance(result, optika.transforms.TransformList)
+            for t in result:
+                assert isinstance(t, optika.transforms.AbstractTransform)
+
+            x = na.Cartesian3dVectorUniformRandomSample(-5, 5, shape_random=dict(x=5, y=6)) * u.mm
+            assert np.allclose(result(x), transform(transform_2(x)))
+
+        def test__matmul__reversed(
+                self,
+                transform: optika.transforms.AbstractTransform,
+                transform_2: optika.transforms.AbstractTransform,
+        ):
+            return self.test__matmul__(
+                transform=transform_2,
+                transform_2=transform,
+            )
+
 
 @pytest.mark.parametrize(
     argnames="transform",
