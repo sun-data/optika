@@ -159,7 +159,7 @@ class RotationZ(AbstractRotation):
 @dataclasses.dataclass
 class TransformList(
     AbstractTransform,
-    optika.mixins.DataclassList,
+    optika.mixins.DataclassList[AbstractTransform],
 ):
     """
     A sequence of transformations
