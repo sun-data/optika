@@ -3,6 +3,7 @@ import abc
 import astropy.units as u  # type: ignore[import]
 import named_arrays as na  # type: ignore[import]
 import optika
+from . import test_transforms
 
 
 class AbstractTestAbstractSag(
@@ -11,14 +12,15 @@ class AbstractTestAbstractSag(
     @pytest.mark.parametrize(
         argnames="position",
         argvalues=[
-            na.Cartesian2dVectorArray(0, 0) * u.mm,
-            na.Cartesian2dVectorLinearSpace(0, 1, axis="s", num=5) * u.mm,
-            na.Cartesian2dVectorArray(
+            na.Cartesian3dVectorArray() * u.mm,
+            na.Cartesian3dVectorLinearSpace(0, 1, axis="s", num=5) * u.mm,
+            na.Cartesian3dVectorArray(
                 x=na.ScalarLinearSpace(0, 1, axis="x", num=5) * u.mm,
                 y=na.NormalUncertainScalarArray(
                     nominal=na.ScalarLinearSpace(-1, 0, axis="y", num=6) * u.mm,
                     width=0.1 * u.mm,
                 ),
+                z=0*u.mm,
             ),
         ],
     )
@@ -26,7 +28,7 @@ class AbstractTestAbstractSag(
         def test__call__(
             self,
             sag: optika.sags.AbstractSag,
-            position: na.AbstractCartesian2dVectorArray,
+            position: na.AbstractCartesian3dVectorArray,
         ):
             result = sag(position)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
@@ -35,7 +37,7 @@ class AbstractTestAbstractSag(
         def test_normal(
             self,
             sag: optika.sags.AbstractSag,
-            position: na.AbstractCartesian2dVectorArray,
+            position: na.AbstractCartesian3dVectorArray,
         ):
             result = sag.normal(position)
             assert isinstance(result, na.AbstractCartesian3dVectorArray)
@@ -80,7 +82,14 @@ def _radii() -> list[u.Quantity | na.AbstractScalar]:
 
 @pytest.mark.parametrize(
     argnames="sag",
-    argvalues=[optika.sags.SphericalSag(radius=radius) for radius in _radii()],
+    argvalues=[
+        optika.sags.SphericalSag(
+            radius=radius,
+            transform=transform,
+        )
+        for radius in _radii()
+        for transform in test_transforms.transform_parameterization
+    ],
 )
 class TestSphericalSag(TestSphericalSag):  # type: ignore[no-redef]
     pass
@@ -105,9 +114,14 @@ def _conics() -> list[u.Quantity | na.AbstractScalar]:
 @pytest.mark.parametrize(
     argnames="sag",
     argvalues=[
-        optika.sags.ConicSag(radius=radius, conic=conic)
+        optika.sags.ConicSag(
+            radius=radius,
+            conic=conic,
+            transform=transform,
+        )
         for radius in _radii()
         for conic in _conics()
+        for transform in test_transforms.transform_parameterization
     ],
 )
 class TestConicSag(TestConicSag):  # type: ignore[no-redef]
@@ -120,9 +134,11 @@ class TestConicSag(TestConicSag):  # type: ignore[no-redef]
         optika.sags.ToroidalSag(
             radius=radius,
             radius_of_rotation=2 * radius_of_rotation,
+            transform=transform
         )
         for radius in _radii()
         for radius_of_rotation in _radii()
+        for transform in test_transforms.transform_parameterization
     ],
 )
 class TestToroidalSag(TestToroidalSag):  # type: ignore[no-redef]

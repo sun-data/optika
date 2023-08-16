@@ -38,14 +38,14 @@ class AbstractSag(
     @abc.abstractmethod
     def __call__(
         self,
-        position: na.AbstractCartesian2dVectorArray,
+        position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         pass
 
     @abc.abstractmethod
     def normal(
         self,
-        position: na.AbstractCartesian2dVectorArray,
+        position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
         """
         The vector perpendicular to the surface at the given position.
@@ -68,6 +68,7 @@ class SphericalSag(
 
     radius: RadiusT = np.inf * u.mm
     """the radius of the spherical surface"""
+    transform: None | optika.transforms.AbstractTransform = None
 
     @property
     def curvature(self) -> float | RadiusT:
@@ -79,10 +80,13 @@ class SphericalSag(
 
     def __call__(
         self,
-        position: na.AbstractCartesian2dVectorArray,
+        position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         radius = self.radius
         c = self.curvature
+        transform = self.transform
+        if transform is not None:
+            position = transform.inverse(position)
 
         shape = na.shape_broadcasted(radius, c, position)
         radius = na.broadcast_to(radius, shape)
@@ -97,10 +101,13 @@ class SphericalSag(
 
     def normal(
         self,
-        position: na.AbstractCartesian2dVectorArray,
+        position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
         radius = self.radius
         c = self.curvature
+        transform = self.transform
+        if transform is not None:
+            position = transform.inverse(position)
 
         shape = na.shape_broadcasted(radius, c, position)
         radius = na.broadcast_to(radius, shape)
@@ -133,14 +140,18 @@ class ConicSag(
 
     conic: ConicT = 0 * u.dimensionless_unscaled
     """the conic constant of the conic section"""
+    transform: None | optika.transforms.AbstractTransform = None
 
     def __call__(
         self,
-        position: na.AbstractCartesian2dVectorArray,
+        position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         radius = self.radius
         c = self.curvature
         conic = self.conic
+        transform = self.transform
+        if transform is not None:
+            position = transform.inverse(position)
 
         shape = na.shape_broadcasted(radius, c, conic, position)
         radius = na.broadcast_to(radius, shape)
@@ -156,11 +167,14 @@ class ConicSag(
 
     def normal(
         self,
-        position: na.AbstractCartesian2dVectorArray,
+        position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
         radius = self.radius
         c = self.curvature
         conic = self.conic
+        transform = self.transform
+        if transform is not None:
+            position = transform.inverse(position)
 
         shape = na.shape_broadcasted(radius, c, conic, position)
         radius = na.broadcast_to(radius, shape)
@@ -194,13 +208,17 @@ class ToroidalSag(
     """
 
     radius_of_rotation: RadiusOfRotationT = 0 * u.mm
+    transform: None | optika.transforms.AbstractTransform = None
 
     def __call__(
         self,
-        position: na.AbstractCartesian2dVectorArray,
+        position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         c = self.curvature
         r = self.radius_of_rotation
+        transform = self.transform
+        if transform is not None:
+            position = transform.inverse(position)
 
         shape = na.shape_broadcasted(position, c, r)
         position = na.broadcast_to(position, shape)
@@ -217,10 +235,13 @@ class ToroidalSag(
 
     def normal(
         self,
-        position: na.AbstractCartesian2dVectorArray,
+        position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
         c = self.curvature
         r = self.radius_of_rotation
+        transform = self.transform
+        if transform is not None:
+            position = transform.inverse(position)
 
         shape = na.shape_broadcasted(position, c, r)
         position = na.broadcast_to(position, shape)

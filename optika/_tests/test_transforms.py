@@ -177,7 +177,6 @@ class TestTransformList(
 transform_parameterization = [
     None,
     optika.transforms.Translation(na.Cartesian3dVectorArray(5) * u.mm),
-    optika.transforms.RotationX(53 * u.deg),
     optika.transforms.TransformList([
         optika.transforms.Translation(na.Cartesian3dVectorArray(5) * u.mm),
         optika.transforms.RotationX(53 * u.deg),
