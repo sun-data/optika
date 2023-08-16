@@ -162,3 +162,10 @@ class TestTransformList(
         for t in transform.transforms:
             c = t(c)
         assert b == c
+
+
+class AbstractTestTransformable:
+
+    def test_transform(self, a: optika.transforms.Transformable):
+        if a.transform is not None:
+            assert isinstance(a.transform, optika.transforms.AbstractTransform)

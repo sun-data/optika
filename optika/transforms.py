@@ -212,5 +212,11 @@ class TransformList(
 
 
 @dataclasses.dataclass
-class Transformable:
-    transform: None | TransformList = None
+class Transformable(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def transform(self) -> None | AbstractTransform:
+        """
+        the coordinate transformation between the global coordinate system
+        and this object's local coordinate system
+        """
