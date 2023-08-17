@@ -122,6 +122,14 @@ class SphericalSag(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
+        """
+        Evaluate the sag function at the given position
+
+        Parameters
+        ----------
+        position
+            point where the sag function will be calculated
+        """
         radius = self.radius
         c = self.curvature
         transform = self.transform
