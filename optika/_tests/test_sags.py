@@ -95,7 +95,7 @@ class TestSphericalSag(TestSphericalSag):  # type: ignore[no-redef]
     pass
 
 
-def _conics() -> list[u.Quantity | na.AbstractScalar]:
+def conic_parameterization() -> list[u.Quantity | na.AbstractScalar]:
     nominals = [
         0 * u.dimensionless_unscaled,
         na.ScalarLinearSpace(0, 1, axis="conic", num=4),
@@ -120,7 +120,7 @@ def _conics() -> list[u.Quantity | na.AbstractScalar]:
             transform=transform,
         )
         for radius in radius_parameterization()
-        for conic in _conics()
+        for conic in conic_parameterization()
         for transform in test_transforms.transform_parameterization
     ],
 )
