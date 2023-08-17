@@ -182,8 +182,64 @@ class ConicSag(
     SphericalSag[RadiusT],
     Generic[RadiusT, ConicT],
 ):
-    """
-    A conic section sag profile
+    r"""
+    Surface of revolution of a conic section
+
+    The sag (:math:`z` coordinate) of a conic sag function is calculated using
+    the expression
+
+    .. math::
+
+        z(x, y) = \frac{c (x^2 + y^2)}{1 + \sqrt{1 - c^2 (1 + k) (x^2 + y^2)}}
+
+    where :math:`c` is the :attr:`curvature`,
+    :math:`x,y`, are the 2D components of the evaluation point.
+    and :math:`k` is the :attr:`conic` constant. See the table below for the
+    meaning of the conic constant.
+
+    ================== ==================
+    conic constant     conic section type
+    ================== ==================
+    :math:`k < -1`     hyperbola
+    :math:`k = -1`     parabola
+    :math:`-1 < k < 0` ellipse
+    :math:`k = 0`      sphere
+    :math:`k > 0`      oblate ellipsoid
+    ================== ==================
+
+    Examples
+    --------
+    Plot a slice through the sag surface
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        sag = optika.sags.ConicSag(
+            radius=100 * u.mm,
+            conic=na.ScalarArray(
+                ndarray=[-1.5, -1, -0.5, 0, 0.5] * u.dimensionless_unscaled,
+                axes="conic",
+            )
+        )
+
+        position = na.Cartesian3dVectorArray(
+            x=na.linspace(-90, 90, axis="x", num=101) * u.mm,
+            y=0 * u.mm,
+            z=0 * u.mm
+        )
+
+        z = sag(position)
+
+        with astropy.visualization.quantity_support():
+            plt.figure()
+            plt.gca().set_aspect("equal")
+            na.plt.plot(position.x, z, axis="x", label=sag.conic)
+            plt.legend(title="conic")
     """
 
     conic: ConicT = 0 * u.dimensionless_unscaled
