@@ -70,10 +70,10 @@ class SphericalSag(
 
     .. math::
 
-        z = \frac{c r^2}{1 + \sqrt{1 - c^2 r^2}}
+        z(x, y) = \frac{c (x^2 + y^2)}{1 + \sqrt{1 - c^2 (x^2 + y^2)}}
 
-    where :math:`c` is the curvature (reciprocal of the radius) of the surface,
-    and :math:`r` is the radial distance from the origin to the sampling point.
+    where :math:`c` is the :attr:`curvature`,
+    and :math:`x,y`, are the 2D components of the evaluation point.
 
     Examples
     --------
@@ -97,11 +97,13 @@ class SphericalSag(
             z=0 * u.mm
         )
 
+        z = sag(position)
+
         with astropy.visualization.quantity_support():
             plt.figure()
             plt.gca().set_aspect("equal")
-            na.plt.plot(position.x, sag(position), axis="x", label=sag.radius)
-            plt.legend()
+            na.plt.plot(position.x, z, axis="x", label=sag.radius)
+            plt.legend(title="radius")
     """
 
     radius: RadiusT = np.inf * u.mm
