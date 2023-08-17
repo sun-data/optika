@@ -255,7 +255,7 @@ class ConicSag(
             plt.figure()
             plt.gca().set_aspect("equal")
             na.plt.plot(position.x, z, axis="x", label=sag.conic)
-            plt.legend(title="conic")
+            plt.legend(title="conic constant")
     """
 
     radius: RadiusT = np.inf * u.mm
