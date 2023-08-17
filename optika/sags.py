@@ -58,8 +58,33 @@ class AbstractSag(
 
 
 @dataclasses.dataclass
-class SphericalSag(
+class AbstractSphericalSag(
     AbstractSag,
+    Generic[RadiusT],
+):
+    """
+    Base class for all sag functions that can be approximated as a sphere.
+    """
+
+    @property
+    @abc.abstractmethod
+    def radius(self) -> RadiusT:
+        """
+        radius of curvature of the sag surface
+        """
+
+    @property
+    def curvature(self) -> float | RadiusT:
+        """
+        The curvature of the spherical surface.
+        Equal to the reciprocal of :attr:`radius`.
+        """
+        return 1 / self.radius
+
+
+@dataclasses.dataclass
+class SphericalSag(
+    AbstractSphericalSag,
     Generic[RadiusT],
 ):
     r"""
@@ -107,16 +132,7 @@ class SphericalSag(
     """
 
     radius: RadiusT = np.inf * u.mm
-    """the radius of the spherical surface"""
     transform: None | optika.transforms.AbstractTransform = None
-
-    @property
-    def curvature(self) -> float | RadiusT:
-        """
-        The curvature of the spherical surface.
-        Equal to the reciprocal of :attr:`radius`.
-        """
-        return 1 / self.radius
 
     def __call__(
         self,
@@ -179,7 +195,7 @@ class SphericalSag(
 
 @dataclasses.dataclass
 class ConicSag(
-    SphericalSag[RadiusT],
+    AbstractSphericalSag[RadiusT],
     Generic[RadiusT, ConicT],
 ):
     r"""
@@ -242,6 +258,7 @@ class ConicSag(
             plt.legend(title="conic")
     """
 
+    radius: RadiusT = np.inf * u.mm
     conic: ConicT = 0 * u.dimensionless_unscaled
     """the conic constant of the conic section"""
     transform: None | optika.transforms.AbstractTransform = None
@@ -304,13 +321,14 @@ class ConicSag(
 
 @dataclasses.dataclass
 class ToroidalSag(
-    SphericalSag[RadiusT],
+    AbstractSphericalSag[RadiusT],
     Generic[RadiusT, RadiusOfRotationT],
 ):
     """
     A toroidal sag profile.
     """
 
+    radius: RadiusT = np.inf * u.mm
     radius_of_rotation: RadiusOfRotationT = 0 * u.mm
     transform: None | optika.transforms.AbstractTransform = None
 

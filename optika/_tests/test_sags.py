@@ -44,24 +44,12 @@ class AbstractTestAbstractSag(
             assert set(na.shape(position)).issubset(na.shape(result))
 
 
-class TestSphericalSag(
+class AbstractTestAbstractSphericalSag(
     AbstractTestAbstractSag,
 ):
     def test_curvature(self, sag: optika.sags.SphericalSag):
         assert isinstance(na.as_named_array(sag.curvature), na.AbstractScalar)
         assert na.shape(sag.curvature) == na.shape(sag.radius)
-
-
-class TestConicSag(
-    TestSphericalSag,
-):
-    pass
-
-
-class TestToroidalSag(
-    TestSphericalSag,
-):
-    pass
 
 
 def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
@@ -91,7 +79,9 @@ def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
         for transform in test_transforms.transform_parameterization
     ],
 )
-class TestSphericalSag(TestSphericalSag):  # type: ignore[no-redef]
+class TestSphericalSag(
+    AbstractTestAbstractSphericalSag,
+):
     pass
 
 
@@ -124,7 +114,9 @@ def conic_parameterization() -> list[u.Quantity | na.AbstractScalar]:
         for transform in test_transforms.transform_parameterization
     ],
 )
-class TestConicSag(TestConicSag):  # type: ignore[no-redef]
+class TestConicSag(
+    AbstractTestAbstractSphericalSag,
+):
     pass
 
 
@@ -141,5 +133,7 @@ class TestConicSag(TestConicSag):  # type: ignore[no-redef]
         for transform in test_transforms.transform_parameterization
     ],
 )
-class TestToroidalSag(TestToroidalSag):  # type: ignore[no-redef]
+class TestToroidalSag(
+    AbstractTestAbstractSphericalSag,
+):
     pass
