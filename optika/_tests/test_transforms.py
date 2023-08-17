@@ -73,27 +73,41 @@ class AbstractTestAbstractTransform:
             )
 
 
+displacement_parameterization = [
+    na.Cartesian3dVectorArray() * u.mm,
+    na.Cartesian3dVectorArray(1, -2, 3) * u.mm,
+    na.Cartesian3dVectorArray(
+        x=1 * u.mm,
+        y=na.linspace(-5, 5, axis="translation", num=4) * u.mm,
+        z=0 * u.mm,
+    ),
+    na.Cartesian3dVectorArray(
+        x=0 * u.mm,
+        y=na.linspace(-5, 5, axis="translation", num=4) * u.mm,
+        z=na.NormalUncertainScalarArray(6 * u.mm, width=0.1 * u.mm),
+    ),
+]
+
+
 @pytest.mark.parametrize(
     argnames="transform",
     argvalues=[
-        optika.transforms.Translation(na.Cartesian3dVectorArray() * u.mm),
-        optika.transforms.Translation(na.Cartesian3dVectorArray(1, -2, 3) * u.mm),
-        optika.transforms.Translation(na.Cartesian3dVectorArray(
-            x=1 * u.mm,
-            y=na.linspace(-5, 5, axis="translation", num=4) * u.mm,
-            z=0 * u.mm,
-        )),
-        optika.transforms.Translation(na.Cartesian3dVectorArray(
-            x=0 * u.mm,
-            y=na.linspace(-5, 5, axis="translation", num=4) * u.mm,
-            z=na.NormalUncertainScalarArray(6 * u.mm, width=0.1 * u.mm),
-        ))
+        optika.transforms.Translation(displacement)
+        for displacement in displacement_parameterization
     ],
 )
 class TestTranslation(
     AbstractTestAbstractTransform,
 ):
     pass
+
+
+angle_parameterization = [
+    0 * u.deg,
+    45 * u.deg,
+    na.linspace(0 * u.deg, 360 * u.deg, axis="angle", num=3),
+    na.NormalUncertainScalarArray(45 * u.deg, width=5 * u.deg),
+]
 
 
 class AbstractTestAbstractRotation(
@@ -105,10 +119,8 @@ class AbstractTestAbstractRotation(
 @pytest.mark.parametrize(
     argnames="transform",
     argvalues=[
-        optika.transforms.RotationX(0 * u.deg),
-        optika.transforms.RotationX(45 * u.deg),
-        optika.transforms.RotationX(90 * u.deg),
-        optika.transforms.RotationX(223 * u.deg),
+        optika.transforms.RotationX(angle)
+        for angle in angle_parameterization
     ],
 )
 class TestRotationX(
@@ -120,10 +132,8 @@ class TestRotationX(
 @pytest.mark.parametrize(
     argnames="transform",
     argvalues=[
-        optika.transforms.RotationY(0 * u.deg),
-        optika.transforms.RotationY(45 * u.deg),
-        optika.transforms.RotationY(90 * u.deg),
-        optika.transforms.RotationY(223 * u.deg),
+        optika.transforms.RotationY(angle)
+        for angle in angle_parameterization
     ],
 )
 class TestRotationY(
@@ -135,10 +145,8 @@ class TestRotationY(
 @pytest.mark.parametrize(
     argnames="transform",
     argvalues=[
-        optika.transforms.RotationZ(0 * u.deg),
-        optika.transforms.RotationZ(45 * u.deg),
-        optika.transforms.RotationZ(90 * u.deg),
-        optika.transforms.RotationZ(223 * u.deg),
+        optika.transforms.RotationZ(angle)
+        for angle in angle_parameterization
     ],
 )
 class TestRotationZ(
@@ -152,13 +160,14 @@ class TestRotationZ(
     argvalues=[
         optika.transforms.TransformList(
             [
-                optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
-                optika.transforms.RotationZ(90 * u.deg),
-                optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
-                optika.transforms.RotationY(90 * u.deg),
-                optika.transforms.Translation(na.Cartesian3dVectorArray(x=2) * u.m),
+                optika.transforms.Translation(displacement),
+                optika.transforms.RotationZ(angle),
+                optika.transforms.Translation(-displacement),
+                optika.transforms.RotationY(-angle),
             ]
         )
+        for displacement in displacement_parameterization
+        for angle in angle_parameterization
     ],
 )
 class TestTransformList(
@@ -171,7 +180,7 @@ class TestTransformList(
         c = x
         for t in transform.transforms:
             c = t(c)
-        assert b == c
+        assert np.allclose(b, c)
 
 
 transform_parameterization = [
