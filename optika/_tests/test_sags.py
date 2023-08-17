@@ -64,7 +64,7 @@ class TestToroidalSag(
     pass
 
 
-def _radii() -> list[u.Quantity | na.AbstractScalar]:
+def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
     nominals = [
         100 * u.mm,
         na.ScalarLinearSpace(100, 1000, axis="radius", num=5) * u.mm,
@@ -87,7 +87,7 @@ def _radii() -> list[u.Quantity | na.AbstractScalar]:
             radius=radius,
             transform=transform,
         )
-        for radius in _radii()
+        for radius in radius_parameterization()
         for transform in test_transforms.transform_parameterization
     ],
 )
@@ -119,7 +119,7 @@ def _conics() -> list[u.Quantity | na.AbstractScalar]:
             conic=conic,
             transform=transform,
         )
-        for radius in _radii()
+        for radius in radius_parameterization()
         for conic in _conics()
         for transform in test_transforms.transform_parameterization
     ],
@@ -136,8 +136,8 @@ class TestConicSag(TestConicSag):  # type: ignore[no-redef]
             radius_of_rotation=2 * radius_of_rotation,
             transform=transform
         )
-        for radius in _radii()
-        for radius_of_rotation in _radii()
+        for radius in radius_parameterization()
+        for radius_of_rotation in radius_parameterization()
         for transform in test_transforms.transform_parameterization
     ],
 )
