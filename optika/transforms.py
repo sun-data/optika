@@ -20,8 +20,9 @@ __all__ = [
 ]
 
 
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractTransform(
-    abc.ABC,
+    optika.mixins.Printable,
 ):
     """
     An interface for an arbitrary vector transform
@@ -130,7 +131,7 @@ class AbstractTransform(
         return self_normalized + other_normalized
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class Translation(AbstractTransform):
     """
     A translation-only vector transformation.
@@ -205,7 +206,7 @@ class Translation(AbstractTransform):
         return type(self)(displacement=-self.displacement)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractRotation(AbstractTransform):
     """
     Any arbitrary rotation
@@ -218,7 +219,7 @@ class AbstractRotation(AbstractTransform):
         return type(self)(angle=-self.angle)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class RotationX(AbstractRotation):
     """
     A rotation about the :math:`x` axis
@@ -229,7 +230,7 @@ class RotationX(AbstractRotation):
         return na.Cartesian3dXRotationMatrixArray(self.angle)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class RotationY(AbstractRotation):
     """
     A rotation about the :math:`y` axis
@@ -240,7 +241,7 @@ class RotationY(AbstractRotation):
         return na.Cartesian3dYRotationMatrixArray(self.angle)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class RotationZ(AbstractRotation):
     """
     A rotation about the :math:`z` axis
@@ -251,7 +252,7 @@ class RotationZ(AbstractRotation):
         return na.Cartesian3dZRotationMatrixArray(self.angle)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class TransformList(
     AbstractTransform,
     optika.mixins.DataclassList[AbstractTransform],
@@ -306,7 +307,7 @@ class TransformList(
         return other
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class Transformable(abc.ABC):
     @property
     @abc.abstractmethod
