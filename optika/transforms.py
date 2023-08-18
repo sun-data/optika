@@ -71,7 +71,46 @@ class AbstractTransform(
         return self.__invert__()
 
     def __matmul__(self, other: AbstractTransform) -> TransformList:
+        """
+        Compose multiple transformations into a single transformation.
 
+        Parameters
+        ----------
+        other
+            another transformation to compose with this one
+
+        Examples
+        --------
+
+        Compose two transformations
+
+        .. jupyter-execute::
+
+            import astropy.units as u
+            import named_arrays as na
+            import optika
+
+            t1 = optika.transforms.Translation(na.Cartesian3dVectorArray(x=5) * u.mm)
+            t2 = optika.transforms.RotationZ(50 * u.deg)
+
+            t_composed = t1 @ t2
+            t_composed
+
+        use the composed transformation to transform a vector
+
+        .. jupyter-execute::
+
+            v = na.Cartesian3dVectorArray(1, 2, 3) * u.mm
+
+            t_composed(v)
+
+        transform the same vector by applying each transformation separately
+        and note that it's the same result as using the composed transformation
+
+        .. jupyter-execute::
+
+            t1(t2(v))
+        """
         if isinstance(self, AbstractTransform):
             if isinstance(self, TransformList):
                 self_normalized = self
