@@ -20,7 +20,7 @@ class AbstractTestAbstractSag(
                     nominal=na.ScalarLinearSpace(-1, 0, axis="y", num=6) * u.mm,
                     width=0.1 * u.mm,
                 ),
-                z=0*u.mm,
+                z=0 * u.mm,
             ),
         ],
     )
@@ -126,7 +126,7 @@ class TestConicSag(
         optika.sags.ToroidalSag(
             radius=radius,
             radius_of_rotation=2 * radius_of_rotation,
-            transform=transform
+            transform=transform,
         )
         for radius in radius_parameterization()
         for radius_of_rotation in radius_parameterization()
