@@ -239,7 +239,7 @@ class CircularAperture(
             z=0 * self.radius.unit,
         )
         if self.transform is not None:
-            result = self.transform(result, rotate=False)
+            result = self.transform(result, use_matrix=False)
         return result
 
     @property
@@ -250,7 +250,7 @@ class CircularAperture(
             z=0 * self.radius.unit,
         )
         if self.transform is not None:
-            result = self.transform(result, rotate=False)
+            result = self.transform(result, use_matrix=False)
         return result
 
     @property
