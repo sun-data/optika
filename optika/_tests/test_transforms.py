@@ -7,24 +7,26 @@ import optika
 
 class AbstractTestAbstractTransform:
     def test_matrix(self, transform: optika.transforms.AbstractTransform):
-        assert isinstance(
-            transform.matrix,
-            na.AbstractCartesian3dMatrixArray,
-        )
-        assert isinstance(
-            transform.matrix.to(u.dimensionless_unscaled),
-            na.AbstractCartesian3dMatrixArray,
-        )
+        if transform.matrix is not None:
+            assert isinstance(
+                transform.matrix,
+                na.AbstractCartesian3dMatrixArray,
+            )
+            assert isinstance(
+                transform.matrix.to(u.dimensionless_unscaled),
+                na.AbstractCartesian3dMatrixArray,
+            )
 
     def test_vector(self, transform: optika.transforms.AbstractTransform):
-        assert isinstance(
-            transform.vector,
-            na.AbstractCartesian3dVectorArray,
-        )
-        assert isinstance(
-            transform.vector.to(u.mm),
-            na.AbstractCartesian3dVectorArray,
-        )
+        if transform.vector is not None:
+            assert isinstance(
+                transform.vector,
+                na.AbstractCartesian3dVectorArray,
+            )
+            assert isinstance(
+                transform.vector.to(u.mm),
+                na.AbstractCartesian3dVectorArray,
+            )
 
     def test__call__(self, transform: optika.transforms.AbstractTransform):
         x = na.Cartesian3dVectorArray(x=1, y=-2, z=3) * u.m

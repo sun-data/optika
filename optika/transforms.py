@@ -29,6 +29,13 @@ class AbstractTransform(
     """
 
     @property
+    @abc.abstractmethod
+    def explicit(self) -> Transform:
+        """
+        resolve this transform into its explicit form
+        """
+
+    @property
     def matrix(self) -> na.AbstractCartesian3dMatrixArray:
         """
         The matrix component of the transformation.
@@ -36,7 +43,7 @@ class AbstractTransform(
         This can contribute to scaling, shearing, or rotating an instance of
         :class:`named_arrays.AbstractVectorArray`
         """
-        return na.Cartesian3dIdentityMatrixArray()
+        return self.explicit.matrix
 
     @property
     def vector(self) -> na.AbstractCartesian3dVectorArray:
@@ -46,18 +53,38 @@ class AbstractTransform(
         This can contribute to translation of an instance of
         :class:`named_arrays.AbstractVectorArray`.
         """
-        return na.Cartesian3dVectorArray() * u.mm
+        return self.explicit.vector
 
     def __call__(
         self,
         value: na.AbstractCartesian3dVectorArray,
-        rotate: bool = True,
-        translate: bool = True,
+        use_matrix: bool = True,
+        use_vector: bool = True,
     ) -> na.AbstractCartesian3dVectorArray:
-        if rotate:
-            value = self.matrix @ value
-        if translate:
-            value = value + self.vector
+        """
+        evaluate the transformation
+
+        Parameters
+        ----------
+        value
+            the vector to transform
+        use_matrix
+            a flag controlling whether the matrix component of the transformation
+            is applied
+        use_vector
+            a flag controlling whether the vector component of the transformation
+            is applied
+        """
+
+        explicit = self.explicit
+        if use_matrix:
+            matrix = explicit.matrix
+            if matrix is not None:
+                value = matrix @ value
+        if use_vector:
+            vector = explicit.vector
+            if vector is not None:
+                value = value + vector
         return value
 
     @abc.abstractmethod
@@ -71,7 +98,8 @@ class AbstractTransform(
         """
         return self.__invert__()
 
-    def __matmul__(self, other: AbstractTransform) -> TransformList:
+    @abc.abstractmethod
+    def __matmul__(self, other: AbstractTransform) -> AbstractTransform:
         """
         Compose multiple transformations into a single transformation.
 
@@ -129,6 +157,14 @@ class AbstractTransform(
             return NotImplemented
 
         return self_normalized + other_normalized
+
+
+@dataclasses.dataclass
+class Transform(
+    AbstractTransform,
+):
+    matrix: None | na.AbstractCartesian3dMatrixArray = None
+    vector: None | na.AbstractCartesian3dVectorArray = None
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -199,8 +235,10 @@ class Translation(AbstractTransform):
     """The magnitude of the translation along each axis"""
 
     @property
-    def vector(self) -> na.Cartesian3dVectorArray:
-        return self.displacement
+    def explicit(self) -> Transform:
+        return Transform(
+            vector=self.displacement,
+        )
 
     def __invert__(self: Self) -> Self:
         return type(self)(displacement=-self.displacement)
@@ -226,8 +264,10 @@ class RotationX(AbstractRotation):
     """
 
     @property
-    def matrix(self) -> na.Cartesian3dXRotationMatrixArray:
-        return na.Cartesian3dXRotationMatrixArray(self.angle)
+    def explicit(self) -> Transform:
+        return Transform(
+            matrix=na.Cartesian3dXRotationMatrixArray(self.angle),
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -237,8 +277,10 @@ class RotationY(AbstractRotation):
     """
 
     @property
-    def matrix(self) -> na.Cartesian3dYRotationMatrixArray:
-        return na.Cartesian3dYRotationMatrixArray(self.angle)
+    def explicit(self) -> Transform:
+        return Transform(
+            matrix=na.Cartesian3dYRotationMatrixArray(self.angle),
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -248,8 +290,10 @@ class RotationZ(AbstractRotation):
     """
 
     @property
-    def matrix(self) -> na.Cartesian3dZRotationMatrixArray:
-        return na.Cartesian3dZRotationMatrixArray(self.angle)
+    def explicit(self) -> Transform:
+        return Transform(
+            matrix=na.Cartesian3dZRotationMatrixArray(self.angle),
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -275,26 +319,22 @@ class TransformList(
             return iter(self)
 
     @property
-    def matrix(self) -> na.AbstractCartesian3dMatrixArray:
-        rotation = na.Cartesian3dIdentityMatrixArray()
+    def explicit(self) -> Transform:
+        matrix = na.Cartesian3dIdentityMatrixArray()
+        vector = na.Cartesian3dVectorArray()
 
         for transform in reversed(list(self.transforms)):
             if transform is not None:
-                rotation = rotation @ transform.matrix
+                transform = transform.explicit
+                if transform.matrix is not None:
+                    matrix = matrix @ transform.matrix
+                if transform.vector is not None:
+                    vector = matrix @ transform.vector + vector
 
-        return rotation
-
-    @property
-    def vector(self) -> na.Cartesian3dVectorArray:
-        rotation = na.Cartesian3dIdentityMatrixArray()
-        translation = na.Cartesian3dVectorArray()
-
-        for transform in reversed(list(self.transforms)):
-            if transform is not None:
-                rotation = rotation @ transform.matrix
-                translation = rotation @ transform.vector + translation
-
-        return translation
+        return Transform(
+            matrix=matrix,
+            vector=vector,
+        )
 
     def __invert__(self: Self) -> Self:
         other = copy.copy(self)
