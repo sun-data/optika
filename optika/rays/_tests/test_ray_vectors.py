@@ -16,10 +16,20 @@ def _arrays() -> list[optika.rays.RayVectorArray]:
             direction=na.Cartesian3dVectorArray(0, 0, 1),
         ),
         optika.rays.RayVectorArray(
-            wavelength=na.linspace(400, 500, axis="y", num=_num_y) * u.mm,
-            position=na.Cartesian3dVectorLinearSpace(-10, 10, axis="y", num=_num_y) * u.mm,
+            wavelength=na.linspace(
+                start=400 * u.nm,
+                stop=500 * u.nm,
+                axis="y",
+                num=_num_y,
+            ),
+            position=na.Cartesian3dVectorLinearSpace(
+                start=-10 * u.mm,
+                stop=10 * u.mm,
+                axis="y",
+                num=_num_y,
+            ),
             direction=na.Cartesian3dVectorArray(0, 0, 1),
-        )
+        ),
     ]
 
 
@@ -38,7 +48,7 @@ def _arrays_2() -> list[optika.rays.RayVectorArray]:
                 z=na.NormalUncertainScalarArray(5 * u.mm, width=3 * u.mm),
             ),
             direction=na.Cartesian3dVectorArray(1, 0, 0),
-        )
+        ),
     ]
 
 
@@ -46,7 +56,7 @@ def _items() -> list[na.AbstractArray | dict[str, int | slice | na.AbstractArray
     return [
         dict(y=0),
         dict(y=slice(0, 1)),
-        dict(y=na.ScalarArrayRange(0, 2, axis='y')),
+        dict(y=na.ScalarArrayRange(0, 2, axis="y")),
     ]
 
 
@@ -54,10 +64,13 @@ class AbstractTestAbstractRayVectorArray(
     test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray
 ):
     def test_direction(self, array: optika.rays.AbstractRayVectorArray):
-        assert isinstance(na.as_named_array(array.direction), na.AbstractCartesian3dVectorArray)
+        assert isinstance(
+            na.as_named_array(array.direction),
+            na.AbstractCartesian3dVectorArray,
+        )
         assert np.all(array.direction.length == 1)
 
-    def test_intensity(self, array: optika.rays.AbstractRayVectorArray) -> na.AbstractScalar:
+    def test_intensity(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.intensity), na.AbstractScalar)
         assert np.all(array.intensity >= 0)
 
@@ -69,23 +82,23 @@ class AbstractTestAbstractRayVectorArray(
         return super().test_matrix(array=array)
 
     @pytest.mark.parametrize(
-        argnames='item',
+        argnames="item",
         argvalues=_items(),
     )
     def test__getitem__(
-            self,
-            array: na.AbstractPositionalVectorArray,
-            item: dict[str, int | slice | na.AbstractArray] | na.AbstractArray
+        self,
+        array: na.AbstractPositionalVectorArray,
+        item: dict[str, int | slice | na.AbstractArray] | na.AbstractArray,
     ):
         super().test__getitem__(array=array, item=item)
 
-    @pytest.mark.parametrize('array_2', _arrays_2())
+    @pytest.mark.parametrize("array_2", _arrays_2())
     class TestUfuncBinary(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestUfuncBinary
     ):
         pass
 
-    @pytest.mark.parametrize('array_2', _arrays_2())
+    @pytest.mark.parametrize("array_2", _arrays_2())
     class TestMatmul(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestMatmul
     ):
@@ -94,7 +107,6 @@ class AbstractTestAbstractRayVectorArray(
     class TestArrayFunctions(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions
     ):
-
         @pytest.mark.parametrize("array_2", _arrays_2())
         class TestAsArrayLikeFunctions(
             test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions.TestAsArrayLikeFunctions
@@ -102,10 +114,10 @@ class AbstractTestAbstractRayVectorArray(
             pass
 
         @pytest.mark.parametrize(
-            argnames='where',
+            argnames="where",
             argvalues=[
                 np._NoValue,
-            ]
+            ],
         )
         class TestReductionFunctions(
             test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions.TestReductionFunctions,
@@ -113,15 +125,14 @@ class AbstractTestAbstractRayVectorArray(
             pass
 
         @pytest.mark.parametrize(
-            argnames='q',
+            argnames="q",
             argvalues=[
                 25 * u.percent,
-            ]
+            ],
         )
         class TestPercentileLikeFunctions(
-            test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions
-            .TestPercentileLikeFunctions,
-            ):
+            test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions.TestPercentileLikeFunctions,
+        ):
             pass
 
     class TestNamedArrayFunctions(
@@ -154,13 +165,13 @@ class TestRayVectorArray(
                 position=5 * u.mm,
                 direction=na.Cartesian3dVectorArray(0, 1, 0),
             ),
-        ]
+        ],
     )
     def test__setitem__(
-            self,
-            array: na.ScalarArray,
-            item: dict[str, int | slice | na.ScalarArray] | na.ScalarArray,
-            value: float | na.ScalarArray
+        self,
+        array: na.ScalarArray,
+        item: dict[str, int | slice | na.ScalarArray] | na.ScalarArray,
+        value: float | na.ScalarArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
 
