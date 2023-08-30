@@ -56,6 +56,38 @@ class AbstractSag(
             The location on the surface to evaluate the normal vector
         """
 
+    def intercept(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> optika.rays.AbstractRayVectorArray:
+        """
+        A set of new rays with the same direction as the input rays,
+        but with the :attr:`optika.rays.RayVectorArray.position` updated to
+        their interception point with this sag function.
+
+        Parameters
+        ----------
+        rays
+            input rays that will intercept this sag function
+        """
+
+        def line(t: na.AbstractScalar) -> na.Cartesian3dVectorArray:
+            return rays.position + rays.direction * t
+
+        def func(t: na.AbstractScalar) -> na.AbstractScalar:
+            a = line(t)
+            z = self(a)
+            return a.z - z
+
+        t_intercept = na.optimize.root_secant(
+            function=func,
+            guess=0 * u.mm,
+        )
+
+        result = rays.copy_shallow()
+        result.position = line(t_intercept)
+        return result
+
 
 @dataclasses.dataclass
 class AbstractSphericalSag(
@@ -146,35 +178,29 @@ class SphericalSag(
         position
             point where the sag function will be calculated
         """
-        radius = self.radius
         c = self.curvature
         transform = self.transform
         if transform is not None:
             position = transform.inverse(position)
 
-        shape = na.shape_broadcasted(radius, c, position)
-        radius = na.broadcast_to(radius, shape)
+        shape = na.shape_broadcasted(c, position)
         c = na.broadcast_to(c, shape)
         position = na.broadcast_to(position, shape)
 
         r2 = np.square(position.x) + np.square(position.y)
         sz = c * r2 / (1 + np.sqrt(1 - np.square(c) * r2))
-        mask = r2 >= np.square(radius)
-        sz[mask] = 0
         return sz
 
     def normal(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
-        radius = self.radius
         c = self.curvature
         transform = self.transform
         if transform is not None:
             position = transform.inverse(position)
 
-        shape = na.shape_broadcasted(radius, c, position)
-        radius = na.broadcast_to(radius, shape)
+        shape = na.shape_broadcasted(c, position)
         c = na.broadcast_to(c, shape)
         position = na.broadcast_to(position, shape)
 
@@ -182,9 +208,6 @@ class SphericalSag(
         c2 = np.square(c)
         g = np.sqrt(1 - c2 * (x2 + y2))
         dzdx, dzdy = c * position.x / g, c * position.y / g
-        mask = (x2 + y2) >= np.square(radius)
-        dzdx[mask] = 0
-        dzdy[mask] = 0
         result = na.Cartesian3dVectorArray(
             x=dzdx,
             y=dzdy,
@@ -267,38 +290,32 @@ class ConicSag(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        radius = self.radius
         c = self.curvature
         conic = self.conic
         transform = self.transform
         if transform is not None:
             position = transform.inverse(position)
 
-        shape = na.shape_broadcasted(radius, c, conic, position)
-        radius = na.broadcast_to(radius, shape)
+        shape = na.shape_broadcasted(c, conic, position)
         c = na.broadcast_to(c, shape)
         conic = na.broadcast_to(conic, shape)
         position = na.broadcast_to(position, shape)
 
         r2 = np.square(position.x) + np.square(position.y)
         sz = c * r2 / (1 + np.sqrt(1 - (1 + conic) * np.square(c) * r2))
-        mask = r2 >= np.square(radius)
-        sz[mask] = 0
         return sz
 
     def normal(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
-        radius = self.radius
         c = self.curvature
         conic = self.conic
         transform = self.transform
         if transform is not None:
             position = transform.inverse(position)
 
-        shape = na.shape_broadcasted(radius, c, conic, position)
-        radius = na.broadcast_to(radius, shape)
+        shape = na.shape_broadcasted(c, conic, position)
         c = na.broadcast_to(c, shape)
         conic = na.broadcast_to(conic, shape)
         position = na.broadcast_to(position, shape)
@@ -308,9 +325,6 @@ class ConicSag(
         c2 = np.square(c)
         g = np.sqrt(1 - (1 + conic) * c2 * (x2 + y2))
         dzdx, dzdy = c * position.x / g, c * position.y / g
-        mask = (x2 + y2) >= np.square(radius)
-        dzdx[mask] = 0
-        dzdy[mask] = 0
         result = na.Cartesian3dVectorArray(
             x=dzdx,
             y=dzdy,
@@ -349,10 +363,8 @@ class ToroidalSag(
 
         x2 = np.square(position.x)
         y2 = np.square(position.y)
-        mask = np.abs(position.x) > r
         zy = c * y2 / (1 + np.sqrt(1 - np.square(c) * y2))
         z = r - np.sqrt(np.square(r - zy) - x2)
-        z[mask] = (r - np.sqrt(np.square(r - zy) - np.square(r)))[mask]
         return z
 
     def normal(
@@ -379,9 +391,6 @@ class ToroidalSag(
         dzdx = position.x / f
         dzydy = c * position.y / g
         dzdy = (r - zy) * dzydy / f
-        mask = np.abs(position.x) > r
-        dzdx[mask] = 0
-        dzdy[mask] = 0
         result = na.Cartesian3dVectorArray(
             x=dzdx,
             y=dzdy,

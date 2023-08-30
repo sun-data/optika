@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 import abc
 import astropy.units as u  # type: ignore[import]
@@ -42,6 +43,41 @@ class AbstractTestAbstractSag(
             result = sag.normal(position)
             assert isinstance(result, na.AbstractCartesian3dVectorArray)
             assert set(na.shape(position)).issubset(na.shape(result))
+
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                wavelength=500 * u.nm,
+                position=na.Cartesian3dVectorArray(1, 2, 3) * u.mm,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+            optika.rays.RayVectorArray(
+                wavelength=na.NormalUncertainScalarArray(500 * u.nm, width=5 * u.nm),
+                position=na.Cartesian3dVectorArray(
+                    x=na.NormalUncertainScalarArray(1 * u.mm, width=0.1 * u.mm),
+                    y=na.NormalUncertainScalarArray(2 * u.mm, width=0.1 * u.mm),
+                    z=na.NormalUncertainScalarArray(3 * u.mm, width=0.1 * u.mm),
+                ),
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+            optika.rays.RayVectorArray(
+                wavelength=na.linspace(500, 600, axis="y", num=5) * u.nm,
+                position=na.Cartesian3dVectorLinearSpace(0, 5, axis="y", num=5) * u.mm,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    class TestFunctionsOfRays:
+        def test_intercept(
+            self,
+            sag: optika.sags.AbstractSag,
+            rays: optika.rays.AbstractRayVectorArray,
+        ):
+            result = sag.intercept(rays)
+            assert isinstance(result, optika.rays.AbstractRayVectorArray)
+            assert np.all(np.isfinite(result.position))
+            assert np.allclose(sag(result.position), result.position.z)
 
 
 class AbstractTestAbstractSphericalSag(
