@@ -73,9 +73,9 @@ class RayVectorArray(
 
     @classmethod
     def from_scalar(
-            cls,
-            scalar: na.AbstractScalar,
-            like: None | na.AbstractExplicitVectorArray = None,
+        cls,
+        scalar: na.AbstractScalar,
+        like: None | na.AbstractExplicitVectorArray = None,
     ) -> RayVectorArray:
         return cls(
             wavelength=scalar,
@@ -89,7 +89,7 @@ class RayVectorArray(
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractImplicitRayVectorArray(
     AbstractRayVectorArray,
-    na.AbstractImplicitCartesianVectorArray
+    na.AbstractImplicitCartesianVectorArray,
 ):
     @property
     def direction(self) -> na.AbstractCartesian3dVectorArray:
