@@ -44,7 +44,7 @@ class AbstractRulings(
     @abc.abstractmethod
     def rays_apparent(
         self,
-        rays: optika.rays.RayVectorArray,
+        rays: optika.rays.AbstractRayVectorArray,
         index_refraction: float,
     ) -> optika.rays.RayVectorArray:
         """
