@@ -27,7 +27,7 @@ def _arrays() -> list[optika.rays.RayVectorArray]:
                 stop=10 * u.mm,
                 axis="y",
                 num=_num_y,
-            ),
+            ).explicit,
             direction=na.Cartesian3dVectorArray(0, 0, 1),
         ),
     ]
