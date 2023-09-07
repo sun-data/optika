@@ -9,12 +9,12 @@ from . import test_plotting
 
 active_parameterization = [
     True,
-    na.random.uniform(-1, 1, dict(active=3)) > 0,
+    na.linspace(-1, 1, "active", 3) >= 0,
 ]
 
 inverted_parameterization = [
     False,
-    na.random.uniform(-1, 1, dict(inverted=4)) > 0,
+    na.linspace(-1, 1, "inverted", 4) >= 0,
 ]
 
 
