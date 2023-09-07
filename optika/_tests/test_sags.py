@@ -33,7 +33,8 @@ class AbstractTestAbstractSag(
         ):
             result = sag(position)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
-            assert set(na.shape(position)).issubset(na.shape(result))
+            if na.shape(result):
+                assert set(na.shape(position)).issubset(na.shape(result))
 
         def test_normal(
             self,
@@ -42,7 +43,8 @@ class AbstractTestAbstractSag(
         ):
             result = sag.normal(position)
             assert isinstance(result, na.AbstractCartesian3dVectorArray)
-            assert set(na.shape(position)).issubset(na.shape(result))
+            if na.shape(result):
+                assert set(na.shape(position)).issubset(na.shape(result))
 
     @pytest.mark.parametrize(
         argnames="rays",
@@ -78,6 +80,13 @@ class AbstractTestAbstractSag(
             assert isinstance(result, optika.rays.AbstractRayVectorArray)
             assert np.all(np.isfinite(result.position))
             assert np.allclose(sag(result.position), result.position.z)
+
+
+@pytest.mark.parametrize("sag", [optika.sags.NoSag()])
+class TestNoSag(
+    AbstractTestAbstractSag,
+):
+    pass
 
 
 class AbstractTestAbstractSphericalSag(

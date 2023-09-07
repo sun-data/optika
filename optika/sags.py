@@ -8,6 +8,7 @@ import optika
 
 __all__ = [
     "AbstractSag",
+    "NoSag",
     "SphericalSag",
     "ConicSag",
     "ToroidalSag",
@@ -87,6 +88,27 @@ class AbstractSag(
         result = rays.copy_shallow()
         result.position = line(t_intercept)
         return result
+
+
+@dataclasses.dataclass
+class NoSag(
+    AbstractSag,
+):
+    @property
+    def transform(self) -> None:
+        return None
+
+    def __call__(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        return 0 * u.mm
+
+    def normal(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractCartesian3dVectorArray:
+        return na.Cartesian3dVectorArray(0, 0, 1)
 
 
 @dataclasses.dataclass
