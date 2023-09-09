@@ -3,6 +3,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+import optika.rays._tests.test_ray_vectors
 from . import test_transforms
 from . import test_plotting
 
@@ -46,6 +47,22 @@ class AbstractTestAbstractAperture(
         assert na.get_dtype(result) == bool
         assert set(na.shape(position)).issubset(na.shape(result))
         assert np.any(result)
+
+    @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
+    def test_clip_rays(
+        self,
+        a: optika.apertures.AbstractAperture,
+        rays: optika.rays.RayVectorArray,
+    ):
+        result = a.clip_rays(rays)
+        assert isinstance(result, optika.rays.RayVectorArray)
+        assert result is not rays
+        assert result.intensity is not rays.intensity
+        assert np.sum(result.intensity) <= np.sum(rays.intensity)
+        assert np.all(result.position == rays.position)
+        assert np.all(result.direction == rays.direction)
+        assert np.all(result.attenuation == rays.attenuation)
+        assert np.all(result.index_refraction == rays.index_refraction)
 
     def test_bound_lower(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.bound_lower, na.AbstractCartesian3dVectorArray)

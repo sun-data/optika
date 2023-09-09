@@ -62,6 +62,12 @@ class AbstractAperture(
             the points to check
         """
 
+    def clip_rays(self, rays: optika.rays.RayVectorArray):
+        mask = self(rays.position)
+        rays = rays.copy_shallow()
+        rays.intensity = rays.intensity * mask
+        return rays
+
     @property
     @abc.abstractmethod
     def bound_lower(self) -> na.AbstractCartesian3dVectorArray:
