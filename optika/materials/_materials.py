@@ -4,7 +4,6 @@ import dataclasses
 import numpy as np
 import named_arrays as na
 import optika.mixins
-import optika.propagators
 
 __all__ = [
     "AbstractMaterial",
@@ -113,7 +112,7 @@ class Vacuum(
         self,
         rays: optika.rays.RayVectorArray,
     ) -> na.ScalarLike:
-        return 1
+        return 0
 
     def transmissivity(
         self,
