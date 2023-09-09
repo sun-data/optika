@@ -1,24 +1,16 @@
 import pytest
+import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
 import optika._tests.test_transforms
+import optika.rays._tests.test_ray_vectors
 
 
 class AbstractTestAbstractMaterial(
     optika._tests.test_transforms.AbstractTestTransformable,
 ):
-    @pytest.mark.parametrize(
-        argnames="rays",
-        argvalues=[
-            optika.rays.RayVectorArray(
-                wavelength=500 * u.nm,
-                position=na.Cartesian3dVectorArray() * u.mm,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-                intensity=100,
-            ),
-        ],
-    )
+    @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
     class TestRayDependentMethods:
         def test_index_refraction(
             self,
@@ -36,7 +28,7 @@ class AbstractTestAbstractMaterial(
         ):
             result = a.attenuation(rays)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
-            assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
+            assert na.unit_normalized(result).is_equivalent(1 / u.mm)
 
         def test_transmissivity(
             self,
@@ -72,8 +64,8 @@ class AbstractTestAbstractMaterial(
                 rulings=rulings,
             )
             assert isinstance(result, optika.rays.AbstractRayVectorArray)
-            assert result.index_refraction == a.index_refraction(rays)
-            assert result.attenuation == a.attenuation(rays)
+            assert np.all(result.index_refraction == a.index_refraction(rays))
+            assert np.all(result.attenuation == a.attenuation(rays))
 
 
 @pytest.mark.parametrize("a", [optika.materials.Vacuum()])

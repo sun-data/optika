@@ -2,6 +2,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 import numpy as np
+import astropy.units as u
 import named_arrays as na
 import optika.mixins
 
@@ -112,21 +113,13 @@ class Vacuum(
         self,
         rays: optika.rays.RayVectorArray,
     ) -> na.ScalarLike:
-        return 0
+        return 0 / u.mm
 
     def transmissivity(
         self,
         rays: optika.rays.RayVectorArray,
     ) -> na.ScalarLike:
         return 1
-
-    def refract_rays(
-        self,
-        rays: optika.rays.AbstractRayVectorArray,
-        sag: optika.sags.AbstractSag,
-        rulings: None | optika.rulings.AbstractRulings,
-    ) -> optika.rays.RayVectorArray:
-        return rays.explicit
 
 
 @dataclasses.dataclass(eq=False, repr=False)
