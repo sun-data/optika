@@ -8,50 +8,44 @@ import optika
 _num_y = test_vectors_cartesian._num_y
 
 
-def _arrays() -> list[optika.rays.RayVectorArray]:
-    return [
-        optika.rays.RayVectorArray(
-            wavelength=500 * u.nm,
-            position=na.Cartesian3dVectorArray(0, 1, 2) * u.mm,
-            direction=na.Cartesian3dVectorArray(0, 0, 1),
-            attenuation=0 / u.mm,
+rays = [
+    optika.rays.RayVectorArray(
+        wavelength=500 * u.nm,
+        position=na.Cartesian3dVectorArray(0, 1, 2) * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+        attenuation=0 / u.mm,
+    ),
+    optika.rays.RayVectorArray(
+        wavelength=na.linspace(
+            start=400 * u.nm,
+            stop=500 * u.nm,
+            axis="y",
+            num=_num_y,
         ),
-        optika.rays.RayVectorArray(
-            wavelength=na.linspace(
-                start=400 * u.nm,
-                stop=500 * u.nm,
-                axis="y",
-                num=_num_y,
-            ),
-            position=na.Cartesian3dVectorLinearSpace(
-                start=-10 * u.mm,
-                stop=10 * u.mm,
-                axis="y",
-                num=_num_y,
-            ).explicit,
-            direction=na.Cartesian3dVectorArray(0, 0, 1),
-            attenuation=0 / u.mm,
+        position=na.Cartesian3dVectorLinearSpace(
+            start=-10 * u.mm,
+            stop=10 * u.mm,
+            axis="y",
+            num=_num_y,
+        ).explicit,
+        direction=na.Cartesian3dVectorArray(
+            x=np.sin(na.linspace(-60, 60, axis="y", num=_num_y) * u.deg),
+            y=0,
+            z=np.cos(na.linspace(-60, 60, axis="y", num=_num_y) * u.deg),
         ),
-    ]
-
-
-def _arrays_2() -> list[optika.rays.RayVectorArray]:
-    return [
-        optika.rays.RayVectorArray(
-            wavelength=600 * u.nm,
-            position=na.Cartesian3dVectorArray(3, 4, 5) * u.mm,
-            direction=na.Cartesian3dVectorArray(1, 0, 0),
-        ),
-        optika.rays.RayVectorArray(
-            wavelength=na.NormalUncertainScalarArray(600 * u.nm, width=5 * u.nm),
-            position=na.Cartesian3dVectorArray(
-                x=na.NormalUncertainScalarArray(3 * u.mm, width=1 * u.mm),
-                y=na.NormalUncertainScalarArray(4 * u.mm, width=2 * u.mm),
-                z=na.NormalUncertainScalarArray(5 * u.mm, width=3 * u.mm),
-            ),
-            direction=na.Cartesian3dVectorArray(1, 0, 0),
-        ),
-    ]
+        attenuation=na.linspace(0, 1, axis="y", num=_num_y) / u.mm,
+    ),
+    optika.rays.RayVectorArray(
+        wavelength=na.NormalUncertainScalarArray(600 * u.nm, width=5 * u.nm).explicit,
+        position=na.Cartesian3dVectorArray(
+            x=na.NormalUncertainScalarArray(3 * u.mm, width=1 * u.mm),
+            y=na.NormalUncertainScalarArray(4 * u.mm, width=2 * u.mm),
+            z=na.NormalUncertainScalarArray(5 * u.mm, width=3 * u.mm),
+        ).explicit,
+        direction=na.Cartesian3dVectorArray(1, 0, 0),
+        attenuation=na.UniformUncertainScalarArray(0.5, width=0.25) / u.mm,
+    ),
+]
 
 
 def _items() -> list[na.AbstractArray | dict[str, int | slice | na.AbstractArray]]:
@@ -99,13 +93,13 @@ class AbstractTestAbstractRayVectorArray(
     ):
         super().test__getitem__(array=array, item=item)
 
-    @pytest.mark.parametrize("array_2", _arrays_2())
+    @pytest.mark.parametrize("array_2", rays)
     class TestUfuncBinary(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestUfuncBinary
     ):
         pass
 
-    @pytest.mark.parametrize("array_2", _arrays_2())
+    @pytest.mark.parametrize("array_2", rays)
     class TestMatmul(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestMatmul
     ):
@@ -114,7 +108,7 @@ class AbstractTestAbstractRayVectorArray(
     class TestArrayFunctions(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions
     ):
-        @pytest.mark.parametrize("array_2", _arrays_2())
+        @pytest.mark.parametrize("array_2", rays)
         class TestAsArrayLikeFunctions(
             test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions.TestAsArrayLikeFunctions
         ):
@@ -152,7 +146,7 @@ class AbstractTestAbstractRayVectorArray(
             pass
 
 
-@pytest.mark.parametrize("array", _arrays(), scope="module")
+@pytest.mark.parametrize("array", rays)
 class TestRayVectorArray(
     AbstractTestAbstractRayVectorArray,
     test_vectors_cartesian.AbstractTestAbstractExplicitCartesianVectorArray,
