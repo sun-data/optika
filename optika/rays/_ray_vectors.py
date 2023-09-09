@@ -11,6 +11,7 @@ __all__ = [
 ]
 
 IntensityT = TypeVar("IntensityT", bound=na.ScalarLike)
+AttenuationT = TypeVar("AttenuationT", bound=na.ScalarLike)
 PositionT = TypeVar("PositionT", bound=na.Cartesian3dVectorArray)
 DirectionT = TypeVar("DirectionT", bound=na.Cartesian3dVectorArray)
 WavelengthT = TypeVar("WavelengthT", bound=na.ScalarLike)
@@ -34,6 +35,15 @@ class AbstractRayVectorArray(
     def intensity(self) -> na.AbstractScalar:
         """
         the radiometric contribution of the ray
+        """
+
+    @property
+    @abc.abstractmethod
+    def attenuation(self) -> na.AbstractScalar:
+        """
+        the current
+        `attenuation coefficient <https://en.wikipedia.org/wiki/Absorption_coefficient>`_
+        of the medium that the ray is propagating in
         """
 
     @property
@@ -69,6 +79,7 @@ class RayVectorArray(
 ):
     direction: DirectionT = 0
     intensity: IntensityT = 0
+    attenuation: AttenuationT = 0
     index_refraction: IndexRefractionT = 1
 
     @classmethod
@@ -82,6 +93,7 @@ class RayVectorArray(
             position=scalar,
             direction=scalar,
             intensity=scalar,
+            attenuation=scalar,
             index_refraction=scalar,
         )
 
@@ -98,6 +110,10 @@ class AbstractImplicitRayVectorArray(
     @property
     def intensity(self) -> na.ScalarLike:
         return self.explicit.intensity
+
+    @property
+    def attenuation(self) -> na.ScalarLike:
+        return self.explicit.attenuation
 
     @property
     def index_refraction(self) -> na.ScalarLike:

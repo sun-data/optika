@@ -14,6 +14,7 @@ def _arrays() -> list[optika.rays.RayVectorArray]:
             wavelength=500 * u.nm,
             position=na.Cartesian3dVectorArray(0, 1, 2) * u.mm,
             direction=na.Cartesian3dVectorArray(0, 0, 1),
+            attenuation=0 / u.mm,
         ),
         optika.rays.RayVectorArray(
             wavelength=na.linspace(
@@ -29,6 +30,7 @@ def _arrays() -> list[optika.rays.RayVectorArray]:
                 num=_num_y,
             ).explicit,
             direction=na.Cartesian3dVectorArray(0, 0, 1),
+            attenuation=0 / u.mm,
         ),
     ]
 
@@ -73,6 +75,11 @@ class AbstractTestAbstractRayVectorArray(
     def test_intensity(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.intensity), na.AbstractScalar)
         assert np.all(array.intensity >= 0)
+
+    def test_attenuation(self, array: optika.rays.AbstractRayVectorArray):
+        assert isinstance(na.as_named_array(array.attenuation), na.AbstractScalar)
+        assert np.all(array.attenuation >= 0)
+        assert na.unit_normalized(array.attenuation).is_equivalent(1 / u.m)
 
     def test_index_refraction(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.index_refraction), na.AbstractScalar)
