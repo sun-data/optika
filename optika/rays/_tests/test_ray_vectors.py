@@ -34,6 +34,7 @@ rays = [
             z=np.cos(na.linspace(-60, 60, axis="y", num=_num_y) * u.deg),
         ),
         attenuation=na.linspace(0, 1, axis="y", num=_num_y) / u.mm,
+        index_refraction=na.linspace(1, 1.5, axis="y", num=_num_y).explicit,
     ),
     optika.rays.RayVectorArray(
         wavelength=na.NormalUncertainScalarArray(600 * u.nm, width=5 * u.nm).explicit,
@@ -44,6 +45,7 @@ rays = [
         ).explicit,
         direction=na.Cartesian3dVectorArray(1, 0, 0),
         attenuation=na.UniformUncertainScalarArray(0.5, width=0.25) / u.mm,
+        index_refraction=na.UniformUncertainScalarArray(1.5, width=0.5).explicit,
     ),
 ]
 
