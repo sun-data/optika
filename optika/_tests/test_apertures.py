@@ -4,7 +4,7 @@ import astropy.units as u
 import named_arrays as na
 import optika
 import optika.rays._tests.test_ray_vectors
-from . import test_transforms
+from . import test_mixins
 from . import test_plotting
 
 
@@ -21,7 +21,7 @@ inverted_parameterization = [
 
 class AbstractTestAbstractAperture(
     test_plotting.AbstractTestPlottable,
-    test_transforms.AbstractTestTransformable,
+    test_mixins.AbstractTestTransformable,
 ):
     def test_samples_per_side(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.samples_per_side, int)
@@ -103,7 +103,7 @@ radius_parameterization = [
         for radius in radius_parameterization
         for active in active_parameterization
         for inverted in inverted_parameterization
-        for transform in test_transforms.transform_parameterization
+        for transform in test_mixins.transform_parameterization
         for kwargs_plot in test_plotting.kwargs_plot_parameterization
     ],
 )
@@ -143,7 +143,7 @@ half_width_parameterization = [
         for half_width in half_width_parameterization
         for active in active_parameterization
         for inverted in inverted_parameterization
-        for transform in test_transforms.transform_parameterization
+        for transform in test_mixins.transform_parameterization
         for kwargs_plot in test_plotting.kwargs_plot_parameterization
     ],
 )

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika.plotting
+from . import test_mixins
 
 
 kwargs_plot_parameterization = [
@@ -23,20 +24,7 @@ class AbstractTestPlottable(abc.ABC):
             plt.subplots()[1],
         ],
     )
-    @pytest.mark.parametrize(
-        argnames="transform",
-        argvalues=[
-            None,
-            optika.transforms.TransformList(
-                [
-                    optika.transforms.Translation(
-                        na.Cartesian3dVectorArray(x=5 * u.mm),
-                    ),
-                    optika.transforms.RotationX(54 * u.deg),
-                ]
-            ),
-        ],
-    )
+    @pytest.mark.parametrize("transform", test_mixins.transform_parameterization)
     @pytest.mark.parametrize(
         argnames="component_map",
         argvalues=[
@@ -49,7 +37,7 @@ class AbstractTestPlottable(abc.ABC):
             self,
             a: optika.plotting.Plottable,
             ax: None | matplotlib.axes.Axes | na.ScalarArray,
-            transform: None | optika.transforms.AbstractTransform,
+            transform: None | na.transformations.AbstractTransformation,
             component_map: None | dict[str, str],
         ):
             result = a.plot(

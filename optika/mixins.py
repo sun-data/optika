@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Generic, TypeVar, Iterator, Iterable, Any, overload
 from typing_extensions import Self
+import abc
 import copy
 import dataclasses
 import numpy as np
@@ -161,3 +162,14 @@ class DataclassList(
 
     def reverse(self):
         self.data.reverse()
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Transformable(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def transform(self) -> None | na.transformations.AbstractTransformation:
+        """
+        the coordinate transformation between the global coordinate system
+        and this object's local coordinate system
+        """

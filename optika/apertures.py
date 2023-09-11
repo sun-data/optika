@@ -20,7 +20,7 @@ __all__ = [
 class AbstractAperture(
     optika.mixins.Printable,
     optika.plotting.Plottable,
-    optika.transforms.Transformable,
+    optika.mixins.Transformable,
 ):
     @property
     @abc.abstractmethod
@@ -99,7 +99,7 @@ class AbstractAperture(
     def plot(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
-        transform: None | optika.transforms.AbstractTransform = None,
+        transform: None | na.transformations.AbstractTransformation = None,
         component_map: dict[str, str] = None,
         sag: None | optika.sags.AbstractSag = None,
         **kwargs,
@@ -210,7 +210,7 @@ class CircularAperture(
     samples_per_side: int = 101
     active: bool | na.AbstractScalar = True
     inverted: bool | na.AbstractScalar = False
-    transform: None | optika.transforms.AbstractTransform = None
+    transform: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
 
     def __call__(
@@ -239,24 +239,26 @@ class CircularAperture(
 
     @property
     def bound_lower(self) -> na.Cartesian3dVectorArray:
-        result = na.Cartesian3dVectorArray(
+        result = na.Cartesian3dVectorArray() * u.mm
+        if self.transform is not None:
+            result = self.transform(result)
+        result = result + na.Cartesian3dVectorArray(
             x=-self.radius,
             y=-self.radius,
             z=0 * self.radius.unit,
         )
-        if self.transform is not None:
-            result = self.transform(result, use_matrix=False)
         return result
 
     @property
     def bound_upper(self) -> na.Cartesian3dVectorArray:
-        result = na.Cartesian3dVectorArray(
+        result = na.Cartesian3dVectorArray() * u.mm
+        if self.transform is not None:
+            result = self.transform(result)
+        result = result + na.Cartesian3dVectorArray(
             x=self.radius,
             y=self.radius,
             z=0 * self.radius.unit,
         )
-        if self.transform is not None:
-            result = self.transform(result, use_matrix=False)
         return result
 
     @property
@@ -393,7 +395,7 @@ class RectangularAperture(
     samples_per_side: int = 101
     active: bool | na.AbstractScalar = True
     inverted: bool | na.AbstractScalar = False
-    transform: None | optika.transforms.AbstractTransform = None
+    transform: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
 
     def __call__(

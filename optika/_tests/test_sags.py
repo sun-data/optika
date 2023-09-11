@@ -4,7 +4,7 @@ import abc
 import astropy.units as u  # type: ignore[import]
 import named_arrays as na  # type: ignore[import]
 import optika
-from . import test_transforms
+from . import test_mixins
 
 
 class AbstractTestAbstractSag(
@@ -121,7 +121,7 @@ def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
             transform=transform,
         )
         for radius in radius_parameterization()
-        for transform in test_transforms.transform_parameterization
+        for transform in test_mixins.transform_parameterization
     ],
 )
 class TestSphericalSag(
@@ -156,7 +156,7 @@ def conic_parameterization() -> list[u.Quantity | na.AbstractScalar]:
         )
         for radius in radius_parameterization()
         for conic in conic_parameterization()
-        for transform in test_transforms.transform_parameterization
+        for transform in test_mixins.transform_parameterization
     ],
 )
 class TestConicSag(
@@ -175,7 +175,7 @@ class TestConicSag(
         )
         for radius in radius_parameterization()
         for radius_of_rotation in radius_parameterization()
-        for transform in test_transforms.transform_parameterization
+        for transform in test_mixins.transform_parameterization
     ],
 )
 class TestToroidalSag(

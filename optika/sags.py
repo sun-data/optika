@@ -4,7 +4,7 @@ import dataclasses
 import numpy as np
 import astropy.units as u  # type: ignore[import]
 import named_arrays as na  # type: ignore[import]
-import optika
+import optika.mixins
 
 __all__ = [
     "AbstractSag",
@@ -30,7 +30,7 @@ RadiusOfRotationT = TypeVar(
 
 @dataclasses.dataclass
 class AbstractSag(
-    optika.transforms.Transformable,
+    optika.mixins.Transformable,
 ):
     """
     Base class for all types of sag surfaces.
@@ -186,7 +186,7 @@ class SphericalSag(
     """
 
     radius: RadiusT = np.inf * u.mm
-    transform: None | optika.transforms.AbstractTransform = None
+    transform: None | na.transformations.AbstractTransformation = None
 
     def __call__(
         self,
@@ -306,7 +306,7 @@ class ConicSag(
     radius: RadiusT = np.inf * u.mm
     conic: ConicT = 0 * u.dimensionless_unscaled
     """the conic constant of the conic section"""
-    transform: None | optika.transforms.AbstractTransform = None
+    transform: None | na.transformations.AbstractTransformation = None
 
     def __call__(
         self,
@@ -366,7 +366,7 @@ class ToroidalSag(
 
     radius: RadiusT = np.inf * u.mm
     radius_of_rotation: RadiusOfRotationT = 0 * u.mm
-    transform: None | optika.transforms.AbstractTransform = None
+    transform: None | na.transformations.AbstractTransformation = None
 
     def __call__(
         self,

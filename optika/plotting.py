@@ -4,7 +4,6 @@ import numpy.typing as npt
 import matplotlib.axes
 import matplotlib.lines
 import named_arrays as na
-import optika.transforms
 
 __all__ = [
     "Plottable",
@@ -25,7 +24,7 @@ class Plottable(abc.ABC):
     def plot(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
-        transform: None | optika.transforms.AbstractTransform = None,
+        transform: None | na.transformations.AbstractTransformation = None,
         component_map: None | dict[str, str] = None,
         **kwargs,
     ) -> na.AbstractScalar:

@@ -14,7 +14,7 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulings(
-    optika.transforms.Transformable,
+    optika.mixins.Transformable,
 ):
     """
     Interface for the interaction of a ruled surface with incident light
@@ -136,4 +136,4 @@ class ConstantDensityRulings(
 ):
     ruling_density: na.ScalarLike = 0 / u.mm
     diffraction_order: na.ScalarLike = 1
-    transform: None | optika.transforms.AbstractTransform = None
+    transform: None | na.transformations.AbstractTransformation = None

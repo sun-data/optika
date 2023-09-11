@@ -16,7 +16,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractMaterial(
     optika.mixins.Printable,
-    optika.transforms.Transformable,
+    optika.mixins.Transformable,
 ):
     @abc.abstractmethod
     def index_refraction(

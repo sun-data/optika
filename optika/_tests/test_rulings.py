@@ -3,11 +3,11 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-import optika._tests.test_transforms
+from . import test_mixins
 
 
 class AbstractTestAbstractRulings(
-    optika._tests.test_transforms.AbstractTestTransformable,
+    test_mixins.AbstractTestTransformable,
 ):
     def test_diffraction_order(self, a: optika.rulings.AbstractRulings):
         assert na.get_dtype(a.diffraction_order) == int
