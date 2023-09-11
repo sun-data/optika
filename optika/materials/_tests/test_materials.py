@@ -3,12 +3,12 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-import optika._tests.test_transforms
+import optika._tests.test_mixins
 import optika.rays._tests.test_ray_vectors
 
 
 class AbstractTestAbstractMaterial(
-    optika._tests.test_transforms.AbstractTestTransformable,
+    optika._tests.test_mixins.AbstractTestTransformable,
 ):
     @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
     class TestRayDependentMethods:
