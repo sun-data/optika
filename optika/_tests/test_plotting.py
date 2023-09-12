@@ -24,7 +24,10 @@ class AbstractTestPlottable(abc.ABC):
             plt.subplots()[1],
         ],
     )
-    @pytest.mark.parametrize("transformation", test_mixins.transformation_parameterization[:2])
+    @pytest.mark.parametrize(
+        argnames="transformation",
+        argvalues=test_mixins.transformation_parameterization[:2],
+    )
     class TestPlot(abc.ABC):
         def test_plot(
             self,
