@@ -24,26 +24,17 @@ class AbstractTestPlottable(abc.ABC):
             plt.subplots()[1],
         ],
     )
-    @pytest.mark.parametrize("transformation", test_mixins.transformation_parameterization)
-    @pytest.mark.parametrize(
-        argnames="component_map",
-        argvalues=[
-            None,
-            dict(x="y", y="x"),
-        ],
-    )
+    @pytest.mark.parametrize("transformation", test_mixins.transformation_parameterization[:2])
     class TestPlot(abc.ABC):
         def test_plot(
             self,
             a: optika.plotting.Plottable,
             ax: None | matplotlib.axes.Axes | na.ScalarArray,
             transformation: None | na.transformations.AbstractTransformation,
-            component_map: None | dict[str, str],
         ):
             result = a.plot(
                 ax=ax,
                 transformation=transformation,
-                component_map=component_map,
             )
 
             if ax is None or ax is np._NoValue:

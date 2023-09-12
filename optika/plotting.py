@@ -25,7 +25,6 @@ class Plottable(abc.ABC):
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
         transformation: None | na.transformations.AbstractTransformation = None,
-        component_map: None | dict[str, str] = None,
         **kwargs,
     ) -> na.AbstractScalar:
         """
@@ -38,11 +37,6 @@ class Plottable(abc.ABC):
         transformation
             Any extra transformations to apply to the coordinate system before
             plotting
-        component_map
-            An optional mapping that relates the coordinate system of the
-            :class:`Plottable` instance to the coordinate system of the
-            :class:`matplotlib.axes.Axes` instance.
-            If :obj:`None`, it is equivalent to ``dict(x="x", y="y", z="z")``.
         kwargs
             Additional keyword arguments that will be passed along to
             :func:`named_arrays.plt.plot()`

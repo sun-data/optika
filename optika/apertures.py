@@ -100,17 +100,12 @@ class AbstractAperture(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
         transformation: None | na.transformations.AbstractTransformation = None,
-        component_map: dict[str, str] = None,
         sag: None | optika.sags.AbstractSag = None,
         **kwargs,
     ) -> None | na.ScalarArray[npt.NDArray[None | matplotlib.lines.Line2D]]:
         if ax is None:
             ax = plt.gca()
         ax = na.as_named_array(ax)
-
-        if component_map is None:
-            component_map = dict()
-        component_map = dict(x="x", y="y", z="z") | component_map
 
         wire = self.wire.explicit
 
@@ -128,13 +123,6 @@ class AbstractAperture(
             kwargs_plot = dict()
 
         kwargs = kwargs_plot | kwargs
-
-        wire = wire.components
-        wire = na.Cartesian3dVectorArray(
-            x=wire[component_map["x"]],
-            y=wire[component_map["y"]],
-            z=wire[component_map["z"]],
-        )
 
         return na.plt.plot(
             wire,
