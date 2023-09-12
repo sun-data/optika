@@ -183,7 +183,7 @@ class CircularAperture(
 
         aperture = optika.apertures.CircularAperture(
             radius=radius,
-            transformation=optika.transforms.Translation(displacement),
+            transformation=na.transformations.Translation(displacement),
         )
 
         with astropy.visualization.quantity_support():
@@ -368,7 +368,7 @@ class RectangularAperture(
 
         aperture = optika.apertures.RectangularAperture(
             half_width=half_width,
-            transformation=optika.transforms.Translation(displacement),
+            transformation=na.transformations.Translation(displacement),
         )
 
         with astropy.visualization.quantity_support():
