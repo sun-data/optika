@@ -24,5 +24,6 @@ transformation_parameterization = [
 
 class AbstractTestTransformable:
     def test_transformation(self, a: optika.mixins.Transformable):
-        if a.transformation is not None:
-            assert isinstance(a.transformation, na.transformations.AbstractTransformation)
+        t = a.transformation
+        if t is not None:
+            assert isinstance(t, na.transformations.AbstractTransformation)
