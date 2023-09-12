@@ -97,13 +97,13 @@ radius_parameterization = [
             samples_per_side=3,
             active=active,
             inverted=inverted,
-            transform=transform,
+            transformation=transformation,
             kwargs_plot=kwargs_plot,
         )
         for radius in radius_parameterization
         for active in active_parameterization
         for inverted in inverted_parameterization
-        for transform in test_mixins.transform_parameterization
+        for transformation in test_mixins.transformation_parameterization
         for kwargs_plot in test_plotting.kwargs_plot_parameterization
     ],
 )
@@ -137,13 +137,13 @@ half_width_parameterization = [
             samples_per_side=3,
             active=active,
             inverted=inverted,
-            transform=transform,
+            transformation=transformation,
             kwargs_plot=kwargs_plot,
         )
         for half_width in half_width_parameterization
         for active in active_parameterization
         for inverted in inverted_parameterization
-        for transform in test_mixins.transform_parameterization
+        for transformation in test_mixins.transformation_parameterization
         for kwargs_plot in test_plotting.kwargs_plot_parameterization
     ],
 )

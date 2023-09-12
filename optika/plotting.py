@@ -24,7 +24,7 @@ class Plottable(abc.ABC):
     def plot(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
-        transform: None | na.transformations.AbstractTransformation = None,
+        transformation: None | na.transformations.AbstractTransformation = None,
         component_map: None | dict[str, str] = None,
         **kwargs,
     ) -> na.AbstractScalar:
@@ -35,7 +35,7 @@ class Plottable(abc.ABC):
         ----------
         ax
             The matplotlib axes to plot onto
-        transform
+        transformation
             Any extra transformations to apply to the coordinate system before
             plotting
         component_map

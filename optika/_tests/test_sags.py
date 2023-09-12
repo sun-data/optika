@@ -118,10 +118,10 @@ def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
     argvalues=[
         optika.sags.SphericalSag(
             radius=radius,
-            transform=transform,
+            transformation=transformation,
         )
         for radius in radius_parameterization()
-        for transform in test_mixins.transform_parameterization
+        for transformation in test_mixins.transformation_parameterization
     ],
 )
 class TestSphericalSag(
@@ -152,11 +152,11 @@ def conic_parameterization() -> list[u.Quantity | na.AbstractScalar]:
         optika.sags.ConicSag(
             radius=radius,
             conic=conic,
-            transform=transform,
+            transformation=transformation,
         )
         for radius in radius_parameterization()
         for conic in conic_parameterization()
-        for transform in test_mixins.transform_parameterization
+        for transformation in test_mixins.transformation_parameterization
     ],
 )
 class TestConicSag(
@@ -171,11 +171,11 @@ class TestConicSag(
         optika.sags.ToroidalSag(
             radius=radius,
             radius_of_rotation=2 * radius_of_rotation,
-            transform=transform,
+            transformation=transformation,
         )
         for radius in radius_parameterization()
         for radius_of_rotation in radius_parameterization()
-        for transform in test_mixins.transform_parameterization
+        for transformation in test_mixins.transformation_parameterization
     ],
 )
 class TestToroidalSag(

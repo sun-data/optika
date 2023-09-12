@@ -95,7 +95,7 @@ class NoSag(
     AbstractSag,
 ):
     @property
-    def transform(self) -> None:
+    def transformation(self) -> None:
         return None
 
     def __call__(
@@ -186,7 +186,7 @@ class SphericalSag(
     """
 
     radius: RadiusT = np.inf * u.mm
-    transform: None | na.transformations.AbstractTransformation = None
+    transformation: None | na.transformations.AbstractTransformation = None
 
     def __call__(
         self,
@@ -201,9 +201,9 @@ class SphericalSag(
             point where the sag function will be calculated
         """
         c = self.curvature
-        transform = self.transform
-        if transform is not None:
-            position = transform.inverse(position)
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
 
         shape = na.shape_broadcasted(c, position)
         c = na.broadcast_to(c, shape)
@@ -218,9 +218,9 @@ class SphericalSag(
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
         c = self.curvature
-        transform = self.transform
-        if transform is not None:
-            position = transform.inverse(position)
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
 
         shape = na.shape_broadcasted(c, position)
         c = na.broadcast_to(c, shape)
@@ -306,7 +306,7 @@ class ConicSag(
     radius: RadiusT = np.inf * u.mm
     conic: ConicT = 0 * u.dimensionless_unscaled
     """the conic constant of the conic section"""
-    transform: None | na.transformations.AbstractTransformation = None
+    transformation: None | na.transformations.AbstractTransformation = None
 
     def __call__(
         self,
@@ -314,9 +314,9 @@ class ConicSag(
     ) -> na.AbstractScalar:
         c = self.curvature
         conic = self.conic
-        transform = self.transform
-        if transform is not None:
-            position = transform.inverse(position)
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
 
         shape = na.shape_broadcasted(c, conic, position)
         c = na.broadcast_to(c, shape)
@@ -333,9 +333,9 @@ class ConicSag(
     ) -> na.AbstractCartesian3dVectorArray:
         c = self.curvature
         conic = self.conic
-        transform = self.transform
-        if transform is not None:
-            position = transform.inverse(position)
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
 
         shape = na.shape_broadcasted(c, conic, position)
         c = na.broadcast_to(c, shape)
@@ -366,7 +366,7 @@ class ToroidalSag(
 
     radius: RadiusT = np.inf * u.mm
     radius_of_rotation: RadiusOfRotationT = 0 * u.mm
-    transform: None | na.transformations.AbstractTransformation = None
+    transformation: None | na.transformations.AbstractTransformation = None
 
     def __call__(
         self,
@@ -374,9 +374,9 @@ class ToroidalSag(
     ) -> na.AbstractScalar:
         c = self.curvature
         r = self.radius_of_rotation
-        transform = self.transform
-        if transform is not None:
-            position = transform.inverse(position)
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
 
         shape = na.shape_broadcasted(position, c, r)
         position = na.broadcast_to(position, shape)
@@ -395,9 +395,9 @@ class ToroidalSag(
     ) -> na.AbstractCartesian3dVectorArray:
         c = self.curvature
         r = self.radius_of_rotation
-        transform = self.transform
-        if transform is not None:
-            position = transform.inverse(position)
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
 
         shape = na.shape_broadcasted(position, c, r)
         position = na.broadcast_to(position, shape)

@@ -24,7 +24,7 @@ class AbstractTestPlottable(abc.ABC):
             plt.subplots()[1],
         ],
     )
-    @pytest.mark.parametrize("transform", test_mixins.transform_parameterization)
+    @pytest.mark.parametrize("transformation", test_mixins.transformation_parameterization)
     @pytest.mark.parametrize(
         argnames="component_map",
         argvalues=[
@@ -37,12 +37,12 @@ class AbstractTestPlottable(abc.ABC):
             self,
             a: optika.plotting.Plottable,
             ax: None | matplotlib.axes.Axes | na.ScalarArray,
-            transform: None | na.transformations.AbstractTransformation,
+            transformation: None | na.transformations.AbstractTransformation,
             component_map: None | dict[str, str],
         ):
             result = a.plot(
                 ax=ax,
-                transform=transform,
+                transformation=transformation,
                 component_map=component_map,
             )
 

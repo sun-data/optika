@@ -136,4 +136,4 @@ class ConstantDensityRulings(
 ):
     ruling_density: na.ScalarLike = 0 / u.mm
     diffraction_order: na.ScalarLike = 1
-    transform: None | na.transformations.AbstractTransformation = None
+    transformation: None | na.transformations.AbstractTransformation = None

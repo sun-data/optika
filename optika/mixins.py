@@ -168,7 +168,7 @@ class DataclassList(
 class Transformable(abc.ABC):
     @property
     @abc.abstractmethod
-    def transform(self) -> None | na.transformations.AbstractTransformation:
+    def transformation(self) -> None | na.transformations.AbstractTransformation:
         """
         the coordinate transformation between the global coordinate system
         and this object's local coordinate system

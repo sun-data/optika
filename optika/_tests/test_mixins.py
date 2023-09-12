@@ -4,7 +4,7 @@ import optika
 import optika.mixins
 
 
-transform_parameterization = [
+transformation_parameterization = [
     None,
     na.transformations.TransformationList(
         [
@@ -14,7 +14,7 @@ transform_parameterization = [
         ]
     ),
     na.transformations.Cartesian3dRotationZ(
-        na.ScalarLinearSpace(0 * u.deg, 90 * u.deg, axis="transform", num=3)
+        na.ScalarLinearSpace(0 * u.deg, 90 * u.deg, axis="transformation", num=3)
     ),
     na.transformations.Cartesian3dRotationZ(
         na.NormalUncertainScalarArray(53 * u.deg, width=5 * u.deg)
@@ -23,6 +23,6 @@ transform_parameterization = [
 
 
 class AbstractTestTransformable:
-    def test_transform(self, a: optika.mixins.Transformable):
-        if a.transform is not None:
-            assert isinstance(a.transform, na.transformations.AbstractTransformation)
+    def test_transformation(self, a: optika.mixins.Transformable):
+        if a.transformation is not None:
+            assert isinstance(a.transformation, na.transformations.AbstractTransformation)

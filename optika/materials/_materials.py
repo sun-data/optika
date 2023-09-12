@@ -100,7 +100,7 @@ class Vacuum(
     AbstractMaterial,
 ):
     @property
-    def transform(self) -> None:
+    def transformation(self) -> None:
         return None
 
     def index_refraction(
@@ -127,7 +127,7 @@ class Mirror(
     AbstractMaterial,
 ):
     @property
-    def transform(self) -> None:
+    def transformation(self) -> None:
         return None
 
     def index_refraction(

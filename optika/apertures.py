@@ -99,7 +99,7 @@ class AbstractAperture(
     def plot(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
-        transform: None | na.transformations.AbstractTransformation = None,
+        transformation: None | na.transformations.AbstractTransformation = None,
         component_map: dict[str, str] = None,
         sag: None | optika.sags.AbstractSag = None,
         **kwargs,
@@ -120,8 +120,8 @@ class AbstractAperture(
         if sag is not None:
             wire.z = sag(wire)
 
-        if transform is not None:
-            wire = transform(wire)
+        if transformation is not None:
+            wire = transformation(wire)
 
         kwargs_plot = self.kwargs_plot
         if kwargs_plot is None:
@@ -195,7 +195,7 @@ class CircularAperture(
 
         aperture = optika.apertures.CircularAperture(
             radius=radius,
-            transform=optika.transforms.Translation(displacement),
+            transformation=optika.transforms.Translation(displacement),
         )
 
         with astropy.visualization.quantity_support():
@@ -210,7 +210,7 @@ class CircularAperture(
     samples_per_side: int = 101
     active: bool | na.AbstractScalar = True
     inverted: bool | na.AbstractScalar = False
-    transform: None | na.transformations.AbstractTransformation = None
+    transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
 
     def __call__(
@@ -220,8 +220,8 @@ class CircularAperture(
         radius = self.radius
         active = self.active
         inverted = self.inverted
-        if self.transform is not None:
-            position = self.transform.inverse(position)
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
 
         shape = na.shape_broadcasted(radius, active, inverted, position)
 
@@ -240,8 +240,8 @@ class CircularAperture(
     @property
     def bound_lower(self) -> na.Cartesian3dVectorArray:
         result = na.Cartesian3dVectorArray() * u.mm
-        if self.transform is not None:
-            result = self.transform(result)
+        if self.transformation is not None:
+            result = self.transformation(result)
         result = result + na.Cartesian3dVectorArray(
             x=-self.radius,
             y=-self.radius,
@@ -252,8 +252,8 @@ class CircularAperture(
     @property
     def bound_upper(self) -> na.Cartesian3dVectorArray:
         result = na.Cartesian3dVectorArray() * u.mm
-        if self.transform is not None:
-            result = self.transform(result)
+        if self.transformation is not None:
+            result = self.transformation(result)
         result = result + na.Cartesian3dVectorArray(
             x=self.radius,
             y=self.radius,
@@ -278,8 +278,8 @@ class CircularAperture(
             y=self.radius * np.sin(az),
             z=0 * self.radius.unit,
         )
-        if self.transform is not None:
-            result = self.transform(result)
+        if self.transformation is not None:
+            result = self.transformation(result)
         return result
 
 
@@ -366,7 +366,7 @@ class RectangularAperture(
 
     |
 
-    Create a grid of rectangular apertures using the :attr:`transform`
+    Create a grid of rectangular apertures using the :attr:`transformation`
     parameter and the :class:`optika.transforms.Translation` transformation.
 
     .. jupyter-execute::
@@ -380,7 +380,7 @@ class RectangularAperture(
 
         aperture = optika.apertures.RectangularAperture(
             half_width=half_width,
-            transform=optika.transforms.Translation(displacement),
+            transformation=optika.transforms.Translation(displacement),
         )
 
         with astropy.visualization.quantity_support():
@@ -395,7 +395,7 @@ class RectangularAperture(
     samples_per_side: int = 101
     active: bool | na.AbstractScalar = True
     inverted: bool | na.AbstractScalar = False
-    transform: None | na.transformations.AbstractTransformation = None
+    transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
 
     def __call__(
@@ -406,8 +406,8 @@ class RectangularAperture(
         bound_upper = self.bound_upper
         active = self.active
         inverted = self.inverted
-        if self.transform is not None:
-            position = self.transform.inverse(position)
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
 
         shape = na.shape_broadcasted(
             bound_lower, bound_upper, active, inverted, position
@@ -441,6 +441,6 @@ class RectangularAperture(
         result.x = result.x * half_width.x
         result.y = result.y * half_width.y
         result.z = 0 * half_width.length.unit
-        if self.transform is not None:
-            result = self.transform(result)
+        if self.transformation is not None:
+            result = self.transformation(result)
         return result
