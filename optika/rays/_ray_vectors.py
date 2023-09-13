@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TypeVar, Generic
 import abc
 import dataclasses
+import numpy as np
 import named_arrays as na
 
 __all__ = [
@@ -69,6 +70,105 @@ class AbstractRayVectorArray(
     @property
     def explicit(self) -> RayVectorArray:
         return super().explicit
+
+    def __array_matmul__(
+        self,
+        x1: na.ArrayLike,
+        x2: na.ArrayLike,
+        out: tuple[None | na.AbstractExplicitArray] = (None,),
+        **kwargs,
+    ) -> na.AbstractExplicitArray | RayVectorArray:
+        result = super().__array_matmul__(
+            x1=x1,
+            x2=x2,
+            out=out,
+            **kwargs,
+        )
+        if result is not NotImplemented:
+            return result
+
+        if isinstance(x1, AbstractRayVectorArray):
+            if isinstance(x2, na.AbstractCartesian3dMatrixArray):
+                return RayVectorArray(
+                    wavelength=x1.wavelength,
+                    position=x1.position @ x2,
+                    direction=x1.direction @ x2,
+                    intensity=x1.intensity,
+                    attenuation=x1.attenuation,
+                    index_refraction=x1.index_refraction,
+                )
+            else:
+                return NotImplemented
+        elif isinstance(x2, AbstractRayVectorArray):
+            if isinstance(x1, na.AbstractCartesian3dMatrixArray):
+                return RayVectorArray(
+                    wavelength=x2.wavelength,
+                    position=x1 @ x2.position,
+                    direction=x1 @ x2.direction,
+                    intensity=x2.intensity,
+                    attenuation=x2.attenuation,
+                    index_refraction=x2.index_refraction,
+                )
+            else:
+                return NotImplemented
+        else:
+            return NotImplemented
+
+    def __array_add__(
+        self,
+        x1: na.ArrayLike,
+        x2: na.ArrayLike,
+        out: tuple[None | na.AbstractExplicitArray] = (None,),
+        **kwargs,
+    ) -> na.AbstractExplicitArray:
+
+        if isinstance(x1, AbstractRayVectorArray):
+            if isinstance(x2, na.AbstractCartesian3dVectorArray):
+                return RayVectorArray(
+                    wavelength=x1.wavelength,
+                    position=x1.position + x2,
+                    direction=x1.direction,
+                    intensity=x1.intensity,
+                    attenuation=x1.attenuation,
+                    index_refraction=x1.index_refraction,
+                )
+            else:
+                return NotImplemented
+        elif isinstance(x2, AbstractRayVectorArray):
+            if isinstance(x1, na.AbstractCartesian3dVectorArray):
+                return RayVectorArray(
+                    wavelength=x2.wavelength,
+                    position=x1 + x2.position,
+                    direction=x2.direction,
+                    intensity=x2.intensity,
+                    attenuation=x2.attenuation,
+                    index_refraction=x2.index_refraction,
+                )
+            else:
+                return NotImplemented
+        else:
+            return NotImplemented
+
+    def __array_ufunc__(
+            self,
+            function: np.ufunc,
+            method: str,
+            *inputs,
+            **kwargs,
+    ) -> None | RayVectorArray | tuple[RayVectorArray, ...]:
+
+        result = super().__array_ufunc__(
+            function,
+            method,
+            *inputs,
+            **kwargs,
+        )
+        if result is not NotImplemented:
+            return result
+
+        if function is np.add:
+            if method == "__call__":
+                return self.__array_add__(*inputs, **kwargs)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
