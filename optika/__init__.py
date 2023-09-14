@@ -1,3 +1,4 @@
+from . import vectors
 from . import rays
 from . import sags
 from . import materials
