@@ -254,6 +254,7 @@ class Surface(
             na.plt.plot(rays.position, axis="surface", components=components_plot, color="tab:blue");
             mirror.plot(ax=ax, components=components_plot, color="black");
     """
+
     name: None | str = None
     sag: SagT = None
     material: MaterialT = None
