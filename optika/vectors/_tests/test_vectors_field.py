@@ -103,7 +103,7 @@ class AbstractTestAbstractFieldVectorArray(
 
 
 @pytest.mark.parametrize("array", vectors_field)
-class TestRayVectorArray(
+class TestFieldVectorArray(
     AbstractTestAbstractFieldVectorArray,
     test_vectors_cartesian.AbstractTestAbstractExplicitCartesianVectorArray,
 ):
