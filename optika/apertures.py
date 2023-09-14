@@ -115,9 +115,6 @@ class AbstractAperture(
         if sag is not None:
             wire.z = sag(wire)
 
-        if transformation is not None:
-            wire = transformation(wire)
-
         kwargs_plot = self.kwargs_plot
         if kwargs_plot is None:
             kwargs_plot = dict()
@@ -128,6 +125,7 @@ class AbstractAperture(
             wire,
             ax=ax,
             axis="wire",
+            transformation=transformation,
             **kwargs,
         )
 
