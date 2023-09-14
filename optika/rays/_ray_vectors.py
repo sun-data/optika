@@ -3,6 +3,7 @@ from typing import TypeVar, Generic
 import abc
 import dataclasses
 import numpy as np
+import astropy.units as u
 import named_arrays as na
 
 __all__ = [
@@ -179,7 +180,7 @@ class RayVectorArray(
 ):
     direction: DirectionT = 0
     intensity: IntensityT = 0
-    attenuation: AttenuationT = 0
+    attenuation: AttenuationT = 0 / u.mm
     index_refraction: IndexRefractionT = 1
 
     @classmethod
