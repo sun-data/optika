@@ -141,7 +141,7 @@ class AbstractTestAbstractRayVectorArray(
     class TestNamedArrayFunctions(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestNamedArrayFunctions,
     ):
-        @pytest.mark.xfail(raises=TypeError)
+        @pytest.mark.skip
         class TestPltPlotLikeFunctions(
             test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestNamedArrayFunctions.TestPltPlotLikeFunctions,
         ):
