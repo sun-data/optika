@@ -36,9 +36,9 @@ class SceneVectorArray(
 ):
     @classmethod
     def from_scalar(
-            cls,
-            scalar: na.AbstractScalar,
-            like: None | Self = None,
+        cls,
+        scalar: na.AbstractScalar,
+        like: None | Self = None,
     ) -> Self:
         if like is not None:
             return type(like)(

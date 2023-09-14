@@ -16,7 +16,7 @@ vectors_scene = [
             stop=5 * u.mm,
             axis="y",
             num=_num_y,
-        ).explicit
+        ).explicit,
     )
 ]
 
@@ -32,7 +32,6 @@ def _items() -> list[na.AbstractArray | dict[str, int | slice | na.AbstractArray
 class AbstractTestAbstractSceneVectorArray(
     test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray
 ):
-
     @pytest.mark.xfail(raises=NotImplementedError)
     def test_matrix(self, array):
         return super().test_matrix(array=array)
