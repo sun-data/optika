@@ -122,7 +122,6 @@ class AbstractRayVectorArray(
         out: tuple[None | na.AbstractExplicitArray] = (None,),
         **kwargs,
     ) -> na.AbstractExplicitArray:
-
         if isinstance(x1, AbstractRayVectorArray):
             if isinstance(x2, na.AbstractCartesian3dVectorArray):
                 return RayVectorArray(
@@ -151,13 +150,12 @@ class AbstractRayVectorArray(
             return NotImplemented
 
     def __array_ufunc__(
-            self,
-            function: np.ufunc,
-            method: str,
-            *inputs,
-            **kwargs,
+        self,
+        function: np.ufunc,
+        method: str,
+        *inputs,
+        **kwargs,
     ) -> None | RayVectorArray | tuple[RayVectorArray, ...]:
-
         result = super().__array_ufunc__(
             function,
             method,
