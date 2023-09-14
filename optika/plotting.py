@@ -27,7 +27,7 @@ class Plottable(abc.ABC):
         transformation: None | na.transformations.AbstractTransformation = None,
         components: None | tuple[str, ...] = None,
         **kwargs,
-    ) -> na.AbstractScalar:
+    ) -> na.AbstractScalar | dict[str, na.AbstractScalar]:
         """
         Plot the selected components onto the given axes.
 
