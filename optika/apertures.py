@@ -100,6 +100,7 @@ class AbstractAperture(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
         transformation: None | na.transformations.AbstractTransformation = None,
+        components: None | tuple[str, ...] = None,
         sag: None | optika.sags.AbstractSag = None,
         **kwargs,
     ) -> None | na.ScalarArray[npt.NDArray[None | matplotlib.lines.Line2D]]:
@@ -126,6 +127,7 @@ class AbstractAperture(
             ax=ax,
             axis="wire",
             transformation=transformation,
+            components=components,
             **kwargs,
         )
 

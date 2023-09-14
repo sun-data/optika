@@ -25,6 +25,7 @@ class Plottable(abc.ABC):
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
         transformation: None | na.transformations.AbstractTransformation = None,
+        components: None | tuple[str, ...] = None,
         **kwargs,
     ) -> na.AbstractScalar:
         """
@@ -37,6 +38,8 @@ class Plottable(abc.ABC):
         transformation
             Any extra transformations to apply to the coordinate system before
             plotting
+        components
+            Which 3d components to plot, helpful if plotting in 2d.
         kwargs
             Additional keyword arguments that will be passed along to
             :func:`named_arrays.plt.plot()`
