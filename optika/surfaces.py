@@ -113,6 +113,13 @@ class AbstractSurface(
         determining the wavelength range of the system
         """
 
+    @property
+    def is_stop(self) -> bool:
+        """
+        If this surface is any type of stop, field/pupil/spectal, return :obj:`True`.
+        """
+        return self.is_field_stop or self.is_pupil_stop or self.is_spectral_stop
+
     def propagate_rays(
         self,
         rays: optika.rays.RayVectorArray,
