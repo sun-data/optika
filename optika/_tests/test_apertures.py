@@ -58,7 +58,7 @@ class AbstractTestAbstractAperture(
         assert isinstance(result, optika.rays.RayVectorArray)
         assert result is not rays
         assert result.intensity is not rays.intensity
-        assert np.sum(result.intensity) <= np.sum(rays.intensity)
+        assert np.mean(result.intensity) <= np.mean(rays.intensity)
         assert np.all(result.position == rays.position)
         assert np.all(result.direction == rays.direction)
         assert np.all(result.attenuation == rays.attenuation)
