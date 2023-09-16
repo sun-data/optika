@@ -99,7 +99,7 @@ class AbstractSurface(
 
     @property
     @abc.abstractmethod
-    def is_pupil_stop(self) -> bool:
+    def is_aperture_stop(self) -> bool:
         """
         flag controlling whether this surface should act as the pupil stop
         for the system
@@ -118,7 +118,7 @@ class AbstractSurface(
         """
         If this surface is any type of stop, field/pupil/spectal, return :obj:`True`.
         """
-        return self.is_field_stop or self.is_pupil_stop or self.is_spectral_stop
+        return self.is_field_stop or self.is_aperture_stop or self.is_spectral_stop
 
     def propagate_rays(
         self,
@@ -269,7 +269,7 @@ class Surface(
     aperture_mechanical: ApertureMechanicalT = None
     rulings: RulingsT = None
     is_field_stop: bool = False
-    is_pupil_stop: bool = False
+    is_aperture_stop: bool = False
     is_spectral_stop: bool = False
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
