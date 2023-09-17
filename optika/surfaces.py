@@ -151,17 +151,18 @@ class AbstractSurface(
 
         If we want to simulate diffraction off of a ruled surface, we can
         add a term to the right side of Equation :eq:`momentum` representing the
-        dispersion from the rulings
+        dispersion from the rulings:
 
         .. math::
             :label: momentum_modified
 
             n_1 [ \hat{\mathbf{a}} - ( \hat{\mathbf{a}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
             = n_2 [ \hat{\mathbf{b}} - ( \hat{\mathbf{b}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
-            + \frac{m \lambda}{d} [ \hat{\mathbf{g}} - (\hat{\mathbf{g}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+            + \frac{m \lambda_2}{d} [ \hat{\mathbf{g}} - (\hat{\mathbf{g}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}],
 
         where :math:`m` is the diffraction order,
-        :math:`\lambda` is the wavelength,
+        :math:`\lambda_1` is the input wavelength,
+        :math:`\lambda_2 = \lambda_1 n_2 / n_1` is the output wavelength,
         :math:`d` is the ruling spacing,
         and :math:`\hat{\mathbf{g}}` is a unit vector
         normal to the planes of the grooves.
@@ -170,14 +171,14 @@ class AbstractSurface(
 
         .. math::
 
-            \hat{\mathbf{a}}_\text{e} = \hat{\mathbf{a}} - \frac{m \lambda}{d n_1} \hat{\mathbf{g}},
+            \mathbf{a}_\text{e} = \hat{\mathbf{a}} - \frac{m \lambda_2}{d n_1} \hat{\mathbf{g}},
 
         we can rewrite Equation :eq:`momentum_modified` to look like Equation :eq:`momentum`.
 
         .. math::
             :label: momentum_effective
 
-            n_1 [ \hat{\mathbf{a}}_\text{e} - ( \hat{\mathbf{a}}_\text{e} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+            n_1 [ \mathbf{a}_\text{e} - ( \mathbf{a}_\text{e} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
             = n_2 [ \hat{\mathbf{b}} - ( \hat{\mathbf{b}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
 
         Our goal now is to solve Equation :eq:`momentum_effective` for
@@ -190,25 +191,37 @@ class AbstractSurface(
 
             \hat{\mathbf{b}} \cdot \hat{\mathbf{n}} = \pm \sqrt{1 - |\hat{\mathbf{b}} \times \hat{\mathbf{n}}|^2},
 
-        where the :math:`\pm` represents a reflection or transmission, and the
+        where the :math:`\pm` represents a transmission or reflection, and the
         cross product :math:`\hat{\mathbf{b}} \times \hat{\mathbf{n}}` can be found by crossing
-        Equation :eq:`momentum_effective` with :math:`\hat{\mathbf{n}}`, which leads to:
+        Equation :eq:`momentum_effective` with :math:`\hat{\mathbf{n}}`,
 
         .. math::
             :label: b_cross_n
 
             \hat{\mathbf{b}} \times \hat{\mathbf{n}}
-            = \frac{n_1}{n_2} \hat{\mathbf{a}}_\text{e} \times \hat{\mathbf{n}}.
+            = \frac{n_1}{n_2} \mathbf{a}_\text{e} \times \hat{\mathbf{n}},
 
-        By combining Equations :eq:`momentum_effective`, :eq:`b_dot_n`, and :eq:`b_cross_n`
+        which leads to Equation :eq:`b_dot_n` becoming:
+
+        .. math::
+            :label: b_dot_n_expanded
+
+            \hat{\mathbf{b}} \cdot \hat{\mathbf{n}}
+            &= \pm \sqrt{1 - \left( \frac{n_1}{n_2} \right)^2 |\mathbf{a}_\text{e} \times \hat{\mathbf{n}}|^2} \\
+            &= \mp \frac{n_1}{n_2} \sqrt{a_\text{e}^2 - (\mathbf{a}_\text{e} \cdot \hat{\mathbf{n}})^2 - \left( n_2 / n_1 \right)^2 }
+
+        By plugging Equation :eq:`b_dot_n_expanded` into Equation :eq:`momentum_effective`,
         and solving for :math:`\hat{\mathbf{b}}`, we get an expression for the output ray
         in terms of the input ray and other known quantities.
 
         .. math::
 
             \hat{\mathbf{b}}
-            = \frac{n_1}{n_2} [ \hat{\mathbf{a}}_\text{e} - ( \hat{\mathbf{a}}_\text{e} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
-            \pm \sqrt{1 - \left| \frac{n_1}{n_2} \hat{\mathbf{a}}_\text{e} \times \hat{\mathbf{n}} \right|^2} \hat{\mathbf{n}}
+            = \frac{n_1}{n_2} \left[ \mathbf{a}_\text{e}
+            - \left(
+                \left( \mathbf{a}_\text{e} \cdot \hat{\mathbf{n}} \right)
+                \pm \sqrt{a_\text{e}^2 - (\mathbf{a}_\text{e} \cdot \hat{\mathbf{n}})^2 - \left( n_2 / n_1 \right)^2  }
+            \right) \hat{\mathbf{n}} \right]
         """
         sag = self.sag
         material = self.material
