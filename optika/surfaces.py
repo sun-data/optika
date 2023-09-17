@@ -125,6 +125,91 @@ class AbstractSurface(
         rays: optika.rays.RayVectorArray,
         # material: None | optika.materials.AbstractMaterial = None,
     ) -> optika.rays.RayVectorArray:
+        r"""
+        Refract, reflect, and/or diffract the given rays off of this surface
+
+        Parameters
+        ----------
+        rays
+            a set of input rays that will interact with this surface
+
+        Notes
+        -----
+        When a light ray is reflected or refracted by a surface, the transverse
+        momentum is conserved. This can be expressed as
+
+        .. math::
+            :label: momentum
+
+            n_1 [ \hat{\mathbf{a}} - ( \hat{\mathbf{a}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+            = n_2 [ \hat{\mathbf{b}} - ( \hat{\mathbf{b}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}],
+
+        where :math:`n_1`/:math:`n_2` is the old/new index of refraction,
+        :math:`\hat{\mathbf{a}}`/:math:`\hat{\mathbf{b}}` is the normalized
+        input/output ray, and :math:`\hat{\mathbf{n}}` is the unit vector normal
+        to the surface.
+
+        If we want to simulate diffraction off of a ruled surface, we can
+        add a term to the right side of Equation :eq:`momentum` representing the
+        dispersion from the rulings
+
+        .. math::
+            :label: momentum_modified
+
+            n_1 [ \hat{\mathbf{a}} - ( \hat{\mathbf{a}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+            = n_2 [ \hat{\mathbf{b}} - ( \hat{\mathbf{b}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+            + \frac{m \lambda}{d} [ \hat{\mathbf{g}} - (\hat{\mathbf{g}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+
+        where :math:`m` is the diffraction order,
+        :math:`\lambda` is the wavelength,
+        :math:`d` is the ruling spacing,
+        and :math:`\hat{\mathbf{g}}` is a unit vector
+        normal to the planes of the grooves.
+
+        If we define an effective input vector,
+
+        .. math::
+
+            \hat{\mathbf{a}}_\text{e} = \hat{\mathbf{a}} - \frac{m \lambda}{d n_1} \hat{\mathbf{g}},
+
+        we can rewrite Equation :eq:`momentum_modified` to look like Equation :eq:`momentum`.
+
+        .. math::
+            :label: momentum_effective
+
+            n_1 [ \hat{\mathbf{a}}_\text{e} - ( \hat{\mathbf{a}}_\text{e} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+            = n_2 [ \hat{\mathbf{b}} - ( \hat{\mathbf{b}} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+
+        Our goal now is to solve Equation :eq:`momentum_effective` for
+        the output ray, :math:`\hat{\mathbf{b}}`, and the only unknown is the component of the output ray
+        parallel to the normal vector, :math:`(\hat{\mathbf{b}} \cdot \hat{\mathbf{n}} )`.
+        We can write this in terms of a cross product by using the normalization condition,
+
+        .. math::
+            :label: b_dot_n
+
+            \hat{\mathbf{b}} \cdot \hat{\mathbf{n}} = \pm \sqrt{1 - |\hat{\mathbf{b}} \times \hat{\mathbf{n}}|^2},
+
+        where the :math:`\pm` represents a reflection or transmission, and the
+        cross product :math:`\hat{\mathbf{b}} \times \hat{\mathbf{n}}` can be found by crossing
+        Equation :eq:`momentum_effective` with :math:`\hat{\mathbf{n}}`, which leads to:
+
+        .. math::
+            :label: b_cross_n
+
+            \hat{\mathbf{b}} \times \hat{\mathbf{n}}
+            = \frac{n_1}{n_2} \hat{\mathbf{a}}_\text{e} \times \hat{\mathbf{n}}.
+
+        By combining Equations :eq:`momentum_effective`, :eq:`b_dot_n`, and :eq:`b_cross_n`
+        and solving for :math:`\hat{\mathbf{b}}`, we get an expression for the output ray
+        in terms of the input ray and other known quantities.
+
+        .. math::
+
+            \hat{\mathbf{b}}
+            = \frac{n_1}{n_2} [ \hat{\mathbf{a}}_\text{e} - ( \hat{\mathbf{a}}_\text{e} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}]
+            \pm \sqrt{1 - \left| \frac{n_1}{n_2} \hat{\mathbf{a}}_\text{e} \times \hat{\mathbf{n}} \right|^2} \hat{\mathbf{n}}
+        """
         sag = self.sag
         material = self.material
         aperture = self.aperture
