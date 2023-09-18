@@ -10,7 +10,6 @@ import optika.rays._tests.test_ray_vectors
 class AbstractTestAbstractMaterial(
     optika._tests.test_mixins.AbstractTestTransformable,
 ):
-
     def test_is_mirror(self, a: optika.materials.AbstractMaterial):
         assert isinstance(a.is_mirror, bool)
 
