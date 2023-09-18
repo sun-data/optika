@@ -239,7 +239,7 @@ class AbstractSurface(
         position_1 = rays_1.position
         a = rays_1.direction
         attenuation_1 = rays_1.attenuation
-        displacement = (position_1 - rays.position)
+        displacement = position_1 - rays.position
         intensity_1 = rays_1.intensity * attenuation_1 * displacement.length
         n1 = rays_1.index_refraction
 
