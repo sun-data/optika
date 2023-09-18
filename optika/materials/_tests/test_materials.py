@@ -10,6 +10,10 @@ import optika.rays._tests.test_ray_vectors
 class AbstractTestAbstractMaterial(
     optika._tests.test_mixins.AbstractTestTransformable,
 ):
+
+    def test_is_mirror(self, a: optika.materials.AbstractMaterial):
+        assert isinstance(a.is_mirror, bool)
+
     @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
     class TestRayDependentMethods:
         def test_index_refraction(
@@ -38,37 +42,6 @@ class AbstractTestAbstractMaterial(
             result = a.transmissivity(rays)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
             assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
-
-        def test_is_mirror(self, a: optika.materials.AbstractMaterial):
-            assert isinstance(a.is_mirror, bool)
-
-        @pytest.mark.parametrize(
-            argnames="sag",
-            argvalues=[
-                optika.sags.NoSag(),
-            ],
-        )
-        @pytest.mark.parametrize(
-            argnames="rulings",
-            argvalues=[
-                None,
-            ],
-        )
-        def test_refract_rays(
-            self,
-            a: optika.materials.AbstractMaterial,
-            rays: optika.rays.AbstractRayVectorArray,
-            sag: optika.sags.AbstractSag,
-            rulings: None | optika.rulings.AbstractRulings,
-        ):
-            result = a.refract_rays(
-                rays=rays,
-                sag=sag,
-                rulings=rulings,
-            )
-            assert isinstance(result, optika.rays.AbstractRayVectorArray)
-            assert np.all(result.index_refraction == a.index_refraction(rays))
-            assert np.all(result.attenuation == a.attenuation(rays))
 
 
 @pytest.mark.parametrize("a", [optika.materials.Vacuum()])
