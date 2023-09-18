@@ -67,40 +67,6 @@ class AbstractMaterial(
         flag controlling whether this material reflects or transmits light
         """
 
-    def refract_rays(
-        self,
-        rays: optika.rays.AbstractRayVectorArray,
-        sag: optika.sags.AbstractSag,
-        rulings: None | optika.rulings.AbstractRulings,
-    ) -> optika.rays.RayVectorArray:
-        rays_input = rays
-
-        rays = sag.intercept(rays)
-
-        distance = (rays.position - rays_input.position).length
-        depth = rays.attenuation * distance
-        rays.intensity = rays.intensity * depth * self.transmissivity(rays)
-
-        n2 = self.index_refraction(rays)
-        k2 = self.attenuation(rays)
-
-        if rulings is not None:
-            rays = rulings.rays_apparent(rays, index_refraction=n2)
-
-        a = rays.direction
-        n1 = rays.index_refraction
-        normal = sag.normal(rays.position)
-
-        r = n1 / n2
-        c = -a @ normal
-        b = r * a + (r * c - np.sqrt(1 - np.square(r) * (1 - np.square(c)))) * normal
-
-        rays.direction = b / b.length
-        rays.index_refraction = n2
-        rays.attenuation = k2
-
-        return rays
-
 
 @dataclasses.dataclass(eq=False, repr=False)
 class Vacuum(

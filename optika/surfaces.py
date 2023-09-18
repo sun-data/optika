@@ -1,6 +1,7 @@
 from typing import TypeVar, Generic
 import abc
 import dataclasses
+import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
 import named_arrays as na
@@ -208,19 +209,19 @@ class AbstractSurface(
 
             \hat{\mathbf{b}} \cdot \hat{\mathbf{n}}
             &= \pm \sqrt{1 - \left( \frac{n_1}{n_2} \right)^2 |\mathbf{a}_\text{e} \times \hat{\mathbf{n}}|^2} \\
-            &= \mp \frac{n_1}{n_2} \sqrt{a_\text{e}^2 - (\mathbf{a}_\text{e} \cdot \hat{\mathbf{n}})^2 - \left( n_2 / n_1 \right)^2 }
+            &= \pm \frac{n_1}{n_2} \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{a}_\text{e} \cdot \hat{\mathbf{n}})^2 - a_\text{e}^2 }
 
         By plugging Equation :eq:`b_dot_n_expanded` into Equation :eq:`momentum_effective`,
-        and solving for :math:`\hat{\mathbf{b}}`, we get an expression for the output ray
+        and solving for :math:`\hat{\mathbf{b}}`, we achieve our goal, an expression for the output ray
         in terms of the input ray and other known quantities.
 
         .. math::
 
             \hat{\mathbf{b}}
             = \frac{n_1}{n_2} \left[ \mathbf{a}_\text{e}
-            - \left(
-                \left( \mathbf{a}_\text{e} \cdot \hat{\mathbf{n}} \right)
-                \pm \sqrt{a_\text{e}^2 - (\mathbf{a}_\text{e} \cdot \hat{\mathbf{n}})^2 - \left( n_2 / n_1 \right)^2  }
+            + \left(
+                \left( -\mathbf{a}_\text{e} \cdot \hat{\mathbf{n}} \right)
+                \pm \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{a}_\text{e} \cdot \hat{\mathbf{n}})^2 - a_\text{e}^2 }
             \right) \hat{\mathbf{n}} \right]
         """
         sag = self.sag
@@ -232,19 +233,55 @@ class AbstractSurface(
         if transformation is not None:
             rays = transformation.inverse(rays)
 
-        rays = material.refract_rays(
-            rays=rays,
-            sag=sag,
-            rulings=rulings,
+        rays_1 = sag.intercept(rays)
+
+        wavelength_1 = rays_1.wavelength
+        position_1 = rays_1.position
+        a = rays_1.direction
+        attenuation_1 = rays_1.attenuation
+        displacement = (position_1 - rays.position)
+        intensity_1 = rays_1.intensity * attenuation_1 * displacement.length
+        n1 = rays_1.index_refraction
+
+        position_2 = position_1
+        n2 = material.index_refraction(rays_1)
+        mirror = 2 * material.is_mirror - 1
+        r = n1 / n2
+
+        wavelength_2 = wavelength_1 / r
+
+        if rulings is not None:
+            m = rulings.diffraction_order
+            d = rulings.spacing(position_1)
+            g = rulings.normal(position_1)
+            a = a - (m * wavelength_2 * g) / (n1 * d)
+
+        normal = sag.normal(position_1)
+
+        c = -a @ normal
+
+        t = np.sqrt(np.square(1 / r) + np.square(c) - np.square(a.length))
+        b = r * (a + (c + mirror * t) * normal)
+
+        intensity_2 = intensity_1 * material.transmissivity(rays_1)
+        attenuation_2 = material.attenuation(rays_1)
+
+        rays_2 = optika.rays.RayVectorArray(
+            wavelength=wavelength_2,
+            position=position_2,
+            direction=b,
+            intensity=intensity_2,
+            attenuation=attenuation_2,
+            index_refraction=n2,
         )
 
         if aperture is not None:
-            rays = aperture.clip_rays(rays)
+            rays_2 = aperture.clip_rays(rays_2)
 
         if transformation is not None:
-            rays = transformation(rays)
+            rays_2 = transformation(rays_2)
 
-        return rays
+        return rays_2
 
     def plot(
         self,
