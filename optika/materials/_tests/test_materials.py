@@ -39,6 +39,9 @@ class AbstractTestAbstractMaterial(
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
             assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
 
+        def test_is_mirror(self, a: optika.materials.AbstractMaterial):
+            assert isinstance(a.is_mirror, bool)
+
         @pytest.mark.parametrize(
             argnames="sag",
             argvalues=[

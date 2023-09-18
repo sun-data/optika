@@ -60,6 +60,13 @@ class AbstractMaterial(
             the input rays to calculate the transmissivity for
         """
 
+    @property
+    @abc.abstractmethod
+    def is_mirror(self) -> bool:
+        """
+        flag controlling whether this material reflects or transmits light
+        """
+
     def refract_rays(
         self,
         rays: optika.rays.AbstractRayVectorArray,
@@ -121,6 +128,10 @@ class Vacuum(
     ) -> na.ScalarLike:
         return 1
 
+    @property
+    def is_mirror(self) -> bool:
+        return False
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class Mirror(
@@ -134,7 +145,7 @@ class Mirror(
         self,
         rays: optika.rays.RayVectorArray,
     ) -> na.ScalarLike:
-        return -rays.index_refraction
+        return rays.index_refraction
 
     def attenuation(
         self,
@@ -147,3 +158,7 @@ class Mirror(
         rays: optika.rays.RayVectorArray,
     ) -> na.ScalarLike:
         return 1
+
+    @property
+    def is_mirror(self) -> bool:
+        return True
