@@ -308,7 +308,6 @@ class AbstractPolygonalAperture(
         wire = []
         num_cumulative = 0
         for v in range(num_vertices):
-
             num_v = int((v + 1) * num_per_side - num_cumulative)
             num_cumulative += num_v
 
