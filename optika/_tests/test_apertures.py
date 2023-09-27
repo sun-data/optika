@@ -23,9 +23,9 @@ class AbstractTestAbstractAperture(
     test_plotting.AbstractTestPlottable,
     test_mixins.AbstractTestTransformable,
 ):
-    def test_samples_per_side(self, a: optika.apertures.AbstractAperture):
-        assert isinstance(a.samples_per_side, int)
-        assert a.samples_per_side > 0
+    def test_samples_wire(self, a: optika.apertures.AbstractAperture):
+        assert isinstance(a.samples_wire, int)
+        assert a.samples_wire > 0
 
     def test_active(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.active, (bool, na.AbstractScalar))
@@ -78,8 +78,10 @@ class AbstractTestAbstractAperture(
             assert "vertex" in a.vertices.shape
 
     def test_wire(self, a: optika.apertures.AbstractAperture):
-        assert isinstance(a.wire, na.AbstractCartesian3dVectorArray)
-        assert "wire" in a.wire.shape
+        wire = a.wire()
+        assert isinstance(wire, na.AbstractCartesian3dVectorArray)
+        assert "wire" in wire.shape
+        assert wire.shape["wire"] == a.samples_wire
 
 
 radius_parameterization = [
@@ -94,7 +96,7 @@ radius_parameterization = [
     argvalues=[
         optika.apertures.CircularAperture(
             radius=radius,
-            samples_per_side=3,
+            samples_wire=21,
             active=active,
             inverted=inverted,
             transformation=transformation,
@@ -134,7 +136,7 @@ half_width_parameterization = [
     argvalues=[
         optika.apertures.RectangularAperture(
             half_width=half_width,
-            samples_per_side=3,
+            samples_wire=21,
             active=active,
             inverted=inverted,
             transformation=transformation,

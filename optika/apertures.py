@@ -24,9 +24,9 @@ class AbstractAperture(
 ):
     @property
     @abc.abstractmethod
-    def samples_per_side(self):
+    def samples_wire(self):
         """
-        number of samples per side of the polygon representing the aperture
+        default number of samples used for :meth:`wire`
         """
 
     @property
@@ -89,11 +89,16 @@ class AbstractAperture(
         The vertices of the polygon representing this aperture
         """
 
-    @property
     @abc.abstractmethod
-    def wire(self) -> na.AbstractCartesian3dVectorArray:
+    def wire(self, num: None | int = None) -> na.AbstractCartesian3dVectorArray:
         """
         The sequence of points representing this aperture
+
+        Parameters
+        ----------
+        num
+            The total number of samples that will be used to represent this
+            wire.
         """
 
     def plot(
@@ -108,7 +113,7 @@ class AbstractAperture(
             ax = plt.gca()
         ax = na.as_named_array(ax)
 
-        wire = self.wire.explicit
+        wire = self.wire().explicit
 
         if not wire.length.unit_normalized.is_equivalent(u.mm):
             return None
@@ -158,7 +163,7 @@ class CircularAperture(
         with astropy.visualization.quantity_support():
             plt.figure()
             plt.gca().set_aspect("equal")
-            aperture.plot(color="black")
+            aperture.plot(components=("x", "y"), color="black")
 
     |
 
@@ -177,7 +182,7 @@ class CircularAperture(
             y=diameter * np.sin(angle),
         )
         displacement = np.concatenate([
-            na.Cartesian3dVectorArray() * u.mm,
+            na.Cartesian3dVectorArray().add_axes("segment") * u.mm,
             displacement
         ], axis="segment")
 
@@ -189,13 +194,13 @@ class CircularAperture(
         with astropy.visualization.quantity_support():
             plt.figure()
             plt.gca().set_aspect("equal")
-            aperture.plot(color="black")
+            aperture.plot(components=("x", "y"), color="black")
     """
 
     radius: u.Quantity | na.AbstractScalar = 0 * u.mm
     """the radius of the aperture"""
 
-    samples_per_side: int = 101
+    samples_wire: int = 101
     active: bool | na.AbstractScalar = True
     inverted: bool | na.AbstractScalar = False
     transformation: None | na.transformations.AbstractTransformation = None
@@ -253,13 +258,14 @@ class CircularAperture(
     def vertices(self) -> None:
         return None
 
-    @property
-    def wire(self) -> na.Cartesian3dVectorArray:
+    def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
+        if num is None:
+            num = self.samples_wire
         az = na.linspace(
             start=0 * u.deg,
             stop=360 * u.deg,
             axis="wire",
-            num=self.samples_per_side,
+            num=num,
         )
         result = na.Cartesian3dVectorArray(
             x=self.radius * np.cos(az),
@@ -287,23 +293,45 @@ class AbstractPolygonalAperture(
     def bound_upper(self) -> na.AbstractCartesian3dVectorArray:
         return self.vertices.max(axis="vertex")
 
-    @property
-    def wire(self) -> na.Cartesian3dVectorArray:
+    def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
+        if num is None:
+            num = self.samples_wire
         vertices = self.vertices.broadcasted
         num_vertices = vertices.shape["vertex"]
-        ind_rolled = dict(vertex=na.arange(0, num_vertices, axis="vertex") - 1)
-        vertices_left = vertices[ind_rolled]
-        vertices_right = vertices
-        diff = vertices_right - vertices_left
-        t = na.linspace(
-            start=0,
-            stop=1,
-            axis="wire",
-            num=self.samples_per_side,
-            endpoint=False,
-        )
-        wire = vertices_left + diff * t
-        wire = wire.combine_axes(axes=("vertex", "wire"), axis_new="wire")
+        num_sides = num_vertices
+        num_per_side = num / num_sides
+        index_right = na.arange(0, num_vertices, axis="vertex") + 1
+        index_right = index_right % num_vertices
+        index_right = dict(vertex=index_right)
+        vertices_left = vertices
+        vertices_right = vertices[index_right]
+        wire = []
+        num_cumulative = 0
+        for v in range(num_vertices):
+
+            num_v = int((v + 1) * num_per_side - num_cumulative)
+            num_cumulative += num_v
+
+            if num_cumulative == num:
+                endpoint = True
+            else:
+                endpoint = False
+
+            t = na.linspace(
+                start=0,
+                stop=1,
+                axis="wire",
+                num=num_v,
+                endpoint=endpoint,
+            )
+            vertex_left = vertices_left[dict(vertex=v)]
+            vertex_right = vertices_right[dict(vertex=v)]
+            diff = vertex_right - vertex_left
+            wire_v = vertex_left + diff * t
+            wire.append(wire_v)
+
+        wire = na.concatenate(wire, axis="wire")
+
         return wire
 
 
@@ -334,7 +362,7 @@ class RectangularAperture(
         with astropy.visualization.quantity_support():
             plt.figure()
             plt.gca().set_aspect("equal")
-            aperture.plot(color="black")
+            aperture.plot(components=("x", "y"), color="black")
 
     |
 
@@ -374,13 +402,13 @@ class RectangularAperture(
         with astropy.visualization.quantity_support():
             plt.figure()
             plt.gca().set_aspect("equal")
-            aperture.plot(color="black")
+            aperture.plot(components=("x", "y"), color="black")
     """
 
     half_width: u.Quantity | na.AbstractScalar | na.Cartesian2dVectorArray = 0 * u.mm
     """distance from the origin to a perpendicular edge"""
 
-    samples_per_side: int = 101
+    samples_wire: int = 101
     active: bool | na.AbstractScalar = True
     inverted: bool | na.AbstractScalar = False
     transformation: None | na.transformations.AbstractTransformation = None
