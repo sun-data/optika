@@ -136,8 +136,22 @@ class AbstractSurface(
 
         Notes
         -----
-        When a light ray is reflected or refracted by a surface, the transverse
-        momentum is conserved. This can be expressed as
+        When a light ray is reflected or refracted by an interface, the
+        transverse components of the wavevector, :math:`\mathbf{k}` must be
+        conserved to satisfy the boundary conditions.
+        This can be expressed as:
+
+        .. math::
+            :label: wavevector
+
+            \mathbf{k}_1 - ( \mathbf{k}_1 \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}}
+            = \mathbf{k}_2 - ( \mathbf{k}_2 \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}},
+
+        where :math:`\mathbf{k}_1`/:math:`\mathbf{k}_2` is the old/new wavevector,
+        and :math:`\hat{\mathbf{n}}` is the unit vector normal to the surface.
+
+        If we take :math:`\mathbf{k}_1 = n_1 k_0 \hat{\mathbf{a}}` and
+        :math:`\mathbf{k}_2 = n_2 k_0 \hat{\mathbf{b}}`, Equation :eq:`wavevector` becomes:
 
         .. math::
             :label: momentum
