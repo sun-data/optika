@@ -108,7 +108,7 @@ class NoSag(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
-        return na.Cartesian3dVectorArray(0, 0, 1)
+        return na.Cartesian3dVectorArray(0, 0, -1)
 
 
 @dataclasses.dataclass
