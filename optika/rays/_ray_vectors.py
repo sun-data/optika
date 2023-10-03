@@ -177,7 +177,7 @@ class RayVectorArray(
     Generic[IntensityT, PositionT, DirectionT, WavelengthT, IndexRefractionT],
 ):
     direction: DirectionT = 0
-    intensity: IntensityT = 0
+    intensity: IntensityT = 1
     attenuation: AttenuationT = 0 / u.mm
     index_refraction: IndexRefractionT = 1
 
