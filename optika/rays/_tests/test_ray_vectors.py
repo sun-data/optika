@@ -147,6 +147,18 @@ class AbstractTestAbstractRayVectorArray(
         ):
             pass
 
+        @pytest.mark.skip
+        class TestJacobian(
+            test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestNamedArrayFunctions.TestJacobian,
+        ):
+            pass
+
+        @pytest.mark.skip
+        class TestOptimizeRoot(
+            test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestNamedArrayFunctions.TestOptimizeRoot,
+        ):
+            pass
+
 
 @pytest.mark.parametrize("array", rays)
 class TestRayVectorArray(

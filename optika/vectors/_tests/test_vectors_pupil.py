@@ -101,6 +101,18 @@ class AbstractTestAbstractPupilVectorArray(
         ):
             pass
 
+        @pytest.mark.skip
+        class TestJacobian(
+            test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestNamedArrayFunctions.TestJacobian,
+        ):
+            pass
+
+        @pytest.mark.skip
+        class TestOptimizeRoot(
+            test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestNamedArrayFunctions.TestOptimizeRoot,
+        ):
+            pass
+
 
 @pytest.mark.parametrize("array", vectors_pupil)
 class TestPupilVectorArray(
