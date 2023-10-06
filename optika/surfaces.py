@@ -325,7 +325,6 @@ class AbstractSurface(
 
         position_2 = position_1
         n2 = material.index_refraction(rays_1)
-        mirror = 2 * material.is_mirror - 1
         r = n1 / n2
 
         wavelength_2 = wavelength_1 / r
@@ -339,6 +338,8 @@ class AbstractSurface(
         normal = sag.normal(position_1)
 
         c = -a @ normal
+
+        mirror = np.sign(c) * (2 * material.is_mirror - 1)
 
         t = np.sqrt(np.square(1 / r) + np.square(c) - np.square(a.length))
         b = r * (a + (c + mirror * t) * normal)
