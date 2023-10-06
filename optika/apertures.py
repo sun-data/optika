@@ -63,7 +63,13 @@ class AbstractAperture(
         """
 
     def clip_rays(self, rays: optika.rays.RayVectorArray):
-        mask = self(rays.position)
+        unit = na.unit(self.bound_lower)
+        if unit.is_equivalent(u.mm):
+            mask = self(rays.position)
+        elif unit.is_equivalent(u.dimensionless_unscaled):
+            mask = self(rays.direction)
+        else:
+            raise ValueError(f"aperture with unit {unit} is not supported")
         rays = rays.copy_shallow()
         rays.intensity = rays.intensity * mask
         return rays
@@ -267,10 +273,11 @@ class CircularAperture(
             axis="wire",
             num=num,
         )
+        unit_radius = na.unit(self.radius)
         result = na.Cartesian3dVectorArray(
             x=self.radius * np.cos(az),
             y=self.radius * np.sin(az),
-            z=0 * self.radius.unit,
+            z=0 * unit_radius if unit_radius is not None else 0,
         )
         if self.transformation is not None:
             result = self.transformation(result)
