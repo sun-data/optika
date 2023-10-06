@@ -180,6 +180,23 @@ class TestConicSag(
 @pytest.mark.parametrize(
     argnames="sag",
     argvalues=[
+        optika.sags.ParabolicSag(
+            radius=radius,
+            transformation=transformation,
+        )
+        for radius in radius_parameterization()
+        for transformation in test_mixins.transformation_parameterization
+    ],
+)
+class TestParabolicSag(
+    AbstractTestAbstractConicSag,
+):
+    pass
+
+
+@pytest.mark.parametrize(
+    argnames="sag",
+    argvalues=[
         optika.sags.ToroidalSag(
             radius=radius,
             radius_of_rotation=2 * radius_of_rotation,
