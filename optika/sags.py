@@ -10,6 +10,7 @@ __all__ = [
     "AbstractSag",
     "NoSag",
     "SphericalSag",
+    "AbstractConicSag",
     "ConicSag",
     "ToroidalSag",
 ]
