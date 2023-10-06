@@ -371,7 +371,7 @@ class ConicSag(
 
 @dataclasses.dataclass
 class ParabolicSag(
-    AbstractConicSag[RadiusT, int]
+    AbstractConicSag[RadiusT, int],
 ):
     radius: RadiusT = np.inf * u.mm
     transformation: None | na.transformations.AbstractTransformation = None
