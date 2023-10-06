@@ -239,9 +239,70 @@ class SphericalSag(
 
 
 @dataclasses.dataclass
-class ConicSag(
-    AbstractSphericalSag[RadiusT],
+class AbstractConicSag(
+    AbstractSag,
     Generic[RadiusT, ConicT],
+):
+    @property
+    @abc.abstractmethod
+    def radius(self) -> RadiusT:
+        """the effective radius of the conic section"""
+
+    @property
+    @abc.abstractmethod
+    def conic(self) -> ConicT:
+        """conic constant of the conic section"""
+
+    def __call__(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        c = 1 / self.radius
+        conic = self.conic
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
+
+        shape = na.shape_broadcasted(c, conic, position)
+        c = na.broadcast_to(c, shape)
+        conic = na.broadcast_to(conic, shape)
+        position = na.broadcast_to(position, shape)
+
+        r2 = np.square(position.x) + np.square(position.y)
+        sz = c * r2 / (1 + np.sqrt(1 - (1 + conic) * np.square(c) * r2))
+        return sz
+
+    def normal(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractCartesian3dVectorArray:
+        c = 1 / self.radius
+        conic = self.conic
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
+
+        shape = na.shape_broadcasted(c, conic, position)
+        c = na.broadcast_to(c, shape)
+        conic = na.broadcast_to(conic, shape)
+        position = na.broadcast_to(position, shape)
+
+        x2 = np.square(position.x)
+        y2 = np.square(position.y)
+        c2 = np.square(c)
+        g = np.sqrt(1 - (1 + conic) * c2 * (x2 + y2))
+        dzdx, dzdy = c * position.x / g, c * position.y / g
+        result = na.Cartesian3dVectorArray(
+            x=dzdx,
+            y=dzdy,
+            z=-1 * u.dimensionless_unscaled,
+        )
+        return result / result.length
+
+
+@dataclasses.dataclass
+class ConicSag(
+    AbstractConicSag[RadiusT, ConicT],
 ):
     r"""
     Surface of revolution of a conic section
@@ -302,57 +363,10 @@ class ConicSag(
             na.plt.plot(position.x, z, axis="x", label=sag.conic)
             plt.legend(title="conic constant")
     """
-
     radius: RadiusT = np.inf * u.mm
     conic: ConicT = 0 * u.dimensionless_unscaled
     """the conic constant of the conic section"""
     transformation: None | na.transformations.AbstractTransformation = None
-
-    def __call__(
-        self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractScalar:
-        c = self.curvature
-        conic = self.conic
-        transformation = self.transformation
-        if transformation is not None:
-            position = transformation.inverse(position)
-
-        shape = na.shape_broadcasted(c, conic, position)
-        c = na.broadcast_to(c, shape)
-        conic = na.broadcast_to(conic, shape)
-        position = na.broadcast_to(position, shape)
-
-        r2 = np.square(position.x) + np.square(position.y)
-        sz = c * r2 / (1 + np.sqrt(1 - (1 + conic) * np.square(c) * r2))
-        return sz
-
-    def normal(
-        self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractCartesian3dVectorArray:
-        c = self.curvature
-        conic = self.conic
-        transformation = self.transformation
-        if transformation is not None:
-            position = transformation.inverse(position)
-
-        shape = na.shape_broadcasted(c, conic, position)
-        c = na.broadcast_to(c, shape)
-        conic = na.broadcast_to(conic, shape)
-        position = na.broadcast_to(position, shape)
-
-        x2 = np.square(position.x)
-        y2 = np.square(position.y)
-        c2 = np.square(c)
-        g = np.sqrt(1 - (1 + conic) * c2 * (x2 + y2))
-        dzdx, dzdy = c * position.x / g, c * position.y / g
-        result = na.Cartesian3dVectorArray(
-            x=dzdx,
-            y=dzdy,
-            z=-1 * u.dimensionless_unscaled,
-        )
-        return result / result.length
 
 
 @dataclasses.dataclass

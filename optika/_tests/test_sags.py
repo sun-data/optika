@@ -130,6 +130,18 @@ class TestSphericalSag(
     pass
 
 
+class AbstractTestAbstractConicSag(
+    AbstractTestAbstractSag,
+):
+    def test_radius(self, sag: optika.sags):
+        assert isinstance(na.as_named_array(sag.radius), na.ScalarLike)
+        assert na.unit_normalized(sag.radius).is_equivalent(u.mm)
+
+    def test_conic(self, sag: optika.sags):
+        assert isinstance(na.as_named_array(sag.conic), na.ScalarLike)
+        assert na.unit_normalized(sag.conic).is_equivalent(u.dimensionless_unscaled)
+
+
 def conic_parameterization() -> list[u.Quantity | na.AbstractScalar]:
     nominals = [
         0 * u.dimensionless_unscaled,
@@ -160,7 +172,7 @@ def conic_parameterization() -> list[u.Quantity | na.AbstractScalar]:
     ],
 )
 class TestConicSag(
-    AbstractTestAbstractSphericalSag,
+    AbstractTestAbstractConicSag,
 ):
     pass
 
