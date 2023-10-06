@@ -107,7 +107,6 @@ class AbstractTestAbstractAperture(
                 )
 
 
-
 radius_parameterization = [
     0.5,
     100 * u.mm,
