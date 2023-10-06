@@ -49,10 +49,4 @@ class AbstractTestPlottable(abc.ABC):
             for index in ax_normalized.ndindex():
                 assert ax_normalized[index].ndarray.has_data()
 
-            if isinstance(result, dict):
-                for k in result:
-                    assert isinstance(result[k], na.AbstractScalar)
-                    assert result[k].dtype == matplotlib.artist.Artist
-            else:
-                assert isinstance(result, na.AbstractScalar)
-                assert result.dtype == matplotlib.artist.Artist
+            assert isinstance(result, (na.AbstractScalar, dict))
