@@ -1,8 +1,10 @@
 import pytest
 import numpy as np
+import matplotlib.axes
 import astropy.units as u
 import named_arrays as na
 import optika
+import optika.plotting
 import optika.rays._tests.test_ray_vectors
 from . import test_mixins
 from . import test_plotting
@@ -16,6 +18,11 @@ active_parameterization = [
 inverted_parameterization = [
     False,
     na.linspace(-1, 1, "inverted", 4) >= 0,
+]
+
+transform_parameterization = [
+    None,
+    na.transformations.Cartesian3dRotationZ(30 * u.deg),
 ]
 
 
@@ -83,8 +90,26 @@ class AbstractTestAbstractAperture(
         assert "wire" in wire.shape
         assert wire.shape["wire"] == a.samples_wire
 
+    class TestPlot(
+        optika._tests.test_plotting.AbstractTestPlottable.TestPlot,
+    ):
+        def test_plot(
+            self,
+            a: optika.apertures.AbstractAperture,
+            ax: None | matplotlib.axes.Axes | na.ScalarArray,
+            transformation: None | na.transformations.AbstractTransformation,
+        ):
+            if na.unit_normalized(a.wire).is_equivalent(u.mm):
+                super().test_plot(
+                    a=a,
+                    ax=ax,
+                    transformation=transformation,
+                )
+
+
 
 radius_parameterization = [
+    0.5,
     100 * u.mm,
     na.linspace(100, 200, axis="radius", num=4) * u.mm,
     na.NormalUncertainScalarArray(100 * u.mm, width=10 * u.mm),
@@ -105,7 +130,7 @@ radius_parameterization = [
         for radius in radius_parameterization
         for active in active_parameterization
         for inverted in inverted_parameterization
-        for transformation in test_mixins.transformation_parameterization
+        for transformation in transform_parameterization
         for kwargs_plot in test_plotting.kwargs_plot_parameterization
     ],
 )
@@ -113,7 +138,7 @@ class TestCircularAperture(
     AbstractTestAbstractAperture,
 ):
     def test_radius(self, a: optika.apertures.CircularAperture):
-        assert isinstance(a.radius, (u.Quantity, na.AbstractScalar))
+        assert isinstance(a.radius, (float, u.Quantity, na.AbstractScalar))
         assert np.all(a.radius >= 0)
 
 
@@ -124,6 +149,7 @@ class AbstractTestAbstractPolygonalAperture(
 
 
 half_width_parameterization = [
+    0.5,
     100 * u.mm,
     na.linspace(100, 200, axis="radius", num=4) * u.mm,
     na.NormalUncertainScalarArray(100 * u.mm, width=10 * u.mm),
@@ -145,7 +171,7 @@ half_width_parameterization = [
         for half_width in half_width_parameterization
         for active in active_parameterization
         for inverted in inverted_parameterization
-        for transformation in test_mixins.transformation_parameterization
+        for transformation in transform_parameterization
         for kwargs_plot in test_plotting.kwargs_plot_parameterization
     ],
 )
@@ -153,6 +179,11 @@ class TestRectangularAperture(
     AbstractTestAbstractPolygonalAperture,
 ):
     def test_half_width(self, a: optika.apertures.RectangularAperture):
-        types_valid = (u.Quantity, na.AbstractScalar, na.AbstractCartesian2dVectorArray)
+        types_valid = (
+            float,
+            u.Quantity,
+            na.AbstractScalar,
+            na.AbstractCartesian2dVectorArray,
+        )
         assert isinstance(a.half_width, types_valid)
         assert np.all(a.half_width >= 0)

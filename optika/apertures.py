@@ -63,7 +63,7 @@ class AbstractAperture(
         """
 
     def clip_rays(self, rays: optika.rays.RayVectorArray):
-        unit = na.unit(self.bound_lower)
+        unit = na.unit_normalized(self.bound_lower)
         if unit.is_equivalent(u.mm):
             mask = self(rays.position)
         elif unit.is_equivalent(u.dimensionless_unscaled):
@@ -238,26 +238,26 @@ class CircularAperture(
 
     @property
     def bound_lower(self) -> na.Cartesian3dVectorArray:
-        result = na.Cartesian3dVectorArray() * u.mm
+        unit = na.unit(self.radius)
+        result = na.Cartesian3dVectorArray()
+        if unit is not None:
+            result = result * unit
         if self.transformation is not None:
             result = self.transformation(result)
-        result = result + na.Cartesian3dVectorArray(
-            x=-self.radius,
-            y=-self.radius,
-            z=0 * self.radius.unit,
-        )
+        result.x = result.x - self.radius
+        result.y = result.y - self.radius
         return result
 
     @property
     def bound_upper(self) -> na.Cartesian3dVectorArray:
-        result = na.Cartesian3dVectorArray() * u.mm
+        unit = na.unit(self.radius)
+        result = na.Cartesian3dVectorArray()
+        if unit is not None:
+            result = result * unit
         if self.transformation is not None:
             result = self.transformation(result)
-        result = result + na.Cartesian3dVectorArray(
-            x=self.radius,
-            y=self.radius,
-            z=0 * self.radius.unit,
-        )
+        result.x = result.x + self.radius
+        result.y = result.y + self.radius
         return result
 
     @property
@@ -462,7 +462,9 @@ class RectangularAperture(
         )
         result.x = result.x * half_width.x
         result.y = result.y * half_width.y
-        result.z = 0 * half_width.length.unit
+        unit = na.unit(half_width.x)
+        if unit is not None:
+            result.z = result.z * unit
         if self.transformation is not None:
             result = self.transformation(result)
         return result
