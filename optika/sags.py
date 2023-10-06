@@ -12,6 +12,7 @@ __all__ = [
     "SphericalSag",
     "AbstractConicSag",
     "ConicSag",
+    "ParabolicSag",
     "ToroidalSag",
 ]
 
