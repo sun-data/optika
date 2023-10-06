@@ -456,8 +456,8 @@ class RectangularAperture(
         az = na.linspace(0, 360, axis="vertex", num=4, endpoint=False) * u.deg
         az = az + 45 * u.deg
         result = na.Cartesian3dVectorArray(
-            x=r * np.cos(az),
-            y=r * np.sin(az),
+            x=r * np.cos(az).value,
+            y=r * np.sin(az).value,
             z=0,
         )
         result.x = result.x * half_width.x
