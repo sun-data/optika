@@ -191,7 +191,6 @@ class TestRectangularAperture(
 class AbstractTestAbstractRegularPolygonalAperture(
     AbstractTestAbstractPolygonalAperture,
 ):
-
     def test_radius(self, a: optika.apertures.AbstractRegularPolygonalAperture):
         assert isinstance(na.as_named_array(a.radius), na.AbstractScalar)
 
