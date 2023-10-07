@@ -186,3 +186,44 @@ class TestRectangularAperture(
         )
         assert isinstance(a.half_width, types_valid)
         assert np.all(a.half_width >= 0)
+
+
+class AbstractTestAbstractRegularPolygonalAperture(
+    AbstractTestAbstractPolygonalAperture,
+):
+
+    def test_radius(self, a: optika.apertures.AbstractRegularPolygonalAperture):
+        assert isinstance(na.as_named_array(a.radius), na.AbstractScalar)
+
+    def test_num_vertices(self, a: optika.apertures.AbstractRegularPolygonalAperture):
+        assert isinstance(a.num_vertices, int)
+
+
+class AbstractTestAbstractOctagonalAperture(
+    AbstractTestAbstractRegularPolygonalAperture,
+):
+    pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.OctagonalAperture(
+            radius=radius,
+            samples_wire=21,
+            active=active,
+            inverted=inverted,
+            transformation=transformation,
+            kwargs_plot=kwargs_plot,
+        )
+        for radius in radius_parameterization
+        for active in active_parameterization
+        for inverted in inverted_parameterization
+        for transformation in transform_parameterization
+        for kwargs_plot in test_plotting.kwargs_plot_parameterization
+    ],
+)
+class TestOctagonalAperture(
+    AbstractTestAbstractOctagonalAperture,
+):
+    pass

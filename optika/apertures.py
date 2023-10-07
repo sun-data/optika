@@ -13,6 +13,9 @@ import optika.plotting
 __all__ = [
     "AbstractAperture",
     "CircularAperture",
+    "AbstractRegularPolygonalAperture",
+    "AbstractOctagonalAperture",
+    "OctagonalAperture",
 ]
 
 
@@ -292,6 +295,37 @@ class AbstractPolygonalAperture(
     Base class for any type of polygonal aperture
     """
 
+    def __call__(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        vertices = self.vertices
+        active = self.active
+        inverted = self.inverted
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
+
+        shape = na.shape_broadcasted(vertices, active, inverted, position)
+
+        vertices = na.broadcast_to(vertices, shape)
+        active = na.broadcast_to(active, shape)
+        inverted = na.broadcast_to(inverted, shape)
+        position = na.broadcast_to(position, shape)
+
+        result = False
+        for v in range(vertices.shape["vertex"]):
+            vert_j = vertices[dict(vertex=v - 1)]
+            vert_i = vertices[dict(vertex=v)]
+            slope = (vert_j.y - vert_i.y) / (vert_j.x - vert_i.x)
+            condition_1 = (vert_i.y > position.y) != (vert_j.y > position.y)
+            condition_2 = position.x < ((position.y - vert_i.y) / slope + vert_i.x)
+            result = result ^ (condition_1 & condition_2)
+
+        result[inverted] = ~result[inverted]
+        result[~active] = True
+
+        return result
+
     @property
     def bound_lower(self) -> na.AbstractCartesian3dVectorArray:
         return self.vertices.min(axis="vertex")
@@ -468,3 +502,65 @@ class RectangularAperture(
         if self.transformation is not None:
             result = self.transformation(result)
         return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractRegularPolygonalAperture(
+    AbstractPolygonalAperture,
+):
+    @property
+    @abc.abstractmethod
+    def radius(self) -> na.ScalarLike:
+        """
+        the radial distance from the origin to each vertex
+        """
+
+    @property
+    @abc.abstractmethod
+    def num_vertices(self) -> int:
+        """
+        Number of vertices in this polygon
+        """
+
+    @property
+    def vertices(self) -> na.AbstractCartesian3dVectorArray:
+        radius = self.radius
+        unit = na.unit(radius)
+        angle = na.linspace(
+            start=0 * u.deg,
+            stop=360 * u.deg,
+            axis="vertex",
+            num=self.num_vertices,
+            endpoint=False,
+        )
+        result = na.Cartesian3dVectorArray(
+            x=radius * np.cos(angle).value,
+            y=radius * np.sin(angle).value,
+            z=0,
+        )
+        if unit is not None:
+            result.z = result.z * unit
+        if self.transformation is not None:
+            result = self.transformation(result)
+        return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractOctagonalAperture(
+    AbstractRegularPolygonalAperture,
+):
+    @property
+    def num_vertices(self) -> int:
+        return 8
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class OctagonalAperture(
+    AbstractOctagonalAperture,
+):
+    radius: float | u.Quantity | na.AbstractScalar = 0 * u.mm
+    samples_wire: int = 101
+    active: bool | na.AbstractScalar = True
+    inverted: bool | na.AbstractScalar = False
+    transformation: None | na.transformations.AbstractTransformation = None
+    kwargs_plot: None | dict = None
