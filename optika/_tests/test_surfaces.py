@@ -1,4 +1,5 @@
 import pytest
+import matplotlib.axes
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -57,6 +58,23 @@ class AbstractTestAbstractSurface(
 
     def test_is_stop(self, a: optika.surfaces.AbstractSurface):
         assert isinstance(a.is_stop, bool)
+
+    class TestPlot(
+        optika._tests.test_plotting.AbstractTestPlottable.TestPlot,
+    ):
+        def test_plot(
+            self,
+            a: optika.surfaces.AbstractSurface,
+            ax: None | matplotlib.axes.Axes | na.ScalarArray,
+            transformation: None | na.transformations.AbstractTransformation,
+        ):
+            if a.aperture is not None:
+                if na.unit_normalized(a.aperture.wire).is_equivalent(u.mm):
+                    super().test_plot(
+                        a=a,
+                        ax=ax,
+                        transformation=transformation,
+                    )
 
 
 @pytest.mark.parametrize("a", surfaces)
