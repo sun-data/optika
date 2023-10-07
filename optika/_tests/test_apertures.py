@@ -99,7 +99,7 @@ class AbstractTestAbstractAperture(
             ax: None | matplotlib.axes.Axes | na.ScalarArray,
             transformation: None | na.transformations.AbstractTransformation,
         ):
-            if na.unit_normalized(a.wire).is_equivalent(u.mm):
+            if na.unit_normalized(a.wire()).is_equivalent(u.mm):
                 super().test_plot(
                     a=a,
                     ax=ax,

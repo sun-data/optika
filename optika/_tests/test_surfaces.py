@@ -69,7 +69,7 @@ class AbstractTestAbstractSurface(
             transformation: None | na.transformations.AbstractTransformation,
         ):
             if a.aperture is not None:
-                if na.unit_normalized(a.aperture.wire).is_equivalent(u.mm):
+                if na.unit_normalized(a.aperture.wire()).is_equivalent(u.mm):
                     super().test_plot(
                         a=a,
                         ax=ax,
