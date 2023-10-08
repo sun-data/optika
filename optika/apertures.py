@@ -16,6 +16,8 @@ __all__ = [
     "AbstractRegularPolygonalAperture",
     "AbstractOctagonalAperture",
     "OctagonalAperture",
+    "AbstractIsoscelesTrapezoidalAperture",
+    "IsoscelesTrapezoidalAperture",
 ]
 
 
@@ -559,6 +561,102 @@ class OctagonalAperture(
     AbstractOctagonalAperture,
 ):
     radius: float | u.Quantity | na.AbstractScalar = 0 * u.mm
+    samples_wire: int = 101
+    active: bool | na.AbstractScalar = True
+    inverted: bool | na.AbstractScalar = False
+    transformation: None | na.transformations.AbstractTransformation = None
+    kwargs_plot: None | dict = None
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractIsoscelesTrapezoidalAperture(
+    AbstractPolygonalAperture,
+):
+    @property
+    @abc.abstractmethod
+    def x_left(self) -> na.ScalarLike:
+        """:math:`x` coordinate of the left base of the trapezoid"""
+
+    @property
+    @abc.abstractmethod
+    def x_right(self) -> na.ScalarLike:
+        """:math:`x` coordinate of the right base of the trapezoid"""
+
+    @property
+    @abc.abstractmethod
+    def angle(self) -> na.ScalarLike:
+        """angle between the two legs of the trapezoid"""
+
+    @property
+    def vertices(self) -> na.Cartesian3dVectorArray:
+        x_left = self.x_left
+        x_right = self.x_right
+        angle = self.angle
+
+        m = np.tan(angle / 2)
+        left = na.Cartesian3dVectorArray(
+            x=x_left,
+            y=m * x_left,
+            z=0 * x_left,
+        )
+        right = na.Cartesian3dVectorArray(
+            x=x_right,
+            y=m * x_right,
+            z=0 * x_right,
+        )
+
+        upper = na.stack([left, right], axis="vertex")
+
+        lower = upper[dict(vertex=slice(None, None, -1))]
+        lower = lower * na.Cartesian3dVectorArray(1, -1, 1)
+
+        result = na.concatenate([upper, lower], axis="vertex")
+
+        if self.transformation is not None:
+            result = self.transformation(result)
+
+        return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class IsoscelesTrapezoidalAperture(
+    AbstractIsoscelesTrapezoidalAperture,
+):
+    """
+    This aperture is useful if you want to break a circular aperture up
+    into different sectors.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        num_sectors = 8
+
+        roll = na.linspace(0, 360, axis="roll", num=num_sectors, endpoint=False) * u.deg
+
+        aperture = optika.apertures.IsoscelesTrapezoidalAperture(
+            x_left=10 * u.mm,
+            x_right=40 * u.mm,
+            angle=(360 * u.deg) / num_sectors,
+            transformation=na.transformations.TransformationList([
+                na.transformations.Cartesian3dTranslation(x=5 * u.mm),
+                na.transformations.Cartesian3dRotationZ(roll),
+            ])
+        )
+
+        with astropy.visualization.quantity_support():
+            plt.figure()
+            plt.gca().set_aspect("equal")
+            aperture.plot(components=("x", "y"), color="black")
+    """
+
+    x_left: na.ScalarLike = 0 * u.mm
+    x_right: na.ScalarLike = 0 * u.mm
+    angle: na.ScalarLike = 0 * u.deg
     samples_wire: int = 101
     active: bool | na.AbstractScalar = True
     inverted: bool | na.AbstractScalar = False

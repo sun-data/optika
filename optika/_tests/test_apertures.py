@@ -226,3 +226,48 @@ class TestOctagonalAperture(
     AbstractTestAbstractOctagonalAperture,
 ):
     pass
+
+
+class AbstractTestAbstractIsoscelesTrapezoidalAperture(
+    AbstractTestAbstractPolygonalAperture,
+):
+    def test_x_left(self, a: optika.apertures.AbstractIsoscelesTrapezoidalAperture):
+        assert isinstance(na.as_named_array(a.x_left), na.AbstractScalar)
+
+    def test_x_right(self, a: optika.apertures.AbstractIsoscelesTrapezoidalAperture):
+        assert isinstance(na.as_named_array(a.x_right), na.AbstractScalar)
+
+    def test_angle(self, a: optika.apertures.AbstractIsoscelesTrapezoidalAperture):
+        assert isinstance(na.as_named_array(a.angle), na.AbstractScalar)
+
+
+x_left_parameterization = [
+    25 * u.mm,
+    na.linspace(25, 30, axis="x_left", num=2) * u.mm,
+]
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.IsoscelesTrapezoidalAperture(
+            x_left=x_left,
+            x_right=50 * u.mm,
+            angle=45 * u.deg,
+            samples_wire=21,
+            active=active,
+            inverted=inverted,
+            transformation=transformation,
+            kwargs_plot=kwargs_plot,
+        )
+        for x_left in x_left_parameterization
+        for active in active_parameterization
+        for inverted in inverted_parameterization
+        for transformation in transform_parameterization
+        for kwargs_plot in test_plotting.kwargs_plot_parameterization
+    ],
+)
+class TestIsoscelesTrapezoidalAperture(
+    AbstractTestAbstractIsoscelesTrapezoidalAperture,
+):
+    pass
