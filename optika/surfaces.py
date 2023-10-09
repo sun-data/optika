@@ -339,7 +339,7 @@ class AbstractSurface(
 
         c = -a @ normal
 
-        mirror = np.sign(c) * (2 * material.is_mirror - 1)
+        mirror = np.sign(a.z) * (2 * material.is_mirror - 1)
 
         t = np.sqrt(np.square(1 / r) + np.square(c) - np.square(a.length))
         b = r * (a + (c + mirror * t) * normal)
