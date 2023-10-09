@@ -107,19 +107,11 @@ class AbstractSurface(
         """
 
     @property
-    @abc.abstractmethod
-    def is_spectral_stop(self) -> bool:
-        """
-        flag controlling whether this surface should act as the surface
-        determining the wavelength range of the system
-        """
-
-    @property
     def is_stop(self) -> bool:
         """
-        If this surface is any type of stop, field/pupil/spectal, return :obj:`True`.
+        If this surface is pupil stop or the field stop, return :obj:`True`.
         """
-        return self.is_field_stop or self.is_aperture_stop or self.is_spectral_stop
+        return self.is_field_stop or self.is_aperture_stop
 
     def propagate_rays(
         self,

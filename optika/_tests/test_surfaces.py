@@ -53,9 +53,6 @@ class AbstractTestAbstractSurface(
     def test_is_aperture_stop(self, a: optika.surfaces.AbstractSurface):
         assert isinstance(a.is_aperture_stop, bool)
 
-    def test_is_spectral_stop(self, a: optika.surfaces.AbstractSurface):
-        assert isinstance(a.is_spectral_stop, bool)
-
     def test_is_stop(self, a: optika.surfaces.AbstractSurface):
         assert isinstance(a.is_stop, bool)
 
