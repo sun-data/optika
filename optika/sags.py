@@ -28,6 +28,10 @@ RadiusOfRotationT = TypeVar(
     "RadiusOfRotationT",
     bound=float | u.Quantity | na.AbstractScalar,
 )
+FocalLengthT = TypeVar(
+    "FocalLengthT",
+    bound=float | u.Quantity | na.AbstractScalar,
+)
 
 
 @dataclasses.dataclass
@@ -375,8 +379,12 @@ class ConicSag(
 class ParabolicSag(
     AbstractConicSag[RadiusT, int],
 ):
-    radius: RadiusT = np.inf * u.mm
+    focal_length: FocalLengthT = np.inf * u.mm
     transformation: None | na.transformations.AbstractTransformation = None
+
+    @property
+    def radius(self) -> RadiusT:
+        return 2 * self.focal_length
 
     @property
     def conic(self) -> int:
