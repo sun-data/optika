@@ -478,7 +478,6 @@ class Surface(
     rulings: RulingsT = None
     is_field_stop: bool = False
     is_aperture_stop: bool = False
-    is_spectral_stop: bool = False
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
 
