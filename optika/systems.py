@@ -536,7 +536,7 @@ class SequentialSystem(
             transformation=na.transformations.Cartesian3dTranslation(z=-300 * u.mm),
         )
 
-        # store the z-coordinate of the fold mirror
+        # store the z-coordinate of the primary  and fold mirror
         # so that we can determine the detector position
         primary_mirror_z = 300 * u.mm
         fold_mirror_z = 50 * u.mm
@@ -601,7 +601,6 @@ class SequentialSystem(
             stop=1,
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
             num=5,
-            # endpoint=False,
         )
 
         # define the grid of normalized pupil coordinates
@@ -612,7 +611,6 @@ class SequentialSystem(
             stop=1,
             axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
             num=5,
-            # endpoint=False,
         )
 
         # define the optical system using the surfaces
@@ -642,6 +640,7 @@ class SequentialSystem(
                     color="tab:blue",
                 ),
                 color="black",
+                zorder=10,
             )
     """
 
