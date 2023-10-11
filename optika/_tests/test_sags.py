@@ -181,7 +181,7 @@ class TestConicSag(
     argnames="sag",
     argvalues=[
         optika.sags.ParabolicSag(
-            radius=radius,
+            focal_length=radius / 2,
             transformation=transformation,
         )
         for radius in radius_parameterization()
