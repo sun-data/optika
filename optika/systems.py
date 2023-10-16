@@ -527,15 +527,6 @@ class SequentialSystem(
         import named_arrays as na
         import optika
 
-        # define the object surface
-        # in this case the aperture is arbitrary and only exists
-        # to represent an object at infinity.
-        front = optika.surfaces.Surface(
-            name="front",
-            aperture=optika.apertures.RectangularAperture(0.5),
-            transformation=na.transformations.Cartesian3dTranslation(z=-300 * u.mm),
-        )
-
         # store the z-coordinate of the primary  and fold mirror
         # so that we can determine the detector position
         primary_mirror_z = 300 * u.mm
