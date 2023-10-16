@@ -595,7 +595,7 @@ class SequentialSystem(
         )
 
         # define the grid of normalized pupil coordinates
-        # in a simalar fashion to the normalized field
+        # in a similar fashion to the normalized field
         # coordinates
         pupil = 0.99 * na.Cartesian2dVectorLinearSpace(
             start=-1,
