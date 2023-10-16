@@ -198,6 +198,31 @@ class AbstractTestAbstractRegularPolygonalAperture(
         assert isinstance(a.num_vertices, int)
 
 
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.RegularPolygonalAperture(
+            radius=radius,
+            num_vertices=6,
+            samples_wire=21,
+            active=active,
+            inverted=inverted,
+            transformation=transformation,
+            kwargs_plot=kwargs_plot,
+        )
+        for radius in radius_parameterization
+        for active in active_parameterization
+        for inverted in inverted_parameterization
+        for transformation in transform_parameterization
+        for kwargs_plot in test_plotting.kwargs_plot_parameterization
+    ],
+)
+class TestRegularPolygonalAperture(
+    AbstractTestAbstractRegularPolygonalAperture,
+):
+    pass
+
+
 class AbstractTestAbstractOctagonalAperture(
     AbstractTestAbstractRegularPolygonalAperture,
 ):

@@ -548,6 +548,19 @@ class AbstractRegularPolygonalAperture(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
+class RegularPolygonalAperture(
+    AbstractRegularPolygonalAperture,
+):
+    radius: float | u.Quantity | na.AbstractScalar = 0 * u.mm
+    num_vertices: int = 0
+    samples_wire: int = 101
+    active: bool | na.AbstractScalar = True
+    inverted: bool | na.AbstractScalar = False
+    transformation: None | na.transformations.AbstractTransformation = None
+    kwargs_plot: None | dict = None
+
+
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractOctagonalAperture(
     AbstractRegularPolygonalAperture,
 ):
