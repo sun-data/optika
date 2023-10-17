@@ -19,7 +19,6 @@ _position = [
 class AbstractTestAbstractRulings(
     test_mixins.AbstractTestTransformable,
 ):
-
     @pytest.mark.parametrize("position", _position)
     def test_spacing(
         self,
