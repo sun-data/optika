@@ -33,8 +33,12 @@ class AbstractTestAbstractRulings(
     def test_diffraction_order(self, a: optika.rulings.AbstractRulings):
         assert na.get_dtype(a.diffraction_order) == int
 
-    def test_normal(self, a: optika.rulings.AbstractRulings):
-        position = na.Cartesian3dVectorArray() * u.mm
+    @pytest.mark.parametrize("position", _position)
+    def test_normal(
+        self,
+        a: optika.rulings.AbstractRulings,
+        position: na.AbstractCartesian3dVectorArray,
+    ):
         result = a.normal(position)
         assert isinstance(result, na.AbstractCartesian3dVectorArray)
         assert np.all(result.length == 1)
