@@ -58,11 +58,11 @@ class AbstractTestAbstractPolynomialDensityRulings(
         assert np.all(result > 0)
         assert na.unit_normalized(result).is_equivalent(1 / u.mm)
 
-    def test_ruling_density(
+    def test_density(
         self,
         a: optika.rulings.AbstractConstantDensityRulings,
     ):
-        assert a.ruling_density.unit.is_equivalent(1 / u.mm)
+        assert a.density.unit.is_equivalent(1 / u.mm)
 
 
 class AbstractTestAbstractConstantDensityRulings(
@@ -75,11 +75,11 @@ class AbstractTestAbstractConstantDensityRulings(
     argnames="a",
     argvalues=[
         optika.rulings.ConstantDensityRulings(
-            ruling_density=5000 / u.mm,
+            density=5000 / u.mm,
             diffraction_order=1,
         ),
         optika.rulings.ConstantDensityRulings(
-            ruling_density=na.linspace(1, 5, axis="rulings", num=4) / u.mm,
+            density=na.linspace(1, 5, axis="rulings", num=4) / u.mm,
             diffraction_order=na.ScalarArray(np.array([-1, 0, 1]), axes="m"),
         ),
     ],

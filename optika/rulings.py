@@ -75,18 +75,11 @@ class AbstractPolynomialDensityRulings(
             location to evaluate the ruling density
         """
 
-    @property
-    @abc.abstractmethod
-    def ruling_density(self) -> na.ScalarLike:
-        """
-        the frequency of the ruling pattern
-        """
-
     def spacing(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
-        return 1 / self.ruling_density
+        return 1 / self.frequency(position)
 
     def normal(
         self,
@@ -99,17 +92,24 @@ class AbstractPolynomialDensityRulings(
 class AbstractConstantDensityRulings(
     AbstractPolynomialDensityRulings,
 ):
+    @property
+    @abc.abstractmethod
+    def density(self) -> na.ScalarLike:
+        """
+        the frequency of the ruling pattern
+        """
+
     def frequency(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
-        return self.ruling_density
+        return self.density
 
 
 @dataclasses.dataclass(eq=False, repr=False)
 class ConstantDensityRulings(
     AbstractConstantDensityRulings,
 ):
-    ruling_density: na.ScalarLike = 0 / u.mm
+    density: na.ScalarLike = 0 / u.mm
     diffraction_order: na.ScalarLike = 1
     transformation: None | na.transformations.AbstractTransformation = None
