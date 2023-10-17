@@ -93,12 +93,6 @@ class AbstractConstantDensityRulings(
 
         """
         return na.Cartesian3dVectorArray(1, 0, 0)
-        # ruling_density = self.ruling_density
-        # return na.Cartesian3dVectorArray(
-        #     x=ruling_density,
-        #     y=0 * ruling_density.unit,
-        #     z=0 * ruling_density.unit,
-        # )
 
     def rays_apparent(
         self,
