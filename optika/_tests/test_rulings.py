@@ -47,7 +47,7 @@ class AbstractTestAbstractRulings(
         assert np.any(result.index_refraction != rays.index_refraction)
 
 
-class AbstractTestAbstractConstantDensityRulings(
+class AbstractTestAbstractPolynomialDensityRulings(
     AbstractTestAbstractRulings,
 ):
     def test_ruling_density(
@@ -61,6 +61,12 @@ class AbstractTestAbstractConstantDensityRulings(
         a: optika.rulings.AbstractConstantDensityRulings,
     ):
         assert a.ruling_spacing.unit.is_equivalent(u.mm)
+
+
+class AbstractTestAbstractConstantDensityRulings(
+    AbstractTestAbstractPolynomialDensityRulings,
+):
+    pass
 
 
 @pytest.mark.parametrize(

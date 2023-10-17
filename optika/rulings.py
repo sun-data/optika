@@ -60,7 +60,7 @@ class AbstractRulings(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class AbstractConstantDensityRulings(
+class AbstractPolynomialDensityRulings(
     AbstractRulings,
 ):
     @property
@@ -122,6 +122,13 @@ class AbstractConstantDensityRulings(
             intensity=rays.intensity,
             index_refraction=length_a,
         )
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractConstantDensityRulings(
+    AbstractPolynomialDensityRulings,
+):
+    pass
 
 
 @dataclasses.dataclass(eq=False, repr=False)
