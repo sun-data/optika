@@ -28,12 +28,12 @@ class AbstractRulings(
         """
 
     @abc.abstractmethod
-    def ruling_normal(
+    def normal(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
         """
-        vector normal to the plane of the rulings
+        vector normal to the planes of the rulings
 
         Parameters
         ----------
@@ -77,21 +77,10 @@ class AbstractPolynomialDensityRulings(
         """
         return 1 / self.ruling_density
 
-    def ruling_normal(
+    def normal(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
-        """
-        unit vector normal to the planes of the rulings
-
-        Parameters
-        ----------
-        position
-            the location to evalulate the ruling normal
-        Returns
-        -------
-
-        """
         return na.Cartesian3dVectorArray(1, 0, 0)
 
     def rays_apparent(
@@ -112,7 +101,7 @@ class AbstractPolynomialDensityRulings(
         a = rays.index_refraction * rays.direction
         diffraction_order = self.diffraction_order
         ruling_density = self.ruling_density
-        ruling_normal = ruling_density * self.ruling_normal(rays.position)
+        ruling_normal = ruling_density * self.normal(rays.position)
         a = a + index_refraction * diffraction_order * rays.wavelength * ruling_normal
         length_a = a.length
         return optika.rays.RayVectorArray(
