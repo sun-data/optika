@@ -47,6 +47,16 @@ class AbstractTestAbstractRulings(
 class AbstractTestAbstractPolynomialDensityRulings(
     AbstractTestAbstractRulings,
 ):
+    def test_coefficients(
+        self,
+        a: optika.rulings.AbstractPolynomialDensityRulings,
+    ):
+        result = a.coefficients
+        for power, coefficient in result.items():
+            assert isinstance(power, int)
+            assert isinstance(na.as_named_array(coefficient), na.AbstractScalar)
+            assert na.unit_normalized(coefficient).is_equivalent(u.mm ** -(power + 1))
+
     @pytest.mark.parametrize("position", _position)
     def test_frequency(
         self,
@@ -58,17 +68,34 @@ class AbstractTestAbstractPolynomialDensityRulings(
         assert np.all(result > 0)
         assert na.unit_normalized(result).is_equivalent(1 / u.mm)
 
-    def test_density(
-        self,
-        a: optika.rulings.AbstractConstantDensityRulings,
-    ):
-        assert a.density.unit.is_equivalent(1 / u.mm)
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.rulings.PolynomialDensityRulings(
+            coefficients={
+                0: 5000 / (u.um**0) / u.mm,
+                1: 5 / (u.um**1) / u.mm,
+                2: 6 / (u.um**2) / u.mm,
+            },
+            diffraction_order=1,
+        ),
+    ],
+)
+class TestPolynomialDensityRulings(
+    AbstractTestAbstractPolynomialDensityRulings,
+):
+    pass
 
 
 class AbstractTestAbstractConstantDensityRulings(
     AbstractTestAbstractPolynomialDensityRulings,
 ):
-    pass
+    def test_density(
+        self,
+        a: optika.rulings.AbstractConstantDensityRulings,
+    ):
+        assert a.density.unit.is_equivalent(1 / u.mm)
 
 
 @pytest.mark.parametrize(

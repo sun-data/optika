@@ -7,6 +7,8 @@ import optika.mixins
 
 __all__ = [
     "AbstractRulings",
+    "AbstractPolynomialDensityRulings",
+    "PolynomialDensityRulings",
     "AbstractConstantDensityRulings",
     "ConstantDensityRulings",
 ]
@@ -60,7 +62,11 @@ class AbstractRulings(
 class AbstractPolynomialDensityRulings(
     AbstractRulings,
 ):
+    @property
     @abc.abstractmethod
+    def coefficients(self) -> None | dict[int, na.ScalarLike]:
+        """The coefficients of the polynomial describing the ruling density"""
+
     def frequency(
         self,
         position: na.AbstractCartesian3dVectorArray,
@@ -74,6 +80,21 @@ class AbstractPolynomialDensityRulings(
         position
             location to evaluate the ruling density
         """
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation(position)
+
+        x = position @ self.normal(position)
+
+        coefficients = self.coefficients
+        if coefficients is None:
+            coefficients = dict()
+
+        result = 0 / u.mm
+        for power, coefficient in coefficients.items():
+            result = result + coefficient * (x**power)
+
+        return result
 
     def spacing(
         self,
@@ -89,6 +110,15 @@ class AbstractPolynomialDensityRulings(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
+class PolynomialDensityRulings(
+    AbstractPolynomialDensityRulings,
+):
+    coefficients: None | dict[int, na.ScalarLike] = None
+    diffraction_order: na.ScalarLike = 1
+    transformation: None | na.transformations.AbstractTransformation = None
+
+
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractConstantDensityRulings(
     AbstractPolynomialDensityRulings,
 ):
@@ -99,11 +129,9 @@ class AbstractConstantDensityRulings(
         the frequency of the ruling pattern
         """
 
-    def frequency(
-        self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.ScalarLike:
-        return self.density
+    @property
+    def coefficients(self) -> None | dict[int, na.ScalarLike]:
+        return {0: self.density}
 
 
 @dataclasses.dataclass(eq=False, repr=False)
