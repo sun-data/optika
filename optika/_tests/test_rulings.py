@@ -6,9 +6,31 @@ import optika
 from . import test_mixins
 
 
+_position = [
+    na.Cartesian3dVectorArray() * u.mm,
+    na.Cartesian3dVectorArray(
+        x=na.linspace(-5, 5, axis="x", num=3) * u.mm,
+        y=na.linspace(-5, 5, axis="y", num=4) * u.mm,
+        z=0 * u.mm,
+    ),
+]
+
+
 class AbstractTestAbstractRulings(
     test_mixins.AbstractTestTransformable,
 ):
+
+    @pytest.mark.parametrize("position", _position)
+    def test_spacing(
+        self,
+        a: optika.rulings.AbstractRulings,
+        position: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.spacing(position)
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert np.all(result > 0)
+        assert na.unit_normalized(result).is_equivalent(u.mm)
+
     def test_diffraction_order(self, a: optika.rulings.AbstractRulings):
         assert na.get_dtype(a.diffraction_order) == int
 
@@ -55,12 +77,6 @@ class AbstractTestAbstractPolynomialDensityRulings(
         a: optika.rulings.AbstractConstantDensityRulings,
     ):
         assert a.ruling_density.unit.is_equivalent(1 / u.mm)
-
-    def test_ruling_spacing(
-        self,
-        a: optika.rulings.AbstractConstantDensityRulings,
-    ):
-        assert a.ruling_spacing.unit.is_equivalent(u.mm)
 
 
 class AbstractTestAbstractConstantDensityRulings(

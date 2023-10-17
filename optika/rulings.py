@@ -28,6 +28,20 @@ class AbstractRulings(
         """
 
     @abc.abstractmethod
+    def spacing(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.ScalarLike:
+        """
+        spacing between adjacent rulings at the given position
+
+        Parameters
+        ----------
+        position
+            location to evaluate the ruling spacing
+        """
+
+    @abc.abstractmethod
     def normal(
         self,
         position: na.AbstractCartesian3dVectorArray,
@@ -70,11 +84,10 @@ class AbstractPolynomialDensityRulings(
         the frequency of the ruling pattern
         """
 
-    @property
-    def ruling_spacing(self) -> na.ScalarLike:
-        """
-        the distance between successive rulings
-        """
+    def spacing(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.ScalarLike:
         return 1 / self.ruling_density
 
     def normal(
