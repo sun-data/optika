@@ -55,23 +55,6 @@ class AbstractRulings(
             location to evaluate the normal vector
         """
 
-    @abc.abstractmethod
-    def rays_apparent(
-        self,
-        rays: optika.rays.AbstractRayVectorArray,
-        index_refraction: float,
-    ) -> optika.rays.RayVectorArray:
-        """
-        the apparent input rays from the given actual input rays
-
-        Parameters
-        ----------
-        rays
-            actual input rays
-        index_refraction
-            index of refraction of the output rays
-        """
-
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractPolynomialDensityRulings(
@@ -95,35 +78,6 @@ class AbstractPolynomialDensityRulings(
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
         return na.Cartesian3dVectorArray(1, 0, 0)
-
-    def rays_apparent(
-        self,
-        rays: optika.rays.RayVectorArray,
-        index_refraction: float,
-    ) -> optika.rays.RayVectorArray:
-        """
-        apparent direction of incoming rays if there was no diffraction
-
-        Parameters
-        ----------
-        rays
-            incoming rays that will be diffracted by the rulings
-        index_refraction
-            the index of refraction after the rulings
-        """
-        a = rays.index_refraction * rays.direction
-        diffraction_order = self.diffraction_order
-        ruling_density = self.ruling_density
-        ruling_normal = ruling_density * self.normal(rays.position)
-        a = a + index_refraction * diffraction_order * rays.wavelength * ruling_normal
-        length_a = a.length
-        return optika.rays.RayVectorArray(
-            wavelength=rays.wavelength,
-            position=rays.position,
-            direction=a / length_a,
-            intensity=rays.intensity,
-            index_refraction=length_a,
-        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)

@@ -43,34 +43,6 @@ class AbstractTestAbstractRulings(
         assert isinstance(result, na.AbstractCartesian3dVectorArray)
         assert np.all(result.length == 1)
 
-    @pytest.mark.parametrize(
-        argnames="rays",
-        argvalues=[
-            optika.rays.RayVectorArray(
-                wavelength=500 * u.nm,
-                position=na.Cartesian3dVectorArray(
-                    x=na.linspace(-5, 5, axis="x", num=3) * u.mm,
-                    y=na.linspace(-5, 5, axis="y", num=4) * u.mm,
-                    z=0 * u.mm,
-                ),
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            )
-        ],
-    )
-    def test_rays_apparent(
-        self,
-        a: optika.rulings.AbstractRulings,
-        rays: optika.rays.RayVectorArray,
-    ):
-        result = a.rays_apparent(rays, index_refraction=1)
-        assert isinstance(result, optika.rays.AbstractRayVectorArray)
-        assert np.all(result.wavelength == rays.wavelength)
-        assert np.all(result.position == rays.position)
-        assert np.any(result.direction.z != rays.direction.z)
-        assert np.allclose(result.direction.length, 1)
-        assert np.all(result.intensity == rays.intensity)
-        assert np.any(result.index_refraction != rays.index_refraction)
-
 
 class AbstractTestAbstractPolynomialDensityRulings(
     AbstractTestAbstractRulings,
