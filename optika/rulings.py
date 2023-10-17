@@ -60,6 +60,21 @@ class AbstractRulings(
 class AbstractPolynomialDensityRulings(
     AbstractRulings,
 ):
+    @abc.abstractmethod
+    def frequency(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.ScalarLike:
+        """
+        Density of rulings at the given position.
+        Equivalent to the multiplicative inverse of the ruling spacing.
+
+        Parameters
+        ----------
+        position
+            location to evaluate the ruling density
+        """
+
     @property
     @abc.abstractmethod
     def ruling_density(self) -> na.ScalarLike:
@@ -84,7 +99,11 @@ class AbstractPolynomialDensityRulings(
 class AbstractConstantDensityRulings(
     AbstractPolynomialDensityRulings,
 ):
-    pass
+    def frequency(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.ScalarLike:
+        return self.ruling_density
 
 
 @dataclasses.dataclass(eq=False, repr=False)

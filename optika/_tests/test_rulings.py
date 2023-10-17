@@ -47,6 +47,17 @@ class AbstractTestAbstractRulings(
 class AbstractTestAbstractPolynomialDensityRulings(
     AbstractTestAbstractRulings,
 ):
+    @pytest.mark.parametrize("position", _position)
+    def test_frequency(
+        self,
+        a: optika.rulings.AbstractPolynomialDensityRulings,
+        position: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.frequency(position)
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert np.all(result > 0)
+        assert na.unit_normalized(result).is_equivalent(1 / u.mm)
+
     def test_ruling_density(
         self,
         a: optika.rulings.AbstractConstantDensityRulings,
