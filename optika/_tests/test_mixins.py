@@ -27,7 +27,6 @@ transformation_parameterization = [
 class AbstractTestPrintable(
     abc.ABC,
 ):
-
     @pytest.mark.parametrize(
         argnames="prefix",
         argvalues=[None, "   "],
