@@ -10,6 +10,7 @@ import named_arrays as na
 
 __all__ = [
     "Printable",
+    "Pitchable",
 ]
 
 
@@ -123,3 +124,19 @@ class Translatable(
     @property
     def transformation(self) -> na.transformations.AbstractTransformation:
         return super().transformation @ na.transformations.Translation(self.translation)
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Pitchable(
+    Transformable,
+):
+    @property
+    @abc.abstractmethod
+    def pitch(self) -> u.Quantity | na.ScalarLike:
+        """pitch angle of this object"""
+
+    @property
+    def transformation(self) -> na.transformations.AbstractTransformation:
+        return super().transformation @ na.transformations.Cartesian3dRotationX(
+            angle=self.pitch
+        )

@@ -77,3 +77,35 @@ class TestTranslatable(
     AbstractTestTranslatable,
 ):
     pass
+
+
+class AbstractTestPitchable(
+    AbstractTestTransformable,
+):
+    def test_pitch(
+        self,
+        a: optika.mixins.Pitchable,
+    ):
+        result = a.pitch
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert na.unit_normalized(result).is_equivalent(u.deg)
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Pitchable(
+    optika.mixins.Pitchable,
+):
+    pitch: u.Quantity | na.AbstractScalar = 0 * u.deg
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        Pitchable(),
+        Pitchable(10 * u.deg),
+    ],
+)
+class TestPitchable(
+    AbstractTestPitchable,
+):
+    pass
