@@ -22,6 +22,7 @@ surfaces = [
 
 class AbstractTestAbstractSurface(
     test_plotting.AbstractTestPlottable,
+    test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
     test_propagators.AbstractTestAbstractLightPropagator,
 ):

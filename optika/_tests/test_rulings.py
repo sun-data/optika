@@ -17,6 +17,7 @@ _position = [
 
 
 class AbstractTestAbstractRulings(
+    test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
 ):
     @pytest.mark.parametrize("position", _position)

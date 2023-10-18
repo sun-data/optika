@@ -8,6 +8,7 @@ from . import test_plotting
 
 class AbstractTestAbstractSystem(
     test_plotting.AbstractTestPlottable,
+    test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
 ):
     pass

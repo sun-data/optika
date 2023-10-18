@@ -1,3 +1,5 @@
+import pytest
+import abc
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -20,6 +22,24 @@ transformation_parameterization = [
         na.NormalUncertainScalarArray(53 * u.deg, width=5 * u.deg)
     ),
 ]
+
+
+class AbstractTestPrintable(
+    abc.ABC,
+):
+
+    @pytest.mark.parametrize(
+        argnames="prefix",
+        argvalues=[None, "   "],
+    )
+    def test_to_string(
+        self,
+        a: optika.mixins.Printable,
+        prefix: None | str,
+    ):
+        result = a.to_string(prefix=prefix)
+        print(result)
+        assert isinstance(result, str)
 
 
 class AbstractTestTransformable:

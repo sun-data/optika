@@ -8,27 +8,28 @@ from . import test_mixins
 
 
 class AbstractTestAbstractSag(
-    abc.ABC,
+    test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestTransformable,
 ):
 
-    def test_parameters_slope_error(self, sag: optika.sags.AbstractSag):
-        if sag.parameters_slope_error is not None:
+    def test_parameters_slope_error(self, a: optika.sags.AbstractSag):
+        if a.parameters_slope_error is not None:
             assert isinstance(
-                sag.parameters_slope_error,
+                a.parameters_slope_error,
                 optika.metrology.SlopeErrorParameters,
             )
 
-    def test_parameters_roughness(self, sag: optika.sags.AbstractSag):
-        if sag.parameters_roughness is not None:
+    def test_parameters_roughness(self, a: optika.sags.AbstractSag):
+        if a.parameters_roughness is not None:
             assert isinstance(
-                sag.parameters_roughness,
+                a.parameters_roughness,
                 optika.metrology.RoughnessParameters,
             )
 
-    def test_parameters_microroughness(self, sag: optika.sags.AbstractSag):
-        if sag.parameters_microroughness is not None:
+    def test_parameters_microroughness(self, a: optika.sags.AbstractSag):
+        if a.parameters_microroughness is not None:
             assert isinstance(
-                sag.parameters_microroughness,
+                a.parameters_microroughness,
                 optika.metrology.RoughnessParameters,
             )
 
@@ -50,20 +51,20 @@ class AbstractTestAbstractSag(
     class TestFunctionsOfPosition:
         def test__call__(
             self,
-            sag: optika.sags.AbstractSag,
+            a: optika.sags.AbstractSag,
             position: na.AbstractCartesian3dVectorArray,
         ):
-            result = sag(position)
+            result = a(position)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
             if na.shape(result):
                 assert set(na.shape(position)).issubset(na.shape(result))
 
         def test_normal(
             self,
-            sag: optika.sags.AbstractSag,
+            a: optika.sags.AbstractSag,
             position: na.AbstractCartesian3dVectorArray,
         ):
-            result = sag.normal(position)
+            result = a.normal(position)
             assert isinstance(result, na.AbstractCartesian3dVectorArray)
             if na.shape(result):
                 assert set(na.shape(position)).issubset(na.shape(result))
@@ -95,17 +96,17 @@ class AbstractTestAbstractSag(
     class TestFunctionsOfRays:
         def test_intercept(
             self,
-            sag: optika.sags.AbstractSag,
+            a: optika.sags.AbstractSag,
             rays: optika.rays.AbstractRayVectorArray,
         ):
-            result = sag.intercept(rays)
+            result = a.intercept(rays)
             assert isinstance(result, optika.rays.AbstractRayVectorArray)
             assert np.all(np.isfinite(result.position))
-            assert np.allclose(sag(result.position), result.position.z)
+            assert np.allclose(a(result.position), result.position.z)
 
 
 @pytest.mark.parametrize(
-    argnames="sag",
+    argnames="a",
     argvalues=[optika.sags.NoSag(
         parameters_slope_error=optika.metrology.SlopeErrorParameters(
             kernel_size=2 * u.mm,
@@ -130,9 +131,9 @@ class TestNoSag(
 class AbstractTestAbstractSphericalSag(
     AbstractTestAbstractSag,
 ):
-    def test_curvature(self, sag: optika.sags.SphericalSag):
-        assert isinstance(na.as_named_array(sag.curvature), na.AbstractScalar)
-        assert na.shape(sag.curvature) == na.shape(sag.radius)
+    def test_curvature(self, a: optika.sags.SphericalSag):
+        assert isinstance(na.as_named_array(a.curvature), na.AbstractScalar)
+        assert na.shape(a.curvature) == na.shape(a.radius)
 
 
 def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
@@ -152,7 +153,7 @@ def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
 
 
 @pytest.mark.parametrize(
-    argnames="sag",
+    argnames="a",
     argvalues=[
         optika.sags.SphericalSag(
             radius=radius,
@@ -171,13 +172,13 @@ class TestSphericalSag(
 class AbstractTestAbstractConicSag(
     AbstractTestAbstractSag,
 ):
-    def test_radius(self, sag: optika.sags):
-        assert isinstance(na.as_named_array(sag.radius), na.ScalarLike)
-        assert na.unit_normalized(sag.radius).is_equivalent(u.mm)
+    def test_radius(self, a: optika.sags):
+        assert isinstance(na.as_named_array(a.radius), na.ScalarLike)
+        assert na.unit_normalized(a.radius).is_equivalent(u.mm)
 
-    def test_conic(self, sag: optika.sags):
-        assert isinstance(na.as_named_array(sag.conic), na.ScalarLike)
-        assert na.unit_normalized(sag.conic).is_equivalent(u.dimensionless_unscaled)
+    def test_conic(self, a: optika.sags):
+        assert isinstance(na.as_named_array(a.conic), na.ScalarLike)
+        assert na.unit_normalized(a.conic).is_equivalent(u.dimensionless_unscaled)
 
 
 def conic_parameterization() -> list[u.Quantity | na.AbstractScalar]:
@@ -197,7 +198,7 @@ def conic_parameterization() -> list[u.Quantity | na.AbstractScalar]:
 
 
 @pytest.mark.parametrize(
-    argnames="sag",
+    argnames="a",
     argvalues=[
         optika.sags.ConicSag(
             radius=radius,
@@ -216,7 +217,7 @@ class TestConicSag(
 
 
 @pytest.mark.parametrize(
-    argnames="sag",
+    argnames="a",
     argvalues=[
         optika.sags.ParabolicSag(
             focal_length=radius / 2,
@@ -233,7 +234,7 @@ class TestParabolicSag(
 
 
 @pytest.mark.parametrize(
-    argnames="sag",
+    argnames="a",
     argvalues=[
         optika.sags.ToroidalSag(
             radius=radius,
