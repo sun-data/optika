@@ -121,5 +121,5 @@ class Translatable(
         """translate the coordinate system"""
 
     @property
-    def transformation(self) -> None | na.transformations.AbstractTransformation:
+    def transformation(self) -> na.transformations.AbstractTransformation:
         return super().transformation @ na.transformations.Translation(self.translation)
