@@ -4,10 +4,8 @@ import matplotlib.axes
 import astropy.units as u
 import named_arrays as na
 import optika
-import optika.plotting
 import optika.rays._tests.test_ray_vectors
 from . import test_mixins
-from . import test_plotting
 
 
 active_parameterization = [
@@ -28,7 +26,7 @@ transform_parameterization = [
 
 class AbstractTestAbstractAperture(
     test_mixins.AbstractTestPrintable,
-    test_plotting.AbstractTestPlottable,
+    test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestTransformable,
 ):
     def test_samples_wire(self, a: optika.apertures.AbstractAperture):
@@ -92,7 +90,7 @@ class AbstractTestAbstractAperture(
         assert wire.shape["wire"] == a.samples_wire
 
     class TestPlot(
-        optika._tests.test_plotting.AbstractTestPlottable.TestPlot,
+        test_mixins.AbstractTestPlottable.TestPlot,
     ):
         def test_plot(
             self,
@@ -131,7 +129,7 @@ radius_parameterization = [
         for active in active_parameterization
         for inverted in inverted_parameterization
         for transformation in transform_parameterization
-        for kwargs_plot in test_plotting.kwargs_plot_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
     ],
 )
 class TestCircularAperture(
@@ -172,7 +170,7 @@ half_width_parameterization = [
         for active in active_parameterization
         for inverted in inverted_parameterization
         for transformation in transform_parameterization
-        for kwargs_plot in test_plotting.kwargs_plot_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
     ],
 )
 class TestRectangularAperture(
@@ -215,7 +213,7 @@ class AbstractTestAbstractRegularPolygonalAperture(
         for active in active_parameterization
         for inverted in inverted_parameterization
         for transformation in transform_parameterization
-        for kwargs_plot in test_plotting.kwargs_plot_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
     ],
 )
 class TestRegularPolygonalAperture(
@@ -245,7 +243,7 @@ class AbstractTestAbstractOctagonalAperture(
         for active in active_parameterization
         for inverted in inverted_parameterization
         for transformation in transform_parameterization
-        for kwargs_plot in test_plotting.kwargs_plot_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
     ],
 )
 class TestOctagonalAperture(
@@ -290,7 +288,7 @@ x_left_parameterization = [
         for active in active_parameterization
         for inverted in inverted_parameterization
         for transformation in transform_parameterization
-        for kwargs_plot in test_plotting.kwargs_plot_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
     ],
 )
 class TestIsoscelesTrapezoidalAperture(

@@ -9,7 +9,6 @@ import numpy.typing as npt
 import matplotlib.axes
 import named_arrays as na
 import optika.mixins
-import optika.plotting
 import optika.propagators
 
 __all__ = [
@@ -21,7 +20,7 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSystem(
-    optika.plotting.Plottable,
+    optika.mixins.Plottable,
     optika.mixins.Printable,
     optika.mixins.Transformable,
 ):

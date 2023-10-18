@@ -3,11 +3,10 @@ import astropy.units as u
 import named_arrays as na
 import optika
 from . import test_mixins
-from . import test_plotting
 
 
 class AbstractTestAbstractSystem(
-    test_plotting.AbstractTestPlottable,
+    test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
 ):

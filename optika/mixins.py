@@ -5,11 +5,14 @@ import abc
 import copy
 import dataclasses
 import numpy as np
+import numpy.typing as npt
+import matplotlib.axes
 import astropy.units as u
 import named_arrays as na
 
 __all__ = [
     "Printable",
+    "Plottable",
     "Transformable",
     "Translatable",
     "Pitchable",
@@ -102,6 +105,42 @@ class Printable:
 
     def __repr__(self):
         return self.to_string()
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Plottable(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def kwargs_plot(self) -> None | dict:
+        """
+        Extra keyword arguments that will be used in the call to
+        :func:`named_arrays.plt.plot` within the :meth:`plot` method.
+        """
+
+    @abc.abstractmethod
+    def plot(
+        self,
+        ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
+        transformation: None | na.transformations.AbstractTransformation = None,
+        components: None | tuple[str, ...] = None,
+        **kwargs,
+    ) -> na.AbstractScalar | dict[str, na.AbstractScalar]:
+        """
+        Plot the selected components onto the given axes.
+
+        Parameters
+        ----------
+        ax
+            The matplotlib axes to plot onto
+        transformation
+            Any extra transformations to apply to the coordinate system before
+            plotting
+        components
+            Which 3d components to plot, helpful if plotting in 2d.
+        kwargs
+            Additional keyword arguments that will be passed along to
+            :func:`named_arrays.plt.plot()`
+        """
 
 
 @dataclasses.dataclass(eq=False, repr=False)

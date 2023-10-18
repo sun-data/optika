@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika.mixins
-import optika.plotting
 
 __all__ = [
     "AbstractAperture",
@@ -24,7 +23,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractAperture(
     optika.mixins.Printable,
-    optika.plotting.Plottable,
+    optika.mixins.Plottable,
     optika.mixins.Transformable,
 ):
     @property

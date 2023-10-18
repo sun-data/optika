@@ -7,7 +7,6 @@ import matplotlib.axes
 import named_arrays as na
 import optika
 import optika.mixins
-import optika.plotting
 import optika.propagators
 
 __all__ = [
@@ -38,7 +37,7 @@ RulingsT = TypeVar(
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSurface(
-    optika.plotting.Plottable,
+    optika.mixins.Plottable,
     optika.mixins.Printable,
     optika.mixins.Transformable,
     optika.propagators.AbstractLightPropagator,

@@ -4,7 +4,6 @@ import astropy.units as u
 import named_arrays as na
 import optika
 from . import test_mixins
-from . import test_plotting
 from . import test_propagators
 
 
@@ -21,7 +20,7 @@ surfaces = [
 
 
 class AbstractTestAbstractSurface(
-    test_plotting.AbstractTestPlottable,
+    test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
     test_propagators.AbstractTestAbstractLightPropagator,
@@ -58,7 +57,7 @@ class AbstractTestAbstractSurface(
         assert isinstance(a.is_stop, bool)
 
     class TestPlot(
-        optika._tests.test_plotting.AbstractTestPlottable.TestPlot,
+        test_mixins.AbstractTestPlottable.TestPlot,
     ):
         def test_plot(
             self,
