@@ -34,8 +34,9 @@ FocalLengthT = TypeVar(
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractSag(
+    optika.mixins.Printable,
     optika.mixins.Transformable,
 ):
     """
@@ -111,7 +112,7 @@ class AbstractSag(
         return result
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class NoSag(
     AbstractSag,
 ):
@@ -136,7 +137,7 @@ class NoSag(
         return na.Cartesian3dVectorArray(0, 0, -1)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractSphericalSag(
     AbstractSag,
     Generic[RadiusT],
@@ -161,7 +162,7 @@ class AbstractSphericalSag(
         return 1 / self.radius
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class SphericalSag(
     AbstractSphericalSag,
     Generic[RadiusT],
@@ -266,7 +267,7 @@ class SphericalSag(
         return result / result.length
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractConicSag(
     AbstractSag,
     Generic[RadiusT, ConicT],
@@ -328,7 +329,7 @@ class AbstractConicSag(
         return result / result.length
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class ConicSag(
     AbstractConicSag[RadiusT, ConicT],
 ):
@@ -400,7 +401,7 @@ class ConicSag(
     parameters_microroughness: None | optika.metrology.RoughnessParameters = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class ParabolicSag(
     AbstractConicSag[RadiusT, int],
 ):
@@ -419,7 +420,7 @@ class ParabolicSag(
         return -1
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=False, repr=False)
 class ToroidalSag(
     AbstractSphericalSag[RadiusT],
     Generic[RadiusT, RadiusOfRotationT],
