@@ -74,8 +74,7 @@ class Printable:
         pre = " " * len(prefix) if prefix is not None else ""
         tab = " " * 4
 
-        result = f"{self.__class__.__qualname__}(\n"
-
+        result_fields = ""
         for i, f in enumerate(fields):
             field_str = f"{pre}{tab}{f.name}="
             val = getattr(self, f.name)
@@ -87,8 +86,13 @@ class Printable:
             )
             field_str += val_str
             field_str += f",{delim_field}"
-            result += field_str
-        result += f"{pre})"
+            result_fields += field_str
+
+        if result_fields:
+            result_fields = f"\n{result_fields}{pre}"
+
+        result = f"{self.__class__.__qualname__}({result_fields})"
+
         return result
 
     def __repr__(self):
