@@ -11,7 +11,6 @@ class AbstractTestAbstractSag(
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
 ):
-
     def test_parameters_slope_error(self, a: optika.sags.AbstractSag):
         if a.parameters_slope_error is not None:
             assert isinstance(
@@ -107,20 +106,22 @@ class AbstractTestAbstractSag(
 
 @pytest.mark.parametrize(
     argnames="a",
-    argvalues=[optika.sags.NoSag(
-        parameters_slope_error=optika.metrology.SlopeErrorParameters(
-            kernel_size=2 * u.mm,
-            step_size=4 * u.mm,
-        ),
-        parameters_roughness=optika.metrology.RoughnessParameters(
-            period_min=2 * u.mm,
-            period_max=4 * u.mm,
-        ),
-        parameters_microroughness=optika.metrology.RoughnessParameters(
-            period_min=0.1 * u.mm,
-            period_max=2 * u.mm,
+    argvalues=[
+        optika.sags.NoSag(
+            parameters_slope_error=optika.metrology.SlopeErrorParameters(
+                kernel_size=2 * u.mm,
+                step_size=4 * u.mm,
+            ),
+            parameters_roughness=optika.metrology.RoughnessParameters(
+                period_min=2 * u.mm,
+                period_max=4 * u.mm,
+            ),
+            parameters_microroughness=optika.metrology.RoughnessParameters(
+                period_min=0.1 * u.mm,
+                period_max=2 * u.mm,
+            ),
         )
-    )],
+    ],
 )
 class TestNoSag(
     AbstractTestAbstractSag,
