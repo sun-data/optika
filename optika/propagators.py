@@ -93,3 +93,10 @@ class AbstractRayPropagator(
         rays
             a set of input rays that will interact with this object
         """
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractLightPropagator(
+    AbstractRayPropagator,
+):
+    pass

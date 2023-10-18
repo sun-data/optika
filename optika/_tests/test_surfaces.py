@@ -23,7 +23,7 @@ surfaces = [
 class AbstractTestAbstractSurface(
     test_plotting.AbstractTestPlottable,
     test_mixins.AbstractTestTransformable,
-    test_propagators.AbstractTestAbstractRayPropagator,
+    test_propagators.AbstractTestAbstractLightPropagator,
 ):
     def test_name(self, a: optika.surfaces.AbstractSurface):
         if a.name is not None:

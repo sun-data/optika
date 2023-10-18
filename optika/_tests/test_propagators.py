@@ -24,3 +24,9 @@ class AbstractTestAbstractRayPropagator(
 
         assert isinstance(result, optika.rays.AbstractRayVectorArray)
         assert not np.all(result == rays)
+
+
+class AbstractTestAbstractLightPropagator(
+    AbstractTestAbstractRayPropagator,
+):
+    pass
