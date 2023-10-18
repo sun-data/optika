@@ -10,7 +10,11 @@ import named_arrays as na
 
 __all__ = [
     "Printable",
+    "Transformable",
+    "Translatable",
     "Pitchable",
+    "Yawable",
+    "Rollable",
 ]
 
 
