@@ -143,6 +143,22 @@ class Pitchable(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
+class Yawable(
+    Transformable,
+):
+    @property
+    @abc.abstractmethod
+    def yaw(self) -> u.Quantity | na.ScalarLike:
+        """yaw angle of this object"""
+
+    @property
+    def transformation(self) -> na.transformations.AbstractTransformation:
+        return super().transformation @ na.transformations.Cartesian3dRotationY(
+            angle=self.yaw,
+        )
+
+
+@dataclasses.dataclass(eq=False, repr=False)
 class Rollable(
     Transformable,
 ):

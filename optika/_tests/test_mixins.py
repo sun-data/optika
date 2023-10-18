@@ -111,6 +111,38 @@ class TestPitchable(
     pass
 
 
+class AbstractTestYawable(
+    AbstractTestTransformable,
+):
+    def test_yaw(
+        self,
+        a: optika.mixins.Yawable,
+    ):
+        result = a.yaw
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert na.unit_normalized(result).is_equivalent(u.deg)
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Yawable(
+    optika.mixins.Yawable,
+):
+    yaw: u.Quantity | na.AbstractScalar = 0 * u.deg
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        Yawable(),
+        Yawable(10 * u.deg),
+    ],
+)
+class TestYawable(
+    AbstractTestYawable,
+):
+    pass
+
+
 class AbstractTestRollable(
     AbstractTestTransformable,
 ):
