@@ -1,5 +1,6 @@
 import pytest
 import abc
+import dataclasses
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -45,3 +46,34 @@ class AbstractTestTransformable:
         t = a.transformation
         if t is not None:
             assert isinstance(t, na.transformations.AbstractTransformation)
+
+
+class AbstractTestTranslatable(
+    AbstractTestTransformable,
+):
+    def test_translation(
+        self,
+        a: optika.mixins.Translatable,
+    ):
+        result = a.translation
+        assert na.unit_normalized(result).is_equivalent(u.mm)
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Translatable(
+    optika.mixins.Translatable,
+):
+    translation: u.Quantity | na.AbstractCartesian3dVectorArray = 0 * u.mm
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        Translatable(),
+        Translatable(na.Cartesian3dVectorArray(1, 2, 3) * u.mm),
+    ],
+)
+class TestTranslatable(
+    AbstractTestTranslatable,
+):
+    pass

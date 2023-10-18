@@ -108,3 +108,18 @@ class Transformable(abc.ABC):
         the coordinate transformation between the global coordinate system
         and this object's local coordinate system
         """
+        return na.transformations.IdentityTransformation()
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Translatable(
+    Transformable,
+):
+    @property
+    @abc.abstractmethod
+    def translation(self) -> u.Quantity | na.AbstractScalar | na.AbstractVectorArray:
+        """translate the coordinate system"""
+
+    @property
+    def transformation(self) -> None | na.transformations.AbstractTransformation:
+        return super().transformation @ na.transformations.Translation(self.translation)
