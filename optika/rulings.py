@@ -16,6 +16,7 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulings(
+    optika.mixins.Printable,
     optika.mixins.Transformable,
 ):
     """
