@@ -6,8 +6,6 @@ import numpy.typing as npt
 import matplotlib.axes
 import named_arrays as na
 import optika
-import optika.mixins
-import optika.propagators
 
 __all__ = [
     "AbstractSurface",

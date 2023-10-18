@@ -1,3 +1,4 @@
+from . import mixins
 from . import vectors
 from . import rays
 from . import metrology

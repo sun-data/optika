@@ -3,7 +3,6 @@ import dataclasses
 import astropy.units as u
 import named_arrays as na
 import optika
-import optika.mixins
 
 __all__ = [
     "AbstractRulings",

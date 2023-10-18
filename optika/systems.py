@@ -8,8 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
 import named_arrays as na
-import optika.mixins
-import optika.propagators
+import optika
 
 __all__ = [
     "AbstractSystem",

@@ -2,7 +2,7 @@ import abc
 import dataclasses
 import astropy.units as u
 import named_arrays as na
-import optika.mixins
+import optika
 
 __all__ = [
     "AbstractRoughnessParameters",

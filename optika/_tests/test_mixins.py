@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika
-import optika.mixins
 
 
 transformation_parameterization = [
