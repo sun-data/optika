@@ -42,6 +42,21 @@ class AbstractSag(
     Base class for all types of sag surfaces.
     """
 
+    @property
+    @abc.abstractmethod
+    def parameters_slope_error(self) -> None | optika.metrology.SlopeErrorParameters:
+        """collection of parameters to use when computing the slope error"""
+
+    @property
+    @abc.abstractmethod
+    def parameters_roughness(self) -> None | optika.metrology.RoughnessParameters:
+        """collection of parameters to use when computing the roughness"""
+
+    @property
+    @abc.abstractmethod
+    def parameters_microroughness(self) -> None | optika.metrology.RoughnessParameters:
+        """collection of parameters to use when computing the microroughness"""
+
     @abc.abstractmethod
     def __call__(
         self,
@@ -100,6 +115,10 @@ class AbstractSag(
 class NoSag(
     AbstractSag,
 ):
+    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
+    parameters_roughness: None | optika.metrology.RoughnessParameters = None
+    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+
     @property
     def transformation(self) -> None:
         return None
@@ -193,6 +212,9 @@ class SphericalSag(
 
     radius: RadiusT = np.inf * u.mm
     transformation: None | na.transformations.AbstractTransformation = None
+    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
+    parameters_roughness: None | optika.metrology.RoughnessParameters = None
+    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
 
     def __call__(
         self,
@@ -373,6 +395,9 @@ class ConicSag(
     conic: ConicT = 0 * u.dimensionless_unscaled
     """the conic constant of the conic section"""
     transformation: None | na.transformations.AbstractTransformation = None
+    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
+    parameters_roughness: None | optika.metrology.RoughnessParameters = None
+    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
 
 
 @dataclasses.dataclass
@@ -381,6 +406,9 @@ class ParabolicSag(
 ):
     focal_length: FocalLengthT = np.inf * u.mm
     transformation: None | na.transformations.AbstractTransformation = None
+    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
+    parameters_roughness: None | optika.metrology.RoughnessParameters = None
+    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
 
     @property
     def radius(self) -> RadiusT:
@@ -403,6 +431,9 @@ class ToroidalSag(
     radius: RadiusT = np.inf * u.mm
     radius_of_rotation: RadiusOfRotationT = 0 * u.mm
     transformation: None | na.transformations.AbstractTransformation = None
+    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
+    parameters_roughness: None | optika.metrology.RoughnessParameters = None
+    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
 
     def __call__(
         self,

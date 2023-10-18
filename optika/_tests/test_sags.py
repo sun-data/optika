@@ -10,6 +10,28 @@ from . import test_mixins
 class AbstractTestAbstractSag(
     abc.ABC,
 ):
+
+    def test_parameters_slope_error(self, sag: optika.sags.AbstractSag):
+        if sag.parameters_slope_error is not None:
+            assert isinstance(
+                sag.parameters_slope_error,
+                optika.metrology.SlopeErrorParameters,
+            )
+
+    def test_parameters_roughness(self, sag: optika.sags.AbstractSag):
+        if sag.parameters_roughness is not None:
+            assert isinstance(
+                sag.parameters_roughness,
+                optika.metrology.RoughnessParameters,
+            )
+
+    def test_parameters_microroughness(self, sag: optika.sags.AbstractSag):
+        if sag.parameters_microroughness is not None:
+            assert isinstance(
+                sag.parameters_microroughness,
+                optika.metrology.RoughnessParameters,
+            )
+
     @pytest.mark.parametrize(
         argnames="position",
         argvalues=[
@@ -82,7 +104,23 @@ class AbstractTestAbstractSag(
             assert np.allclose(sag(result.position), result.position.z)
 
 
-@pytest.mark.parametrize("sag", [optika.sags.NoSag()])
+@pytest.mark.parametrize(
+    argnames="sag",
+    argvalues=[optika.sags.NoSag(
+        parameters_slope_error=optika.metrology.SlopeErrorParameters(
+            kernel_size=2 * u.mm,
+            step_size=4 * u.mm,
+        ),
+        parameters_roughness=optika.metrology.RoughnessParameters(
+            period_min=2 * u.mm,
+            period_max=4 * u.mm,
+        ),
+        parameters_microroughness=optika.metrology.RoughnessParameters(
+            period_min=0.1 * u.mm,
+            period_max=2 * u.mm,
+        )
+    )],
+)
 class TestNoSag(
     AbstractTestAbstractSag,
 ):

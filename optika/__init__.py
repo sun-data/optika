@@ -1,5 +1,6 @@
 from . import vectors
 from . import rays
+from . import metrology
 from . import sags
 from . import materials
 from . import apertures
