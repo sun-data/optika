@@ -39,6 +39,7 @@ extensions = [
 ]
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
 autosummary_imported_members = True
+autosummary_ignore_module_all = False
 # autoclass_content = 'both'
 autodoc_typehints = "description"
 
