@@ -37,7 +37,6 @@ class AbstractTestPrintable(
         prefix: None | str,
     ):
         result = a.to_string(prefix=prefix)
-        print(result)
         assert isinstance(result, str)
 
 
