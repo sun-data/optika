@@ -140,3 +140,19 @@ class Pitchable(
         return super().transformation @ na.transformations.Cartesian3dRotationX(
             angle=self.pitch
         )
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Rollable(
+    Transformable,
+):
+    @property
+    @abc.abstractmethod
+    def roll(self) -> u.Quantity | na.ScalarLike:
+        """roll angle of this object"""
+
+    @property
+    def transformation(self) -> na.transformations.AbstractTransformation:
+        return super().transformation @ na.transformations.Cartesian3dRotationZ(
+            angle=self.roll
+        )

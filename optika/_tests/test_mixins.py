@@ -109,3 +109,35 @@ class TestPitchable(
     AbstractTestPitchable,
 ):
     pass
+
+
+class AbstractTestRollable(
+    AbstractTestTransformable,
+):
+    def test_roll(
+        self,
+        a: optika.mixins.Rollable,
+    ):
+        result = a.roll
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert na.unit_normalized(result).is_equivalent(u.deg)
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Rollable(
+    optika.mixins.Rollable,
+):
+    roll: u.Quantity | na.AbstractScalar = 0 * u.deg
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        Rollable(),
+        Rollable(10 * u.deg),
+    ],
+)
+class TestRollable(
+    AbstractTestRollable,
+):
+    pass
