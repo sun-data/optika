@@ -166,7 +166,8 @@ class Translatable(
 
     @property
     def transformation(self) -> na.transformations.AbstractTransformation:
-        return super().transformation @ na.transformations.Translation(self.translation)
+        translation = na.asanyarray(self.translation, like=na.Cartesian3dVectorArray())
+        return super().transformation @ na.transformations.Translation(translation)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
