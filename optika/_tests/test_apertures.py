@@ -165,7 +165,7 @@ class AbstractTestAbstractPolygonalAperture(
         for inverted in inverted_parameterization
         for transformation in transform_parameterization
         for kwargs_plot in test_mixins.kwargs_plot_parameterization
-    ]
+    ],
 )
 class TestPolygonalAperture(
     AbstractTestAbstractPolygonalAperture,
