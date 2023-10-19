@@ -12,6 +12,8 @@ import optika
 __all__ = [
     "AbstractAperture",
     "CircularAperture",
+    "AbstractPolygonalAperture",
+    "PolygonalAperture",
     "AbstractRegularPolygonalAperture",
     "AbstractOctagonalAperture",
     "OctagonalAperture",
@@ -374,6 +376,18 @@ class AbstractPolygonalAperture(
         wire = na.concatenate(wire, axis="wire")
 
         return wire
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class PolygonalAperture(
+    AbstractPolygonalAperture,
+):
+    vertices: na.Cartesian3dVectorArray = 0 * u.mm
+    samples_wire: int = 101
+    active: bool | na.AbstractScalar = True
+    inverted: bool | na.AbstractScalar = False
+    transformation: None | na.transformations.AbstractTransformation = None
+    kwargs_plot: None | dict = None
 
 
 @dataclasses.dataclass(eq=False, repr=False)

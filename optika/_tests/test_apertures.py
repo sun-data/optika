@@ -146,6 +146,33 @@ class AbstractTestAbstractPolygonalAperture(
     pass
 
 
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.PolygonalAperture(
+            vertices=na.Cartesian3dVectorArray(
+                x=na.ScalarArray([-1, 1, 1, -1] * u.mm, axes="vertex"),
+                y=na.ScalarArray([-1, -1, 1, 1] * u.mm, axes="vertex"),
+                z=0 * u.mm,
+            ),
+            samples_wire=21,
+            active=active,
+            inverted=inverted,
+            transformation=transformation,
+            kwargs_plot=kwargs_plot,
+        )
+        for active in active_parameterization
+        for inverted in inverted_parameterization
+        for transformation in transform_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+    ]
+)
+class TestPolygonalAperture(
+    AbstractTestAbstractPolygonalAperture,
+):
+    pass
+
+
 half_width_parameterization = [
     0.5,
     100 * u.mm,
