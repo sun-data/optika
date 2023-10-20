@@ -9,6 +9,7 @@ import optika
 
 __all__ = [
     "AbstractSurface",
+    "Surface",
 ]
 
 SagT = TypeVar(
