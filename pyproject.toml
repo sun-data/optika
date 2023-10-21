@@ -35,7 +35,7 @@ doc = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/byrdie/optika"
+Homepage = "https://github.com/sun-data/optika"
 Documentation = "https://optika.readthedocs.io/en/latest"
 
 [tool.setuptools_scm]
