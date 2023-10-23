@@ -65,7 +65,7 @@ class AbstractTestAbstractMirror(
         optika.materials.Mirror(),
         optika.materials.Mirror(
             thickness_substrate=10 * u.mm,
-        )
+        ),
     ],
 )
 class TestMirror(
