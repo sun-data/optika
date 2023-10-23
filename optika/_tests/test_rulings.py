@@ -131,6 +131,7 @@ class AbstractTestAbstractPolynomialSpacingRulings(
             assert isinstance(na.as_named_array(coefficient), na.AbstractScalar)
             assert na.unit_normalized(coefficient).is_equivalent(u.mm ** -(power - 1))
 
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
