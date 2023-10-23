@@ -308,17 +308,16 @@ class AbstractPolygonalAperture(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        shape = na.shape_broadcasted(vertices, active, inverted, position)
+        shape = na.shape_broadcasted(vertices[dict(vertex=0)], active, inverted, position)
 
-        vertices = na.broadcast_to(vertices, shape)
         active = na.broadcast_to(active, shape)
         inverted = na.broadcast_to(inverted, shape)
         position = na.broadcast_to(position, shape)
 
         result = False
         for v in range(vertices.shape["vertex"]):
-            vert_j = vertices[dict(vertex=v - 1)]
-            vert_i = vertices[dict(vertex=v)]
+            vert_j = na.broadcast_to(vertices[dict(vertex=v - 1)], shape)
+            vert_i = na.broadcast_to(vertices[dict(vertex=v)], shape)
             slope = (vert_j.y - vert_i.y) / (vert_j.x - vert_i.x)
             condition_1 = (vert_i.y > position.y) != (vert_j.y > position.y)
             condition_2 = position.x < ((position.y - vert_i.y) / slope + vert_i.x)
