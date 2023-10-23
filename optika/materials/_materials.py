@@ -105,6 +105,11 @@ class AbstractMirror(
     AbstractMaterial,
 ):
     @property
+    @abc.abstractmethod
+    def thickness_substrate(self) -> u.Quantity | na.AbstractScalar:
+        """thickness of the substrate used to support the mirrored surface"""
+
+    @property
     def transformation(self) -> None:
         return None
 
@@ -135,4 +140,4 @@ class AbstractMirror(
 class Mirror(
     AbstractMirror,
 ):
-    pass
+    thickness_substrate: u.Quantity | na.AbstractScalar = 0 * u.mm
