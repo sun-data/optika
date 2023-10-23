@@ -323,7 +323,7 @@ class AbstractSurface(
             m = rulings.diffraction_order
             d = rulings.spacing(position_1)
             g = rulings.normal(position_1)
-            a = a - (m * wavelength_2 * g) / (n1 * d)
+            a = a - np.sign(a.z) * (m * wavelength_2 * g) / (n1 * d)
 
         normal = sag.normal(position_1)
 
