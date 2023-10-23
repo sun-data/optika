@@ -116,3 +116,64 @@ class TestConstantDensityRulings(
     AbstractTestAbstractConstantDensityRulings,
 ):
     pass
+
+
+class AbstractTestAbstractPolynomialSpacingRulings(
+    AbstractTestAbstractRulings,
+):
+    def test_coefficients(
+        self,
+        a: optika.rulings.AbstractPolynomialSpacingRulings,
+    ):
+        result = a.coefficients
+        for power, coefficient in result.items():
+            assert isinstance(power, int)
+            assert isinstance(na.as_named_array(coefficient), na.AbstractScalar)
+            assert na.unit_normalized(coefficient).is_equivalent(u.mm ** -(power - 1))
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.rulings.PolynomialSpacingRulings(
+            coefficients={
+                0: 5 * u.um / (u.um**0),
+                1: 5 * u.um / (u.um**1),
+                2: 6 * u.um / (u.um**2),
+            },
+            diffraction_order=1,
+        ),
+    ],
+)
+class TestPolynomialSpacingRulings(
+    AbstractTestAbstractPolynomialSpacingRulings,
+):
+    pass
+
+
+class AbstractTestAbstractConstantSpacingRulings(
+    AbstractTestAbstractPolynomialSpacingRulings,
+):
+    def test_period(
+        self,
+        a: optika.rulings.AbstractConstantSpacingRulings,
+    ):
+        assert a.period.unit.is_equivalent(u.mm)
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.rulings.ConstantSpacingRulings(
+            period=5 * u.um,
+            diffraction_order=1,
+        ),
+        optika.rulings.ConstantSpacingRulings(
+            period=na.linspace(1, 5, axis="rulings", num=4) * u.um,
+            diffraction_order=na.ScalarArray(np.array([-1, 0, 1]), axes="m"),
+        ),
+    ],
+)
+class TestConstantSpacingRulings(
+    AbstractTestAbstractConstantSpacingRulings,
+):
+    pass
