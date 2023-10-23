@@ -50,8 +50,14 @@ class TestVacuum(
     pass
 
 
+class AbstractTestAbstractMirror(
+    AbstractTestAbstractMaterial,
+):
+    pass
+
+
 @pytest.mark.parametrize("a", [optika.materials.Mirror()])
 class TestMirror(
-    AbstractTestAbstractMaterial,
+    AbstractTestAbstractMirror,
 ):
     pass

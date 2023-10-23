@@ -100,7 +100,7 @@ class Vacuum(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class Mirror(
+class AbstractMirror(
     AbstractMaterial,
 ):
     @property
@@ -128,3 +128,10 @@ class Mirror(
     @property
     def is_mirror(self) -> bool:
         return True
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Mirror(
+    AbstractMirror,
+):
+    pass
