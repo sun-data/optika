@@ -308,7 +308,12 @@ class AbstractPolygonalAperture(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        shape = na.shape_broadcasted(vertices[dict(vertex=0)], active, inverted, position)
+        shape = na.shape_broadcasted(
+            vertices[dict(vertex=0)],
+            active,
+            inverted,
+            position,
+        )
 
         active = na.broadcast_to(active, shape)
         inverted = na.broadcast_to(inverted, shape)
