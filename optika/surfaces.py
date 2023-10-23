@@ -369,7 +369,7 @@ class AbstractSurface(
 
         if transformation is not None:
             if transformation_self is not None:
-                transformation = transformation_self @ transformation
+                transformation = transformation @ transformation_self
         else:
             if transformation_self is not None:
                 transformation = transformation_self
