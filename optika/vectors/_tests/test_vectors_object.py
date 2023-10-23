@@ -17,6 +17,12 @@ vectors_object = [
             axis="y",
             num=_num_y,
         ).explicit,
+        pupil=na.Cartesian2dVectorLinearSpace(
+            start=-10 * u.mm,
+            stop=10 * u.mm,
+            axis="y",
+            num=_num_y,
+        ).explicit,
     )
 ]
 
