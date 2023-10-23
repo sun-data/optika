@@ -456,7 +456,7 @@ class AbstractSequentialSystem(
 
         if transformation is not None:
             if transformation_self is not None:
-                transformation = transformation_self @ transformation
+                transformation = transformation @ transformation_self
         else:
             transformation = transformation_self
 
