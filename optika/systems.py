@@ -312,6 +312,9 @@ class AbstractSequentialSystem(
             rays=rays_stop.outputs,
         )
 
+        if self.transformation is not None:
+            result.outputs = self.transformation(result.outputs)
+
         return result
 
     def _calc_rayfunction_input(
@@ -407,10 +410,13 @@ class AbstractSequentialSystem(
         rayfunction_input: optika.rays.RayFunctionArray,
         axis: str,
     ) -> optika.rays.RayFunctionArray:
+        rays = rayfunction_input.outputs
+        if self.transformation is not None:
+            rays = self.transformation.inverse(rays)
         result = rayfunction_input.copy_shallow()
         result.outputs = optika.propagators.accumulate_rays(
             propagators=self.surfaces_all,
-            rays=result.outputs,
+            rays=rays,
             axis=axis,
         )
         return result
