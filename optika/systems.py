@@ -452,7 +452,7 @@ class AbstractSequentialSystem(
         transformation: None | na.transformations.AbstractTransformation = None,
         components: None | tuple[str, ...] = None,
         plot_rays: bool = True,
-        plot_ray_intensity: bool = True,
+        plot_rays_vignetted: bool = False,
         kwargs_rays: None | dict[str, Any] = None,
         **kwargs,
     ) -> na.AbstractScalar | dict[str, na.AbstractScalar]:
@@ -488,16 +488,16 @@ class AbstractSequentialSystem(
             if kwargs_rays is None:
                 kwargs_rays = dict()
 
-            if plot_ray_intensity:
+            where = True
+            if not plot_rays_vignetted:
                 intensity = raytrace.outputs[dict(surface=~0)].intensity
-                intensity = intensity / intensity.max()
-                intensity = intensity.to(u.dimensionless_unscaled).value
-                kwargs_rays["alpha"] = intensity
+                where = intensity != 0
 
             result["rays"] = na.plt.plot(
                 raytrace.outputs.position,
                 ax=ax,
                 axis=self.axis_surface,
+                where=where,
                 transformation=transformation,
                 components=components,
                 **kwargs_rays,
