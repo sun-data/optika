@@ -379,6 +379,9 @@ class AbstractPolygonalAperture(
 
         wire = na.concatenate(wire, axis="wire")
 
+        if self.transformation is not None:
+            wire = self.transformation(wire)
+
         return wire
 
 
@@ -518,8 +521,6 @@ class RectangularAperture(
         unit = na.unit(half_width.x)
         if unit is not None:
             result.z = result.z * unit
-        if self.transformation is not None:
-            result = self.transformation(result)
         return result
 
 
@@ -559,8 +560,6 @@ class AbstractRegularPolygonalAperture(
         )
         if unit is not None:
             result.z = result.z * unit
-        if self.transformation is not None:
-            result = self.transformation(result)
         return result
 
 
@@ -641,9 +640,6 @@ class AbstractIsoscelesTrapezoidalAperture(
         lower = lower * na.Cartesian3dVectorArray(1, -1, 1)
 
         result = na.concatenate([upper, lower], axis="vertex")
-
-        if self.transformation is not None:
-            result = self.transformation(result)
 
         return result
 
