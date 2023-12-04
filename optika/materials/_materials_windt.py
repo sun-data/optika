@@ -11,6 +11,7 @@ from . import AbstractMaterial
 __all__ = [
     "AbstractWindtMaterial",
     "Silicon",
+    "SiliconDioxide",
 ]
 
 
@@ -94,6 +95,48 @@ class Silicon(AbstractWindtMaterial):
             import astropy.visualization
 
             si = optika.materials.Silicon()
+
+            wavelength, n, k = si.wavelength_n_k
+
+            with astropy.visualization.quantity_support():
+                fig, axs = na.plt.subplots(nrows=2, sharex=True, squeeze=True)
+                ax_n = axs[dict(subplots_row=0)].ndarray
+                ax_k = axs[dict(subplots_row=1)].ndarray
+                na.plt.plot(wavelength, n, ax=ax_n, label="$n$");
+                na.plt.plot(wavelength, k, ax=ax_k, color="tab:orange", label="$k$");
+                ax_n.set_xscale("log");
+                ax_k.set_yscale("log");
+                ax_n.legend();
+                ax_k.legend();
+        """
+        return super().wavelength_n_k
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class SiliconDioxide(AbstractWindtMaterial):
+    is_mirror: bool = False
+
+    @property
+    def file_nk(self) -> pathlib.Path:
+        return pathlib.Path(__file__).parent / "nk/SiO2.nk"
+
+    @functools.cached_property
+    def wavelength_n_k(self) -> tuple[na.ScalarArray, na.ScalarArray, na.ScalarArray]:
+        """
+        Return the wavelength, :math:`n`, and :math:`k` from the ``.nk`` file.
+
+        Examples
+        --------
+
+        Plot :math:`n` and :math:`k` as a function of wavelength
+
+        .. jupyter-execute::
+
+            import named_arrays as na
+            import optika
+            import astropy.visualization
+
+            si = optika.materials.SiliconDioxide()
 
             wavelength, n, k = si.wavelength_n_k
 

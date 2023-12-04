@@ -14,3 +14,10 @@ class TestSilicon(
     AbstractTestAbstractWindtMaterial,
 ):
     pass
+
+
+@pytest.mark.parametrize("a", [optika.materials.SiliconDioxide()])
+class TestSiliconDioxide(
+    AbstractTestAbstractWindtMaterial,
+):
+    pass
