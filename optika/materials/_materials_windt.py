@@ -91,19 +91,21 @@ class Silicon(AbstractWindtMaterial):
 
             import named_arrays as na
             import optika
+            import astropy.visualization
 
             si = optika.materials.Silicon()
 
             wavelength, n, k = si.wavelength_n_k
 
-            fig, axs = na.plt.subplots(nrows=2, sharex=True, squeeze=True)
-            ax_n = axs[dict(subplots_row=0)].ndarray
-            ax_k = axs[dict(subplots_row=1)].ndarray
-            na.plt.plot(wavelength, n, ax=ax_n, label="$n$");
-            na.plt.plot(wavelength, k, ax=ax_k, color="tab:orange", label="$k$");
-            ax_n.set_xscale("log");
-            ax_k.set_yscale("log");
-            ax_n.legend();
-            ax_k.legend();
+            with astropy.visualization.quantity_support():
+                fig, axs = na.plt.subplots(nrows=2, sharex=True, squeeze=True)
+                ax_n = axs[dict(subplots_row=0)].ndarray
+                ax_k = axs[dict(subplots_row=1)].ndarray
+                na.plt.plot(wavelength, n, ax=ax_n, label="$n$");
+                na.plt.plot(wavelength, k, ax=ax_k, color="tab:orange", label="$k$");
+                ax_n.set_xscale("log");
+                ax_k.set_yscale("log");
+                ax_n.legend();
+                ax_k.legend();
         """
         return super().wavelength_n_k
