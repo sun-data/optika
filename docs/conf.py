@@ -86,6 +86,9 @@ html_theme_options = {
             "icon": "fa-brands fa-python",
         },
     ],
+    "analytics": {
+        "google_analytics_id": "G-HMSRERLMV2"
+    }
 }
 
 # https://github.com/readthedocs/readthedocs.org/issues/2569
