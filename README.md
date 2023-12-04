@@ -15,3 +15,11 @@ Optika can be installed using pip:
 ```bash
 pip install optika
 ```
+
+## Features
+- Sequential raytrace modeling
+- Spherical, conical and toroidal surface sag profiles
+- Ruled surfaces, constant and variable line spacing
+- Circular, rectangular, and polygonal apertures
+- n-dimensional configurations of the optical system using [named-arrays](https://github.com/sun-data/named-arrays)
+- uncertainity propagation using [named-arrays](https://github.com/sun-data/named-arrays)
