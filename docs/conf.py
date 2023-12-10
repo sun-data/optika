@@ -35,6 +35,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.inheritance_diagram',
     'sphinx.ext.viewcode',
+    'sphinxcontrib.bibtex',
     'jupyter_sphinx',
 ]
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
@@ -93,6 +94,10 @@ html_theme_options = {
 
 # https://github.com/readthedocs/readthedocs.org/issues/2569
 master_doc = 'index'
+
+bibtex_bibfiles = ['refs.bib']
+bibtex_default_style = 'plain'
+bibtex_reference_style = 'author_year'
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),

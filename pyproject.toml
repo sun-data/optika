@@ -15,6 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "astropy",
+    "thermo",
     "named-arrays",
 ]
 dynamic = ["version"]
@@ -28,6 +29,7 @@ doc = [
     "matplotlib",
     "graphviz",
     "sphinx-autodoc-typehints",
+    "sphinxcontrib-bibtex",
     "pydata-sphinx-theme",
     "ipykernel",
     "jupyter-sphinx",

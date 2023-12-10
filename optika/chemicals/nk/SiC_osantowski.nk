@@ -1,0 +1,35 @@
+;  Optical constants for CVD SiC
+; 
+;   taken from:
+;
+;   J. Osantowski, data presented at the Glancing Incidence Optics
+;   Fabrication Workshop, hosted by the Optics Branch ofr the Goddard
+;   Space Flight Center, Annapolis, Maryland, April 1-4 1985
+;   
+;    Lambda (A)            n            k
+;-----------------------------------------
+  70	.9846	.0077
+  80	.9866	.0151
+  90	.9851	.0174
+ 100	.9895	.0210
+ 110	.9925   .0183
+ 120	.9899	.0223
+ 130	.9870	.0035
+ 140	.9791	.0044
+ 150 	.9718	.0063
+ 160 	.9656	.0082
+ 170 	.9597	.0106
+ 180 	.9532	.0132
+ 190	.9455	.0171
+ 200	.9381	.0217
+ 210	.9316	.0252
+ 220 	.9242	.0264
+ 230	.9163	.0276
+ 240	.9090	.0298
+ 250	.9028	.0330
+ 260	.8961	.0374
+ 270	.8893	.0429
+ 280	.8817	.0479
+ 290	.8736	.0514
+ 300	.8624	.0589
+ 310	.8511	.0660

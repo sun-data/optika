@@ -9,6 +9,13 @@ Introduction
     optika
 
 
+References
+==========
+
+.. bibliography::
+
+|
+
 
 Indices and tables
 ==================
