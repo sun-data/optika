@@ -13,10 +13,7 @@ class AbstractTestAbstractChemical(
 ):
     def test_formula(self, a: optika.chemicals.AbstractChemical):
         result = a.formula
-        if isinstance(result, na.AbstractArray):
-            assert np.issubdtype(result.dtype, object)
-        else:
-            assert isinstance(result, str)
+        assert isinstance(result, str)
 
     def test_density(self, a: optika.chemicals.AbstractChemical):
         result = a.density
@@ -30,20 +27,13 @@ class AbstractTestAbstractChemical(
     def test_table(self, a: optika.chemicals.AbstractChemical):
         result = a.table
         if result is not None:
-            if isinstance(result, na.AbstractArray):
-                assert np.issubdtype(result.dtype, object)
-            else:
-                assert isinstance(result, str)
+            assert isinstance(result, str)
 
     def test_file_nk(self, a: optika.chemicals.AbstractChemical):
         result = a.file_nk
-        if isinstance(result, na.AbstractArray):
-            for index in result.ndindex():
-                assert isinstance(result[index].ndarray, pathlib.Path)
-                assert result[index].ndarray.exists()
-        else:
-            assert isinstance(result, pathlib.Path)
-            assert result.exists()
+        for index in result.ndindex():
+            assert isinstance(result[index].ndarray, pathlib.Path)
+            assert result[index].ndarray.exists()
 
     def test_index_refraction(self, a: optika.chemicals.AbstractChemical):
         result = a.index_refraction
