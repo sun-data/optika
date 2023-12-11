@@ -22,7 +22,6 @@ class AbstractImagingSensor(
         None,
     ],
 ):
-
     @property
     def sag(self) -> None:
         return None
@@ -134,4 +133,3 @@ class AbstractCCD(
             \lim_{\eta_0 \to 1} = T_\lambda
 
         """
-
