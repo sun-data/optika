@@ -65,8 +65,15 @@ class AbstractInterfaceProfile(
 class ErfInterfaceProfile(
     AbstractInterfaceProfile,
 ):
-    """
-    Error function interface profile between two layers in a multilayer stack.
+    r"""
+    :cite:t:`Stearns1989` error function interface profile between two layers
+    in a multilayer stack.
+
+    The interface profile, :math:`p(z)` is defined as follows:
+
+    .. math::
+
+        p(z) = \frac{1}{\pi} \int_{-\infty}^z e^{-t^2/2 \sigma^2} dt
 
     Examples
     --------
@@ -155,8 +162,18 @@ class ErfInterfaceProfile(
 class ExponentialInterfaceProfile(
     AbstractInterfaceProfile,
 ):
-    """
-    Exponential interface profile between two layers in a multilayer stack.
+    r"""
+    :cite:t:`Stearns1989` exponential function interface profile between two layers
+    in a multilayer stack.
+
+    The interface profile, :math:`p(z)` is defined as follows:
+
+    .. math::
+
+        p(z) = \begin{cases}
+            \frac{1}{2} e^{\sqrt{2} z / \sigma}, & z \leq 0 \\
+            1 - \frac{1}{2} e^{-\sqrt{2} z / \sigma}, & z \gt 0 \\
+        \end{cases}
 
     Examples
     --------
@@ -245,8 +262,19 @@ class ExponentialInterfaceProfile(
 class LinearInterfaceProfile(
     AbstractInterfaceProfile,
 ):
-    """
-    Linear interface profile between two layers in a multilayer stack.
+    r"""
+    :cite:t:`Stearns1989` linear function interface profile between two layers
+    in a multilayer stack.
+
+    The interface profile, :math:`p(z)` is defined as follows:
+
+    .. math::
+
+        p(z) = \begin{cases}
+            0, & z < -\sqrt{3} \sigma \\
+            \frac{1}{2} + \frac{z}{2 \sqrt{3} \sigma}, & |z| \leq \sqrt{3} \sigma \\
+            1, & z > \sqrt{3} \sigma
+        \end{cases}
 
     Examples
     --------
@@ -337,8 +365,21 @@ class LinearInterfaceProfile(
 class SinusoidalInterfaceProfile(
     AbstractInterfaceProfile,
 ):
-    """
-    Sinusoidal interface profile between two layers in a multilayer stack.
+    r"""
+    :cite:t:`Stearns1989` sinusoidal function interface profile between two layers
+    in a multilayer stack.
+
+    The interface profile, :math:`p(z)` is defined as follows:
+
+    .. math::
+
+        p(z) = \begin{cases}
+            0, & z < -a \sigma \\
+            \frac{1}{2} + \frac{1}{2} \sin \left( \frac{\pi z}{2 a \sigma} \right), & |z| \leq a \sigma \\
+            1, & z > a \sigma
+        \end{cases}
+
+    where :math:`a = \pi / \sqrt{\pi^2 - 8}`.
 
     Examples
     --------
