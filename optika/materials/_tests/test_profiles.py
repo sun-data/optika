@@ -106,3 +106,23 @@ class TestLinearInterfaceProfile(
     AbstractTestAbstractInterfaceProfile,
 ):
     pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.materials.profiles.SinusoidalInterfaceProfile(
+            width=5 * u.AA,
+        ),
+        optika.materials.profiles.SinusoidalInterfaceProfile(
+            width=na.linspace(5, 10, axis="width", num=6) * u.AA,
+        ),
+        optika.materials.profiles.SinusoidalInterfaceProfile(
+            width=na.NormalUncertainScalarArray(5, 1, num_distribution=11) * u.AA,
+        ),
+    ],
+)
+class TestSinusoidalInterfaceProfile(
+    AbstractTestAbstractInterfaceProfile,
+):
+    pass

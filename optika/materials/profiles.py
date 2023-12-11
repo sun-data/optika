@@ -10,6 +10,7 @@ __all__ = [
     "ErfInterfaceProfile",
     "ExponentialInterfaceProfile",
     "LinearInterfaceProfile",
+    "SinusoidalInterfaceProfile",
 ]
 
 
@@ -329,4 +330,104 @@ class LinearInterfaceProfile(
         s = 4 * np.pi * direction.z / wavelength
         x = np.sqrt(3) * self.width * s
         result = np.sin(x.value) / x
+        return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class SinusoidalInterfaceProfile(
+    AbstractInterfaceProfile,
+):
+    """
+    Sinusoidal interface profile between two layers in a multilayer stack.
+
+    Examples
+    --------
+
+    Plot an sinusoidal interface profile as a function of depth
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define an array of widths
+        width = na.linspace(1, 2, axis="width", num=5) * u.nm
+
+        # Define the interface profile
+        p = optika.materials.profiles.SinusoidalInterfaceProfile(width=width)
+
+        # Define an array of depths into the material
+        z = na.linspace(-5, 5, axis="z", num=101) * u.nm
+
+        # Plot the interface profile as a function of depth
+        fig, ax = plt.subplots(constrained_layout=True);
+        na.plt.plot(z, p(z), ax=ax, axis="z", label=width);
+        ax.set_xlabel(f"depth ({z.unit:latex_inline})");
+        ax.set_ylabel(f"interface profile");
+        ax.legend();
+
+    Plot the reflectivity of the sinusoidal interface profile as a function
+    of incidence angle
+
+    .. jupyter-execute::
+
+        # Define a wavelength
+        wavelength = 304 * u.AA
+
+        # Define an array of incidence angles
+        angle = na.linspace(-90, 90, axis="angle", num=101) * u.deg
+
+        # define an array of direction cosines based off of the incidence angles
+        direction = na.Cartesian3dVectorArray(
+            x=np.sin(angle),
+            y=0,
+            z=np.cos(angle),
+        )
+
+        # calculate the reflectivity for the given angles
+        reflectivity = p.reflectivity(wavelength, direction)
+
+        # Plot the reflectivity of the interface profile as a function of
+        # incidence angle
+        fig, ax = plt.subplots(constrained_layout=True);
+        na.plt.plot(angle, reflectivity, ax=ax, axis="angle", label=width);
+        ax.set_xlabel(f"angle ({angle.unit:latex_inline})");
+        ax.set_ylabel(f"reflectivity");
+        ax.legend();
+
+    """
+
+    width: u.Quantity | na.AbstractScalar = 0 * u.nm
+    """
+    the characteristic size of the sine wave
+    """
+
+    def __call__(self, z: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+
+
+        width = self.width
+
+        a = np.pi / (np.square(np.pi) - 8)
+        z = np.minimum(a * width, np.maximum(z, -a * width))
+        result = (1 / 2) + np.sin(np.pi * z / (2 * a * width) * u.rad) / 2
+
+        # result = np.minimum(1, np.maximum(result, 0))
+
+        return result
+
+    def reflectivity(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        width = self.width
+        s = 4 * np.pi * direction.z / wavelength
+        a = np.pi / (np.square(np.pi) - 8)
+        x = a * width * s
+        x1 = x - np.pi / 2
+        x2 = x + np.pi / 2
+        result = np.pi * (np.sin(x1 * u.rad) / x1 + np.sin(x2 * u.rad) / x2) / 4
         return result
