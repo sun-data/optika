@@ -447,15 +447,11 @@ class SinusoidalInterfaceProfile(
     """
 
     def __call__(self, z: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
-
-
         width = self.width
 
         a = np.pi / (np.square(np.pi) - 8)
         z = np.minimum(a * width, np.maximum(z, -a * width))
         result = (1 / 2) + np.sin(np.pi * z / (2 * a * width) * u.rad) / 2
-
-        # result = np.minimum(1, np.maximum(result, 0))
 
         return result
 
