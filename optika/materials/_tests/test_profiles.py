@@ -42,6 +42,16 @@ class AbstractTestAbstractInterfaceProfile(
         argnames="direction",
         argvalues=[
             na.Cartesian3dVectorArray(0, 0, 1),
+            na.Cartesian3dYRotationMatrixArray(
+                na.linspace(-90, 90, axis="angle", num=5) * u.deg,
+            )
+            @ na.Cartesian3dVectorArray(0, 0, 1),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, 1),
         ],
     )
     def test_reflectivity(
@@ -49,8 +59,9 @@ class AbstractTestAbstractInterfaceProfile(
         a: optika.materials.profiles.AbstractInterfaceProfile,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ):
-        result = a.reflectivity(wavelength, direction)
+        result = a.reflectivity(wavelength, direction, normal)
         assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
         assert np.all(result >= 0)
         assert np.all(result <= 1)

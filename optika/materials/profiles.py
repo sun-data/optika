@@ -47,6 +47,7 @@ class AbstractInterfaceProfile(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         """
         Calculate the loss of the reflectivity due to this interface profile.
@@ -58,6 +59,8 @@ class AbstractInterfaceProfile(
         direction
             the propagation direction of the incident light, expressed in
             direction cosines.
+        normal
+            the vector perpendicular to the optical surface
         """
 
 
@@ -122,8 +125,11 @@ class ErfInterfaceProfile(
             z=np.cos(angle),
         )
 
+        # Define the vector normal to the optical surface
+        normal = na.Cartesian3dVectorArray(0, 0, 1)
+
         # calculate the reflectivity for the given angles
-        reflectivity = p.reflectivity(wavelength, direction)
+        reflectivity = p.reflectivity(wavelength, direction, normal)
 
         # Plot the reflectivity of the interface profile as a function of
         # incidence angle
@@ -152,8 +158,9 @@ class ErfInterfaceProfile(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        s = 4 * np.pi * direction.z / wavelength
+        s = 4 * np.pi * (direction @ normal) / wavelength
         result = np.exp(-np.square(s * self.width) / 2)
         return result
 
@@ -222,8 +229,11 @@ class ExponentialInterfaceProfile(
             z=np.cos(angle),
         )
 
+        # Define the vector normal to the optical surface
+        normal = na.Cartesian3dVectorArray(0, 0, 1)
+
         # calculate the reflectivity for the given angles
-        reflectivity = p.reflectivity(wavelength, direction)
+        reflectivity = p.reflectivity(wavelength, direction, normal)
 
         # Plot the reflectivity of the interface profile as a function of
         # incidence angle
@@ -252,8 +262,9 @@ class ExponentialInterfaceProfile(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        s = 4 * np.pi * direction.z / wavelength
+        s = 4 * np.pi * (direction @ normal) / wavelength
         result = 1 / (1 + np.square(s * self.width) / 2)
         return result
 
@@ -323,8 +334,11 @@ class LinearInterfaceProfile(
             z=np.cos(angle),
         )
 
+        # Define the vector normal to the optical surface
+        normal = na.Cartesian3dVectorArray(0, 0, 1)
+
         # calculate the reflectivity for the given angles
-        reflectivity = p.reflectivity(wavelength, direction)
+        reflectivity = p.reflectivity(wavelength, direction, normal)
 
         # Plot the reflectivity of the interface profile as a function of
         # incidence angle
@@ -354,8 +368,9 @@ class LinearInterfaceProfile(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        s = 4 * np.pi * direction.z / wavelength
+        s = 4 * np.pi * (direction @ normal) / wavelength
         x = np.sqrt(3) * self.width * s
         result = np.sin(x.value) / x
         return result
@@ -428,8 +443,11 @@ class SinusoidalInterfaceProfile(
             z=np.cos(angle),
         )
 
+        # Define the vector normal to the optical surface
+        normal = na.Cartesian3dVectorArray(0, 0, 1)
+
         # calculate the reflectivity for the given angles
-        reflectivity = p.reflectivity(wavelength, direction)
+        reflectivity = p.reflectivity(wavelength, direction, normal)
 
         # Plot the reflectivity of the interface profile as a function of
         # incidence angle
@@ -459,9 +477,10 @@ class SinusoidalInterfaceProfile(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         width = self.width
-        s = 4 * np.pi * direction.z / wavelength
+        s = 4 * np.pi * (direction @ normal) / wavelength
         a = np.pi / (np.square(np.pi) - 8)
         x = a * width * s
         x1 = x - np.pi / 2
