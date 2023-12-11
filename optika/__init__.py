@@ -12,4 +12,5 @@ from . import apertures
 from . import rulings
 from . import propagators
 from . import surfaces
+from . import sensors
 from . import systems
