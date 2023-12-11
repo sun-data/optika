@@ -124,6 +124,7 @@ class ErfInterfaceProfile(
         ax.legend();
 
     """
+
     width: u.Quantity | na.AbstractScalar = 0 * u.nm
     r"""
     the width of the Gaussian in the intergrand of :math:`\text{erf}(x)`

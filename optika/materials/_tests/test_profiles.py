@@ -9,7 +9,6 @@ import optika
 class AbstractTestAbstractInterfaceProfile(
     abc.ABC,
 ):
-
     def test_width(self, a: optika.materials.profiles.AbstractInterfaceProfile):
         result = a.width
         assert na.unit_normalized(result).is_equivalent(u.mm)
@@ -19,13 +18,13 @@ class AbstractTestAbstractInterfaceProfile(
         argvalues=[
             0 * u.nm,
             na.linspace(-1, 1, axis="z", num=11) * u.nm,
-            na.NormalUncertainScalarArray(0 * u.nm, width=1 * u.nm, num_distribution=11)
+            na.NormalUncertainScalarArray(0, width=1, num_distribution=11) * u.nm,
         ],
     )
     def test__call__(
         self,
         a: optika.materials.profiles.AbstractInterfaceProfile,
-        z: u.Quantity | na.AbstractScalar
+        z: u.Quantity | na.AbstractScalar,
     ):
         result = a(z)
         assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
@@ -36,8 +35,8 @@ class AbstractTestAbstractInterfaceProfile(
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
-        optika.materials.profiles.ErfInterfaceProfile(width=5 * u.AA)
-    ]
+        optika.materials.profiles.ErfInterfaceProfile(width=5 * u.AA),
+    ],
 )
 class TestErfInterfaceProfile(
     AbstractTestAbstractInterfaceProfile,
