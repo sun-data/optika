@@ -1,3 +1,6 @@
+"""
+A collection of apertures that can be applied to optical surfaces to block light.
+"""
 import abc
 import dataclasses
 import numpy as np
