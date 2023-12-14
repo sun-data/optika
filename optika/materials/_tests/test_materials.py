@@ -33,12 +33,19 @@ class AbstractTestAbstractMaterial(
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
             assert na.unit_normalized(result).is_equivalent(1 / u.mm)
 
+        @pytest.mark.parametrize(
+            argnames="normal",
+            argvalues=[
+                na.Cartesian3dVectorArray(0, 0, 1),
+            ],
+        )
         def test_transmissivity(
             self,
             a: optika.materials.AbstractMaterial,
             rays: optika.rays.AbstractRayVectorArray,
+            normal: na.AbstractCartesian3dVectorArray,
         ):
-            result = a.transmissivity(rays)
+            result = a.transmissivity(rays, normal)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
             assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
 

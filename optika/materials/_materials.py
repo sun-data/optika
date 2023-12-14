@@ -51,6 +51,7 @@ class AbstractMaterial(
     def transmissivity(
         self,
         rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
         """
         The fraction of light that passes through the interface.
@@ -59,6 +60,8 @@ class AbstractMaterial(
         ----------
         rays
             the input rays to calculate the transmissivity for
+        normal
+            the vector perpendicular to the optical surface
         """
 
     @property
@@ -92,6 +95,7 @@ class Vacuum(
     def transmissivity(
         self,
         rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
         return 1
 
@@ -128,6 +132,7 @@ class AbstractMirror(
     def transmissivity(
         self,
         rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
         return 1
 

@@ -334,7 +334,7 @@ class AbstractSurface(
         t = np.sqrt(np.square(1 / r) + np.square(c) - np.square(a.length))
         b = r * (a + (c + mirror * t) * normal)
 
-        intensity_2 = intensity_1 * material.transmissivity(rays_1)
+        intensity_2 = intensity_1 * material.transmissivity(rays_1, normal)
         attenuation_2 = material.attenuation(rays_1)
 
         rays_2 = optika.rays.RayVectorArray(
