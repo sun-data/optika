@@ -66,6 +66,7 @@ class AbstractWindtMaterial(
     def transmissivity(
         self,
         rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
         return 1
 
