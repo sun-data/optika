@@ -16,6 +16,14 @@ surfaces = [
         aperture=optika.apertures.RectangularAperture(half_width=10 * u.mm),
         transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
     ),
+    optika.surfaces.Surface(
+        name="test_surface",
+        sag=optika.sags.SphericalSag(radius=1000 * u.mm),
+        material=optika.materials.Mirror(),
+        aperture=optika.apertures.RectangularAperture(half_width=10 * u.mm),
+        transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
+        rulings=optika.rulings.ConstantDensityRulings(density=5 / u.um),
+    ),
 ]
 
 
