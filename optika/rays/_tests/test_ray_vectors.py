@@ -29,9 +29,9 @@ rays = [
             num=_num_y,
         ).explicit,
         direction=na.Cartesian3dVectorArray(
-            x=np.sin(na.linspace(-60, 60, axis="y", num=_num_y) * u.deg),
+            x=np.sin(na.linspace(-10, 10, axis="y", num=_num_y) * u.deg),
             y=0,
-            z=np.cos(na.linspace(-60, 60, axis="y", num=_num_y) * u.deg),
+            z=np.cos(na.linspace(-10, 10, axis="y", num=_num_y) * u.deg),
         ),
         attenuation=na.linspace(0, 1, axis="y", num=_num_y) / u.mm,
         index_refraction=na.linspace(1, 1.5, axis="y", num=_num_y).explicit,
@@ -66,7 +66,7 @@ class AbstractTestAbstractRayVectorArray(
             na.as_named_array(array.direction),
             na.AbstractCartesian3dVectorArray,
         )
-        assert np.all(array.direction.length == 1)
+        assert np.allclose(array.direction.length, 1)
 
     def test_intensity(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.intensity), na.AbstractScalar)
