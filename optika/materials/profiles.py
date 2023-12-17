@@ -160,7 +160,7 @@ class ErfInterfaceProfile(
         direction: na.AbstractCartesian3dVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        s = 4 * np.pi * (direction @ normal) / wavelength
+        s = 4 * np.pi * (-direction @ normal) / wavelength
         result = np.exp(-np.square(s * self.width) / 2)
         return result
 
@@ -264,7 +264,7 @@ class ExponentialInterfaceProfile(
         direction: na.AbstractCartesian3dVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        s = 4 * np.pi * (direction @ normal) / wavelength
+        s = 4 * np.pi * (-direction @ normal) / wavelength
         result = 1 / (1 + np.square(s * self.width) / 2)
         return result
 
@@ -370,7 +370,7 @@ class LinearInterfaceProfile(
         direction: na.AbstractCartesian3dVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        s = 4 * np.pi * (direction @ normal) / wavelength
+        s = 4 * np.pi * (-direction @ normal) / wavelength
         x = np.sqrt(3) * self.width * s
         result = np.sin(x.value) / x
         return result
@@ -480,7 +480,7 @@ class SinusoidalInterfaceProfile(
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         width = self.width
-        s = 4 * np.pi * (direction @ normal) / wavelength
+        s = 4 * np.pi * (-direction @ normal) / wavelength
         a = np.pi / (np.square(np.pi) - 8)
         x = a * width * s
         x1 = x - np.pi / 2
