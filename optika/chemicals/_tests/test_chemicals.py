@@ -1,9 +1,7 @@
-import pathlib
-
 import pytest
 import abc
+import pathlib
 import numpy as np
-import astropy.units as u
 import named_arrays as na
 import optika
 
@@ -14,11 +12,6 @@ class AbstractTestAbstractChemical(
     def test_formula(self, a: optika.chemicals.AbstractChemical):
         result = a.formula
         assert isinstance(result, str)
-
-    def test_density(self, a: optika.chemicals.AbstractChemical):
-        result = a.density
-        assert np.issubdtype(na.get_dtype(result), float)
-        assert na.unit(result).is_equivalent(u.g / u.cm**3)
 
     def test_is_amorphous(self, a: optika.chemicals.AbstractChemical):
         result = a.is_amorphous
@@ -49,12 +42,10 @@ class AbstractTestAbstractChemical(
     argvalues=[
         optika.chemicals.Chemical(
             formula=formula,
-            density=density,
             is_amorphous=is_amorphous,
             table=table,
         )
         for formula in ["Si", "SiO2"]
-        for density in [None]
         for is_amorphous in [
             False,
             True,
