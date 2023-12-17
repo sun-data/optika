@@ -155,7 +155,7 @@ def multilayer_efficiency(
             reflectivity,
             ax=ax,
             axis="wavelength",
-            label=f"Si/Mo $\times$ {N}",
+            label=rf"Si/Mo $\times$ {N}",
         );
         ax.legend();
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
