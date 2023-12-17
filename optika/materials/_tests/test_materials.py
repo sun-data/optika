@@ -115,7 +115,7 @@ class AbstractTestAbstractMaterial(
         @pytest.mark.parametrize(
             argnames="normal",
             argvalues=[
-                na.Cartesian3dVectorArray(0, 0, 1),
+                na.Cartesian3dVectorArray(0, 0, -1),
             ],
         )
         def test_transmissivity(
