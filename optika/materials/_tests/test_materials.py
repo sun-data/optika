@@ -127,6 +127,8 @@ class AbstractTestAbstractMaterial(
             result = a.transmissivity(rays, normal)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
             assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
+            assert np.all(result >= 0)
+            assert np.all(result <= 1)
 
 
 @pytest.mark.parametrize("a", [optika.materials.Vacuum()])
