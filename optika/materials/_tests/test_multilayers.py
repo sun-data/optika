@@ -68,7 +68,7 @@ def test_multilayer_efficiency(
     n_ambient: complex | na.AbstractScalar,
     n_substrate: complex | na.AbstractScalar,
     normal: None | na.AbstractCartesian3dVectorArray,
-    profile_interface: None | optika.materials.profiles.AbstractInterfaceProfile
+    profile_interface: None | optika.materials.profiles.AbstractInterfaceProfile,
 ):
     reflected, transmitted = optika.materials.multilayer_efficiency(
         material_layers=material_layers,
