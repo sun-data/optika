@@ -52,6 +52,13 @@ from . import test_materials
         na.Cartesian3dVectorArray(0, 0, -1),
     ],
 )
+@pytest.mark.parametrize(
+    argnames="profile_interface",
+    argvalues=[
+        None,
+        optika.materials.profiles.ErfInterfaceProfile(5 * u.AA),
+    ],
+)
 def test_multilayer_efficiency(
     material_layers: na.AbstractScalarArray,
     thickness_layers: na.AbstractScalarArray,
@@ -61,6 +68,7 @@ def test_multilayer_efficiency(
     n_ambient: complex | na.AbstractScalar,
     n_substrate: complex | na.AbstractScalar,
     normal: None | na.AbstractCartesian3dVectorArray,
+    profile_interface: None | optika.materials.profiles.AbstractInterfaceProfile
 ):
     reflected, transmitted = optika.materials.multilayer_efficiency(
         material_layers=material_layers,
@@ -71,6 +79,7 @@ def test_multilayer_efficiency(
         n_ambient=n_ambient,
         n_substrate=n_substrate,
         normal=normal,
+        profile_interface=profile_interface,
     )
 
     assert np.all(reflected >= 0)
