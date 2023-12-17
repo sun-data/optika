@@ -4,7 +4,6 @@ import pathlib
 import dataclasses
 import numpy as np
 import astropy.units as u
-import thermo
 import named_arrays as na
 import optika
 
@@ -31,13 +30,6 @@ class AbstractChemical(
 
         For example, water would be expressed as ``"H2O"``
         and hydrogen peroxide would be expressed as ``"H2O2"``.
-        """
-
-    @property
-    @abc.abstractmethod
-    def density(self) -> u.Quantity:
-        """
-        the mass per unit volume of the chemical
         """
 
     @property
@@ -209,11 +201,6 @@ class Chemical(
     and hydrogen peroxide would be expressed as ``"H2O2"``.
     """
 
-    density: None | u.Quantity = None
-    """
-    the mass per unit volume of the chemical
-    """
-
     is_amorphous: bool = False
     """
     Boolean flag controlling whether the chemical is amorphous
@@ -229,12 +216,3 @@ class Chemical(
     The default value, :obj:`None`, usually means concatenating the
     tables in :cite:t:`Palik1997` and :cite:t:`Henke1993`.
     """
-
-    def __post_init__(self):
-        if self.density is None:
-            formula = na.as_named_array(self.formula)
-            density = na.ScalarArray.empty(formula.shape) << (u.g / u.cm**3)
-            for index in formula.ndindex():
-                c = thermo.Chemical(formula[index].ndarray)
-                density[index] = c.rho << (u.kg / u.m**3)
-            self.density = density
