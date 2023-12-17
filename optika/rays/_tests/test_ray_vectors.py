@@ -66,7 +66,7 @@ class AbstractTestAbstractRayVectorArray(
             na.as_named_array(array.direction),
             na.AbstractCartesian3dVectorArray,
         )
-        assert np.all(array.direction.length == 1)
+        assert np.allclose(array.direction.length, 1)
 
     def test_intensity(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.intensity), na.AbstractScalar)
