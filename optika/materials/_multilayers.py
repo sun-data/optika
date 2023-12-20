@@ -49,6 +49,7 @@ def multilayer_efficiency(
         stack.
     normal
         A vector perpendicular to the interface between successive layers.
+        If :obj:`None`, the normal vector is assumed to be :math:`-\hat{z}`
     profile_interface
         An optional profile for modeling the roughness and/or
         diffusiveness of the interface between successive layers.
@@ -357,6 +358,9 @@ def multilayer_efficiency(
     axis = axis_layers
 
     wavelength = wavelength_ambient
+
+    if normal is None:
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
 
     direction_substrate = snells_law(
         wavelength=wavelength,
