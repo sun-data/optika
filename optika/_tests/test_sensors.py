@@ -13,8 +13,8 @@ import optika
         (2 * optika.sensors.energy_electron_hole, 2),
     ],
 )
-def test_quantum_yield_naive(
+def test_quantum_yield_ideal(
     wavelength: u.Quantity | na.AbstractScalar, result_expected: na.AbstractScalar
 ):
-    result = optika.sensors.quantum_yield_naive(wavelength)
+    result = optika.sensors.quantum_yield_ideal(wavelength)
     assert np.all(result == result_expected)
