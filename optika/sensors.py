@@ -312,7 +312,7 @@ def quantum_efficiency_effective(
         \right\} \\
 
     Equation :eq:`eqe` is equivalent to Equation 11 in :cite:t:`Stern1994`,
-    with the addition of an :math:`-e^{-\alpha D}` term which represents photons
+    with the addition of an :math:`e^{-\alpha W}-e^{-\alpha D}` term which represents photons
     that traveled all the way through the silicon substrate without interacting.
 
     Equation :eq:`eqe` is only valid for normally-incident light.
