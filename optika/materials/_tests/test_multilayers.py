@@ -49,7 +49,7 @@ from . import test_materials
 @pytest.mark.parametrize(
     argnames="normal",
     argvalues=[
-        na.Cartesian3dVectorArray(0, 0, -1),
+        None,
     ],
 )
 @pytest.mark.parametrize(
