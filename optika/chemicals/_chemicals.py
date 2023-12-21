@@ -172,7 +172,7 @@ class Chemical(
         na.plt.plot(n_si.inputs, n_si.outputs, label="silicon");
         na.plt.plot(n_sio2.inputs, n_sio2.outputs, label="silicon dioxide");
         ax.set_xscale("log");
-        ax.set_xlabel(f"wavelength ({n_si.inputs.unit:latex_inline}");
+        ax.set_xlabel(f"wavelength ({n_si.inputs.unit:latex_inline})");
         ax.set_ylabel("index of refraction");
         ax.legend();
 
@@ -187,7 +187,7 @@ class Chemical(
         na.plt.plot(k_si.inputs, k_si.outputs, label="silicon");
         na.plt.plot(k_sio2.inputs, k_sio2.outputs, label="silicon dioxide");
         ax.set_xscale("log");
-        ax.set_xlabel(f"wavelength ({k_si.inputs.unit:latex_inline}");
+        ax.set_xlabel(f"wavelength ({k_si.inputs.unit:latex_inline})");
         ax.set_ylabel("wavenumber");
         ax.legend();
     """
