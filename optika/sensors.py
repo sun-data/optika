@@ -390,27 +390,3 @@ def quantum_efficiency_effective(
     result = transmissivity * (term_1 + term_2 + term_3)
 
     return result
-
-
-class AbstractImagingSensor(
-    optika.surfaces.AbstractSurface[
-        None,
-        MaterialT,
-        optika.apertures.RectangularAperture,
-        optika.apertures.RectangularAperture,
-        None,
-    ],
-):
-    @property
-    def sag(self) -> None:
-        return None
-
-    @property
-    def rulings(self) -> None:
-        return None
-
-
-class AbstractCCD(
-    AbstractImagingSensor[MaterialT],
-):
-    pass
