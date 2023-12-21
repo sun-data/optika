@@ -122,7 +122,7 @@ def quantum_efficiency_effective(
     thickness_substrate
         The thickness of the silicon substrate.
     cce_backsurface
-        The differential charge collection efficiency on th back surface
+        The differential charge collection efficiency on the back surface
         of the sensor.
     formula_oxide
         The chemical formula of the oxide layer.
