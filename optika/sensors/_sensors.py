@@ -9,6 +9,8 @@ import named_arrays as na
 import optika
 
 __all__ = [
+    "energy_bandgap",
+    "energy_electron_hole",
     "quantum_yield_ideal",
     "quantum_efficiency_effective",
     "AbstractImagingSensor",
