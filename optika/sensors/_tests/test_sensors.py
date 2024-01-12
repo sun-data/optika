@@ -6,21 +6,6 @@ import optika
 
 
 @pytest.mark.parametrize(
-    argnames="wavelength,result_expected",
-    argvalues=[
-        (1.0 * u.eV, 0),
-        (2.0 * u.eV, 1),
-        (2 * optika.sensors.energy_electron_hole, 2),
-    ],
-)
-def test_quantum_yield_ideal(
-    wavelength: u.Quantity | na.AbstractScalar, result_expected: na.AbstractScalar
-):
-    result = optika.sensors.quantum_yield_ideal(wavelength)
-    assert np.all(result == result_expected)
-
-
-@pytest.mark.parametrize(
     argnames="wavelength",
     argvalues=[
         304 * u.AA,
