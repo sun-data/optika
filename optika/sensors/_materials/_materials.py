@@ -1,3 +1,6 @@
+import abc
+import functools
+import dataclasses
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -8,6 +11,9 @@ __all__ = [
     "energy_electron_hole",
     "quantum_yield_ideal",
     "quantum_efficiency_effective",
+    "AbstractImagingSensorMaterial",
+    "AbstractCCDMaterial",
+    "AbstractBackilluminatedCCDMaterial",
 ]
 
 energy_bandgap = 1.12 * u.eV
@@ -381,3 +387,153 @@ def quantum_efficiency_effective(
     result = transmissivity * (term_1 + term_2 + term_3)
 
     return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractImagingSensorMaterial(
+    optika.materials.AbstractMaterial,
+):
+    """
+    An interface representing the light-sensitive material of an imaging sensor.
+    """
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractCCDMaterial(
+    AbstractImagingSensorMaterial,
+):
+    """
+    An interface representing the light-sensitive material of a CCD sensor.
+    """
+
+    @property
+    def transformation(self) -> None:
+        return None
+
+    @functools.cached_property
+    def _chemical(self) -> optika.chemicals.Chemical:
+        return optika.chemicals.Chemical("Si")
+
+    def index_refraction(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> na.ScalarLike:
+        index_refraction = self._chemical.index_refraction
+        return na.interp(
+            x=rays.wavelength,
+            xp=index_refraction.inputs,
+            fp=index_refraction.outputs,
+        )
+
+    def attenuation(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> na.ScalarLike:
+        wavenumber = self._chemical.wavenumber
+        return na.interp(
+            x=rays.wavelength,
+            xp=wavenumber.inputs,
+            fp=4 * np.pi * wavenumber.outputs / wavenumber.inputs,
+        )
+
+    @property
+    def is_mirror(self) -> bool:
+        return False
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractBackilluminatedCCDMaterial(
+    AbstractCCDMaterial,
+):
+    """
+    An interface representing the light-sensitive material of a backilluminated
+    CCD sensor.
+    """
+
+    @property
+    @abc.abstractmethod
+    def thickness_oxide(self) -> u.Quantity | na.AbstractScalar:
+        """
+        The thickness of the oxide layer on the back surface of the CCD sensor.
+        """
+
+    @property
+    @abc.abstractmethod
+    def thickness_implant(self) -> u.Quantity | na.AbstractScalar:
+        """
+        The thickness of the implant layer of the CCD sensor.
+        """
+
+    @property
+    @abc.abstractmethod
+    def thickness_substrate(self) -> u.Quantity | na.AbstractScalar:
+        """the thickness of the entire CCD silicon substrate"""
+
+    @property
+    @abc.abstractmethod
+    def cce_backsurface(self) -> float | na.AbstractScalar:
+        """
+        The charge collection efficiency on the backsurface of the CCD sensor.
+        """
+
+    def quantum_yield_ideal(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> u.Quantity | na.AbstractScalar:
+        """
+        Compute the ideal quantum yield of this CCD sensor material using
+        :func:`optika.sensors.quantum_yield_ideal`.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light
+        """
+        return quantum_yield_ideal(wavelength)
+
+    def quantum_efficiency_effective(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Compute the effective quantum efficiency of this CCD material using
+        :func:`optika.sensors.quantum_efficiency_effective`.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the CCD surface
+        normal
+            The vector perpendicular to the surface of the CCD.
+        """
+        k_ambient = rays.attenuation * rays.wavelength / (4 * np.pi)
+        n_ambient = rays.index_refraction + k_ambient * 1j
+
+        k_substrate = self.attenuation(rays) * rays.wavelength / (4 * np.pi)
+        n_substrate = self.index_refraction(rays) + k_substrate * 1j
+
+        return quantum_efficiency_effective(
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            thickness_oxide=self.thickness_oxide,
+            thickness_implant=self.thickness_implant,
+            thickness_substrate=self.thickness_substrate,
+            cce_backsurface=self.cce_backsurface,
+            n_ambient=n_ambient,
+            n_substrate=n_substrate,
+            normal=normal,
+        )
+
+    def transmissivity(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.ScalarLike:
+        return self.quantum_efficiency_effective(
+            rays=rays,
+            normal=normal,
+        )
+
+
+
