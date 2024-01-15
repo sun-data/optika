@@ -92,7 +92,7 @@ class E2VCCD97Material(
 
     .. jupyter-execute::
 
-        material_ccd97.cce_backsurface * u.dimensionless_unscaled
+        material_ccd97.cce_backsurface
 
     Plot the effective quantum efficiency of the fit to this data vs. the fit
     to the data in :class:`optika.sensors.E2VCCDAIAMaterial`

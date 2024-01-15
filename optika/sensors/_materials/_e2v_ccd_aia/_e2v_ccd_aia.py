@@ -93,7 +93,7 @@ class E2VCCDAIAMaterial(
 
     .. jupyter-execute::
 
-        material_ccd_aia.cce_backsurface * u.dimensionless_unscaled
+        material_ccd_aia.cce_backsurface
     """
 
     @property
