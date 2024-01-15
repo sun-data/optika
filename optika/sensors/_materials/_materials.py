@@ -2,6 +2,7 @@ import abc
 import functools
 import dataclasses
 import numpy as np
+import scipy.optimize
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -14,6 +15,7 @@ __all__ = [
     "AbstractImagingSensorMaterial",
     "AbstractCCDMaterial",
     "AbstractBackilluminatedCCDMaterial",
+    "AbstractStern1994BackilluminatedCCDMaterial",
 ]
 
 energy_bandgap = 1.12 * u.eV
@@ -534,3 +536,93 @@ class AbstractBackilluminatedCCDMaterial(
             rays=rays,
             normal=normal,
         )
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractStern1994BackilluminatedCCDMaterial(
+    AbstractBackilluminatedCCDMaterial,
+):
+    """
+    A CCD material that is uses the method of :cite:t:`Stern1994` to compute
+    the quantum efficiency.
+    """
+
+    @property
+    @abc.abstractmethod
+    def quantum_efficiency_measured(self) -> na.FunctionArray:
+        """
+        The measured quantum efficiency that will be fit by the function
+        :func:`optika.sensors.quantum_efficiency_effective`.
+        """
+
+    @functools.cached_property
+    def _quantum_efficiency_fit(self) -> dict[str, float | u.Quantity]:
+        qe_measured = self.quantum_efficiency_measured
+
+        unit_thickness_oxide = u.AA
+        unit_thickness_implant = u.AA
+        unit_thickness_substrate = u.um
+        unit_cce_backsurface = u.dimensionless_unscaled
+
+        def eqe_rms_difference(x: tuple[float, float, float, float]):
+            (
+                thickness_oxide,
+                thickness_implant,
+                thickness_substrate,
+                cce_backsurface,
+            ) = x
+            qe_fit = quantum_efficiency_effective(
+                wavelength=qe_measured.inputs,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+                thickness_oxide=thickness_oxide << unit_thickness_oxide,
+                thickness_implant=thickness_implant << unit_thickness_implant,
+                thickness_substrate=thickness_substrate << unit_thickness_substrate,
+                cce_backsurface=cce_backsurface << unit_cce_backsurface,
+            )
+
+            return np.sqrt(np.mean(np.square(qe_measured.outputs - qe_fit))).ndarray
+
+        thickness_oxide_guess = 50 * u.AA
+        thickness_implant_guess = 2317 * u.AA
+        thickness_substrate_guess = 7 * u.um
+        cce_backsurface_guess = 0.21 * u.dimensionless_unscaled
+
+        fit = scipy.optimize.minimize(
+            fun=eqe_rms_difference,
+            x0=[
+                thickness_oxide_guess.to_value(unit_thickness_oxide),
+                thickness_implant_guess.to_value(unit_thickness_implant),
+                thickness_substrate_guess.to_value(unit_thickness_substrate),
+                cce_backsurface_guess.to_value(unit_cce_backsurface),
+            ],
+            method="nelder-mead",
+        )
+
+        thickness_oxide, thickness_implant, thickness_substrate, cce_backsurface = fit.x
+        thickness_oxide = thickness_oxide << unit_thickness_oxide
+        thickness_implant = thickness_implant << unit_thickness_implant
+        thickness_substrate = thickness_substrate << unit_thickness_substrate
+        cce_backsurface = cce_backsurface << unit_cce_backsurface
+
+        return dict(
+            thickness_oxide=thickness_oxide,
+            thickness_implant=thickness_implant,
+            thickness_substrate=thickness_substrate,
+            cce_backsurface=cce_backsurface,
+        )
+
+    @property
+    def thickness_oxide(self) -> u.Quantity:
+        return self._quantum_efficiency_fit["thickness_oxide"]
+
+    @property
+    def thickness_implant(self) -> u.Quantity:
+        return self._quantum_efficiency_fit["thickness_implant"]
+
+    @property
+    def thickness_substrate(self) -> u.Quantity:
+        return self._quantum_efficiency_fit["thickness_substrate"]
+
+    @property
+    def cce_backsurface(self) -> float:
+        return self._quantum_efficiency_fit["cce_backsurface"]

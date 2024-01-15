@@ -1,11 +1,8 @@
-import functools
 import pathlib
 import numpy as np
-import scipy.optimize
 import astropy.units as u
 import named_arrays as na
-from .._materials import quantum_efficiency_effective
-from .._materials import AbstractBackilluminatedCCDMaterial
+from .._materials import AbstractStern1994BackilluminatedCCDMaterial
 
 __all__ = [
     "E2VCCD97Material",
@@ -13,10 +10,10 @@ __all__ = [
 
 
 class E2VCCD97Material(
-    AbstractBackilluminatedCCDMaterial,
+    AbstractStern1994BackilluminatedCCDMaterial,
 ):
     """
-    A model of the light-sensitive material of an e2v CCD90 sensor based on
+    A model of the light-sensitive material of an e2v CCD97 sensor based on
     measurements by :cite:t:`Moody2017`.
 
     Examples
@@ -95,7 +92,49 @@ class E2VCCD97Material(
 
     .. jupyter-execute::
 
-        material_ccd97.cce_backsurface
+        material_ccd97.cce_backsurface * u.dimensionless_unscaled
+
+    Plot the effective quantum efficiency of the fit to this data vs. the fit
+    to the data in :class:`optika.sensors.E2VCCDAIAMaterial`
+
+    .. jupyter-execute::
+
+        material_ccd_aia = optika.sensors.E2VCCDAIAMaterial()
+
+        qe_fit_aia = material_ccd_aia.quantum_efficiency_effective(
+            rays=optika.rays.RayVectorArray(
+                wavelength=wavelength_fit,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+        )
+
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(constrained_layout=True)
+            na.plt.scatter(
+                wavelength_measured,
+                qe_measured,
+                label="Moody 2017 measured",
+            )
+            na.plt.plot(
+                wavelength_fit,
+                qe_fit,
+                label="Moody 2017 fit",
+            )
+            na.plt.scatter(
+                material_ccd_aia.quantum_efficiency_measured.inputs,
+                material_ccd_aia.quantum_efficiency_measured.outputs,
+                label="Boerner 2012 measured",
+            )
+            na.plt.plot(
+                wavelength_fit,
+                qe_fit_aia,
+                label="Boerner 2012 fit",
+            )
+            ax.set_xscale("log")
+            ax.set_xlabel(f"wavelength ({wavelength_fit.unit:latex_inline})")
+            ax.set_ylabel("quantum efficiency")
+            ax.legend()
     """
 
     @property
@@ -112,73 +151,3 @@ class E2VCCD97Material(
             inputs=na.ScalarArray(wavelength, axes="wavelength"),
             outputs=na.ScalarArray(qe, axes="wavelength"),
         )
-
-    @functools.cached_property
-    def _quantum_efficiency_fit(self) -> dict[str, float | u.Quantity]:
-        qe_measured = self.quantum_efficiency_measured
-
-        unit_thickness_oxide = u.AA
-        unit_thickness_implant = u.AA
-        unit_thickness_substrate = u.um
-
-        def eqe_rms_difference(x: tuple[float, float, float, float]):
-            (
-                thickness_oxide,
-                thickness_implant,
-                thickness_substrate,
-                cce_backsurface,
-            ) = x
-            qe_fit = quantum_efficiency_effective(
-                wavelength=qe_measured.inputs,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-                thickness_oxide=thickness_oxide << unit_thickness_oxide,
-                thickness_implant=thickness_implant << unit_thickness_implant,
-                thickness_substrate=thickness_substrate << unit_thickness_substrate,
-                cce_backsurface=cce_backsurface,
-            )
-
-            return np.sqrt(np.mean(np.square(qe_measured.outputs - qe_fit))).ndarray
-
-        thickness_oxide_guess = 50 * u.AA
-        thickness_implant_guess = 2317 * u.AA
-        thickness_substrate_guess = 7 * u.um
-        cce_backsurface_guess = 0.21
-
-        fit = scipy.optimize.minimize(
-            fun=eqe_rms_difference,
-            x0=[
-                thickness_oxide_guess.to_value(unit_thickness_oxide),
-                thickness_implant_guess.to_value(unit_thickness_implant),
-                thickness_substrate_guess.to_value(unit_thickness_substrate),
-                cce_backsurface_guess,
-            ],
-            method="nelder-mead",
-        )
-
-        thickness_oxide, thickness_implant, thickness_substrate, cce_backsurface = fit.x
-        thickness_oxide = thickness_oxide << unit_thickness_oxide
-        thickness_implant = thickness_implant << unit_thickness_implant
-        thickness_substrate = thickness_substrate << unit_thickness_substrate
-
-        return dict(
-            thickness_oxide=thickness_oxide,
-            thickness_implant=thickness_implant,
-            thickness_substrate=thickness_substrate,
-            cce_backsurface=cce_backsurface,
-        )
-
-    @property
-    def thickness_oxide(self) -> u.Quantity:
-        return self._quantum_efficiency_fit["thickness_oxide"]
-
-    @property
-    def thickness_implant(self) -> u.Quantity:
-        return self._quantum_efficiency_fit["thickness_implant"]
-
-    @property
-    def thickness_substrate(self) -> u.Quantity:
-        return self._quantum_efficiency_fit["thickness_substrate"]
-
-    @property
-    def cce_backsurface(self) -> float:
-        return self._quantum_efficiency_fit["cce_backsurface"]

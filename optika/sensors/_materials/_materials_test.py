@@ -135,3 +135,17 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     ):
         result = a.quantum_yield_ideal(wavelength)
         assert result >= 0
+
+
+class AbstractTestAbstractStern1994BackilluminatedCCDMaterial(
+    AbstractTestAbstractBackilluminatedCCDMaterial,
+):
+    def test_quantum_efficiency_measured(
+        self,
+        a: optika.sensors.AbstractStern1994BackilluminatedCCDMaterial,
+    ):
+        result = a.quantum_efficiency_measured
+        assert isinstance(result, na.AbstractFunctionArray)
+        assert np.all(result.outputs >= 0)
+        assert np.all(result.outputs <= 1)
+        assert np.all(result.inputs >= 0 * u.nm)
