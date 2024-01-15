@@ -70,6 +70,7 @@ class E2VCCD97Material(
             ax.set_xscale("log")
             ax.set_xlabel(f"wavelength ({wavelength_fit.unit:latex_inline})")
             ax.set_ylabel("quantum efficiency")
+            ax.legend()
     """
 
     @property
