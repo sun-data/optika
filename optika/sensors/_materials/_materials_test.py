@@ -3,6 +3,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from optika.materials._tests.test_materials import AbstractTestAbstractMaterial
 
 
 @pytest.mark.parametrize(
@@ -76,3 +77,61 @@ def test_quantum_efficiency_effective(
     )
     assert np.all(result >= 0)
     assert np.all(result <= 1)
+
+
+class AbstractTestAbstractImagingSensorMaterial(
+    AbstractTestAbstractMaterial,
+):
+    pass
+
+
+class AbstractTestAbstractCCDMaterial(
+    AbstractTestAbstractImagingSensorMaterial,
+):
+    pass
+
+
+class AbstractTestAbstractBackilluminatedCCDMaterial(
+    AbstractTestAbstractCCDMaterial,
+):
+    def test_thickness_oxide(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+    ):
+        result = a.thickness_oxide
+        assert result >= 0 * u.mm
+
+    def test_thickness_implant(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+    ):
+        result = a.thickness_implant
+        assert result >= 0 * u.mm
+
+    def test_thickness_substrate(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+    ):
+        result = a.thickness_substrate
+        assert result >= 0 * u.mm
+
+    def test_cce_backsurface(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+    ):
+        result = a.cce_backsurface
+        assert result >= 0
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            500 * u.nm,
+        ],
+    )
+    def test_quantum_yield_ideal(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        result = a.quantum_yield_ideal(wavelength)
+        assert result >= 0
