@@ -23,7 +23,7 @@ class E2VCCD97Material(
     --------
 
     Plot the measured E2VCCD97 quantum efficiency vs the fitted
-    quantum efficiency.
+    quantum efficiency calculated using the method of :cite:t:`Stern1994`.
 
     .. jupyter-execute::
 
@@ -71,6 +71,31 @@ class E2VCCD97Material(
             ax.set_xlabel(f"wavelength ({wavelength_fit.unit:latex_inline})")
             ax.set_ylabel("quantum efficiency")
             ax.legend()
+
+    The thickness of the oxide layer found by the fit is
+
+    .. jupyter-execute::
+
+        material_ccd97.thickness_oxide
+
+    The thickness of the implant layer found by the fit is
+
+    .. jupyter-execute::
+
+        material_ccd97.thickness_implant
+
+    The thickness of the substrate found by the fit is
+
+    .. jupyter-execute::
+
+        material_ccd97.thickness_substrate
+
+    And the differential charge collection efficiency at the backsurface
+    found by the fit is
+
+    .. jupyter-execute::
+
+        material_ccd97.cce_backsurface
     """
 
     @property
