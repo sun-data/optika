@@ -156,5 +156,3 @@ class E2VCCD97Material(
     @property
     def cce_backsurface(self) -> float:
         return self._quantum_efficiency_fit["cce_backsurface"]
-
-

@@ -534,6 +534,3 @@ class AbstractBackilluminatedCCDMaterial(
             rays=rays,
             normal=normal,
         )
-
-
-
