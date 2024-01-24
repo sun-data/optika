@@ -235,120 +235,133 @@ def multilayer_efficiency(
     Notes
     -----
 
-    The reflection and transmission of a plane wave from an ideal interface
-    is described by the Fresnel equations :cite:p:`Born1980`.
-    For :math:`s` polarization, the reflection and transmission coefficients are:
+    The reflection and transmission coefficients of the multilayer stack can
+    be calculated using the system transfer matrix method described in
+    :cite:t:`Yeh1988`.
+
+    The system transfer matrix is calculated using the transfer matrices of each
+    layer, where each consists of two parts:
+    the refractive matrix and propagation matrix.
+
+    The refractive matrix is given by :cite:t:`Yeh1988` Equation 5.1-12,
 
     .. math::
-        :label: reflection-s
+        :label: refractive-matrix
 
-        r_{ij}^s = \frac{\tilde{n}_i \cos \theta_i - \tilde{n}_j \cos \theta_j}
-                        {\tilde{n}_i \cos \theta_i + \tilde{n}_j \cos \theta_j}
+        W_{kij} = \frac{1}{t_{kij}} \begin{pmatrix}
+                                    1 & r_{kij} \\
+                                    r_{kij} & 1 \\
+                                  \end{pmatrix},
+
+    where :math:`k=(s, p)` is the polarization state, :math:`i=j-1` is the index
+    of the previous material, :math:`j` is the index of the current material,
+
+    .. math::
+        :label: fresnel-reflection
+
+        r_{kij} = \frac{q_{ki} - q_{kj}}{q_{ki} + q_{kj}}
+
+    is the Fresnel reflection coefficient between materials :math:`i` and :math:`j`,
+
+    .. math::
+        :label: fresnel-transmission
+
+        t_{kij} = \frac{2 q_{ki}}{q_{ki} + q_{kj}}
+
+    is the Fresnel transmission coefficient between materials :math:`i` and :math:`j`,
+
+    .. math::
+
+        q_{si} = n_i \cos \theta_i
 
     and
 
     .. math::
-        :label: transmission-s
 
-        t_{ij}^s = \frac{2 \tilde{n}_i \cos \theta_i}
-                        {\tilde{n}_i \cos \theta_i + \tilde{n}_j \cos \theta_j}.
+        q_{pi} = \frac{\cos \theta_i}{n_i}
 
-    For :math:`p` polarization, the reflection and transmission coefficients are:
+    are the :math:`z` components of the wave's momentum for :math:`s` and
+    :math:`p` polarization,
+    :math:`n_i` is the index of refraction inside material :math:`i`,
+    and :math:`\theta_i` is the angle between the wave's propagation direction
+    and the vector normal to the interface inside material :math:`i`.
 
-    .. math::
-        :label: reflection-p
-
-        r_{ij}^p = \frac{\tilde{n}_i \cos \theta_j - \tilde{n}_j \cos \theta_i}
-                        {\tilde{n}_i \cos \theta_j + \tilde{n}_j \cos \theta_i}
-
-    and
+    The propagation matrix takes the form
 
     .. math::
-        :label: transmission-p
+        :label: propagation-matrix
 
-        t_{ij}^p = \frac{2 \tilde{n}_i \cos \theta_i}
-                        {\tilde{n}_i \cos \theta_j + \tilde{n}_j \cos \theta_i},
+        U_{kj} = \begin{pmatrix}
+                    e^{-i \beta_j} & 0 \\
+                    0 & e^{i \beta_j} \\
+                \end{pmatrix}
 
-    where :math:`\tilde{n}_i = n_i + i k_i` is the complex index of refraction
-    inside material :math:`i` and :math:`\theta_i` is the angle from the surface
-    normal inside material :math:`i`.
-
-    In the case of nonabrupt interfaces, we can use the method of :cite:t:`Stearns1989`
-    to model the resulting loss of reflectivity.
-    In this method, for a given average interface profile function, :math:`p(z)`,
-    the loss of reflectivity is given by the Fourier transform of the derivative
-    of the interface profile function,
+    where
 
     .. math::
-        :label: interface-reflectivity
 
-        r_{ij}' = \mathcal{F} \left\{ \frac{dp}{dz} \right\} r_{ij},
+        \beta_j = \frac{2 \pi}{\lambda} n_j h_j \cos \theta_j,
 
-    for both :math:`s` and :math:`p` polarizations.
-    All the interface profile functions described in :cite:t:`Windt1998`
-    are implemented in the subpackage :mod:`optika.materials.profiles`.
+    is the phase change from propagating through material :math:`j`,
+    :math:`\lambda` is the vacuum wavelength of the incident light,
+    and :math:`h_j` is the thickness of material :math:`j`.
 
-    For a plane wave incident on a multilayer stack, the net reflection and
-    transmission coefficients are given by :cite:t:`Born1980` as the
-    following recursive relations:
-
-    .. math::
-        :label: net-reflection
-
-        r_i^q = \frac{r_{ij}^q + r_j^q e^{2 i \beta_i}}
-                   {1 + r_{ij}^q r_j^q e^{2 i \beta_i}}
-
-    and
+    To compute the system transfer matrix, we find the matrix product of the
+    :math:`S=N+1` refractive matrices from each interface and the :math:`N`
+    propagation matrices from each layer
 
     .. math::
-        :label: net-transmission
+        :label: sytem-transfer-matrix
 
-        t_i^q = \frac{t_{ij}^q t_j^q e^{i \beta_i}}
-                   {1 + r_{ij}^q r_j^q e^{2 i \beta_i}},
+        M_k = \left( \prod_{j=1}^N W_{kij} U_{kj} \right) W_{kNS}
 
-    where :math:`q=(s, p)`,
+    where :math:`i=j-1`.
 
-    .. math::
-        :label: beta
-
-        \beta_i = 2 \pi d_i \tilde{n}_i \cos \theta_i / \lambda,
-
-    :math:`d_i` is the thickness of material :math:`i`,
-    and :math:`\lambda` is the wavelength of the incident light.
-
-    Equations :eq:`net-reflection` and :eq:`net-transmission` are computed
-    recursively starting at the bottom of the multilayer stack.
-    The total reflectivity and transmissivity of the multilayer
-    for each polarization direction is then given by
+    Once the system transfer matrix has been calculated, we can use
+    :cite:t:`Yeh1988` Equation 5.2-3 to compute the system reflection coefficient
 
     .. math::
-        :label: reflectivity_q
+        :label: system-fresnel-reflection
 
-        R^q = |r_0^q|^2
+        r_k = \frac{M_{k21}}{M_k11},
 
-    and
+    and Equation 5.2-4 to compute the system transmission coefficient
 
     .. math::
-        :label: transmissivity_q
+        :label: system-fresnel-transmission
 
-        T^q = \Re \left\{ \frac{\tilde{n}_s \cos \theta_s}{\tilde{n}_a \cos \theta_a} \right\} |t_0^q|^2,
+        t_k = \frac{1}{M_{k11}}.
 
-    where the subscripts :math:`s` and :math:`a` denote the substrate and ambient materials respectively.
-
-    From Equations :eq:`reflectivity_q` and :eq:`transmissivity_q` we can finally
-    compute the average reflectivity and transmissivity of the multilayer stack
+    With the system reflection and transmission coefficients, we can compute the
+    reflectivity and transmissivity for each polarization state using the
+    expressions
 
     .. math::
         :label: reflectivity
 
-        R = \frac{R^s + R^p}{2}
+        R_k = |r_k|^2,
 
     and
 
     .. math::
         :label: transmissivity
 
-        T = \frac{T^s + T^p}{2}.
+        T_k = \Re \left( \frac{p_{kS}}{p_{k0}} \right) |t_k|^2.
+
+    From Equations :eq:`reflectivity` and :eq:`transmissivity` we can finally
+    compute the average reflectivity and transmissivity of the multilayer stack
+
+    .. math::
+        :label: avg-reflectivity
+
+        R = \frac{R_s + R_p}{2}
+
+    and
+
+    .. math::
+        :label: avg-transmissivity
+
+        T = \frac{T_s + T_p}{2}.
 
     The :class:`tuple` :math:`(R, T)` is the quantity returned by this function.
     """
@@ -357,80 +370,84 @@ def multilayer_efficiency(
     thickness = thickness_layers.broadcast_to(shape_layers)
     axis = axis_layers
 
-    wavelength = wavelength_ambient
+    wavelength = wavelength_ambient * np.real(n_ambient)
 
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    direction_substrate = snells_law(
-        wavelength=wavelength,
-        direction=direction_ambient,
-        index_refraction=np.real(n_ambient),
-        index_refraction_new=np.real(n_substrate),
-        normal=normal,
-    )
+    cos_theta_ambient = -direction_ambient @ normal
+    q_sa = cos_theta_ambient * n_ambient
+    q_pa = cos_theta_ambient / n_ambient
 
-    direction_j = direction_substrate
-    n_j = n_substrate
-    rs_j = 0
-    rp_j = 0
-    ts_j = 1
-    tp_j = 1
+    direction_i = direction_ambient
+    n_i = n_ambient
+    q_si = q_sa
+    q_pi = q_pa
 
     n_cache = dict()
 
-    for _i in range(material.shape[axis] + 1):
-        i = ~_i
+    m_s11 = m_p11 = 1
+    m_s12 = m_p12 = 0
+    m_s21 = m_p21 = 0
+    m_s22 = m_p22 = 1
 
-        if i == ~material.shape[axis]:
-            n_i = n_ambient
-            thickness_i = 0 * u.AA
+    num_layers = material.shape[axis]
+    num_interfaces = num_layers + 1
+
+    for j in range(num_interfaces):
+        if j == num_layers:
+            thickness_j = 0 * u.AA
+            n_j = n_substrate
         else:
-            formula_i = material[{axis: i}].ndarray
-            thickness_i = thickness[{axis: i}]
+            formula_j = material[{axis: j}].ndarray
+            thickness_j = thickness[{axis: j}]
 
-            if formula_i in n_cache:
-                n_i = n_cache[formula_i]
+            if formula_j in n_cache:
+                n_j = n_cache[formula_j]
             else:
-                chemical_i = optika.chemicals.Chemical(
-                    formula=formula_i,
+                chemical_j = optika.chemicals.Chemical(
+                    formula=formula_j,
                 )
 
-                index_refaction_i = chemical_i.index_refraction
-                index_refaction_i = na.interp(
+                index_refaction_j = chemical_j.index_refraction
+                index_refaction_j = na.interp(
                     x=wavelength,
-                    xp=index_refaction_i.inputs,
-                    fp=index_refaction_i.outputs,
+                    xp=index_refaction_j.inputs,
+                    fp=index_refaction_j.outputs,
                     axis="wavelength",
                 )
 
-                wavenumber_i = chemical_i.wavenumber
-                wavenumber_i = na.interp(
+                wavenumber_j = chemical_j.wavenumber
+                wavenumber_j = na.interp(
                     x=wavelength,
-                    xp=wavenumber_i.inputs,
-                    fp=wavenumber_i.outputs,
+                    xp=wavenumber_j.inputs,
+                    fp=wavenumber_j.outputs,
                     axis="wavelength",
                 )
 
-                n_i = index_refaction_i + wavenumber_i * 1j
-                n_cache[formula_i] = n_i
+                n_j = index_refaction_j + wavenumber_j * 1j
+                n_cache[formula_j] = n_j
 
-        direction_i = snells_law(
-            wavelength=wavelength,
-            direction=direction_j,
-            index_refraction=np.real(n_j),
-            index_refraction_new=np.real(n_i),
+        direction_j = snells_law(
+            wavelength=wavelength / np.real(n_i),
+            direction=direction_i,
+            index_refraction=np.real(n_i),
+            index_refraction_new=np.real(n_j),
             normal=normal,
         )
+        cos_theta_j = -direction_j @ normal
 
-        kn_i = -direction_i @ normal
-        kn_j = -direction_j @ normal
+        q_sj = cos_theta_j * n_j
+        q_pj = cos_theta_j / n_j
 
-        es_ij_denom = n_i * kn_i + n_j * kn_j
-        ep_ij_denom = n_i * kn_j + n_j * kn_i
+        a_sij = q_si + q_sj
+        a_pij = q_pi + q_pj
 
-        rs_ij = (n_i * kn_i - n_j * kn_j) / es_ij_denom
-        rp_ij = (n_i * kn_j - n_j * kn_i) / ep_ij_denom
+        r_sij = (q_si - q_sj) / a_sij
+        r_pij = (q_pi - q_pj) / a_pij
+
+        t_sij = 2 * q_si / a_sij
+        t_pij = 2 * q_pi / a_pij
 
         if profile_interface is not None:
             w_tilde = profile_interface.reflectivity(
@@ -438,48 +455,62 @@ def multilayer_efficiency(
                 direction=direction_i,
                 normal=normal,
             )
-            rs_ij = rs_ij * w_tilde
-            rp_ij = rp_ij * w_tilde
+            r_sij = w_tilde * r_sij
+            r_pij = w_tilde * r_pij
 
-        t_ij_numerator = 2 * n_i * kn_i
-        ts_ij = t_ij_numerator / es_ij_denom
-        tp_ij = t_ij_numerator / ep_ij_denom
+        beta_j = 2 * np.pi * thickness_j * n_j * cos_theta_j / wavelength
 
-        beta_i = 2 * np.pi * thickness_i * n_i * kn_i / wavelength
+        exp_negi_beta_j = np.exp(-1j * beta_j)
+        exp_posi_beta_j = np.exp(+1j * beta_j)
 
-        exp_2i_beta_i = np.exp(2j * beta_i)
+        m_sj11 = exp_negi_beta_j / t_sij
+        m_pj11 = exp_negi_beta_j / t_pij
 
-        es_i_denom = 1 + rs_ij * rs_j * exp_2i_beta_i
-        ep_i_denom = 1 + rp_ij * rp_j * exp_2i_beta_i
+        m_sj12 = exp_posi_beta_j * r_sij / t_sij
+        m_pj12 = exp_posi_beta_j * r_pij / t_pij
 
-        rs_i = (rs_ij + rs_j * exp_2i_beta_i) / es_i_denom
-        rp_i = (rp_ij + rp_j * exp_2i_beta_i) / ep_i_denom
+        m_sj21 = exp_negi_beta_j * r_sij / t_sij
+        m_pj21 = exp_negi_beta_j * r_pij / t_pij
 
-        ts_i = ts_ij * ts_j * np.exp(1j * beta_i) / es_i_denom
-        tp_i = tp_ij * tp_j * np.exp(1j * beta_i) / ep_i_denom
+        m_sj22 = exp_posi_beta_j / t_sij
+        m_pj22 = exp_posi_beta_j / t_pij
 
-        direction_j = direction_i
-        n_j = n_i
-        rs_j = rs_i
-        rp_j = rp_i
-        ts_j = ts_i
-        tp_j = tp_i
+        m_s11_new = m_s11 * m_sj11 + m_s12 * m_sj21
+        m_s12_new = m_s11 * m_sj12 + m_s12 * m_sj22
+        m_s21_new = m_s21 * m_sj11 + m_s22 * m_sj21
+        m_s22_new = m_s21 * m_sj12 + m_s22 * m_sj22
 
-    rs = rs_j
-    rp = rp_j
+        m_p11_new = m_p11 * m_pj11 + m_p12 * m_pj21
+        m_p12_new = m_p11 * m_pj12 + m_p12 * m_pj22
+        m_p21_new = m_p21 * m_pj11 + m_p22 * m_pj21
+        m_p22_new = m_p21 * m_pj12 + m_p22 * m_pj22
 
-    ts = ts_j
-    tp = tp_j
+        m_s11 = m_s11_new
+        m_s12 = m_s12_new
+        m_s21 = m_s21_new
+        m_s22 = m_s22_new
+
+        m_p11 = m_p11_new
+        m_p12 = m_p12_new
+        m_p21 = m_p21_new
+        m_p22 = m_p22_new
+
+        direction_i = direction_j
+        n_i = n_j
+        q_si = q_sj
+        q_pi = q_pj
+
+    rs = m_s21 / m_s11
+    rp = m_p21 / m_p11
+
+    ts = 1 / m_s11
+    tp = 1 / m_p11
 
     Rs = np.square(np.abs(rs))
     Rp = np.square(np.abs(rp))
 
-    f_substrate = n_substrate * (-direction_substrate @ normal)
-    f_ambient = n_ambient * (-direction_ambient @ normal)
-    T_ratio = np.real(f_substrate / f_ambient)
-
-    Ts = T_ratio * np.square(np.abs(ts))
-    Tp = T_ratio * np.square(np.abs(tp))
+    Ts = np.square(np.abs(ts)) * np.real(q_sj / q_sa)
+    Tp = np.square(np.abs(tp)) * np.real(q_pj / q_pa)
 
     R = (Rs + Rp) / 2
     T = (Ts + Tp) / 2
