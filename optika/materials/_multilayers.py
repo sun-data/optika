@@ -323,7 +323,7 @@ def multilayer_efficiency(
     .. math::
         :label: system-fresnel-reflection
 
-        r_k = \frac{M_{k21}}{M_k11},
+        r_k = \frac{M_{k21}}{M_{k11}},
 
     and Equation 5.2-4 to compute the system transmission coefficient
 
