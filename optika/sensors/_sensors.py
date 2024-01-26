@@ -1,6 +1,7 @@
 """
 Models of light sensors that can be used in optical systems.
 """
+
 from typing import TypeVar
 import abc
 import astropy.units as u

@@ -1,6 +1,7 @@
 """
 A Python package for simulating and designing optical systems.
 """
+
 from . import mixins
 from . import vectors
 from . import rays

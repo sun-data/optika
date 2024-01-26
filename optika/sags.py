@@ -392,6 +392,7 @@ class ConicSag(
             na.plt.plot(position.x, z, axis="x", label=sag.conic)
             plt.legend(title="conic constant")
     """
+
     radius: RadiusT = np.inf * u.mm
     conic: ConicT = 0 * u.dimensionless_unscaled
     """the conic constant of the conic section"""
