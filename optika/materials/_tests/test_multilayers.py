@@ -160,17 +160,7 @@ def test_multilayer_transmissivity_vs_file(
     transmissivity_file = na.ScalarArray(transmissivity_file, axes=axis_layers)
 
     substrate = optika.chemicals.Chemical(material_substrate)
-    index_refraction_substrate = na.interp(
-        x=wavelength_ambient,
-        xp=substrate.index_refraction.inputs,
-        fp=substrate.index_refraction.outputs,
-    )
-    wavenumber_substrate = na.interp(
-        x=wavelength_ambient,
-        xp=substrate.wavenumber.inputs,
-        fp=substrate.wavenumber.outputs,
-    )
-    n_substrate = index_refraction_substrate + wavenumber_substrate * 1j
+    n_substrate = substrate.n(wavelength_ambient)
 
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
         material_layers=material_layers,

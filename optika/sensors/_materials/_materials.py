@@ -340,17 +340,7 @@ def quantum_efficiency_effective(
 
     if n_substrate is None:
         substrate = optika.chemicals.Chemical("Si")
-        index_refraction_substrate = na.interp(
-            x=wavelength,
-            xp=substrate.index_refraction.inputs,
-            fp=substrate.index_refraction.outputs,
-        )
-        wavenumber_substrate = na.interp(
-            x=wavelength,
-            xp=substrate.wavenumber.inputs,
-            fp=substrate.wavenumber.outputs,
-        )
-        n_substrate = index_refraction_substrate + wavenumber_substrate * 1j
+        n_substrate = substrate.n(wavelength)
 
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
@@ -420,23 +410,16 @@ class AbstractCCDMaterial(
         self,
         rays: optika.rays.AbstractRayVectorArray,
     ) -> na.ScalarLike:
-        index_refraction = self._chemical.index_refraction
-        return na.interp(
-            x=rays.wavelength,
-            xp=index_refraction.inputs,
-            fp=index_refraction.outputs,
-        )
+        result = self._chemical.index_refraction(rays.wavelength)
+        return result
 
     def attenuation(
         self,
         rays: optika.rays.AbstractRayVectorArray,
     ) -> na.ScalarLike:
-        wavenumber = self._chemical.wavenumber
-        return na.interp(
-            x=rays.wavelength,
-            xp=wavenumber.inputs,
-            fp=4 * np.pi * wavenumber.outputs / wavenumber.inputs,
-        )
+        result = self._chemical.wavenumber(rays.wavelength)
+        result = 4 * np.pi * result / rays.wavelength
+        return result
 
     @property
     def is_mirror(self) -> bool:

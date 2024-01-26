@@ -2,8 +2,16 @@ import pytest
 import abc
 import pathlib
 import numpy as np
+import astropy.units as u
 import named_arrays as na
 import optika
+
+
+_wavelength = [
+    500 * u.nm,
+    na.geomspace(10, 10000, axis="wavelength", num=101) * u.AA,
+    na.NormalUncertainScalarArray(500 * u.nm, width=10 * u.nm),
+]
 
 
 class AbstractTestAbstractChemical(
@@ -28,13 +36,25 @@ class AbstractTestAbstractChemical(
             assert isinstance(result[index].ndarray, pathlib.Path)
             assert result[index].ndarray.exists()
 
-    def test_index_refraction(self, a: optika.chemicals.AbstractChemical):
-        result = a.index_refraction
-        assert isinstance(result, na.AbstractFunctionArray)
+    @pytest.mark.parametrize("wavelength", _wavelength)
+    def test_index_refraction(
+        self,
+        a: optika.chemicals.AbstractChemical,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        result = a.index_refraction(wavelength)
+        assert isinstance(result, na.AbstractScalar)
+        assert np.all(result > 0)
 
-    def test_wavenumber(self, a: optika.chemicals.AbstractChemical):
-        result = a.wavenumber
-        assert isinstance(result, na.AbstractFunctionArray)
+    @pytest.mark.parametrize("wavelength", _wavelength)
+    def test_wavenumber(
+        self,
+        a: optika.chemicals.AbstractChemical,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        result = a.wavenumber(wavelength)
+        assert isinstance(result, na.AbstractScalar)
+        assert np.all(result >= 0)
 
 
 @pytest.mark.parametrize(

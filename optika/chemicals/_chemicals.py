@@ -81,13 +81,20 @@ class AbstractChemical(
 
         return result
 
-    @functools.cached_property
-    def _wavelength_n_k(self) -> tuple[na.AbstractScalar, ...]:
+    def n(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> na.AbstractScalar:
         """
-        Return arrays of wavelength, :math:`n`, and :math:`k` from :attr:`file_nk`.
+        The complex index of refaction of this chemical for a given wavelength
         """
         file_nk = self.file_nk
         shape_base = file_nk.shape
+
+        shape = na.broadcast_shapes(shape_base, wavelength.shape)
+
+        wavelength = na.broadcast_to(wavelength, shape)
+        result = np.empty_like(wavelength.value, dtype=complex)
 
         for i, index in enumerate(file_nk.ndindex()):
             file_nk_index = file_nk[index].ndarray
@@ -100,9 +107,9 @@ class AbstractChemical(
                     else:
                         break
 
-            wavelength_index, n_index, k_index = np.genfromtxt(
+            wavelength_index, n_index, k_index = np.loadtxt(
                 fname=file_nk_index,
-                skip_header=skip_header,
+                skiprows=skip_header,
                 unpack=True,
             )
 
@@ -111,35 +118,31 @@ class AbstractChemical(
             n_index = na.ScalarArray(n_index, axes="wavelength")
             k_index = na.ScalarArray(k_index, axes="wavelength")
 
-            shape_index = na.shape_broadcasted(wavelength_index, n_index, k_index)
-            shape = na.broadcast_shapes(shape_base, shape_index)
+            result[index] = na.interp(
+                x=wavelength,
+                xp=wavelength_index,
+                fp=n_index + 1j * k_index
+            )
 
-            if i == 0:
-                wavelength = na.ScalarArray.empty(shape) << u.AA
-                n = na.ScalarArray.empty(shape)
-                k = na.ScalarArray.empty(shape)
+        return result
 
-            wavelength[index] = wavelength_index
-            n[index] = n_index
-            k[index] = k_index
-
-        return wavelength, n, k
-
-    @property
-    def index_refraction(self) -> na.FunctionArray[na.ScalarArray, na.ScalarArray]:
+    def index_refraction(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> na.AbstractScalar:
         """
-        The index of refraction of this material as a function of wavelength.
+        The index of refraction of this chemical for the given wavelength.
         """
-        wavelength, n, k = self._wavelength_n_k
-        return na.FunctionArray(inputs=wavelength, outputs=n)
+        return np.real(self.n(wavelength))
 
-    @property
-    def wavenumber(self) -> na.FunctionArray[na.ScalarArray, na.ScalarArray]:
+    def wavenumber(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> na.AbstractScalar:
         """
-        The wavenumber of this material as a function of wavelength.
+        The wavenumber of this chemical for the given wavelength.
         """
-        wavelength, n, k = self._wavelength_n_k
-        return na.FunctionArray(inputs=wavelength, outputs=k)
+        return np.imag(self.n(wavelength))
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -159,20 +162,23 @@ class Chemical(
     .. jupyter-execute::
 
         import matplotlib.pyplot as plt
+        import astropy.units as u
         import named_arrays as na
         import optika
 
         si = optika.chemicals.Chemical("Si")
         sio2 = optika.chemicals.Chemical("SiO2")
 
-        n_si = si.index_refraction
-        n_sio2 = sio2.index_refraction
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        n_si = si.index_refraction(wavelength)
+        n_sio2 = sio2.index_refraction(wavelength)
 
         fig, ax = plt.subplots(constrained_layout=True)
-        na.plt.plot(n_si.inputs, n_si.outputs, label="silicon");
-        na.plt.plot(n_sio2.inputs, n_sio2.outputs, label="silicon dioxide");
+        na.plt.plot(wavelength, n_si, label="silicon");
+        na.plt.plot(wavelength, n_sio2, label="silicon dioxide");
         ax.set_xscale("log");
-        ax.set_xlabel(f"wavelength ({n_si.inputs.unit:latex_inline})");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("index of refraction");
         ax.legend();
 
@@ -180,14 +186,14 @@ class Chemical(
 
     .. jupyter-execute::
 
-        k_si = si.wavenumber
-        k_sio2 = sio2.wavenumber
+        k_si = si.wavenumber(wavelength)
+        k_sio2 = sio2.wavenumber(wavelength)
 
         fig, ax = plt.subplots(constrained_layout=True)
-        na.plt.plot(k_si.inputs, k_si.outputs, label="silicon");
-        na.plt.plot(k_sio2.inputs, k_sio2.outputs, label="silicon dioxide");
+        na.plt.plot(wavelength, k_si, label="silicon");
+        na.plt.plot(wavelength, k_sio2, label="silicon dioxide");
         ax.set_xscale("log");
-        ax.set_xlabel(f"wavelength ({k_si.inputs.unit:latex_inline})");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("wavenumber");
         ax.legend();
     """
