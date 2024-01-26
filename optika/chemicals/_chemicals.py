@@ -121,7 +121,7 @@ class AbstractChemical(
             result[index] = na.interp(
                 x=wavelength,
                 xp=wavelength_index,
-                fp=n_index + 1j * k_index
+                fp=n_index + 1j * k_index,
             )
 
         return result
