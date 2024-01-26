@@ -195,17 +195,7 @@ def multilayer_efficiency(
 
         # Compute the complex index of refraction for the silicon substrate
         silicon = optika.chemicals.Chemical("Si")
-        index_refraction_substrate = na.interp(
-            x=wavelength,
-            xp=silicon.index_refraction.inputs,
-            fp=silicon.index_refraction.outputs,
-        )
-        wavenumber_substrate = na.interp(
-            x=wavelength,
-            xp=silicon.wavenumber.inputs,
-            fp=silicon.wavenumber.outputs,
-        )
-        n_substrate = index_refraction_substrate + wavenumber_substrate * 1j
+        n_substrate = silicon.n(wavelength)
 
         # Compute the reflectivity and transmissivity of this multilayer stack
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
@@ -409,23 +399,7 @@ def multilayer_efficiency(
                     formula=formula_j,
                 )
 
-                index_refaction_j = chemical_j.index_refraction
-                index_refaction_j = na.interp(
-                    x=wavelength,
-                    xp=index_refaction_j.inputs,
-                    fp=index_refaction_j.outputs,
-                    axis="wavelength",
-                )
-
-                wavenumber_j = chemical_j.wavenumber
-                wavenumber_j = na.interp(
-                    x=wavelength,
-                    xp=wavenumber_j.inputs,
-                    fp=wavenumber_j.outputs,
-                    axis="wavelength",
-                )
-
-                n_j = index_refaction_j + wavenumber_j * 1j
+                n_j = chemical_j.n(wavelength)
                 n_cache[formula_j] = n_j
 
         direction_j = snells_law(
