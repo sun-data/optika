@@ -68,7 +68,7 @@ class AbstractTestAbstractChemical(
         for formula in [
             "Si",
             "SiO2",
-            na.ScalarArray(np.array(["Si", "SiO2"]), axes="layer")
+            na.ScalarArray(np.array(["Si", "SiO2"]), axes="layer"),
         ]
         for is_amorphous in [
             False,
