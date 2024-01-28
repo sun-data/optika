@@ -23,7 +23,7 @@ class AbstractChemical(
 
     @property
     @abc.abstractmethod
-    def formula(self) -> str:
+    def formula(self) -> str | na.AbstractScalar:
         """
         the `empirical formula <https://en.wikipedia.org/wiki/Empirical_formula>`_
         of the chemical compound.
@@ -119,7 +119,7 @@ class AbstractChemical(
             k_index = na.ScalarArray(k_index, axes="wavelength")
 
             result[index] = na.interp(
-                x=wavelength,
+                x=wavelength[index],
                 xp=wavelength_index,
                 fp=n_index + 1j * k_index,
             )
@@ -198,7 +198,7 @@ class Chemical(
         ax.legend();
     """
 
-    formula: str = dataclasses.MISSING
+    formula: str | na.AbstractScalar = dataclasses.MISSING
     """
     the `empirical formula <https://en.wikipedia.org/wiki/Empirical_formula>`_
     of the chemical compound.

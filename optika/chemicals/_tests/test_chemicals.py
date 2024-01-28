@@ -19,7 +19,7 @@ class AbstractTestAbstractChemical(
 ):
     def test_formula(self, a: optika.chemicals.AbstractChemical):
         result = a.formula
-        assert isinstance(result, str)
+        assert isinstance(result, (str, na.AbstractScalar))
 
     def test_is_amorphous(self, a: optika.chemicals.AbstractChemical):
         result = a.is_amorphous
@@ -65,7 +65,11 @@ class AbstractTestAbstractChemical(
             is_amorphous=is_amorphous,
             table=table,
         )
-        for formula in ["Si", "SiO2"]
+        for formula in [
+            "Si",
+            "SiO2",
+            na.ScalarArray(np.array(["Si", "SiO2"]), axes="layer")
+        ]
         for is_amorphous in [
             False,
             True,
