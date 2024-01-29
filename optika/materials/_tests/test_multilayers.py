@@ -226,3 +226,32 @@ class TestMultilayerFilm(
     AbstractTestAbstractMultilayerFilm,
 ):
     pass
+
+
+class AbstractTestAbstractMultilayerMirror(
+    AbstractTestAbstractMultilayerMaterial,
+):
+    pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.materials.MultilayerMirror(
+            material_layers=na.ScalarArray(
+                ndarray=np.array((["Al2O3", "Al", "Al2O3"]), dtype=object),
+                axes="layer",
+            ),
+            material_substrate="Si",
+            thickness_layers=na.ScalarArray(
+                ndarray=[5, 100, 5] * u.nm,
+                axes="layer",
+            ),
+            axis_layers="layer",
+        ),
+    ],
+)
+class TestMultilayerMirror(
+    AbstractTestAbstractMultilayerMirror,
+):
+    pass
