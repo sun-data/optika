@@ -350,7 +350,7 @@ def quantum_efficiency_effective(
 
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
         n=n,
-        thickness_layers=na.stack([thickness_oxide], axis="_layer"),
+        thickness=na.stack([thickness_oxide], axis="_layer"),
         axis_layers="_layer",
         wavelength_ambient=wavelength,
         direction_ambient=direction,

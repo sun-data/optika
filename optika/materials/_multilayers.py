@@ -17,7 +17,7 @@ __all__ = [
 
 def multilayer_efficiency(
     n: na.AbstractScalar,
-    thickness_layers: na.AbstractScalar,
+    thickness: na.AbstractScalar,
     axis_layers: str,
     wavelength_ambient: u.Quantity | na.AbstractScalar,
     direction_ambient: na.AbstractCartesian3dVectorArray,
@@ -34,7 +34,7 @@ def multilayer_efficiency(
     ----------
     n
         The complex index of refraction for each layer
-    thickness_layers
+    thickness
         An array of thicknesses for each layer.
     axis_layers
         The logical axis along which the different layers are distributed.
@@ -79,12 +79,12 @@ def multilayer_efficiency(
         n = optika.chemicals.Chemical(formula).n(wavelength)
 
         # Define an array of thicknesses for each layer.
-        thickness_layers = na.ScalarArray([1500] * u.AA, axes="layer")
+        thickness = na.ScalarArray([1500] * u.AA, axes="layer")
 
         # Compute the reflectivity and the transmissivity of this multilyaer
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
             n=n,
-            thickness_layers=thickness_layers,
+            thickness=thickness,
             axis_layers="layer",
             wavelength_ambient=wavelength,
             direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
@@ -132,7 +132,7 @@ def multilayer_efficiency(
         thickness_ratio = 0.6
 
         # Compute thicknesses for each layer
-        thickness_layers = d * na.stack(
+        thickness = d * na.stack(
             arrays=N * [thickness_ratio, 1 - thickness_ratio],
             axis="layer"
         )
@@ -145,7 +145,7 @@ def multilayer_efficiency(
         # Compute the reflectivity and transmissivity of this multilayer stack
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
             n=n,
-            thickness_layers=thickness_layers,
+            thickness=thickness,
             axis_layers="layer",
             wavelength_ambient=wavelength,
             direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
@@ -197,7 +197,7 @@ def multilayer_efficiency(
         thickness_ratio = na.linspace(0.2, 0.6, axis="thickness_ratio", num=5)
 
         # thicknesses for each layer
-        thickness_layers = d * na.stack(
+        thickness = d * na.stack(
             arrays=N * [thickness_ratio, 1 - thickness_ratio],
             axis="layer"
         )
@@ -209,7 +209,7 @@ def multilayer_efficiency(
         # Compute the reflectivity and transmissivity of this multilayer stack
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
             n=n,
-            thickness_layers=thickness_layers,
+            thickness=thickness,
             axis_layers="layer",
             wavelength_ambient=wavelength,
             direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
@@ -364,9 +364,9 @@ def multilayer_efficiency(
 
     The :class:`tuple` :math:`(R, T)` is the quantity returned by this function.
     """
-    shape_layers = na.shape_broadcasted(n, thickness_layers)
+    shape_layers = na.shape_broadcasted(n, thickness)
     n = n.broadcast_to(shape_layers)
-    thickness = thickness_layers.broadcast_to(shape_layers)
+    thickness = thickness.broadcast_to(shape_layers)
     axis = axis_layers
 
     wavelength = wavelength_ambient * np.real(n_ambient)
@@ -568,7 +568,7 @@ class AbstractMultilayerFilm(
         n_ambient = rays.index_refraction + k_ambient * 1j
         reflectivity, transmissivity = multilayer_efficiency(
             n=n,
-            thickness_layers=self.thickness_layers,
+            thickness=self.thickness_layers,
             axis_layers=self.axis_layers,
             wavelength_ambient=wavelength,
             direction_ambient=rays.direction,

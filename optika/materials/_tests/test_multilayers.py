@@ -10,7 +10,7 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
 
 
 @pytest.mark.parametrize(
-    argnames="n,thickness_layers,axis_layers",
+    argnames="n,thickness,axis_layers",
     argvalues=[
         (
             optika.chemicals.Chemical(
@@ -65,7 +65,7 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
 )
 def test_multilayer_efficiency(
     n: na.AbstractScalarArray,
-    thickness_layers: na.AbstractScalarArray,
+    thickness: na.AbstractScalarArray,
     axis_layers: str,
     wavelength_ambient: u.Quantity | na.AbstractScalar,
     direction_ambient: na.AbstractCartesian3dVectorArray,
@@ -76,7 +76,7 @@ def test_multilayer_efficiency(
 ):
     reflected, transmitted = optika.materials.multilayer_efficiency(
         n=n,
-        thickness_layers=thickness_layers,
+        thickness=thickness,
         axis_layers=axis_layers,
         wavelength_ambient=wavelength_ambient,
         direction_ambient=direction_ambient,
@@ -99,7 +99,7 @@ def test_multilayer_efficiency(
     argnames=[
         "file",
         "material_layers",
-        "thickness_layers",
+        "thickness",
         "axis_layers",
         "direction_ambient",
         "n_ambient",
@@ -146,7 +146,7 @@ def test_multilayer_efficiency(
 def test_multilayer_transmissivity_vs_file(
     file: pathlib.Path,
     material_layers: na.AbstractScalarArray,
-    thickness_layers: na.AbstractScalarArray,
+    thickness: na.AbstractScalarArray,
     axis_layers: str,
     direction_ambient: na.AbstractCartesian3dVectorArray,
     n_ambient: complex | na.AbstractScalar,
@@ -167,7 +167,7 @@ def test_multilayer_transmissivity_vs_file(
 
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
         n=optika.chemicals.Chemical(material_layers).n(wavelength_ambient),
-        thickness_layers=thickness_layers,
+        thickness=thickness,
         axis_layers=axis_layers,
         wavelength_ambient=wavelength_ambient,
         direction_ambient=direction_ambient,
