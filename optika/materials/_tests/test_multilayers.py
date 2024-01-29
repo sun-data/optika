@@ -6,12 +6,16 @@ import named_arrays as na
 import optika
 from . import test_materials
 
+_wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
+
 
 @pytest.mark.parametrize(
-    argnames="material_layers,thickness_layers,axis_layers",
+    argnames="n,thickness_layers,axis_layers",
     argvalues=[
         (
-            na.ScalarArray(np.array(2 * ["Y", "Al"], dtype=object), axes="layer"),
+            optika.chemicals.Chemical(
+                na.ScalarArray(np.array(2 * ["Y", "Al"]), axes="layer"),
+            ).n(_wavelength),
             na.ScalarArray((2 * [10, 30]) * u.AA, axes="layer"),
             "layer",
         )
@@ -20,8 +24,7 @@ from . import test_materials
 @pytest.mark.parametrize(
     argnames="wavelength_ambient",
     argvalues=[
-        200 * u.AA,
-        na.linspace(100, 200, axis="wavelength", num=4) * u.AA,
+        _wavelength,
     ],
 )
 @pytest.mark.parametrize(
@@ -61,7 +64,7 @@ from . import test_materials
     ],
 )
 def test_multilayer_efficiency(
-    material_layers: na.AbstractScalarArray,
+    n: na.AbstractScalarArray,
     thickness_layers: na.AbstractScalarArray,
     axis_layers: str,
     wavelength_ambient: u.Quantity | na.AbstractScalar,
@@ -72,7 +75,7 @@ def test_multilayer_efficiency(
     profile_interface: None | optika.materials.profiles.AbstractInterfaceProfile,
 ):
     reflected, transmitted = optika.materials.multilayer_efficiency(
-        material_layers=material_layers,
+        n=n,
         thickness_layers=thickness_layers,
         axis_layers=axis_layers,
         wavelength_ambient=wavelength_ambient,
@@ -156,14 +159,14 @@ def test_multilayer_transmissivity_vs_file(
         skip_header=15,
         unpack=True,
     )
-    wavelength_ambient = na.ScalarArray(wavelength_ambient, axes=axis_layers) << u.AA
-    transmissivity_file = na.ScalarArray(transmissivity_file, axes=axis_layers)
+    wavelength_ambient = na.ScalarArray(wavelength_ambient, axes="wavelength") << u.AA
+    transmissivity_file = na.ScalarArray(transmissivity_file, axes="wavelength")
 
     substrate = optika.chemicals.Chemical(material_substrate)
     n_substrate = substrate.n(wavelength_ambient)
 
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
-        material_layers=material_layers,
+        n=optika.chemicals.Chemical(material_layers).n(wavelength_ambient),
         thickness_layers=thickness_layers,
         axis_layers=axis_layers,
         wavelength_ambient=wavelength_ambient,

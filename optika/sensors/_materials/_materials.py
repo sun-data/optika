@@ -345,8 +345,11 @@ def quantum_efficiency_effective(
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
+    n = optika.chemicals.Chemical(formula_oxide).n(wavelength)
+    n = n.broadcast_to(na.broadcast_shapes(n.shape, dict(_layer=1)))
+
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
-        material_layers=na.ScalarArray(np.array([formula_oxide]), axes="_layer"),
+        n=n,
         thickness_layers=na.stack([thickness_oxide], axis="_layer"),
         axis_layers="_layer",
         wavelength_ambient=wavelength,

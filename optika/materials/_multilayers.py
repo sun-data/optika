@@ -16,7 +16,7 @@ __all__ = [
 
 
 def multilayer_efficiency(
-    material_layers: na.AbstractScalarArray,
+    n: na.AbstractScalar,
     thickness_layers: na.AbstractScalar,
     axis_layers: str,
     wavelength_ambient: u.Quantity | na.AbstractScalar,
@@ -32,8 +32,8 @@ def multilayer_efficiency(
 
     Parameters
     ----------
-    material_layers
-        An array of chemical formulas for each layer.
+    n
+        The complex index of refraction for each layer
     thickness_layers
         An array of thicknesses for each layer.
     axis_layers
@@ -69,18 +69,21 @@ def multilayer_efficiency(
         import named_arrays as na
         import optika
 
+        # Define the wavelengths of the incident light
+        wavelength = na.linspace(100, 150, axis="wavelength", num=501) * u.AA
+
         # Define an array of chemical formulae for each layer.
-        material_layers = na.ScalarArray(np.array(["Zr"], dtype=object), axes="layer")
+        formula = na.ScalarArray(np.array(["Zr"]), axes="layer")
+
+        # Compute the complex index of refraction for each layer
+        n = optika.chemicals.Chemical(formula).n(wavelength)
 
         # Define an array of thicknesses for each layer.
         thickness_layers = na.ScalarArray([1500] * u.AA, axes="layer")
 
-        # Define the wavelengths of the incident light
-        wavelength = na.linspace(100, 150, axis="wavelength", num=501) * u.AA
-
         # Compute the reflectivity and the transmissivity of this multilyaer
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
-            material_layers=material_layers,
+            n=n,
             thickness_layers=thickness_layers,
             axis_layers="layer",
             wavelength_ambient=wavelength,
@@ -117,10 +120,13 @@ def multilayer_efficiency(
         N = 60
 
         # Define an array of chemical formulas for each layer
-        material_layers = na.ScalarArray(
+        formula = na.ScalarArray(
             ndarray=np.array(N * ["Si", "Mo"]),
             axes="layer"
         )
+
+        # Compute the complex index of refraction for each layer
+        n = optika.chemicals.Chemical(formula).n(wavelength)
 
         # Define the thickness to period ratios for each layer
         thickness_ratio = 0.6
@@ -138,7 +144,7 @@ def multilayer_efficiency(
 
         # Compute the reflectivity and transmissivity of this multilayer stack
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
-            material_layers=material_layers,
+            n=n,
             thickness_layers=thickness_layers,
             axis_layers="layer",
             wavelength_ambient=wavelength,
@@ -175,11 +181,17 @@ def multilayer_efficiency(
         # Number of periods
         N = 40
 
+        # wavelength of the incident light
+        wavelength = na.linspace(170, 210, num=101, axis="wavelength") * u.AA
+
         # array of chemical formulas for each layer
-        material_layers = na.ScalarArray(
+        formula = na.ScalarArray(
             ndarray=np.array(N * ["Y", "Al"]),
             axes="layer"
         )
+
+        # Compute the complex index of refraction for each layer
+        n = optika.chemicals.Chemical(formula).n(wavelength)
 
         # an array of thickness to period ratios for each layer
         thickness_ratio = na.linspace(0.2, 0.6, axis="thickness_ratio", num=5)
@@ -190,16 +202,13 @@ def multilayer_efficiency(
             axis="layer"
         )
 
-        # wavelength of the incident light
-        wavelength = na.linspace(170, 210, num=101, axis="wavelength") * u.AA
-
         # Compute the complex index of refraction for the silicon substrate
         silicon = optika.chemicals.Chemical("Si")
         n_substrate = silicon.n(wavelength)
 
         # Compute the reflectivity and transmissivity of this multilayer stack
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
-            material_layers=material_layers,
+            n=n,
             thickness_layers=thickness_layers,
             axis_layers="layer",
             wavelength_ambient=wavelength,
@@ -355,8 +364,8 @@ def multilayer_efficiency(
 
     The :class:`tuple` :math:`(R, T)` is the quantity returned by this function.
     """
-    shape_layers = na.shape_broadcasted(material_layers, thickness_layers)
-    material = material_layers
+    shape_layers = na.shape_broadcasted(n, thickness_layers)
+    n = n.broadcast_to(shape_layers)
     thickness = thickness_layers.broadcast_to(shape_layers)
     axis = axis_layers
 
@@ -374,14 +383,12 @@ def multilayer_efficiency(
     q_si = q_sa
     q_pi = q_pa
 
-    n_cache = dict()
-
     m_s11 = m_p11 = 1
     m_s12 = m_p12 = 0
     m_s21 = m_p21 = 0
     m_s22 = m_p22 = 1
 
-    num_layers = material.shape[axis]
+    num_layers = n.shape[axis]
     num_interfaces = num_layers + 1
 
     for j in range(num_interfaces):
@@ -389,18 +396,8 @@ def multilayer_efficiency(
             thickness_j = 0 * u.AA
             n_j = n_substrate
         else:
-            formula_j = material[{axis: j}].ndarray
             thickness_j = thickness[{axis: j}]
-
-            if formula_j in n_cache:
-                n_j = n_cache[formula_j]
-            else:
-                chemical_j = optika.chemicals.Chemical(
-                    formula=formula_j,
-                )
-
-                n_j = chemical_j.n(wavelength)
-                n_cache[formula_j] = n_j
+            n_j = n[{axis: j}]
 
         direction_j = snells_law(
             wavelength=wavelength / np.real(n_i),
@@ -566,10 +563,11 @@ class AbstractMultilayerFilm(
             the vector normal to the interface between successive layers
         """
         wavelength = rays.wavelength
+        n = optika.chemicals.Chemical(self.material_layers).n(wavelength)
         k_ambient = rays.attenuation * wavelength / (4 * np.pi)
         n_ambient = rays.index_refraction + k_ambient * 1j
         reflectivity, transmissivity = multilayer_efficiency(
-            material_layers=self.material_layers,
+            n=n,
             thickness_layers=self.thickness_layers,
             axis_layers=self.axis_layers,
             wavelength_ambient=wavelength,
