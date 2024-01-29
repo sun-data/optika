@@ -18,7 +18,7 @@ __all__ = [
 def multilayer_efficiency(
     n: na.AbstractScalar,
     thickness: na.AbstractScalar,
-    axis_layers: str,
+    axis: str,
     wavelength_ambient: u.Quantity | na.AbstractScalar,
     direction_ambient: na.AbstractCartesian3dVectorArray,
     n_ambient: complex | na.AbstractScalar,
@@ -36,7 +36,7 @@ def multilayer_efficiency(
         The complex index of refraction for each layer
     thickness
         An array of thicknesses for each layer.
-    axis_layers
+    axis
         The logical axis along which the different layers are distributed.
     wavelength_ambient
         The wavelength of the incident light in the ambient medium.
@@ -85,7 +85,7 @@ def multilayer_efficiency(
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
             n=n,
             thickness=thickness,
-            axis_layers="layer",
+            axis="layer",
             wavelength_ambient=wavelength,
             direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
             n_ambient=1,
@@ -146,7 +146,7 @@ def multilayer_efficiency(
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
             n=n,
             thickness=thickness,
-            axis_layers="layer",
+            axis="layer",
             wavelength_ambient=wavelength,
             direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
             n_ambient=1,
@@ -210,7 +210,7 @@ def multilayer_efficiency(
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
             n=n,
             thickness=thickness,
-            axis_layers="layer",
+            axis="layer",
             wavelength_ambient=wavelength,
             direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
             n_ambient=1,
@@ -367,7 +367,6 @@ def multilayer_efficiency(
     shape_layers = na.shape_broadcasted(n, thickness)
     n = n.broadcast_to(shape_layers)
     thickness = thickness.broadcast_to(shape_layers)
-    axis = axis_layers
 
     wavelength = wavelength_ambient * np.real(n_ambient)
 
@@ -569,7 +568,7 @@ class AbstractMultilayerFilm(
         reflectivity, transmissivity = multilayer_efficiency(
             n=n,
             thickness=self.thickness_layers,
-            axis_layers=self.axis_layers,
+            axis=self.axis_layers,
             wavelength_ambient=wavelength,
             direction_ambient=rays.direction,
             n_ambient=n_ambient,
