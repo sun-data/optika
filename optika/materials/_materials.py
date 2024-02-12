@@ -358,7 +358,7 @@ class AbstractMaterial(
         """
 
     @abc.abstractmethod
-    def transmissivity(
+    def efficiency(
         self,
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
@@ -369,7 +369,7 @@ class AbstractMaterial(
         Parameters
         ----------
         rays
-            the input rays to calculate the transmissivity for
+            the input rays to calculate the efficiency for
         normal
             the vector perpendicular to the optical surface
         """
@@ -402,7 +402,7 @@ class Vacuum(
     ) -> na.ScalarLike:
         return 0 / u.mm
 
-    def transmissivity(
+    def efficiency(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
@@ -439,7 +439,7 @@ class AbstractMirror(
     ) -> na.ScalarLike:
         return rays.attenuation
 
-    def transmissivity(
+    def efficiency(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,

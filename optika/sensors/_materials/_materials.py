@@ -513,7 +513,7 @@ class AbstractBackilluminatedCCDMaterial(
             normal=normal,
         )
 
-    def transmissivity(
+    def efficiency(
         self,
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,

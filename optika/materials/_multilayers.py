@@ -547,19 +547,19 @@ class AbstractMultilayerFilm(
     def is_mirror(self) -> bool:
         return False
 
-    def transmissivity(
+    def efficiency(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
         """
-        Compute the transmissivity of this multilayer film using
+        Compute the efficiency of this multilayer film using
         :func:`optika.materials.multilayer_efficiency`.
 
         Parameters
         ----------
         rays
-            the input rays with which to compute the transmissivity of the multilayer film
+            the input rays with which to compute the efficiency of the multilayer film
         normal
             the vector normal to the interface between successive layers
         """
@@ -613,19 +613,19 @@ class AbstractMultilayerMirror(
         the chemical formula of the mirror substrate
         """
 
-    def transmissivity(
+    def efficiency(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
         """
-        Compute the transmissivity of this multilayer film using
+        Compute the efficiency of this multilayer film using
         :func:`optika.materials.multilayer_efficiency`.
 
         Parameters
         ----------
         rays
-            the input rays with which to compute the transmissivity of the multilayer film
+            the input rays with which to compute the efficiency of the multilayer film
         normal
             the vector normal to the interface between successive layers
         """
@@ -720,7 +720,7 @@ class MultilayerMirror(
         )
 
         # Compute the reflectivity of this multilayer coating
-        reflectivity = multilayer.transmissivity(
+        reflectivity = multilayer.efficiency(
             rays=rays,
             normal=na.Cartesian3dVectorArray(0, 0, -1),
         )

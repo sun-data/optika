@@ -118,13 +118,13 @@ class AbstractTestAbstractMaterial(
                 na.Cartesian3dVectorArray(0, 0, -1),
             ],
         )
-        def test_transmissivity(
+        def test_efficiency(
             self,
             a: optika.materials.AbstractMaterial,
             rays: optika.rays.AbstractRayVectorArray,
             normal: na.AbstractCartesian3dVectorArray,
         ):
-            result = a.transmissivity(rays, normal)
+            result = a.efficiency(rays, normal)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
             assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
             assert np.all(result >= 0)
