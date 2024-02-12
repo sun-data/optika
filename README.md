@@ -21,6 +21,7 @@ pip install optika
 - Spherical, conical and toroidal surface sag profiles
 - Ruled surfaces, constant and variable line spacing
 - Circular, rectangular, and polygonal apertures
+- multilayer reflectivity and transmissivity
 - n-dimensional configurations of the optical system using [named-arrays](https://github.com/sun-data/named-arrays)
 - uncertainity propagation using [named-arrays](https://github.com/sun-data/named-arrays)
 
@@ -30,3 +31,8 @@ An [example](https://optika.readthedocs.io/en/latest/_autosummary/optika.systems
 of how to raytrace a Newtonian telescope using Optika:
 
 ![Newtonian telescope example](https://optika.readthedocs.io/en/latest/_images/optika.systems.SequentialSystem_0_0.png)
+
+Compute the [reflectivity of a multilayer mirror](https://optika.readthedocs.io/en/latest/_autosummary/optika.materials.multilayer_efficiency.html#optika.materials.multilayer_efficiency)
+by specifying the materials and thicknesses of the layers.
+
+![multilayer example](https://optika.readthedocs.io/en/latest/_images/optika.materials.multilayer_efficiency_1_0.png)
