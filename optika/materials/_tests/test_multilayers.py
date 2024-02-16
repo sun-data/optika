@@ -106,6 +106,7 @@ def test_multilayer_efficiency(
         "material_substrate",
         "normal",
         "profile_interface",
+        "is_mirror",
     ],
     argvalues=[
         (
@@ -118,6 +119,7 @@ def test_multilayer_efficiency(
             "Si",
             None,
             None,
+            False,
         ),
         (
             pathlib.Path(__file__).parent / "_data/SiO2.txt",
@@ -129,6 +131,7 @@ def test_multilayer_efficiency(
             "Si",
             None,
             None,
+            False,
         ),
         (
             pathlib.Path(__file__).parent / "_data/SiO2_100A.txt",
@@ -140,6 +143,31 @@ def test_multilayer_efficiency(
             "Si",
             None,
             None,
+            False,
+        ),
+        (
+            pathlib.Path(__file__).parent / "_data/SiC_Cr.txt",
+            na.ScalarArray(np.array(["SiC", "Cr"]), axes="layer"),
+            na.ScalarArray([25, 5] * u.nm, axes="layer"),
+            "layer",
+            na.Cartesian3dVectorArray(0, 0, 1),
+            1,
+            "SiO2",
+            None,
+            None,
+            True,
+        ),
+        (
+            pathlib.Path(__file__).parent / "_data/SiC_Cr_Rough.txt",
+            na.ScalarArray(np.array(["SiC", "Cr"]), axes="layer"),
+            na.ScalarArray([25, 5] * u.nm, axes="layer"),
+            "layer",
+            na.Cartesian3dVectorArray(0, 0, 1),
+            1,
+            "SiO2",
+            None,
+            optika.materials.profiles.ErfInterfaceProfile(2 * u.nm),
+            True,
         ),
     ],
 )
@@ -153,14 +181,23 @@ def test_multilayer_transmissivity_vs_file(
     material_substrate: str,
     normal: None | na.AbstractCartesian3dVectorArray,
     profile_interface: None | optika.materials.profiles.AbstractInterfaceProfile,
+    is_mirror: bool,
 ):
-    wavelength_ambient, transmissivity_file = np.genfromtxt(
+    skip_header = 0
+    with open(file, "r") as f:
+        for line in f:
+            if line.startswith(";"):
+                skip_header += 1
+            else:
+                break
+
+    wavelength_ambient, efficiency_file = np.genfromtxt(
         fname=file,
-        skip_header=15,
+        skip_header=skip_header,
         unpack=True,
     )
     wavelength_ambient = na.ScalarArray(wavelength_ambient, axes="wavelength") << u.AA
-    transmissivity_file = na.ScalarArray(transmissivity_file, axes="wavelength")
+    efficiency_file = na.ScalarArray(efficiency_file, axes="wavelength")
 
     substrate = optika.chemicals.Chemical(material_substrate)
     n_substrate = substrate.n(wavelength_ambient)
@@ -177,7 +214,12 @@ def test_multilayer_transmissivity_vs_file(
         profile_interface=profile_interface,
     )
 
-    assert np.allclose(transmissivity, transmissivity_file, rtol=1e-4)
+    if is_mirror:
+        efficiency = reflectivity
+    else:
+        efficiency = transmissivity
+
+    assert np.allclose(efficiency, efficiency_file, rtol=1e-4)
 
 
 class AbstractTestAbstractMultilayerMaterial(
