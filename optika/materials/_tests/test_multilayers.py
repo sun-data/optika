@@ -45,6 +45,29 @@ def test_matrix_refractive(
     assert np.all(result.determinant != 0)
 
 
+@pytest.mark.parametrize("wavelength", [_wavelength])
+@pytest.mark.parametrize("direction", [na.Cartesian3dVectorArray(0, 0, 1)])
+@pytest.mark.parametrize("thickness", [10 * u.nm])
+@pytest.mark.parametrize("n", [optika.chemicals.Chemical("Si").n(_wavelength)])
+@pytest.mark.parametrize("normal", [na.Cartesian3dVectorArray(0, 0, -1)])
+def test_matrix_propagation(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: na.AbstractCartesian3dVectorArray,
+    thickness: u.Quantity | na.AbstractScalar,
+    n: u.Quantity | na.AbstractScalar,
+    normal: na.AbstractVectorArray,
+):
+    result = optika.materials.matrix_propagation(
+        wavelength=wavelength,
+        direction=direction,
+        thickness=thickness,
+        n=n,
+        normal=normal,
+    )
+    assert isinstance(result, na.AbstractCartesian2dMatrixArray)
+    assert np.all(result.determinant != 0)
+
+
 @pytest.mark.parametrize(
     argnames="n,thickness,axis",
     argvalues=[

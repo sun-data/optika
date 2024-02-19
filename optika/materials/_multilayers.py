@@ -10,6 +10,7 @@ from . import profiles, snells_law, AbstractMaterial
 
 __all__ = [
     "matrix_refractive",
+    "matrix_propagation",
     "multilayer_efficiency",
     "AbstractMultilayerMaterial",
     "AbstractMultilayerFilm",
@@ -170,6 +171,90 @@ def matrix_refractive(
     result = result / t_ij
 
     return result
+
+
+def matrix_propagation(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: na.AbstractCartesian3dVectorArray,
+    thickness: u.Quantity | na.AbstractScalar,
+    n: u.Quantity | na.AbstractScalar,
+    normal: na.AbstractVectorArray,
+) -> na.Cartesian2dMatrixArray:
+    r"""
+    Compute the propagation matrix, which propagates the electric field
+    through a homogenous slab.
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The direction of the light within the material.
+    thickness
+        The thickness of the material.
+    n
+        The complex index of refraction of the material
+    normal
+        The vector perpendicular to the surface of the material.
+
+    Examples
+    --------
+
+    Compute the propagation matrix for :math:`s`-polarized light normally
+    incident on a layer of silicon dioxide
+
+    .. jupyter-execute::
+
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the wavelength of the incident light
+        wavelength = 100 * u.AA
+
+        # Initialize a representation of silicon dioxide
+        sio2 = optika.chemicals.Chemical("SiO2")
+
+        # Compute the refractive matrix
+        optika.materials.matrix_propagation(
+            wavelength=wavelength,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+            polarization="s",
+            n=sio2.n(wavelength),
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+        )
+
+    Notes
+    -----
+
+    The propagation matrix takes the form
+
+    .. math::
+        :label: propagation-matrix
+
+        U_{kj} = \begin{pmatrix}
+                    e^{-i \beta_j} & 0 \\
+                    0 & e^{i \beta_j} \\
+                \end{pmatrix}
+
+    where
+
+    .. math::
+
+        \beta_j = \frac{2 \pi}{\lambda} n_j h_j \cos \theta_j,
+
+    is the phase change from propagating through material :math:`j`,
+    :math:`\lambda` is the vacuum wavelength of the incident light,
+    and :math:`h_j` is the thickness of material :math:`j`.
+    """
+    cos_theta = -direction @ normal
+
+    beta = 2 * np.pi * thickness * n * cos_theta / wavelength
+
+    return na.Cartesian2dMatrixArray(
+        x=na.Cartesian2dVectorArray(np.exp(-1j * beta), 0),
+        y=na.Cartesian2dVectorArray(0, np.exp(+1j * beta)),
+    )
 
 
 def multilayer_efficiency(
