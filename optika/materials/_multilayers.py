@@ -219,7 +219,7 @@ def matrix_propagation(
         optika.materials.matrix_propagation(
             wavelength=wavelength,
             direction=na.Cartesian3dVectorArray(0, 0, 1),
-            polarization="s",
+            thickness=10 * u.nm,
             n=sio2.n(wavelength),
             normal=na.Cartesian3dVectorArray(0, 0, -1),
         )
