@@ -143,7 +143,7 @@ def matrix_refractive(
     elif polarization == "p":
         q_i = cos_theta_i / n_i
         q_j = cos_theta_j / n_j
-    else:
+    else:  # pragma: nocover
         raise ValueError(
             f"Invalid polarization state '{polarization}', only 's' and 'p'"
             f"are valid polarization states."
