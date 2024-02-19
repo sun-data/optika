@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Literal
 import abc
 import dataclasses
 import numpy as np
@@ -8,6 +9,7 @@ import optika
 from . import profiles, snells_law, AbstractMaterial
 
 __all__ = [
+    "matrix_refractive",
     "multilayer_efficiency",
     "AbstractMultilayerMaterial",
     "AbstractMultilayerFilm",
@@ -15,6 +17,159 @@ __all__ = [
     "AbstractMultilayerMirror",
     "MultilayerMirror",
 ]
+
+
+def matrix_refractive(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction_left: na.AbstractCartesian3dVectorArray,
+    direction_right: na.AbstractCartesian3dVectorArray,
+    polarization: Literal["s", "p"],
+    n_left: float | na.AbstractScalar,
+    n_right: float | na.AbstractScalar,
+    normal: na.AbstractCartesian3dVectorArray,
+    interface: None | optika.materials.profiles.AbstractInterfaceProfile = None,
+) -> na.Cartesian2dMatrixArray:
+    r"""
+    Compute the refractive matrix, which represents the bending of light
+    at an interface.
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum
+    direction_left
+        The direction of the incident light on the left side of the interface.
+    direction_right
+        The direction of the incident light on the right side of the interface.
+    polarization
+        Flag controlling whether the incident light is :math:`s`- or
+        :math:`p`-polarized.
+    n_left
+        The complex index of refraction on the left side of the interface.
+    n_right
+        The complex index of refraction on the right side of the interface.
+    normal
+        The vector perpendicular to the surface of this layer.
+    interface
+        The interface profile between the left side and the right side.
+
+    Examples
+    --------
+
+    Compute the refractive matrix for :math:`s`-polarized light normally
+    incident on the interface between vacuum and silicon dioxide.
+
+    .. jupyter-execute::
+
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the wavelength of the incident light
+        wavelength = 100 * u.AA
+
+        # Initialize a representation of silicon dioxide
+        sio2 = optika.chemicals.Chemical("SiO2")
+
+        # Compute the refractive matrix
+        optika.materials.matrix_refractive(
+            wavelength=wavelength,
+            direction_left=na.Cartesian3dVectorArray(0, 0, 1),
+            direction_right=na.Cartesian3dVectorArray(0, 0, 1),
+            polarization="s",
+            n_left=1,
+            n_right=sio2.n(wavelength),
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+        )
+
+    Notes
+    -----
+
+    The refractive matrix is given by :cite:t:`Yeh1988` Equation 5.1-12,
+
+    .. math::
+        :label: refractive-matrix
+
+        W_{kij} = \frac{1}{t_{kij}} \begin{pmatrix}
+                                    1 & r_{kij} \\
+                                    r_{kij} & 1 \\
+                                  \end{pmatrix},
+
+    where :math:`k=(s, p)` is the polarization state, :math:`i=j-1` is the index
+    of the previous material, :math:`j` is the index of the current material,
+
+    .. math::
+        :label: fresnel-reflection
+
+        r_{kij} = \frac{q_{ki} - q_{kj}}{q_{ki} + q_{kj}}
+
+    is the Fresnel reflection coefficient between materials :math:`i` and :math:`j`,
+
+    .. math::
+        :label: fresnel-transmission
+
+        t_{kij} = \frac{2 q_{ki}}{q_{ki} + q_{kj}}
+
+    is the Fresnel transmission coefficient between materials :math:`i` and :math:`j`,
+
+    .. math::
+
+        q_{si} = n_i \cos \theta_i
+
+    and
+
+    .. math::
+
+        q_{pi} = \frac{\cos \theta_i}{n_i}
+
+    are the :math:`z` components of the wave's momentum for :math:`s` and
+    :math:`p` polarization,
+    :math:`n_i` is the index of refraction inside material :math:`i`,
+    and :math:`\theta_i` is the angle between the wave's propagation direction
+    and the vector normal to the interface inside material :math:`i`.
+    """
+    direction_i = direction_left
+    direction_j = direction_right
+
+    n_i = n_left
+    n_j = n_right
+
+    cos_theta_i = -direction_i @ normal
+    cos_theta_j = -direction_j @ normal
+
+    if polarization == "s":
+        q_i = cos_theta_i * n_i
+        q_j = cos_theta_j * n_j
+    elif polarization == "p":
+        q_i = cos_theta_i / n_i
+        q_j = cos_theta_j / n_j
+    else:
+        raise ValueError(
+            f"Invalid polarization state '{polarization}', only 's' and 'p'"
+            f"are valid polarization states."
+        )
+
+    a_ij = q_i + q_j
+
+    r_ij = (q_i - q_j) / a_ij
+    t_ij = 2 * q_i / a_ij
+
+    if interface is not None:
+        w_tilde = interface.reflectivity(
+            wavelength=wavelength,
+            direction=direction_i,
+            normal=normal,
+        )
+        r_ij = w_tilde * r_ij
+
+    result = na.Cartesian2dMatrixArray(
+        x=na.Cartesian2dVectorArray(1, r_ij),
+        y=na.Cartesian2dVectorArray(r_ij, 1),
+    )
+
+    result = result / t_ij
+
+    return result
 
 
 def multilayer_efficiency(
