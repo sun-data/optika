@@ -189,7 +189,7 @@ def matrix_propagation(
     wavelength
         The wavelength of the incident light in vacuum.
     direction
-        The direction of the light within the material.
+        The propagation direction of the light within the material.
     thickness
         The thickness of the material.
     n
@@ -215,7 +215,7 @@ def matrix_propagation(
         # Initialize a representation of silicon dioxide
         sio2 = optika.chemicals.Chemical("SiO2")
 
-        # Compute the refractive matrix
+        # Compute the propagation matrix
         optika.materials.matrix_propagation(
             wavelength=wavelength,
             direction=na.Cartesian3dVectorArray(0, 0, 1),
@@ -227,25 +227,30 @@ def matrix_propagation(
     Notes
     -----
 
-    The propagation matrix takes the form
+    The propagation matrix for a homogenous slab is given by
+    :cite:t:`Yeh1988` Equation 5.1-24,
 
     .. math::
         :label: propagation-matrix
 
-        U_{kj} = \begin{pmatrix}
-                    e^{-i \beta_j} & 0 \\
-                    0 & e^{i \beta_j} \\
-                \end{pmatrix}
+        U = \begin{pmatrix}
+                e^{-i \beta} & 0 \\
+                0 & e^{i \beta} \\
+            \end{pmatrix},
 
     where
 
     .. math::
+        :label: propagation-phase
 
-        \beta_j = \frac{2 \pi}{\lambda} n_j h_j \cos \theta_j,
+        \beta = \frac{2 \pi}{\lambda} n h \cos \theta
 
-    is the phase change from propagating through material :math:`j`,
-    :math:`\lambda` is the vacuum wavelength of the incident light,
-    and :math:`h_j` is the thickness of material :math:`j`.
+    is the phase change from propagating through the material,
+    :math:`n` is the index of refraction inside the material,
+    :math:`\lambda` is the wavelength of the incident light in vacuum,
+    :math:`h` is the thickness of the material,
+    and :math:`\theta` is the angle between the surface normal and the propagation
+    direction of the incident light.
     """
     cos_theta = -direction @ normal
 
