@@ -98,9 +98,9 @@ class Layer(
         # Plot the layer
         with astropy.visualization.quantity_support():
             fig, ax = plt.subplots(constrained_layout=True)
-            layer.plot(
-                ax=ax,
-            )
+            layer.plot(ax=ax)
+            ax.tick_params(axis="x", bottom=False, labelbottom=False)
+            ax.set_ylabel(f"z ({layers.thickness.unit:latex_inline})")
     """
 
     material: None | str = None
