@@ -68,6 +68,38 @@ def test_matrix_propagation(
     assert np.all(result.determinant != 0)
 
 
+@pytest.mark.parametrize("wavelength", [_wavelength])
+@pytest.mark.parametrize("direction", [na.Cartesian3dVectorArray(0, 0, 1)])
+@pytest.mark.parametrize("polarization", ["s", "p"])
+@pytest.mark.parametrize("thickness", [10 * u.nm])
+@pytest.mark.parametrize("n", [optika.chemicals.Chemical("Si").n(_wavelength)])
+@pytest.mark.parametrize("normal", [na.Cartesian3dVectorArray(0, 0, -1)])
+@pytest.mark.parametrize(
+    argnames="interface",
+    argvalues=[optika.materials.profiles.ErfInterfaceProfile(5 * u.nm)],
+)
+def test_matrix_transfer(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: na.AbstractCartesian3dVectorArray,
+    polarization: Literal["s", "p"],
+    thickness: u.Quantity | na.AbstractScalar,
+    n: float | na.AbstractScalar,
+    normal: na.AbstractCartesian3dVectorArray,
+    interface: None | optika.materials.profiles.AbstractInterfaceProfile,
+):
+    result = optika.materials.matrix_transfer(
+        wavelength=wavelength,
+        direction=direction,
+        polarization=polarization,
+        thickness=thickness,
+        n=n,
+        normal=normal,
+        interface=interface,
+    )
+    assert isinstance(result, na.AbstractCartesian2dMatrixArray)
+    assert np.all(result.determinant != 0)
+
+
 @pytest.mark.parametrize(
     argnames="n,thickness,axis",
     argvalues=[
