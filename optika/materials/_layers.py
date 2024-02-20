@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Literal
+from typing import Literal, Sequence
 import abc
 import dataclasses
 import matplotlib
@@ -12,6 +12,8 @@ from . import matrices
 __all__ = [
     "AbstractLayer",
     "Layer",
+    "AbstractLayerSequence",
+    "LayerSequence",
 ]
 
 
@@ -23,6 +25,11 @@ class AbstractLayer(
     An interface for representing a single homogeneous layer or a sequence
     of homogeneous layers.
     """
+
+    @property
+    @abc.abstractmethod
+    def thickness(self) -> u.Quantity | na.AbstractScalar:
+        """The thickness of this layer."""
 
     @abc.abstractmethod
     def matrix_transfer(
@@ -211,5 +218,124 @@ class Layer(
                 ),
                 transform=ax.get_yaxis_transform(),
             )
+
+        return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractLayerSequence(
+    AbstractLayer,
+):
+    """
+    An interface describing a sequence of layers.
+    """
+
+    @property
+    @abc.abstractmethod
+    def layers(self) -> Sequence[AbstractLayer]:
+        """A sequence of layers."""
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class LayerSequence(AbstractLayerSequence):
+    """
+    An explicit sequence of layers.
+
+    Examples
+    --------
+
+    Plot a Si/Cr/Zr stack of layers
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import optika
+
+        # Define the layer stack
+        layers = optika.materials.LayerSequence([
+            optika.materials.Layer(
+                material="Si",
+                thickness=10 * u.nm,
+                kwargs_plot=dict(
+                    color="tab:blue",
+                    alpha=0.5,
+                ),
+            ),
+            optika.materials.Layer(
+                material="Cr",
+                thickness=5 * u.nm,
+                kwargs_plot=dict(
+                    color="tab:orange",
+                    alpha=0.5,
+                ),
+            ),
+            optika.materials.Layer(
+                material="Zr",
+                thickness=15 * u.nm,
+                kwargs_plot=dict(
+                    color="tab:green",
+                    alpha=0.5,
+                ),
+            ),
+        ])
+
+        # Plot the layer stack
+        with astropy.visualization.quantity_support() as qs:
+            fig, ax = plt.subplots(constrained_layout=True)
+            layers.plot(ax=ax)
+            ax.tick_params(axis="x", bottom=False, labelbottom=False)
+            ax.set_ylabel(f"z ({layers.thickness.unit:latex_inline})")
+    """
+
+    layers: Sequence[AbstractLayer] = dataclasses.MISSING
+    """A sequence of layers."""
+
+    @property
+    def thickness(self) -> u.Quantity | na.AbstractScalar:
+        result = 0 * u.nm
+        for layer in self.layers:
+            result = result + layer.thickness
+        return result
+
+    def matrix_transfer(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: na.AbstractCartesian3dVectorArray,
+        polarization: Literal["s", "p"],
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.Cartesian2dMatrixArray:
+
+        result = na.Cartesian2dIdentityMatrixArray()
+
+        for layer in self.layers:
+            matrix_transfer = layer.matrix_transfer(
+                wavelength=wavelength,
+                direction=direction,
+                polarization=polarization,
+                normal=normal,
+            )
+            result = result @ matrix_transfer
+
+        return result
+
+    def plot(
+        self,
+        z: u.Quantity = 0 * u.nm,
+        ax: None | matplotlib.axes.Axes = None,
+        **kwargs,
+    ) -> list[matplotlib.patches.Polygon]:
+
+        z_current = z
+
+        result = []
+        for layer in reversed(self.layers):
+            result += layer.plot(
+                z=z_current,
+                ax=ax,
+                **kwargs,
+            )
+            z_current = z_current + layer.thickness
 
         return result

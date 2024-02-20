@@ -12,6 +12,13 @@ class AbstractTestAbstractLayer(
     optika._tests.test_mixins.AbstractTestPrintable,
 ):
 
+    def test_thickness(
+        self,
+        a: optika.materials.AbstractLayer,
+    ):
+        result = a.thickness
+        assert np.all(result >= 0 * u.nm)
+
     @pytest.mark.parametrize(
         argnames="wavelength",
         argvalues=[
@@ -82,5 +89,37 @@ class AbstractTestAbstractLayer(
 )
 class TestLayer(
     AbstractTestAbstractLayer,
+):
+    pass
+
+
+class AbstractTestAbstractLayerSequence(
+    AbstractTestAbstractLayer,
+):
+    def test_layers(self, a: optika.materials.AbstractLayerSequence):
+        result = a.layers
+        for layer in result:
+            assert isinstance(layer, optika.materials.AbstractLayer)
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.materials.LayerSequence(
+            layers=[
+                optika.materials.Layer(
+                    material="SiO2",
+                    thickness=10 * u.nm,
+                ),
+                optika.materials.Layer(
+                    material="Si",
+                    thickness=1 * u.um,
+                ),
+            ]
+        ),
+    ],
+)
+class TestLayerSequence(
+    AbstractTestAbstractLayerSequence,
 ):
     pass
