@@ -11,6 +11,7 @@ from . import profiles, snells_law, AbstractMaterial
 __all__ = [
     "matrix_refractive",
     "matrix_propagation",
+    "matrix_transfer",
     "multilayer_efficiency",
     "AbstractMultilayerMaterial",
     "AbstractMultilayerFilm",
@@ -260,6 +261,122 @@ def matrix_propagation(
         x=na.Cartesian2dVectorArray(np.exp(-1j * beta), 0),
         y=na.Cartesian2dVectorArray(0, np.exp(+1j * beta)),
     )
+
+
+def matrix_transfer(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: na.AbstractCartesian3dVectorArray,
+    polarization: Literal["s", "p"],
+    thickness: u.Quantity | na.AbstractScalar,
+    n: float | na.AbstractScalar,
+    normal: na.AbstractCartesian3dVectorArray,
+    interface: None | optika.materials.profiles.AbstractInterfaceProfile = None,
+) -> na.Cartesian2dMatrixArray:
+    r"""
+    Compute the transfer matrix for a homogenous slab of material using
+    :func:`matrix_refractive` and :func:`matrix_propagation`.
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The propagation direction of the incident light in vacuum.
+    polarization
+        Flag controlling whether the incident light is :math:`s`- or
+        :math:`p`-polarized.
+    thickness
+        The thickness of the homogenous slab.
+    n
+        The index of refraction of the material
+    normal
+        The vector perpendicular to the surface of the slab.
+    interface
+        The interface profile of the right side of the slab.
+
+    Examples
+    --------
+
+    Compute the transfer matrix of a 10-nm-thick slab of silicon dioxide for
+    normally-incident :math:`s`-polarized light.
+
+    .. jupyter-execute::
+
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the wavelength of the incident light
+        wavelength = 100 * u.AA
+
+        # Initialize a representation of silicon dioxide
+        sio2 = optika.chemicals.Chemical("SiO2")
+
+        # Compute the transfer matrix
+        optika.materials.matrix_transfer(
+            wavelength=wavelength,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+            polarization="s",
+            thickness=10 * u.nm,
+            n=sio2.n(wavelength),
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+        )
+
+    Notes
+    -----
+
+    If :math:`W_{kij}` is the refractive matrix for the interface on the left side
+    of the slab (computed using :func:`matrix_refractive`),
+    :math:`U_{kj}` is the propagation matrix for the slab (computed using
+    :func:`matrix_propagation`), and :math:`W_{kji}` is the refractive matrix
+    for the right side of the slab, then the transfer matrix for the slab can
+    be computed using the product of these three matrices:
+
+    .. math::
+        :label: transfer-matrix
+
+        T_{kj} = W_{kij} U_{kj} W_{kji}
+    """
+
+    direction_internal = snells_law(
+        wavelength=wavelength,
+        direction=direction,
+        index_refraction=1,
+        index_refraction_new=np.real(n),
+        normal=normal,
+    )
+
+    refractive_left = matrix_refractive(
+        wavelength=wavelength,
+        direction_left=direction,
+        direction_right=direction_internal,
+        polarization=polarization,
+        n_left=1,
+        n_right=n,
+        normal=normal,
+        interface=None,
+    )
+
+    propagation = matrix_propagation(
+        wavelength=wavelength,
+        direction=direction_internal,
+        thickness=thickness,
+        n=n,
+        normal=normal,
+    )
+
+    refractive_right = matrix_refractive(
+        wavelength=wavelength,
+        direction_left=direction_internal,
+        direction_right=direction,
+        polarization=polarization,
+        n_left=n,
+        n_right=1,
+        normal=normal,
+        interface=interface,
+    )
+
+    return refractive_left @ propagation @ refractive_right
 
 
 def multilayer_efficiency(
