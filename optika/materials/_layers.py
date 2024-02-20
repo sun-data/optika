@@ -107,7 +107,7 @@ class Layer(
             fig, ax = plt.subplots(constrained_layout=True)
             layer.plot(ax=ax)
             ax.tick_params(axis="x", bottom=False, labelbottom=False)
-            ax.set_ylabel(f"z ({layers.thickness.unit:latex_inline})")
+            ax.set_ylabel(f"z ({layer.thickness.unit:latex_inline})")
     """
 
     material: None | str = None
