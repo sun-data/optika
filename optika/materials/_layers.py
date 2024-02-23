@@ -116,6 +116,7 @@ class Layer(
             fig, ax = plt.subplots(constrained_layout=True)
             layer.plot(ax=ax)
             ax.set_axis_off()
+            ax.autoscale_view()
     """
 
     material: None | str = None
@@ -313,6 +314,7 @@ class LayerSequence(AbstractLayerSequence):
             fig, ax = plt.subplots(constrained_layout=True)
             layers.plot(ax=ax)
             ax.set_axis_off()
+            ax.autoscale_view()
     """
 
     layers: Sequence[AbstractLayer] = dataclasses.MISSING
@@ -419,6 +421,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
             fig, ax = plt.subplots(constrained_layout=True)
             layers.plot(ax=ax)
             ax.set_axis_off()
+            ax.autoscale_view()
     """
 
     layers: Sequence[AbstractLayer] = dataclasses.MISSING
