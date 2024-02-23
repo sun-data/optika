@@ -392,7 +392,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
         import optika
 
         # Define the layer stack
-        layers = optika.materials.LayerSequence(
+        layers = optika.materials.PeriodicLayerSequence(
             layers=[
                 optika.materials.Layer(
                     material="Si",
