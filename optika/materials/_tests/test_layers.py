@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib
 import astropy.units as u
 import astropy.visualization
+import scipy.special
+
 import named_arrays as na
 import optika._tests.test_mixins
 
@@ -28,22 +30,24 @@ class AbstractTestAbstractLayer(
     @pytest.mark.parametrize("direction", [na.Cartesian3dVectorArray(0, 0, 1)])
     @pytest.mark.parametrize("polarization", ["s", "p"])
     @pytest.mark.parametrize("normal", [na.Cartesian3dVectorArray(0, 0, -1)])
-    def test_matrix_transfer(
-        self,
-        a: optika.materials.AbstractLayer,
-        wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
-        polarization: Literal["s", "p"],
-        normal: na.AbstractCartesian3dVectorArray,
-    ):
-        result = a.matrix_transfer(
-            wavelength=wavelength,
-            direction=direction,
-            polarization=polarization,
-            normal=normal,
-        )
-        assert isinstance(result, na.AbstractCartesian2dMatrixArray)
-        assert np.all(result.determinant != 0)
+    class TestMatrixTransfer:
+        def test_matrix_transfer(
+            self,
+            a: optika.materials.AbstractLayer,
+            wavelength: u.Quantity | na.AbstractScalar,
+            direction: na.AbstractCartesian3dVectorArray,
+            polarization: Literal["s", "p"],
+            normal: na.AbstractCartesian3dVectorArray,
+        ):
+            result = a.matrix_transfer(
+                wavelength=wavelength,
+                direction=direction,
+                polarization=polarization,
+                normal=normal,
+            )
+            assert isinstance(result, na.AbstractCartesian2dMatrixArray)
+            assert np.all(result.determinant != 0)
+            assert np.all(np.isfinite(result))
 
     @pytest.mark.parametrize("z", [0 * u.nm])
     @pytest.mark.parametrize("ax", [None])
@@ -123,3 +127,62 @@ class TestLayerSequence(
     AbstractTestAbstractLayerSequence,
 ):
     pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.materials.PeriodicLayerSequence(
+            layers=[
+                optika.materials.Layer(
+                    material="Si",
+                    thickness=10 * u.nm,
+                ),
+                optika.materials.Layer(
+                    material="Mo",
+                    thickness=10 * u.nm,
+                ),
+            ],
+            num_periods=10,
+        ),
+    ],
+)
+class TestPeriodicLayerSequence(
+    AbstractTestAbstractLayerSequence,
+):
+    class TestMatrixTransfer(
+        AbstractTestAbstractLayerSequence.TestMatrixTransfer,
+    ):
+        def test_matrix_transfer(
+            self,
+            a: optika.materials.PeriodicLayerSequence,
+            wavelength: u.Quantity | na.AbstractScalar,
+            direction: na.AbstractCartesian3dVectorArray,
+            polarization: Literal["s", "p"],
+            normal: na.AbstractCartesian3dVectorArray,
+        ):
+            super().test_matrix_transfer(
+                a=a,
+                wavelength=wavelength,
+                direction=direction,
+                polarization=polarization,
+                normal=normal,
+            )
+
+            b = optika.materials.LayerSequence(list(a.layers) * a.num_periods)
+
+            result = a.matrix_transfer(
+                wavelength=wavelength,
+                direction=direction,
+                polarization=polarization,
+                normal=normal,
+            )
+
+            result_expected = b.matrix_transfer(
+                wavelength=wavelength,
+                direction=direction,
+                polarization=polarization,
+                normal=normal,
+            )
+
+            assert np.allclose(result, result_expected)
