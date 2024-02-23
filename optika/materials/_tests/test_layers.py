@@ -65,7 +65,7 @@ class AbstractTestAbstractLayer(
 
         assert isinstance(result, list)
         for item in result:
-            assert isinstance(item, matplotlib.patches.Polygon)
+            assert isinstance(item, matplotlib.patches.Rectangle)
 
 
 @pytest.mark.parametrize(
@@ -82,12 +82,12 @@ class AbstractTestAbstractLayer(
         optika.materials.Layer(
             material="Si",
             thickness=10 * u.nm,
-            x_label=-0.1,
+            x_label=-0.1 * u.nm,
         ),
         optika.materials.Layer(
             material="Si",
             thickness=10 * u.nm,
-            x_label=1.1,
+            x_label=1.1 * u.nm,
         ),
     ],
 )
