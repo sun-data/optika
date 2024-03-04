@@ -155,12 +155,20 @@ def refraction(
     t_ij = 2 * q_i / a_ij
 
     if interface is not None:
-        w_tilde = interface.reflectivity(
+        t_ij = t_ij * interface.transmissivity(
             wavelength=wavelength,
-            direction=direction_i,
+            direction_before=direction_i,
+            direction_after=direction_j,
+            n_before=n_i,
+            n_after=n_j,
             normal=normal,
         )
-        r_ij = w_tilde * r_ij
+        r_ij = r_ij * interface.reflectivity(
+            wavelength=wavelength,
+            direction=direction_i,
+            n=n_i,
+            normal=normal,
+        )
 
     result = na.Cartesian2dMatrixArray(
         x=na.Cartesian2dVectorArray(1, r_ij),
