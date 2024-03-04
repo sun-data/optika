@@ -50,7 +50,7 @@ class AbstractTestAbstractInterfaceProfile(
     @pytest.mark.parametrize("n_after", [1.5])
     @pytest.mark.parametrize(
         argnames="normal",
-        argvalues=[na.Cartesian3dVectorArray(0, 0, -1)]
+        argvalues=[na.Cartesian3dVectorArray(0, 0, -1)],
     )
     def test_transmissivity(
         self,
