@@ -4,6 +4,7 @@ import numpy as np
 import scipy.special
 import astropy.units as u
 import named_arrays as na
+import optika
 
 __all__ = [
     "AbstractInterfaceProfile",
@@ -16,7 +17,7 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractInterfaceProfile(
-    abc.ABC,
+    optika.mixins.Printable,
 ):
     """
     Abstract interface describing the :cite:t:`Stearns1989`
@@ -43,10 +44,65 @@ class AbstractInterfaceProfile(
         """
 
     @abc.abstractmethod
+    def _derivative_fourier_transform(
+        self,
+        s: na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The Fourier transform of the derivative of the interface profile.
+        This is used by :meth:`transmissivity` and :meth:`reflectivity` to
+        compute the transmission and reflection coefficients of this
+        interface profile.
+
+        Parameters
+        ----------
+        s
+            The effective wavenumber (independent variable of the Fourier
+            transform).
+        """
+
+    def transmissivity(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction_before: na.AbstractCartesian3dVectorArray,
+        direction_after: na.AbstractCartesian3dVectorArray,
+        n_before: float | na.AbstractScalar,
+        n_after: float | na.AbstractScalar,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        The specular transmission amplitude for this interface profile.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction_before
+            The direction of the incident light before the interface.
+        direction_after
+            The direction of the refracted light after the interface
+        n_before
+            The complex index of refraction of the medium before the interface.
+        n_after
+            The complex index of refraction of the medium after the interface.
+        normal
+            The vector normal to the interface surface.
+
+        Notes
+        -----
+        The specular transmission amplitude is given by :cite:t:`Stearns1989`
+        Equation 42.
+        """
+        k_before = 2 * np.pi * n_before * (direction_before @ normal) / wavelength
+        k_after = 2 * np.pi * n_after * (direction_after @ normal) / wavelength
+        s = np.real(k_after - k_before)
+        return self._derivative_fourier_transform(s)
+
     def reflectivity(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
+        n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         """
@@ -55,13 +111,18 @@ class AbstractInterfaceProfile(
         Parameters
         ----------
         wavelength
-            the wavelength of the incident light
+            the wavelength of the incident light in vacuum
         direction
             the propagation direction of the incident light, expressed in
             direction cosines.
+        n
+            The complex index of refraction of the medium before the interface.
         normal
             the vector perpendicular to the optical surface
         """
+        k = 2 * np.pi * n * (direction @ normal) / wavelength
+        s = np.real(-2 * k)
+        return self._derivative_fourier_transform(s)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -125,11 +186,14 @@ class ErfInterfaceProfile(
             z=np.cos(angle),
         )
 
+        # Define the index of refraction of the current medium
+        n = 1
+
         # Define the vector normal to the optical surface
         normal = na.Cartesian3dVectorArray(0, 0, 1)
 
         # calculate the reflectivity for the given angles
-        reflectivity = p.reflectivity(wavelength, direction, normal)
+        reflectivity = p.reflectivity(wavelength, direction, n, normal)
 
         # Plot the reflectivity of the interface profile as a function of
         # incidence angle
@@ -154,15 +218,8 @@ class ErfInterfaceProfile(
 
         return result
 
-    def reflectivity(
-        self,
-        wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractScalar:
-        s = 4 * np.pi * (-direction @ normal) / wavelength
-        result = np.exp(-np.square(s * self.width) / 2)
-        return result
+    def _derivative_fourier_transform(self, s: na.AbstractScalar):
+        return np.exp(-np.square(s * self.width) / 2)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -229,11 +286,14 @@ class ExponentialInterfaceProfile(
             z=np.cos(angle),
         )
 
+        # Define the index of refraction of the current medium
+        n = 1
+
         # Define the vector normal to the optical surface
         normal = na.Cartesian3dVectorArray(0, 0, 1)
 
         # calculate the reflectivity for the given angles
-        reflectivity = p.reflectivity(wavelength, direction, normal)
+        reflectivity = p.reflectivity(wavelength, direction, n, normal)
 
         # Plot the reflectivity of the interface profile as a function of
         # incidence angle
@@ -258,15 +318,11 @@ class ExponentialInterfaceProfile(
 
         return result
 
-    def reflectivity(
+    def _derivative_fourier_transform(
         self,
-        wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        s: na.AbstractScalar,
     ) -> na.AbstractScalar:
-        s = 4 * np.pi * (-direction @ normal) / wavelength
-        result = 1 / (1 + np.square(s * self.width) / 2)
-        return result
+        return 1 / (1 + np.square(s * self.width) / 2)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -334,11 +390,14 @@ class LinearInterfaceProfile(
             z=np.cos(angle),
         )
 
+        # Define the index of refraction of the current medium
+        n = 1
+
         # Define the vector normal to the optical surface
         normal = na.Cartesian3dVectorArray(0, 0, 1)
 
         # calculate the reflectivity for the given angles
-        reflectivity = p.reflectivity(wavelength, direction, normal)
+        reflectivity = p.reflectivity(wavelength, direction, n, normal)
 
         # Plot the reflectivity of the interface profile as a function of
         # incidence angle
@@ -364,13 +423,10 @@ class LinearInterfaceProfile(
 
         return result
 
-    def reflectivity(
+    def _derivative_fourier_transform(
         self,
-        wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        s: na.AbstractScalar,
     ) -> na.AbstractScalar:
-        s = 4 * np.pi * (-direction @ normal) / wavelength
         x = np.sqrt(3) * self.width * s
         result = np.sin(x.value) / x
         return result
@@ -443,11 +499,14 @@ class SinusoidalInterfaceProfile(
             z=np.cos(angle),
         )
 
+        # Define the index of refraction of the current medium
+        n = 1
+
         # Define the vector normal to the optical surface
         normal = na.Cartesian3dVectorArray(0, 0, 1)
 
         # calculate the reflectivity for the given angles
-        reflectivity = p.reflectivity(wavelength, direction, normal)
+        reflectivity = p.reflectivity(wavelength, direction, n, normal)
 
         # Plot the reflectivity of the interface profile as a function of
         # incidence angle
@@ -473,16 +532,12 @@ class SinusoidalInterfaceProfile(
 
         return result
 
-    def reflectivity(
+    def _derivative_fourier_transform(
         self,
-        wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        s: na.AbstractScalar,
     ) -> na.AbstractScalar:
-        width = self.width
-        s = 4 * np.pi * (-direction @ normal) / wavelength
         a = np.pi / (np.square(np.pi) - 8)
-        x = a * width * s
+        x = a * self.width * s
         x1 = x - np.pi / 2
         x2 = x + np.pi / 2
         result = np.pi * (np.sin(x1 * u.rad) / x1 + np.sin(x2 * u.rad) / x2) / 4

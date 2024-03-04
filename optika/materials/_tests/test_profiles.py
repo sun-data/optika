@@ -39,6 +39,49 @@ class AbstractTestAbstractInterfaceProfile(
         ],
     )
     @pytest.mark.parametrize(
+        argnames="direction_before",
+        argvalues=[na.Cartesian3dVectorArray(0, 0, 1)],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction_after",
+        argvalues=[na.Cartesian3dVectorArray(0, 0, 1)],
+    )
+    @pytest.mark.parametrize("n_before", [1])
+    @pytest.mark.parametrize("n_after", [1.5])
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[na.Cartesian3dVectorArray(0, 0, -1)]
+    )
+    def test_transmissivity(
+        self,
+        a: optika.materials.profiles.AbstractInterfaceProfile,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction_before: na.AbstractCartesian3dVectorArray,
+        direction_after: na.AbstractCartesian3dVectorArray,
+        n_before: float | na.AbstractScalar,
+        n_after: float | na.AbstractScalar,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.transmissivity(
+            wavelength=wavelength,
+            direction_before=direction_before,
+            direction_after=direction_after,
+            n_before=n_before,
+            n_after=n_after,
+            normal=normal,
+        )
+        assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            304 * u.AA,
+            na.linspace(300, 400, axis="wavelength", num=5) * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
         argnames="direction",
         argvalues=[
             na.Cartesian3dVectorArray(0, 0, 1),
@@ -48,6 +91,7 @@ class AbstractTestAbstractInterfaceProfile(
             @ na.Cartesian3dVectorArray(0, 0, 1),
         ],
     )
+    @pytest.mark.parametrize("n", [1.5])
     @pytest.mark.parametrize(
         argnames="normal",
         argvalues=[
@@ -59,9 +103,15 @@ class AbstractTestAbstractInterfaceProfile(
         a: optika.materials.profiles.AbstractInterfaceProfile,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
+        n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
     ):
-        result = a.reflectivity(wavelength, direction, normal)
+        result = a.reflectivity(
+            wavelength=wavelength,
+            direction=direction,
+            n=n,
+            normal=normal,
+        )
         assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
         assert np.all(result >= 0)
         assert np.all(result <= 1)
