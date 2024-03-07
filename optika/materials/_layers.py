@@ -67,7 +67,9 @@ class AbstractLayer(
 
     def plot(
         self,
+        x: u.Quantity = 0 * u.nm,
         z: u.Quantity = 0 * u.nm,
+        width: u.Quantity = 10 * u.nm,
         ax: None | matplotlib.axes.Axes = None,
         **kwargs,
     ) -> list[matplotlib.patches.Polygon]:
@@ -513,7 +515,9 @@ class PeriodicLayerSequence(AbstractLayerSequence):
 
     def plot(
         self,
+        x: u.Quantity = 0 * u.nm,
         z: u.Quantity = 0 * u.nm,
+        width: u.Quantity = 10 * u.nm,
         ax: None | matplotlib.axes.Axes = None,
         **kwargs,
     ) -> list[matplotlib.patches.Polygon]:
@@ -521,14 +525,17 @@ class PeriodicLayerSequence(AbstractLayerSequence):
         layers = LayerSequence(self.layers)
 
         result = layers.plot(
+            x=x,
             z=z,
+            width=width,
             ax=ax,
             **kwargs,
         )
 
         na.plt.brace_vertical(
-            x=0,
-            width=0.5 * u.nm,
+            x=x,
+            width=0.05 * width,
+            beta=1 / (0.02 * layers.thickness),
             ymin=z,
             ymax=z + layers.thickness,
             ax=ax,

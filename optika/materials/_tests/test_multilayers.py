@@ -2,7 +2,9 @@ from typing import Sequence, Literal
 import pytest
 import pathlib
 import numpy as np
+import matplotlib
 import astropy.units as u
+import astropy.visualization
 import named_arrays as na
 import optika
 from optika.materials import AbstractLayer, Layer
@@ -198,6 +200,21 @@ class AbstractTestAbstractMultilayerMaterial(
             for layer in result:
                 assert isinstance(layer, optika.materials.AbstractLayer)
 
+    @pytest.mark.parametrize("ax", [None])
+    def test_plot_layers(
+        self,
+        a: optika.materials.AbstractMultilayerMaterial,
+        ax: None | matplotlib.axes.Axes,
+    ):
+        with astropy.visualization.quantity_support():
+            result = a.plot_layers(
+                ax=ax,
+            )
+
+        assert isinstance(result, list)
+        for item in result:
+            assert isinstance(item, matplotlib.patches.Rectangle)
+
 
 class AbstractTestAbstractMultilayerFilm(
     AbstractTestAbstractMultilayerMaterial,
@@ -240,7 +257,7 @@ class AbstractTestAbstractMultilayerMirror(
                 optika.materials.Layer("Al", thickness=100 * u.nm),
                 optika.materials.Layer("Al2O3", thickness=5 * u.nm),
             ],
-            substrate=optika.materials.Layer("SiO2"),
+            substrate=optika.materials.Layer("SiO2", thickness=10 * u.mm),
         ),
     ],
 )
