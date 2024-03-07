@@ -72,10 +72,6 @@ def test_propagation(
 @pytest.mark.parametrize("thickness", [10 * u.nm])
 @pytest.mark.parametrize("n", [optika.chemicals.Chemical("Si").n(_wavelength)])
 @pytest.mark.parametrize("normal", [na.Cartesian3dVectorArray(0, 0, -1)])
-@pytest.mark.parametrize(
-    argnames="interface",
-    argvalues=[optika.materials.profiles.ErfInterfaceProfile(5 * u.nm)],
-)
 def test_transfer(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: na.AbstractCartesian3dVectorArray,
@@ -83,7 +79,6 @@ def test_transfer(
     thickness: u.Quantity | na.AbstractScalar,
     n: float | na.AbstractScalar,
     normal: na.AbstractCartesian3dVectorArray,
-    interface: None | optika.materials.profiles.AbstractInterfaceProfile,
 ):
     result = optika.materials.matrices.transfer(
         wavelength=wavelength,
@@ -92,7 +87,6 @@ def test_transfer(
         thickness=thickness,
         n=n,
         normal=normal,
-        interface=interface,
     )
     assert isinstance(result, na.AbstractCartesian2dMatrixArray)
     assert np.all(result.determinant != 0)
