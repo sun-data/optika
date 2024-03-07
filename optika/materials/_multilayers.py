@@ -3,10 +3,19 @@ from typing import Sequence, Literal
 import abc
 import dataclasses
 import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika
-from . import matrices, snells_law, AbstractMaterial, AbstractLayer, Layer
+from . import (
+    matrices,
+    snells_law,
+    AbstractMaterial,
+    AbstractLayer,
+    Layer,
+    LayerSequence,
+)
 
 __all__ = [
     "multilayer_efficiency",
@@ -446,6 +455,13 @@ class AbstractMultilayerMaterial(
         """
 
     @property
+    def _layers(self) -> AbstractLayer:
+        result = self.layers
+        if not isinstance(result, AbstractLayer):
+            result = LayerSequence(result)
+        return result
+
+    @property
     def transformation(self) -> None:
         return None
 
@@ -460,6 +476,27 @@ class AbstractMultilayerMaterial(
         rays: optika.rays.RayVectorArray,
     ) -> na.ScalarLike:
         return rays.attenuation
+
+    @abc.abstractmethod
+    def plot_layers(
+        self,
+        width: u.Quantity = 100 * u.nm,
+        ax: matplotlib.axes.Axes = None,
+        **kwargs,
+    ) -> list[matplotlib.patches.Polygon]:
+        """
+        Plot the multilayer stack using :meth:`optika.materials.AbstractLayer.plot`.
+
+        Parameters
+        ----------
+        width
+            The width of the plotted multilayer stack in physical units.
+        ax
+            The matplotlib axes on which to plot the multilayer stack.
+        kwargs
+            Additional keyword arguments to pass along to
+            :meth:`optika.materials.AbstractLayer.plot`.
+        """
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -500,6 +537,18 @@ class AbstractMultilayerFilm(
             normal=normal,
         )
         return transmissivity
+
+    def plot_layers(
+        self,
+        width: u.Quantity = 100 * u.nm,
+        ax: matplotlib.axes.Axes = None,
+        **kwargs,
+    ) -> list[matplotlib.patches.Polygon]:
+        return self._layers.plot(
+            width=width,
+            ax=ax,
+            **kwargs,
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -556,6 +605,51 @@ class AbstractMultilayerMirror(
         )
         return reflectivity
 
+    def plot_layers(
+        self,
+        width: u.Quantity = 100 * u.nm,
+        ax: matplotlib.axes.Axes = None,
+        thickness_substrate: u.Quantity = 10 * u.nm,
+        **kwargs,
+    ) -> list[matplotlib.patches.Polygon]:
+
+        if ax is None:
+            ax = plt.gca()
+
+        result = self._layers.plot(
+            width=width,
+            ax=ax,
+            **kwargs,
+        )
+
+        substrate = self.substrate
+
+        amplitude = 0.1 * thickness_substrate
+        x_substrate = np.linspace(0, width, num=1001)
+        y_substrate = amplitude * np.sin(2 * np.pi * x_substrate / width * u.rad)
+        y_substrate = y_substrate - thickness_substrate
+
+        kwargs_substrate = substrate.kwargs_plot
+        if kwargs_substrate is None:
+            kwargs_substrate = dict()
+
+        ax.fill_between(
+            x=x_substrate,
+            y1=0,
+            y2=y_substrate,
+            **(kwargs_substrate | kwargs),
+        )
+
+        ax.text(
+            x=width / 2,
+            y=-thickness_substrate / 2,
+            s=rf"{substrate._chemical.formula} (${substrate.thickness.value:0.0f}\,${substrate.thickness.unit:latex_inline})",
+            ha="center",
+            va="center",
+        )
+
+        return result
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class MultilayerMirror(
@@ -578,6 +672,7 @@ class MultilayerMirror(
         import numpy as np
         import matplotlib.pyplot as plt
         import astropy.units as u
+        import astropy.visualization
         import named_arrays as na
         import optika
 
@@ -601,12 +696,20 @@ class MultilayerMirror(
                 optika.materials.Layer(
                     chemical="Si",
                     thickness=thickness_ratio * d,
-                    interface=interface
+                    interface=interface,
+                    kwargs_plot=dict(
+                        color="tab:blue",
+                        alpha=0.5,
+                    ),
                 ),
                 optika.materials.Layer(
                     chemical="Mo",
                     thickness=(1- thickness_ratio) * d,
                     interface=interface,
+                    kwargs_plot=dict(
+                        color="tab:orange",
+                        alpha=0.5,
+                    ),
                 ),
             ],
             num_periods=60,
@@ -615,7 +718,12 @@ class MultilayerMirror(
         # Define the substrate layer
         substrate = optika.materials.Layer(
             chemical="SiO2",
+            thickness=10 * u.mm,
             interface=interface,
+            kwargs_plot=dict(
+                color="gray",
+                alpha=0.5,
+            ),
         )
 
         # Define a representation of multilayer coating
@@ -652,6 +760,14 @@ class MultilayerMirror(
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("reflectivity");
 
+    Plot a visual representation of the multilayer coating
+
+    .. jupyter-execute::
+
+        fig, ax = plt.subplots(constrained_layout=True)
+        ax.set_axis_off()
+        with astropy.visualization.quantity_support():
+            multilayer.plot_layers()
     """
 
     layers: None | AbstractLayer | Sequence[AbstractLayer] = None
