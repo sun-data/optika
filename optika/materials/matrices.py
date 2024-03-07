@@ -276,7 +276,6 @@ def transfer(
     thickness: u.Quantity | na.AbstractScalar,
     n: float | na.AbstractScalar,
     normal: na.AbstractCartesian3dVectorArray,
-    interface: None | optika.materials.profiles.AbstractInterfaceProfile = None,
 ) -> na.Cartesian2dMatrixArray:
     r"""
     Compute the transfer matrix for a homogenous slab of material using
@@ -297,8 +296,6 @@ def transfer(
         The index of refraction of the material
     normal
         The vector perpendicular to the surface of the slab.
-    interface
-        The interface profile of the right side of the slab.
 
     Examples
     --------
@@ -360,7 +357,6 @@ def transfer(
         n_left=1,
         n_right=n,
         normal=normal,
-        interface=None,
     )
 
     matrix_propagation = propagation(
@@ -379,7 +375,6 @@ def transfer(
         n_left=n,
         n_right=1,
         normal=normal,
-        interface=interface,
     )
 
     return matrix_refractive_left @ matrix_propagation @ matrix_refractive_right
