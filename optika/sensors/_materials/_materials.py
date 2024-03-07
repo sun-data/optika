@@ -95,14 +95,14 @@ def quantum_yield_ideal(
 
 def quantum_efficiency_effective(
     wavelength: u.Quantity | na.AbstractScalar,
-    direction: na.AbstractCartesian3dVectorArray,
-    thickness_oxide: u.Quantity | na.AbstractScalar,
-    thickness_implant: u.Quantity | na.AbstractScalar,
-    thickness_substrate: u.Quantity | na.AbstractScalar,
-    cce_backsurface: u.Quantity | na.AbstractScalar,
-    formula_oxide: str = "SiO2",
-    n_ambient: complex | na.AbstractScalar = 1,
-    n_substrate: None | complex | na.AbstractScalar = None,
+    direction: None | na.AbstractCartesian3dVectorArray = None,
+    n: float | na.AbstractScalar = 1,
+    thickness_oxide: u.Quantity | na.AbstractScalar = 50 * u.AA,
+    thickness_implant: u.Quantity | na.AbstractScalar = 2317 * u.AA,
+    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
+    cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
+    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     normal: None | na.AbstractCartesian3dVectorArray = None,
 ) -> na.AbstractScalar:
     r"""
@@ -111,27 +111,31 @@ def quantum_efficiency_effective(
     Parameters
     ----------
     wavelength
-        The wavelength of the incident light.
+        The wavelength of the incident light in vacuum.
     direction
-        The propagation direction of the incident light.
+        The propagation direction of the incident light in the ambient medium.
+        If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+    n
+        The complex index of refraction of the ambient medium.
     thickness_oxide
         The thickness of the oxide layer on the back surface of the sensor.
+        Default is the value given in :cite:t:`Stearn1994`.
     thickness_implant
         The thickness of the implant layer.
+        Default is the value given in :cite:t:`Stearn1994`.
     thickness_substrate
         The thickness of the silicon substrate.
+        Default is the value given in :cite:t:`Stearn1994`.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
-    formula_oxide
-        The chemical formula of the oxide layer.
-        Default is silicon dioxide.
-    n_ambient
-        Optional complex refractive index of the ambient propagation medium.
-        Default is :math:`1`, the refractive index of vacuum.
-    n_substrate
+        Default is the value given in :cite:t:`Stearn1994`.
+    chemical_oxide
+        The chemical composition of the oxide layer.
+        The default is to assume the oxide layer is silicon dioxide.
+    chemical_substrate
         Optional complex refractive index of the implant region and substrate.
-        If :obj:`None`, then the refractive index of silicon is used.
+        The default is to assume the substrate is made from silicon.
     normal
         The vector perpendicular to the surface of the sensor.
         If :obj:`None`, then the normal is assumed to be :math:`-\hat{z}`
@@ -152,32 +156,14 @@ def quantum_efficiency_effective(
         # Define an array of wavelengths with which to sample the EQE
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
-        # Assume normal incidence
-        direction = na.Cartesian3dVectorArray(0, 0, 1)
-
-        # Store the fit parameters found in Stern 1994
-        thickness_oxide = 50 * u.AA
-        thickness_implant = 2317 * u.AA
-        thickness_substrate = 7 * u.um
-        cce_backsurface = 0.21
-
         # Compute the effective quantum efficiency
         eqe = optika.sensors.quantum_efficiency_effective(
             wavelength=wavelength,
-            direction=direction,
-            thickness_oxide=thickness_oxide,
-            thickness_implant=thickness_implant,
-            thickness_substrate=thickness_substrate,
-            cce_backsurface=cce_backsurface,
         )
 
         # Compute the maximum theoretical quantum efficiency
         eqe_max = optika.sensors.quantum_efficiency_effective(
             wavelength=wavelength,
-            direction=direction,
-            thickness_oxide=thickness_oxide,
-            thickness_implant=thickness_implant,
-            thickness_substrate=thickness_substrate,
             cce_backsurface=1,
         )
 
@@ -204,6 +190,16 @@ def quantum_efficiency_effective(
 
     .. jupyter-execute::
 
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define an array of wavelengths with which to sample the EQE
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Define the incidence directions
         angle = na.linspace(0, 30, axis="angle", num=2) * u.deg
         direction = na.Cartesian3dVectorArray(
             x=np.sin(angle),
@@ -214,10 +210,6 @@ def quantum_efficiency_effective(
         eqe = optika.sensors.quantum_efficiency_effective(
             wavelength=wavelength,
             direction=direction,
-            thickness_oxide=thickness_oxide,
-            thickness_implant=thickness_implant,
-            thickness_substrate=thickness_substrate,
-            cce_backsurface=cce_backsurface,
         )
 
         # Plot the results
@@ -337,35 +329,40 @@ def quantum_efficiency_effective(
         \right\} \\
 
     """
+    if direction is None:
+        direction = na.Cartesian3dVectorArray(0, 0, 1)
 
-    if n_substrate is None:
-        substrate = optika.chemicals.Chemical("Si")
-        n_substrate = substrate.n(wavelength)
+    if not isinstance(chemical_oxide, optika.chemicals.AbstractChemical):
+        chemical_oxide = optika.chemicals.Chemical(chemical_oxide)
+
+    if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
+        chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
 
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    n = optika.chemicals.Chemical(formula_oxide).n(wavelength)
-    n = n.broadcast_to(na.broadcast_shapes(n.shape, dict(_layer=1)))
-
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
+        wavelength=wavelength,
+        direction=direction,
         n=n,
-        thickness=na.stack([thickness_oxide], axis="_layer"),
-        axis="_layer",
-        wavelength_ambient=wavelength,
-        direction_ambient=direction,
-        n_ambient=n_ambient,
-        n_substrate=n_substrate,
+        layers=optika.materials.Layer(
+            chemical=chemical_oxide,
+            thickness=thickness_oxide,
+        ),
+        substrate=optika.materials.Layer(
+            chemical=chemical_substrate,
+        ),
         normal=normal,
     )
 
+    n_substrate = chemical_substrate.n(wavelength)
     wavenumber_substrate = np.imag(n_substrate)
     absorption_substrate = 4 * np.pi * wavenumber_substrate / wavelength
 
     direction_substrate = optika.materials.snells_law(
         wavelength=wavelength,
         direction=direction,
-        index_refraction=np.real(n_ambient),
+        index_refraction=np.real(n),
         index_refraction_new=np.real(n_substrate),
         normal=normal,
     )
@@ -408,6 +405,10 @@ class AbstractCCDMaterial(
     @functools.cached_property
     def _chemical(self) -> optika.chemicals.Chemical:
         return optika.chemicals.Chemical("Si")
+
+    @functools.cached_property
+    def _chemical_oxide(self) -> optika.chemicals.Chemical:
+        return optika.chemicals.Chemical("SiO2")
 
     def index_refraction(
         self,
@@ -495,21 +496,19 @@ class AbstractBackilluminatedCCDMaterial(
         normal
             The vector perpendicular to the surface of the CCD.
         """
-        k_ambient = rays.attenuation * rays.wavelength / (4 * np.pi)
-        n_ambient = rays.index_refraction + k_ambient * 1j
-
-        k_substrate = self.attenuation(rays) * rays.wavelength / (4 * np.pi)
-        n_substrate = self.index_refraction(rays) + k_substrate * 1j
+        k = rays.attenuation * rays.wavelength / (4 * np.pi)
+        n = rays.index_refraction + k * 1j
 
         return quantum_efficiency_effective(
             wavelength=rays.wavelength,
             direction=rays.direction,
+            n=n,
             thickness_oxide=self.thickness_oxide,
             thickness_implant=self.thickness_implant,
             thickness_substrate=self.thickness_substrate,
             cce_backsurface=self.cce_backsurface,
-            n_ambient=n_ambient,
-            n_substrate=n_substrate,
+            chemical_oxide=self._chemical_oxide,
+            chemical_substrate=self._chemical,
             normal=normal,
         )
 

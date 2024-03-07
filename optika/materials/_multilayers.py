@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import Literal
+from typing import Sequence, Literal
 import abc
 import dataclasses
 import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-from . import profiles, snells_law, AbstractMaterial
+from . import matrices, snells_law, AbstractMaterial, AbstractLayer, Layer
 
 __all__ = [
     "multilayer_efficiency",
@@ -19,15 +19,13 @@ __all__ = [
 
 
 def multilayer_efficiency(
-    n: na.AbstractScalar,
-    thickness: na.AbstractScalar,
-    axis: str,
-    wavelength_ambient: u.Quantity | na.AbstractScalar,
-    direction_ambient: na.AbstractCartesian3dVectorArray,
-    n_ambient: complex | na.AbstractScalar,
-    n_substrate: complex | na.AbstractScalar,
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: None | na.AbstractCartesian3dVectorArray = None,
+    polarization: None | Literal["s", "p"] = None,
+    n: float | na.AbstractScalar = 1,
+    layers: Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
+    substrate: None | Layer = None,
     normal: None | na.AbstractCartesian3dVectorArray = None,
-    profile_interface: None | profiles.AbstractInterfaceProfile = None,
 ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
     r"""
     Calculate the reflectivity and transmissivity of a multilayer
@@ -35,27 +33,28 @@ def multilayer_efficiency(
 
     Parameters
     ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The propagation direction of incident light in the ambient medium.
+        If :obj:`None`, the propagation direction is assumed to be
+        :math:`+\hat{z}`
+    polarization
+        The polarization state of the incident light.
+        If :obj:`None`, the light is assumed to be unpolarized.
     n
-        The complex index of refraction for each layer
-    thickness
-        An array of thicknesses for each layer.
-    axis
-        The logical axis along which the different layers are distributed.
-    wavelength_ambient
-        The wavelength of the incident light in the ambient medium.
-    direction_ambient
-        The direction of the incident light in the ambient medium.
-    n_ambient
-        The index of refraction of the ambient medium.
-    n_substrate
-        The index of refraction of the substrate, at the bottom of the multilayer
-        stack.
+        The complex index of refraction of the ambient medium.
+    layers
+        A sequence of layers representing the multilayer stack.
+        If :obj:`None`, then this function computes the reflectivity and
+        transmissivity of the ambient medium and the substrate.
+    substrate
+        A layer representing the substrate supporting the multilayer stack.
+        The thickness of this layer is ignored.
+        If :obj:`None`, then the substrate is assumed to be a vacuum.
     normal
         A vector perpendicular to the interface between successive layers.
         If :obj:`None`, the normal vector is assumed to be :math:`-\hat{z}`
-    profile_interface
-        An optional profile for modeling the roughness and/or
-        diffusiveness of the interface between successive layers.
 
     Examples
     --------
@@ -72,28 +71,19 @@ def multilayer_efficiency(
         import named_arrays as na
         import optika
 
-        # Define the wavelengths of the incident light
+        # Define the wavelength of the incident light
         wavelength = na.linspace(100, 150, axis="wavelength", num=501) * u.AA
 
-        # Define an array of chemical formulae for each layer.
-        formula = na.ScalarArray(np.array(["Zr"]), axes="layer")
+        # Define the Zr layer
+        layers = optika.materials.Layer(
+            chemical="Zr",
+            thickness=1500 * u.AA,
+        )
 
-        # Compute the complex index of refraction for each layer
-        n = optika.chemicals.Chemical(formula).n(wavelength)
-
-        # Define an array of thicknesses for each layer.
-        thickness = na.ScalarArray([1500] * u.AA, axes="layer")
-
-        # Compute the reflectivity and the transmissivity of this multilyaer
+        # Compute the reflectivity and the transmissivity of this multilayer
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
-            n=n,
-            thickness=thickness,
-            axis="layer",
-            wavelength_ambient=wavelength,
-            direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
-            n_ambient=1,
-            n_substrate=1,
-            normal=na.Cartesian3dVectorArray(0, 0, -1),
+            wavelength=wavelength,
+            layers=layers,
         )
 
         # Plot the transmissivity as a function of wavelength.
@@ -116,46 +106,39 @@ def multilayer_efficiency(
 
     .. jupyter-execute::
 
+        # Define the wavelength of the incident light
+        wavelength = na.linspace(100, 150, axis="wavelength", num=501) * u.AA
+
         # Period length of the multilayer sequence
         d = 66.5 * u.AA
-
-        # Number of periods
-        N = 60
-
-        # Define an array of chemical formulas for each layer
-        formula = na.ScalarArray(
-            ndarray=np.array(N * ["Si", "Mo"]),
-            axes="layer"
-        )
-
-        # Compute the complex index of refraction for each layer
-        n = optika.chemicals.Chemical(formula).n(wavelength)
 
         # Define the thickness to period ratios for each layer
         thickness_ratio = 0.6
 
-        # Compute thicknesses for each layer
-        thickness = d * na.stack(
-            arrays=N * [thickness_ratio, 1 - thickness_ratio],
-            axis="layer"
-        )
-
         # Define the interface profile between successive layers
-        profile_interface = optika.materials.profiles.ErfInterfaceProfile(
-            width=7 * u.AA,
+        interface = optika.materials.profiles.ErfInterfaceProfile(7 * u.AA)
+
+        # Define the multilayer sequence
+        layers = optika.materials.PeriodicLayerSequence(
+            [
+                optika.materials.Layer(
+                    chemical="Si",
+                    thickness=thickness_ratio * d,
+                    interface=interface,
+                ),
+                optika.materials.Layer(
+                    chemical="Mo",
+                    thickness=(1 - thickness_ratio) * d,
+                    interface=interface,
+                ),
+            ],
+            num_periods=60,
         )
 
         # Compute the reflectivity and transmissivity of this multilayer stack
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
-            n=n,
-            thickness=thickness,
-            axis="layer",
-            wavelength_ambient=wavelength,
-            direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
-            n_ambient=1,
-            n_substrate=1,
-            normal=na.Cartesian3dVectorArray(0, 0, -1),
-            profile_interface=profile_interface,
+            wavelength=wavelength,
+            layers=layers,
         )
 
         # Plot the reflectivity as a function of wavelength
@@ -165,7 +148,7 @@ def multilayer_efficiency(
             reflectivity,
             ax=ax,
             axis="wavelength",
-            label=rf"Si/Mo $\times$ {N}",
+            label=rf"Si/Mo $\times$ {layers.num_periods}",
         );
         ax.legend();
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
@@ -181,44 +164,37 @@ def multilayer_efficiency(
         # Period length of the multilayer sequence
         d = 98 * u.AA
 
-        # Number of periods
-        N = 40
-
         # wavelength of the incident light
         wavelength = na.linspace(170, 210, num=101, axis="wavelength") * u.AA
 
-        # array of chemical formulas for each layer
-        formula = na.ScalarArray(
-            ndarray=np.array(N * ["Y", "Al"]),
-            axes="layer"
-        )
-
-        # Compute the complex index of refraction for each layer
-        n = optika.chemicals.Chemical(formula).n(wavelength)
-
-        # an array of thickness to period ratios for each layer
+        # an array of thickness-to-period ratios for each layer
         thickness_ratio = na.linspace(0.2, 0.6, axis="thickness_ratio", num=5)
 
-        # thicknesses for each layer
-        thickness = d * na.stack(
-            arrays=N * [thickness_ratio, 1 - thickness_ratio],
-            axis="layer"
+        # Define the multilayer sequence
+        layers = optika.materials.PeriodicLayerSequence(
+            [
+                optika.materials.Layer(
+                    chemical="Y",
+                    thickness=thickness_ratio * d,
+                ),
+                optika.materials.Layer(
+                    chemical="Al",
+                    thickness=(1 - thickness_ratio) * d,
+                )
+            ],
+            num_periods=40,
         )
 
-        # Compute the complex index of refraction for the silicon substrate
-        silicon = optika.chemicals.Chemical("Si")
-        n_substrate = silicon.n(wavelength)
+        # Define the substrate layer
+        substrate = optika.materials.Layer(
+            chemical="Si",
+        )
 
         # Compute the reflectivity and transmissivity of this multilayer stack
         reflectivity, transmissivity = optika.materials.multilayer_efficiency(
-            n=n,
-            thickness=thickness,
-            axis="layer",
-            wavelength_ambient=wavelength,
-            direction_ambient=na.Cartesian3dVectorArray(0, 0, 1),
-            n_ambient=1,
-            n_substrate=n_substrate,
-            normal=na.Cartesian3dVectorArray(0, 0, -1),
+            wavelength,
+            layers=layers,
+            substrate=substrate,
         )
 
         # Plot the reflectivity as a function of wavelength
@@ -367,128 +343,95 @@ def multilayer_efficiency(
 
     The :class:`tuple` :math:`(R, T)` is the quantity returned by this function.
     """
-    shape_layers = na.shape_broadcasted(n, thickness)
-    n = n.broadcast_to(shape_layers)
-    thickness = thickness.broadcast_to(shape_layers)
-
-    wavelength = wavelength_ambient * np.real(n_ambient)
+    if direction is None:
+        direction_ambient = na.Cartesian3dVectorArray(0, 0, 1)
+    else:
+        direction_ambient = direction
 
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    cos_theta_ambient = -direction_ambient @ normal
-    q_sa = cos_theta_ambient * n_ambient
-    q_pa = cos_theta_ambient / n_ambient
+    n_ambient = n
 
-    direction_i = direction_ambient
-    n_i = n_ambient
-    q_si = q_sa
-    q_pi = q_pa
-
-    m_s11 = m_p11 = 1
-    m_s12 = m_p12 = 0
-    m_s21 = m_p21 = 0
-    m_s22 = m_p22 = 1
-
-    num_layers = n.shape[axis]
-    num_interfaces = num_layers + 1
-
-    for j in range(num_interfaces):
-        if j == num_layers:
-            thickness_j = 0 * u.AA
-            n_j = n_substrate
-        else:
-            thickness_j = thickness[{axis: j}]
-            n_j = n[{axis: j}]
-
-        direction_j = snells_law(
-            wavelength=wavelength / np.real(n_i),
-            direction=direction_i,
-            index_refraction=np.real(n_i),
-            index_refraction_new=np.real(n_j),
+    if substrate is not None:
+        n_substrate = substrate.n(wavelength)
+        direction_substrate = snells_law(
+            wavelength=wavelength / np.real(n_ambient),
+            direction=direction_ambient,
+            index_refraction=np.real(n_ambient),
+            index_refraction_new=np.real(n_substrate),
             normal=normal,
         )
-        cos_theta_j = -direction_j @ normal
+        interface_substrate = substrate.interface
+    else:
+        n_substrate = 1
+        direction_substrate = direction_ambient
+        interface_substrate = None
 
-        q_sj = cos_theta_j * n_j
-        q_pj = cos_theta_j / n_j
+    cos_theta_ambient = direction_ambient @ normal
+    cos_theta_substrate = direction_substrate @ normal
 
-        a_sij = q_si + q_sj
-        a_pij = q_pi + q_pj
+    if polarization is None:
+        polarization = ["s", "p"]
+    elif polarization == "s" or polarization == "p":
+        polarization = [polarization]
+    else:
+        raise ValueError(
+            f"Unrecognized polarization state '{polarization}'."
+            f"Only 's', 'p', or `None` is supported."
+        )
 
-        r_sij = (q_si - q_sj) / a_sij
-        r_pij = (q_pi - q_pj) / a_pij
+    if layers is None:
+        layers = []
+    if not isinstance(layers, optika.materials.AbstractLayer):
+        layers = optika.materials.LayerSequence(layers)
 
-        t_sij = 2 * q_si / a_sij
-        t_pij = 2 * q_pi / a_pij
+    reflectivity = []
+    transmissivity = []
 
-        if profile_interface is not None:
-            w_tilde = profile_interface.reflectivity(
-                wavelength=wavelength,
-                direction=direction_i,
-                normal=normal,
-            )
-            r_sij = w_tilde * r_sij
-            r_pij = w_tilde * r_pij
+    for pol in polarization:
+        n, direction, m = layers.transfer(
+            wavelength=wavelength,
+            direction=direction_ambient,
+            polarization=pol,
+            n=n_ambient,
+            normal=normal,
+        )
+        m_substrate = matrices.refraction(
+            wavelength=wavelength,
+            direction_left=direction,
+            direction_right=direction_substrate,
+            polarization=pol,
+            n_left=n,
+            n_right=n_substrate,
+            normal=normal,
+            interface=interface_substrate,
+        )
+        m = m @ m_substrate
 
-        beta_j = 2 * np.pi * thickness_j * n_j * cos_theta_j / wavelength
+        r = m.y.x / m.x.x
+        t = 1 / m.x.x
 
-        exp_negi_beta_j = np.exp(-1j * beta_j)
-        exp_posi_beta_j = np.exp(+1j * beta_j)
+        if pol == "s":
+            q_ambient = cos_theta_ambient * n_ambient
+            q_substrate = cos_theta_substrate * n_substrate
+        else:
+            q_ambient = cos_theta_ambient / n_ambient
+            q_substrate = cos_theta_substrate / n_substrate
 
-        m_sj11 = exp_negi_beta_j / t_sij
-        m_pj11 = exp_negi_beta_j / t_pij
+        R = np.square(np.abs(r))
+        T = np.square(np.abs(t)) * np.real(q_substrate / q_ambient)
 
-        m_sj12 = exp_posi_beta_j * r_sij / t_sij
-        m_pj12 = exp_posi_beta_j * r_pij / t_pij
+        reflectivity.append(R)
+        transmissivity.append(T)
 
-        m_sj21 = exp_negi_beta_j * r_sij / t_sij
-        m_pj21 = exp_negi_beta_j * r_pij / t_pij
+    reflectivity = na.stack(reflectivity, axis="polarization")
+    transmissivity = na.stack(transmissivity, axis="polarization")
 
-        m_sj22 = exp_posi_beta_j / t_sij
-        m_pj22 = exp_posi_beta_j / t_pij
+    reflectivity = reflectivity.mean("polarization")
+    transmissivity = transmissivity.mean("polarization")
 
-        m_s11_new = m_s11 * m_sj11 + m_s12 * m_sj21
-        m_s12_new = m_s11 * m_sj12 + m_s12 * m_sj22
-        m_s21_new = m_s21 * m_sj11 + m_s22 * m_sj21
-        m_s22_new = m_s21 * m_sj12 + m_s22 * m_sj22
-
-        m_p11_new = m_p11 * m_pj11 + m_p12 * m_pj21
-        m_p12_new = m_p11 * m_pj12 + m_p12 * m_pj22
-        m_p21_new = m_p21 * m_pj11 + m_p22 * m_pj21
-        m_p22_new = m_p21 * m_pj12 + m_p22 * m_pj22
-
-        m_s11 = m_s11_new
-        m_s12 = m_s12_new
-        m_s21 = m_s21_new
-        m_s22 = m_s22_new
-
-        m_p11 = m_p11_new
-        m_p12 = m_p12_new
-        m_p21 = m_p21_new
-        m_p22 = m_p22_new
-
-        direction_i = direction_j
-        n_i = n_j
-        q_si = q_sj
-        q_pi = q_pj
-
-    rs = m_s21 / m_s11
-    rp = m_p21 / m_p11
-
-    ts = 1 / m_s11
-    tp = 1 / m_p11
-
-    Rs = np.square(np.abs(rs))
-    Rp = np.square(np.abs(rp))
-
-    Ts = np.square(np.abs(ts)) * np.real(q_sj / q_sa)
-    Tp = np.square(np.abs(tp)) * np.real(q_pj / q_pa)
-
-    R = (Rs + Rp) / 2
-    T = (Ts + Tp) / 2
-
-    return R, T
+    return reflectivity, transmissivity
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -497,30 +440,9 @@ class AbstractMultilayerMaterial(
 ):
     @property
     @abc.abstractmethod
-    def material_layers(self) -> na.AbstractScalarArray:
+    def layers(self) -> AbstractLayer | Sequence[AbstractLayer]:
         """
-        an array of strings describing the chemical formula of each layer
-        """
-
-    @property
-    @abc.abstractmethod
-    def thickness_layers(self) -> na.AbstractScalar:
-        """
-        an array of the thicknesses for each layer
-        """
-
-    @property
-    @abc.abstractmethod
-    def axis_layers(self) -> str:
-        """
-        the logical axis along which the different layers are distributed
-        """
-
-    @property
-    @abc.abstractmethod
-    def profile_interface(self) -> optika.materials.profiles.AbstractInterfaceProfile:
-        """
-        The interface profile between successive layers
+        A sequence of layers representing the multilayer stack.
         """
 
     @property
@@ -565,19 +487,17 @@ class AbstractMultilayerFilm(
             the vector normal to the interface between successive layers
         """
         wavelength = rays.wavelength
-        n = optika.chemicals.Chemical(self.material_layers).n(wavelength)
-        k_ambient = rays.attenuation * wavelength / (4 * np.pi)
-        n_ambient = rays.index_refraction + k_ambient * 1j
+        k = rays.attenuation * wavelength / (4 * np.pi)
+        n = rays.index_refraction + k * 1j
+
         reflectivity, transmissivity = multilayer_efficiency(
+            wavelength=wavelength,
+            direction=rays.direction,
+            polarization=None,
             n=n,
-            thickness=self.thickness_layers,
-            axis=self.axis_layers,
-            wavelength_ambient=wavelength,
-            direction_ambient=rays.direction,
-            n_ambient=n_ambient,
-            n_substrate=n_ambient,
+            layers=self.layers,
+            substrate=None,
             normal=normal,
-            profile_interface=self.profile_interface,
         )
         return transmissivity
 
@@ -586,17 +506,8 @@ class AbstractMultilayerFilm(
 class MultilayerFilm(
     AbstractMultilayerFilm,
 ):
-    material_layers: na.AbstractScalarArray = dataclasses.MISSING
-    """an array of strings describing the chemical formula of each layer"""
-
-    thickness_layers: na.AbstractScalar = dataclasses.MISSING
-    """an array of the thicknesses for each layer"""
-
-    axis_layers: str = dataclasses.MISSING
-    """the logical axis along which the different layers are distributed"""
-
-    profile_interface: None | optika.materials.profiles.AbstractInterfaceProfile = None
-    """The interface profile between successive layers"""
+    layers: None | AbstractLayer | Sequence[AbstractLayer] = None
+    """A sequence of layers representing the multilayer stack."""
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -609,9 +520,10 @@ class AbstractMultilayerMirror(
 
     @property
     @abc.abstractmethod
-    def material_substrate(self) -> str | na.AbstractScalarArray:
+    def substrate(self) -> Layer:
         """
-        the chemical formula of the mirror substrate
+        A layer representing the substrate that the multilayer coating is
+        deposited onto.
         """
 
     def efficiency(
@@ -631,20 +543,16 @@ class AbstractMultilayerMirror(
             the vector normal to the interface between successive layers
         """
         wavelength = rays.wavelength
-        n = optika.chemicals.Chemical(self.material_layers).n(wavelength)
-        k_ambient = rays.attenuation * wavelength / (4 * np.pi)
-        n_ambient = rays.index_refraction + k_ambient * 1j
-        n_substrate = optika.chemicals.Chemical(self.material_substrate).n(wavelength)
+        k = rays.attenuation * wavelength / (4 * np.pi)
+        n = rays.index_refraction + k * 1j
+
         reflectivity, transmissivity = multilayer_efficiency(
+            wavelength=wavelength,
+            direction=rays.direction,
+            polarization=None,
             n=n,
-            thickness=self.thickness_layers,
-            axis=self.axis_layers,
-            wavelength_ambient=wavelength,
-            direction_ambient=rays.direction,
-            n_ambient=n_ambient,
-            n_substrate=n_substrate,
-            normal=normal,
-            profile_interface=self.profile_interface,
+            layers=self.layers,
+            substrate=self.substrate,
         )
         return reflectivity
 
@@ -679,36 +587,41 @@ class MultilayerMirror(
         # Number of periods
         N = 60
 
-        # Define an array of chemical formulas for each layer
-        material_layers = na.ScalarArray(
-            ndarray=np.array(N * ["Si", "Mo"]),
-            axes="layer"
-        )
-
-        # Define the substrate material
-        material_substrate = "SiO2"
-
         # Define the thickness to period ratios for each layer
         thickness_ratio = 0.6
 
-        # Compute thicknesses for each layer
-        thickness_layers = d * na.stack(
-            arrays=N * [thickness_ratio, 1 - thickness_ratio],
-            axis="layer"
+        # Define the interface profile between successive layers
+        interface = optika.materials.profiles.ErfInterfaceProfile(
+            width=7 * u.AA,
         )
 
-        # Define the interface profile between successive layers
-        profile_interface = optika.materials.profiles.ErfInterfaceProfile(
-            width=7 * u.AA,
+        # Define the periodic sequence of layers
+        layers = optika.materials.PeriodicLayerSequence(
+            [
+                optika.materials.Layer(
+                    chemical="Si",
+                    thickness=thickness_ratio * d,
+                    interface=interface
+                ),
+                optika.materials.Layer(
+                    chemical="Mo",
+                    thickness=(1- thickness_ratio) * d,
+                    interface=interface,
+                ),
+            ],
+            num_periods=60,
+        )
+
+        # Define the substrate layer
+        substrate = optika.materials.Layer(
+            chemical="SiO2",
+            interface=interface,
         )
 
         # Define a representation of multilayer coating
         multilayer = optika.materials.MultilayerMirror(
-            material_layers=material_layers,
-            material_substrate=material_substrate,
-            thickness_layers=thickness_layers,
-            axis_layers="layer",
-            profile_interface=profile_interface,
+            layers=layers,
+            substrate=substrate,
         )
 
         # Define the wavelengths of the incident light
@@ -741,17 +654,8 @@ class MultilayerMirror(
 
     """
 
-    material_layers: na.AbstractScalarArray = dataclasses.MISSING
-    """an array of strings describing the chemical formula of each layer"""
+    layers: None | AbstractLayer | Sequence[AbstractLayer] = None
+    """A sequence of layers representing the multilayer stack."""
 
-    material_substrate: str | na.AbstractScalarArray = dataclasses.MISSING
-    """the chemical formula of the mirror substrate"""
-
-    thickness_layers: na.AbstractScalar = dataclasses.MISSING
-    """an array of the thicknesses for each layer"""
-
-    axis_layers: str = dataclasses.MISSING
-    """the logical axis along which the different layers are distributed"""
-
-    profile_interface: None | optika.materials.profiles.AbstractInterfaceProfile = None
-    """The interface profile between successive layers"""
+    substrate: None | Layer = None
+    """A layer representing the substrate that the layers are deposited onto."""
