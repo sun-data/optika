@@ -384,7 +384,7 @@ def multilayer_efficiency(
         polarization = ["s", "p"]
     elif polarization == "s" or polarization == "p":
         polarization = [polarization]
-    else:
+    else:  # pragma: nocover
         raise ValueError(
             f"Unrecognized polarization state '{polarization}'."
             f"Only 's', 'p', or `None` is supported."
