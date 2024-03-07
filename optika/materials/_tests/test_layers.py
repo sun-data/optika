@@ -4,8 +4,6 @@ import numpy as np
 import matplotlib
 import astropy.units as u
 import astropy.visualization
-import scipy.special
-
 import named_arrays as na
 import optika._tests.test_mixins
 
@@ -29,22 +27,27 @@ class AbstractTestAbstractLayer(
     )
     @pytest.mark.parametrize("direction", [na.Cartesian3dVectorArray(0, 0, 1)])
     @pytest.mark.parametrize("polarization", ["s", "p"])
+    @pytest.mark.parametrize("n", [1])
     @pytest.mark.parametrize("normal", [na.Cartesian3dVectorArray(0, 0, -1)])
     class TestMatrixTransfer:
-        def test_matrix_transfer(
+        def test_transfer(
             self,
             a: optika.materials.AbstractLayer,
             wavelength: u.Quantity | na.AbstractScalar,
             direction: na.AbstractCartesian3dVectorArray,
             polarization: Literal["s", "p"],
+            n: float | na.AbstractScalar,
             normal: na.AbstractCartesian3dVectorArray,
         ):
-            result = a.matrix_transfer(
+            n, direction, result = a.transfer(
                 wavelength=wavelength,
                 direction=direction,
                 polarization=polarization,
+                n=n,
                 normal=normal,
             )
+            assert np.all(n > 0)
+            assert isinstance(direction, na.AbstractCartesian3dVectorArray)
             assert isinstance(result, na.AbstractCartesian2dMatrixArray)
             assert np.all(result.determinant != 0)
             assert np.all(np.isfinite(result))
@@ -72,7 +75,7 @@ class AbstractTestAbstractLayer(
     argnames="a",
     argvalues=[
         optika.materials.Layer(
-            material="Si",
+            chemical="Si",
             thickness=10 * u.nm,
             kwargs_plot=dict(
                 color="tab:orange",
@@ -80,12 +83,12 @@ class AbstractTestAbstractLayer(
             ),
         ),
         optika.materials.Layer(
-            material="Si",
+            chemical="Si",
             thickness=10 * u.nm,
             x_label=-0.1 * u.nm,
         ),
         optika.materials.Layer(
-            material="Si",
+            chemical="Si",
             thickness=10 * u.nm,
             x_label=1.1 * u.nm,
         ),
@@ -112,11 +115,11 @@ class AbstractTestAbstractLayerSequence(
         optika.materials.LayerSequence(
             layers=[
                 optika.materials.Layer(
-                    material="SiO2",
+                    chemical="SiO2",
                     thickness=10 * u.nm,
                 ),
                 optika.materials.Layer(
-                    material="Si",
+                    chemical="Si",
                     thickness=1 * u.um,
                 ),
             ]
@@ -135,12 +138,18 @@ class TestLayerSequence(
         optika.materials.PeriodicLayerSequence(
             layers=[
                 optika.materials.Layer(
-                    material="Si",
+                    chemical="Si",
                     thickness=10 * u.nm,
+                    interface=optika.materials.profiles.ErfInterfaceProfile(
+                        width=2 * u.nm,
+                    ),
                 ),
                 optika.materials.Layer(
-                    material="Mo",
+                    chemical="Mo",
                     thickness=10 * u.nm,
+                    interface=optika.materials.profiles.ErfInterfaceProfile(
+                        width=2 * u.nm,
+                    ),
                 ),
             ],
             num_periods=10,
@@ -153,36 +162,42 @@ class TestPeriodicLayerSequence(
     class TestMatrixTransfer(
         AbstractTestAbstractLayerSequence.TestMatrixTransfer,
     ):
-        def test_matrix_transfer(
+        def test_transfer(
             self,
             a: optika.materials.PeriodicLayerSequence,
             wavelength: u.Quantity | na.AbstractScalar,
             direction: na.AbstractCartesian3dVectorArray,
             polarization: Literal["s", "p"],
+            n: float | na.AbstractScalar,
             normal: na.AbstractCartesian3dVectorArray,
         ):
-            super().test_matrix_transfer(
+            super().test_transfer(
                 a=a,
                 wavelength=wavelength,
                 direction=direction,
                 polarization=polarization,
+                n=n,
                 normal=normal,
             )
 
             b = optika.materials.LayerSequence(list(a.layers) * a.num_periods)
 
-            result = a.matrix_transfer(
+            n_test, direction_test, result_test = a.transfer(
                 wavelength=wavelength,
                 direction=direction,
                 polarization=polarization,
+                n=n,
                 normal=normal,
             )
 
-            result_expected = b.matrix_transfer(
+            n_expected, direction_expected, result_expected = b.transfer(
                 wavelength=wavelength,
                 direction=direction,
                 polarization=polarization,
+                n=n,
                 normal=normal,
             )
 
-            assert np.allclose(result, result_expected)
+            assert np.allclose(n_test, n_expected)
+            assert np.allclose(direction_test, direction_expected)
+            assert np.allclose(result_test, result_expected)

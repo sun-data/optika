@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika
-from . import matrices
+from . import matrices, snells_law
 
 __all__ = [
     "AbstractLayer",
@@ -22,6 +22,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractLayer(
     optika.mixins.Printable,
+    abc.ABC,
 ):
     """
     An interface for representing a single homogeneous layer or a sequence
@@ -34,26 +35,32 @@ class AbstractLayer(
         """The thickness of this layer."""
 
     @abc.abstractmethod
-    def matrix_transfer(
+    def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
         polarization: Literal["s", "p"],
+        n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
-    ) -> na.Cartesian2dMatrixArray:
+    ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
         """
-        Compute the transfer matrix for this layer, which propagates the
-        electric field from the left side of the layer to the right side.
+        Compute the index of refraction, internal propagation direction,
+        and the transfer matrix for this layer,
+        which propagates the electric field from the left side of the layer to
+        the right side.
 
         Parameters
         ----------
         wavelength
-            The wavelength of the incident light in vacuum.
+            The wavelength of the incident light in the medium before this layer.
         direction
-            The propagation direction of the incident light in vacuum.
+            The propagation direction of the incident light in the medium before
+            this layer.
         polarization
             Flag controlling whether the incident light is :math:`s` or :math:`p`
             polarized.
+        n
+            The complex index of refraction of the medium before this layer.
         normal
             The vector perpendicular to the surface of this layer.
         """
@@ -103,7 +110,7 @@ class Layer(
 
         # Create a layer of silicon
         layer = optika.materials.Layer(
-            material="Si",
+            chemical="Si",
             thickness=10 * u.nm,
             kwargs_plot=dict(
                 color="tab:blue",
@@ -119,8 +126,11 @@ class Layer(
             ax.autoscale_view()
     """
 
-    material: None | str = None
-    """The chemical formula of the layer material."""
+    chemical: None | str | optika.chemicals.AbstractChemical = None
+    """
+    The chemical formula of the layer medium.
+    If :obj:`None` (default), vacuum is assumed.
+    """
 
     thickness: None | u.Quantity | na.AbstractScalar = None
     """The thickness of this layer"""
@@ -144,28 +154,62 @@ class Layer(
     """
 
     @property
-    def chemical(self) -> optika.chemicals.Chemical:
-        """
-        The chemical representation of this layer.
-        """
-        return optika.chemicals.Chemical(self.material)
+    def _chemical(self) -> optika.chemicals.AbstractChemical:
+        result = self.chemical
+        if not isinstance(result, optika.chemicals.AbstractChemical):
+            result = optika.chemicals.Chemical(result)
+        return result
 
-    def matrix_transfer(
+    def n(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The complex index of refraction of this layer.
+        """
+        return self._chemical.n(wavelength)
+
+    def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
         polarization: Literal["s", "p"],
+        n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
-    ) -> na.Cartesian2dMatrixArray:
-        return matrices.transfer(
-            wavelength=wavelength,
+    ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
+
+        n_internal = self.n(wavelength)
+
+        direction_internal = snells_law(
+            wavelength=wavelength / np.real(n),
             direction=direction,
+            index_refraction=np.real(n),
+            index_refraction_new=np.real(n_internal),
+            normal=normal,
+        )
+
+        refraction = matrices.refraction(
+            wavelength=wavelength,
+            direction_left=direction,
+            direction_right=direction_internal,
             polarization=polarization,
-            thickness=self.thickness,
-            n=self.chemical.n(wavelength),
+            n_left=n,
+            n_right=n_internal,
             normal=normal,
             interface=self.interface,
         )
+
+        propagation = matrices.propagation(
+            wavelength=wavelength,
+            direction=direction_internal,
+            thickness=self.thickness,
+            n=n_internal,
+            normal=normal,
+        )
+
+        transfer = refraction @ propagation
+
+        return n_internal, direction_internal, transfer
 
     def plot(
         self,
@@ -195,7 +239,7 @@ class Layer(
         if ax is None:
             ax = plt.gca()
 
-        material = self.material
+        chemical = self._chemical
         thickness = self.thickness
         kwargs_plot = self.kwargs_plot
         x_label = self.x_label
@@ -236,7 +280,7 @@ class Layer(
             y_arrow = y_label = z + thickness / 2
 
             ax.annotate(
-                text=rf"{material} (${thickness.value:0.0f}\,${thickness.unit:latex_inline})",
+                text=rf"{chemical.formula} (${thickness.value:0.0f}\,${thickness.unit:latex_inline})",
                 xy=(x_arrow.to_value(unit_x), y_arrow.to_value(unit_z)),
                 xytext=(x_label.to_value(unit_x), y_label.to_value(unit_z)),
                 ha=ha,
@@ -284,7 +328,7 @@ class LayerSequence(AbstractLayerSequence):
         # Define the layer stack
         layers = optika.materials.LayerSequence([
             optika.materials.Layer(
-                material="Si",
+                chemical="Si",
                 thickness=10 * u.nm,
                 kwargs_plot=dict(
                     color="tab:blue",
@@ -292,7 +336,7 @@ class LayerSequence(AbstractLayerSequence):
                 ),
             ),
             optika.materials.Layer(
-                material="Cr",
+                chemical="Cr",
                 thickness=5 * u.nm,
                 kwargs_plot=dict(
                     color="tab:orange",
@@ -300,7 +344,7 @@ class LayerSequence(AbstractLayerSequence):
                 ),
             ),
             optika.materials.Layer(
-                material="Zr",
+                chemical="Zr",
                 thickness=15 * u.nm,
                 kwargs_plot=dict(
                     color="tab:green",
@@ -327,26 +371,28 @@ class LayerSequence(AbstractLayerSequence):
             result = result + layer.thickness
         return result
 
-    def matrix_transfer(
+    def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
         polarization: Literal["s", "p"],
+        n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
-    ) -> na.Cartesian2dMatrixArray:
+    ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
 
         result = na.Cartesian2dIdentityMatrixArray()
 
         for layer in self.layers:
-            matrix_transfer = layer.matrix_transfer(
+            n, direction, matrix_transfer = layer.transfer(
                 wavelength=wavelength,
                 direction=direction,
                 polarization=polarization,
+                n=n,
                 normal=normal,
             )
             result = result @ matrix_transfer
 
-        return result
+        return n, direction, result
 
     def plot(
         self,
@@ -397,7 +443,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
         layers = optika.materials.PeriodicLayerSequence(
             layers=[
                 optika.materials.Layer(
-                    material="Si",
+                    chemical="Si",
                     thickness=10 * u.nm,
                     kwargs_plot=dict(
                         color="tab:blue",
@@ -405,7 +451,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
                     ),
                 ),
                 optika.materials.Layer(
-                    material="Cr",
+                    chemical="Cr",
                     thickness=5 * u.nm,
                     kwargs_plot=dict(
                         color="tab:orange",
@@ -437,34 +483,36 @@ class PeriodicLayerSequence(AbstractLayerSequence):
     def _chebyshev_u(self, n: int, x: float | na.AbstractScalar) -> na.AbstractScalar:
         return np.sin((n + 1) * np.arccos(x)) / np.sqrt(1 - np.square(x))
 
-    def matrix_transfer(
+    def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
         polarization: Literal["s", "p"],
+        n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
-    ) -> na.Cartesian2dMatrixArray:
+    ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
 
-        result = LayerSequence(self.layers).matrix_transfer(
+        period = LayerSequence(self.layers)
+
+        n, direction, start = period.transfer(
             wavelength=wavelength,
             direction=direction,
             polarization=polarization,
+            n=n,
             normal=normal,
         )
 
-        n = self.num_periods
+        n, direction, periodic = period.transfer(
+            wavelength=wavelength,
+            direction=direction,
+            polarization=polarization,
+            n=n,
+            normal=normal,
+        )
 
-        a = (result.x.x + result.y.y) / 2
+        periodic = periodic.power(self.num_periods - 1)
 
-        un1a = self._chebyshev_u(n - 1, a)
-        un2a = self._chebyshev_u(n - 2, a)
-
-        result.x.x = result.x.x * un1a - un2a
-        result.x.y = result.x.y * un1a
-        result.y.x = result.y.x * un1a
-        result.y.y = result.y.y * un1a - un2a
-
-        return result
+        return n, direction, start @ periodic
 
     def plot(
         self,
