@@ -235,13 +235,11 @@ class AbstractTestAbstractMultilayerMirror(
     argnames="a",
     argvalues=[
         optika.materials.MultilayerMirror(
-            layers=optika.materials.LayerSequence(
-                [
-                    optika.materials.Layer("Al2O3", thickness=5 * u.nm),
-                    optika.materials.Layer("Al", thickness=100 * u.nm),
-                    optika.materials.Layer("Al2O3", thickness=5 * u.nm),
-                ],
-            ),
+            layers=[
+                optika.materials.Layer("Al2O3", thickness=5 * u.nm),
+                optika.materials.Layer("Al", thickness=100 * u.nm),
+                optika.materials.Layer("Al2O3", thickness=5 * u.nm),
+            ],
             substrate=optika.materials.Layer("SiO2"),
         ),
     ],

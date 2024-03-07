@@ -31,6 +31,7 @@ def test_quantum_yield_ideal(
 @pytest.mark.parametrize(
     argnames="direction",
     argvalues=[
+        None,
         na.Cartesian3dVectorArray(0, 0, 1),
     ],
 )

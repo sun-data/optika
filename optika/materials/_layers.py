@@ -480,9 +480,6 @@ class PeriodicLayerSequence(AbstractLayerSequence):
     def thickness(self) -> u.Quantity | na.AbstractScalar:
         return self.num_periods * LayerSequence(self.layers).thickness
 
-    def _chebyshev_u(self, n: int, x: float | na.AbstractScalar) -> na.AbstractScalar:
-        return np.sin((n + 1) * np.arccos(x)) / np.sqrt(1 - np.square(x))
-
     def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
