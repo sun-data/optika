@@ -35,7 +35,7 @@ of how to raytrace a Newtonian telescope using Optika:
 Compute the [reflectivity of a multilayer mirror](https://optika.readthedocs.io/en/latest/_autosummary/optika.materials.multilayer_efficiency.html#optika.materials.multilayer_efficiency)
 by specifying the materials and thicknesses of the layers.
 
-![multilayer example](https://optika.readthedocs.io/en/latest/_images/optika.materials.multilayer_efficiency_1_0.png)
+![multilayer example](https://optika.readthedocs.io/en/latest/_images/optika.materials.multilayer_efficiency_1_1.png)
 
 Model the [quantum efficiency of a backilluminated CCD](https://optika.readthedocs.io/en/latest/_autosummary/optika.sensors.quantum_efficiency_effective.html#optika.sensors.quantum_efficiency_effective)
 
