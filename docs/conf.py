@@ -101,6 +101,8 @@ bibtex_default_style = 'plain'
 bibtex_reference_style = 'author_year'
 
 codeautolink_custom_blocks = {"jupyter-execute": None}
+codeautolink_warn_on_missing_inventory = True
+codeautolink_warn_on_failed_resolve = True
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
