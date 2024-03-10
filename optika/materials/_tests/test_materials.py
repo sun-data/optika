@@ -100,7 +100,7 @@ class TestMirror(
                 outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2),
             ),
         )
-    ]
+    ],
 )
 class TestMeasuredMirror(
     AbstractTestAbstractMirror,
