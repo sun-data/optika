@@ -6,6 +6,8 @@ import optika
 import optika._tests.test_mixins
 import optika.rays._tests.test_ray_vectors
 
+_wavelength = na.linspace(100, 300, axis="wavelength", num=11) * u.AA
+
 
 class AbstractTestAbstractMaterial(
     optika._tests.test_mixins.AbstractTestTransformable,
@@ -81,6 +83,26 @@ class AbstractTestAbstractMirror(
     ],
 )
 class TestMirror(
+    AbstractTestAbstractMirror,
+):
+    pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.materials.MeasuredMirror(
+            efficiency_measured=na.FunctionArray(
+                inputs=na.SpectralDirectionalVectorArray(
+                    wavelength=_wavelength,
+                    direction=na.Cartesian3dVectorArray(0, 0, 1),
+                ),
+                outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2),
+            ),
+        )
+    ]
+)
+class TestMeasuredMirror(
     AbstractTestAbstractMirror,
 ):
     pass
