@@ -12,6 +12,7 @@ from . import (
     matrices,
     snells_law,
     AbstractMaterial,
+    AbstractMirror,
     AbstractLayer,
     Layer,
     LayerSequence,
@@ -562,18 +563,8 @@ class MultilayerFilm(
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractMultilayerMirror(
     AbstractMultilayerMaterial,
+    AbstractMirror,
 ):
-    @property
-    def is_mirror(self) -> bool:
-        return True
-
-    @property
-    @abc.abstractmethod
-    def substrate(self) -> Layer:
-        """
-        A layer representing the substrate that the multilayer coating is
-        deposited onto.
-        """
 
     def efficiency(
         self,

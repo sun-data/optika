@@ -62,10 +62,10 @@ class TestVacuum(
 class AbstractTestAbstractMirror(
     AbstractTestAbstractMaterial,
 ):
-    def test_thickness_substrate(self, a: optika.materials.AbstractMirror):
-        result = a.thickness_substrate
-        assert isinstance(na.as_named_array(result), na.AbstractScalar)
-        assert na.unit_normalized(result).is_equivalent(u.mm)
+    def test_substrate(self, a: optika.materials.AbstractMirror):
+        result = a.substrate
+        if result is not None:
+            assert isinstance(result, optika.materials.Layer)
 
 
 @pytest.mark.parametrize(
@@ -73,7 +73,10 @@ class AbstractTestAbstractMirror(
     argvalues=[
         optika.materials.Mirror(),
         optika.materials.Mirror(
-            thickness_substrate=10 * u.mm,
+            substrate=optika.materials.Layer(
+                chemical="SiO2",
+                thickness=10 * u.mm,
+            ),
         ),
     ],
 )

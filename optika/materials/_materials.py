@@ -4,6 +4,7 @@ import dataclasses
 import astropy.units as u
 import named_arrays as na
 import optika
+from ._layers import Layer
 
 __all__ = [
     "AbstractMaterial",
@@ -107,10 +108,13 @@ class Vacuum(
 class AbstractMirror(
     AbstractMaterial,
 ):
+
     @property
     @abc.abstractmethod
-    def thickness_substrate(self) -> u.Quantity | na.AbstractScalar:
-        """thickness of the substrate used to support the mirrored surface"""
+    def substrate(self) -> None | Layer:
+        """
+        A layer representing the substrate supporting the reflective surface.
+        """
 
     @property
     def transformation(self) -> None:
@@ -144,4 +148,5 @@ class AbstractMirror(
 class Mirror(
     AbstractMirror,
 ):
-    thickness_substrate: u.Quantity | na.AbstractScalar = 0 * u.mm
+    substrate: None | Layer = None
+    """A layer representing the substrate supporting the reflective surface."""
