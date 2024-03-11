@@ -376,7 +376,7 @@ def quantum_efficiency_effective(
     term_2 = ((1 - cce_backsurface) / z0) * (1 - exp_z0)
     term_3 = -np.exp(-absorption_substrate * thickness_substrate / cos_theta)
 
-    result = transmissivity * (term_1 + term_2 + term_3)
+    result = transmissivity.average * (term_1 + term_2 + term_3)
 
     return result
 

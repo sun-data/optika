@@ -39,7 +39,7 @@ class AbstractLayer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
-        polarization: Literal["s", "p"],
+        polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
@@ -56,9 +56,9 @@ class AbstractLayer(
         direction
             The propagation direction of the incident light in the medium before
             this layer.
-        polarization
-            Flag controlling whether the incident light is :math:`s` or :math:`p`
-            polarized.
+        polarized_s
+            If :obj:`True`, the incident light is :math:`s`-polarized.
+            If :obj:`False`, the incident light is :math:`p`-polarized.
         n
             The complex index of refraction of the medium before this layer.
         normal
@@ -175,7 +175,7 @@ class Layer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
-        polarization: Literal["s", "p"],
+        polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
@@ -194,7 +194,7 @@ class Layer(
             wavelength=wavelength,
             direction_left=direction,
             direction_right=direction_internal,
-            polarization=polarization,
+            polarized_s=polarized_s,
             n_left=n,
             n_right=n_internal,
             normal=normal,
@@ -377,7 +377,7 @@ class LayerSequence(AbstractLayerSequence):
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
-        polarization: Literal["s", "p"],
+        polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
@@ -388,7 +388,7 @@ class LayerSequence(AbstractLayerSequence):
             n, direction, matrix_transfer = layer.transfer(
                 wavelength=wavelength,
                 direction=direction,
-                polarization=polarization,
+                polarized_s=polarized_s,
                 n=n,
                 normal=normal,
             )
@@ -486,7 +486,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
-        polarization: Literal["s", "p"],
+        polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
@@ -496,7 +496,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
         n, direction, start = period.transfer(
             wavelength=wavelength,
             direction=direction,
-            polarization=polarization,
+            polarized_s=polarized_s,
             n=n,
             normal=normal,
         )
@@ -504,7 +504,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
         n, direction, periodic = period.transfer(
             wavelength=wavelength,
             direction=direction,
-            polarization=polarization,
+            polarized_s=polarized_s,
             n=n,
             normal=normal,
         )

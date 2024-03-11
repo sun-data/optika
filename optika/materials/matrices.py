@@ -4,7 +4,6 @@ multilayers.
 """
 
 from __future__ import annotations
-from typing import Literal
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -23,7 +22,7 @@ def refraction(
     wavelength: u.Quantity | na.AbstractScalar,
     direction_left: na.AbstractCartesian3dVectorArray,
     direction_right: na.AbstractCartesian3dVectorArray,
-    polarization: Literal["s", "p"],
+    polarized_s: bool | na.AbstractScalar,
     n_left: float | na.AbstractScalar,
     n_right: float | na.AbstractScalar,
     normal: na.AbstractCartesian3dVectorArray,
@@ -41,9 +40,9 @@ def refraction(
         The direction of the incident light on the left side of the interface.
     direction_right
         The direction of the incident light on the right side of the interface.
-    polarization
-        Flag controlling whether the incident light is :math:`s`- or
-        :math:`p`-polarized.
+    polarized_s
+        If :obj:`True`, the incident light is :math:`s`-polarized.
+        If :obj:`False`, the incident light is :math:`p`-polarized.
     n_left
         The complex index of refraction on the left side of the interface.
     n_right
@@ -76,7 +75,7 @@ def refraction(
             wavelength=wavelength,
             direction_left=na.Cartesian3dVectorArray(0, 0, 1),
             direction_right=na.Cartesian3dVectorArray(0, 0, 1),
-            polarization="s",
+            polarized_s=True,
             n_left=1,
             n_right=sio2.n(wavelength),
             normal=na.Cartesian3dVectorArray(0, 0, -1),
@@ -137,17 +136,11 @@ def refraction(
     cos_theta_i = -direction_i @ normal
     cos_theta_j = -direction_j @ normal
 
-    if polarization == "s":
-        q_i = cos_theta_i * n_i
-        q_j = cos_theta_j * n_j
-    elif polarization == "p":
-        q_i = cos_theta_i / n_i
-        q_j = cos_theta_j / n_j
-    else:  # pragma: nocover
-        raise ValueError(
-            f"Invalid polarization state '{polarization}', only 's' and 'p'"
-            f"are valid polarization states."
-        )
+    impedance_i = np.where(polarized_s, n_i, 1 / n_i)
+    impedance_j = np.where(polarized_s, n_j, 1 / n_j)
+
+    q_i = cos_theta_i * impedance_i
+    q_j = cos_theta_j * impedance_j
 
     a_ij = q_i + q_j
 
@@ -155,14 +148,6 @@ def refraction(
     t_ij = 2 * q_i / a_ij
 
     if interface is not None:
-        t_ij = t_ij * interface.transmissivity(
-            wavelength=wavelength,
-            direction_before=direction_i,
-            direction_after=direction_j,
-            n_before=n_i,
-            n_after=n_j,
-            normal=normal,
-        )
         r_ij = r_ij * interface.reflectivity(
             wavelength=wavelength,
             direction=direction_i,
@@ -272,7 +257,7 @@ def propagation(
 def transfer(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: na.AbstractCartesian3dVectorArray,
-    polarization: Literal["s", "p"],
+    polarized_s: bool | na.ScalarArray,
     thickness: u.Quantity | na.AbstractScalar,
     n: float | na.AbstractScalar,
     normal: na.AbstractCartesian3dVectorArray,
@@ -287,9 +272,9 @@ def transfer(
         The wavelength of the incident light in vacuum.
     direction
         The propagation direction of the incident light in vacuum.
-    polarization
-        Flag controlling whether the incident light is :math:`s`- or
-        :math:`p`-polarized.
+    polarized_s
+        If :obj:`True`, the incident light is :math:`s`-polarized.
+        If :obj:`False`, the incident light is :math:`p`-polarized.
     thickness
         The thickness of the homogenous slab.
     n
@@ -319,7 +304,7 @@ def transfer(
         optika.materials.matrices.transfer(
             wavelength=wavelength,
             direction=na.Cartesian3dVectorArray(0, 0, 1),
-            polarization="s",
+            polarized_s=True,
             thickness=10 * u.nm,
             n=sio2.n(wavelength),
             normal=na.Cartesian3dVectorArray(0, 0, -1),
@@ -353,7 +338,7 @@ def transfer(
         wavelength=wavelength,
         direction_left=direction,
         direction_right=direction_internal,
-        polarization=polarization,
+        polarized_s=polarized_s,
         n_left=1,
         n_right=n,
         normal=normal,
@@ -371,7 +356,7 @@ def transfer(
         wavelength=wavelength,
         direction_left=direction_internal,
         direction_right=direction,
-        polarization=polarization,
+        polarized_s=polarized_s,
         n_left=n,
         n_right=1,
         normal=normal,

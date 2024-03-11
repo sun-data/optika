@@ -25,7 +25,6 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
         ),
     ],
 )
-@pytest.mark.parametrize("polarization", [None, "s"])
 @pytest.mark.parametrize("n", [1])
 @pytest.mark.parametrize(
     argnames="layers",
@@ -52,7 +51,6 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
 def test_multilayer_efficiency(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: None | na.AbstractCartesian3dVectorArray,
-    polarization: None | Literal["s", "p"],
     n: float | na.AbstractScalar,
     layers: Sequence[AbstractLayer] | AbstractLayer,
     substrate: None | Layer,
@@ -61,7 +59,6 @@ def test_multilayer_efficiency(
     reflected, transmitted = optika.materials.multilayer_efficiency(
         wavelength=wavelength,
         direction=direction,
-        polarization=polarization,
         n=n,
         layers=layers,
         substrate=substrate,
@@ -176,7 +173,6 @@ def test_multilayer_efficiency_vs_file(
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
         wavelength=wavelength,
         direction=direction,
-        polarization=None,
         n=n,
         layers=layers,
         substrate=substrate,
@@ -184,9 +180,9 @@ def test_multilayer_efficiency_vs_file(
     )
 
     if is_mirror:
-        efficiency = reflectivity
+        efficiency = reflectivity.average
     else:
-        efficiency = transmissivity
+        efficiency = transmissivity.average
 
     assert np.allclose(efficiency, efficiency_file, rtol=1e-4)
 

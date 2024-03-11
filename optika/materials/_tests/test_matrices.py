@@ -11,7 +11,7 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
 @pytest.mark.parametrize("wavelength", [_wavelength])
 @pytest.mark.parametrize("direction_left", [na.Cartesian3dVectorArray(0, 0, 1)])
 @pytest.mark.parametrize("direction_right", [na.Cartesian3dVectorArray(0, 0, 1)])
-@pytest.mark.parametrize("polarization", ["s", "p"])
+@pytest.mark.parametrize("polarized_s", [False, True])
 @pytest.mark.parametrize("n_left", [1])
 @pytest.mark.parametrize("n_right", [optika.chemicals.Chemical("Si").n(_wavelength)])
 @pytest.mark.parametrize("normal", [na.Cartesian3dVectorArray(0, 0, -1)])
@@ -23,7 +23,7 @@ def test_refraction(
     wavelength: u.Quantity | na.AbstractScalar,
     direction_left: na.AbstractCartesian3dVectorArray,
     direction_right: na.AbstractCartesian3dVectorArray,
-    polarization: Literal["s", "p"],
+    polarized_s: bool | na.AbstractScalar,
     n_left: float | na.AbstractScalar,
     n_right: float | na.AbstractScalar,
     normal: na.AbstractCartesian3dVectorArray,
@@ -33,7 +33,7 @@ def test_refraction(
         wavelength=wavelength,
         direction_left=direction_left,
         direction_right=direction_right,
-        polarization=polarization,
+        polarized_s=polarized_s,
         n_left=n_left,
         n_right=n_right,
         normal=normal,
@@ -68,14 +68,14 @@ def test_propagation(
 
 @pytest.mark.parametrize("wavelength", [_wavelength])
 @pytest.mark.parametrize("direction", [na.Cartesian3dVectorArray(0, 0, 1)])
-@pytest.mark.parametrize("polarization", ["s", "p"])
+@pytest.mark.parametrize("polarized_s", [False, True])
 @pytest.mark.parametrize("thickness", [10 * u.nm])
 @pytest.mark.parametrize("n", [optika.chemicals.Chemical("Si").n(_wavelength)])
 @pytest.mark.parametrize("normal", [na.Cartesian3dVectorArray(0, 0, -1)])
 def test_transfer(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: na.AbstractCartesian3dVectorArray,
-    polarization: Literal["s", "p"],
+    polarized_s: bool | na.AbstractScalar,
     thickness: u.Quantity | na.AbstractScalar,
     n: float | na.AbstractScalar,
     normal: na.AbstractCartesian3dVectorArray,
@@ -83,7 +83,7 @@ def test_transfer(
     result = optika.materials.matrices.transfer(
         wavelength=wavelength,
         direction=direction,
-        polarization=polarization,
+        polarized_s=polarized_s,
         thickness=thickness,
         n=n,
         normal=normal,
