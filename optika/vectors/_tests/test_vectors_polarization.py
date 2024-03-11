@@ -33,6 +33,9 @@ class AbstractTestAbstractPolarizationVectorArray(
     def test_p(self, array: optika.vectors.AbstractPolarizationVectorArray):
         assert isinstance(na.as_named_array(array.p), na.AbstractScalar)
 
+    def test_average(self, array: optika.vectors.AbstractPolarizationVectorArray):
+        assert isinstance(na.as_named_array(array.average), na.AbstractScalar)
+
     @pytest.mark.xfail(raises=NotImplementedError)
     def test_matrix(self, array: optika.vectors.AbstractPolarizationVectorArray):
         return super().test_matrix(array=array)

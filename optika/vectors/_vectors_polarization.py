@@ -33,6 +33,10 @@ class AbstractPolarizationVectorArray(
         """
 
     @property
+    def average(self) -> float | na.AbstractScalar:
+        return (self.s + self.p) / 2
+
+    @property
     def type_abstract(self) -> type[AbstractPolarizationVectorArray]:
         return AbstractPolarizationVectorArray
 
