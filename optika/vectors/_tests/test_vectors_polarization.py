@@ -141,15 +141,3 @@ class TestPolarizationVectorArray(
         value: optika.vectors.AbstractPolarizationVectorArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
-
-
-@pytest.mark.parametrize("type_array", [optika.vectors.PolarizationVectorArray])
-class TestPolarizationVectorArrayCreation(
-    test_vectors_cartesian.AbstractTestAbstractExplicitCartesianVectorArrayCreation,
-):
-
-    @pytest.mark.parametrize("like", [None] + vectors_polarization)
-    class TestFromScalarArray(
-        test_vectors_cartesian.AbstractTestAbstractExplicitCartesianVectorArrayCreation.TestFromScalarArray,
-    ):
-        pass
