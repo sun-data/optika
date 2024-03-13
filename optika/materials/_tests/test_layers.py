@@ -25,29 +25,26 @@ class AbstractTestAbstractLayer(
             na.geomspace(100, 1000, axis="wavelength", num=4) * u.AA,
         ],
     )
-    @pytest.mark.parametrize("direction", [na.Cartesian3dVectorArray(0, 0, 1)])
-    @pytest.mark.parametrize("polarization", ["s", "p"])
+    @pytest.mark.parametrize("direction", [1])
+    @pytest.mark.parametrize("polarized_s", [False, True])
     @pytest.mark.parametrize("n", [1])
-    @pytest.mark.parametrize("normal", [na.Cartesian3dVectorArray(0, 0, -1)])
     class TestMatrixTransfer:
         def test_transfer(
             self,
             a: optika.materials.AbstractLayer,
             wavelength: u.Quantity | na.AbstractScalar,
-            direction: na.AbstractCartesian3dVectorArray,
-            polarization: Literal["s", "p"],
+            direction: float | na.AbstractScalar,
+            polarized_s: bool | na.AbstractScalar,
             n: float | na.AbstractScalar,
-            normal: na.AbstractCartesian3dVectorArray,
         ):
             n, direction, result = a.transfer(
                 wavelength=wavelength,
                 direction=direction,
-                polarization=polarization,
+                polarized_s=polarized_s,
                 n=n,
-                normal=normal,
             )
             assert np.all(n > 0)
-            assert isinstance(direction, na.AbstractCartesian3dVectorArray)
+            assert isinstance(direction, na.AbstractScalar)
             assert isinstance(result, na.AbstractCartesian2dMatrixArray)
             assert np.all(result.determinant != 0)
             assert np.all(np.isfinite(result))
@@ -166,18 +163,16 @@ class TestPeriodicLayerSequence(
             self,
             a: optika.materials.PeriodicLayerSequence,
             wavelength: u.Quantity | na.AbstractScalar,
-            direction: na.AbstractCartesian3dVectorArray,
-            polarization: Literal["s", "p"],
+            direction: float | na.AbstractScalar,
+            polarized_s: bool | na.AbstractScalar,
             n: float | na.AbstractScalar,
-            normal: na.AbstractCartesian3dVectorArray,
         ):
             super().test_transfer(
                 a=a,
                 wavelength=wavelength,
                 direction=direction,
-                polarization=polarization,
+                polarized_s=polarized_s,
                 n=n,
-                normal=normal,
             )
 
             b = optika.materials.LayerSequence(list(a.layers) * a.num_periods)
@@ -185,17 +180,15 @@ class TestPeriodicLayerSequence(
             n_test, direction_test, result_test = a.transfer(
                 wavelength=wavelength,
                 direction=direction,
-                polarization=polarization,
+                polarized_s=polarized_s,
                 n=n,
-                normal=normal,
             )
 
             n_expected, direction_expected, result_expected = b.transfer(
                 wavelength=wavelength,
                 direction=direction,
-                polarization=polarization,
+                polarized_s=polarized_s,
                 n=n,
-                normal=normal,
             )
 
             assert np.allclose(n_test, n_expected)

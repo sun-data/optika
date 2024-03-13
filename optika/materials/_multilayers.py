@@ -30,13 +30,14 @@ __all__ = [
 
 def multilayer_efficiency(
     wavelength: u.Quantity | na.AbstractScalar,
-    direction: None | na.AbstractCartesian3dVectorArray = None,
-    polarization: None | Literal["s", "p"] = None,
+    direction: float | na.AbstractScalar = 1,
     n: float | na.AbstractScalar = 1,
     layers: Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
     substrate: None | Layer = None,
-    normal: None | na.AbstractCartesian3dVectorArray = None,
-) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+) -> tuple[
+    optika.vectors.PolarizationVectorArray,
+    optika.vectors.PolarizationVectorArray,
+]:
     r"""
     Calculate the reflectivity and transmissivity of a multilayer
     film or coating using the method in :cite:t:`Windt1998`.
@@ -46,12 +47,9 @@ def multilayer_efficiency(
     wavelength
         The wavelength of the incident light in vacuum.
     direction
-        The propagation direction of incident light in the ambient medium.
-        If :obj:`None`, the propagation direction is assumed to be
-        :math:`+\hat{z}`
-    polarization
-        The polarization state of the incident light.
-        If :obj:`None`, the light is assumed to be unpolarized.
+        The component of the incident light's propagation direction in the
+        ambient medium antiparallel to the surface normal.
+        Default is to assume normal incidence.
     n
         The complex index of refraction of the ambient medium.
     layers
@@ -62,9 +60,6 @@ def multilayer_efficiency(
         A layer representing the substrate supporting the multilayer stack.
         The thickness of this layer is ignored.
         If :obj:`None`, then the substrate is assumed to be a vacuum.
-    normal
-        A vector perpendicular to the interface between successive layers.
-        If :obj:`None`, the normal vector is assumed to be :math:`-\hat{z}`
 
     Examples
     --------
@@ -100,7 +95,7 @@ def multilayer_efficiency(
         fig, ax = plt.subplots()
         na.plt.plot(
             wavelength,
-            transmissivity,
+            transmissivity.average,
             ax=ax,
             axis="wavelength",
             label="Zr",
@@ -155,7 +150,7 @@ def multilayer_efficiency(
         fig, ax = plt.subplots()
         na.plt.plot(
             wavelength,
-            reflectivity,
+            reflectivity.average,
             ax=ax,
             axis="wavelength",
             label=rf"Si/Mo $\times$ {layers.num_periods}",
@@ -211,7 +206,7 @@ def multilayer_efficiency(
         fig, ax = plt.subplots()
         na.plt.plot(
             wavelength,
-            reflectivity,
+            reflectivity.average,
             ax=ax,
             axis="wavelength",
             label=r"$\Gamma=" + thickness_ratio.astype(str).astype(object) + "$",
@@ -353,93 +348,62 @@ def multilayer_efficiency(
 
     The :class:`tuple` :math:`(R, T)` is the quantity returned by this function.
     """
-    if direction is None:
-        direction_ambient = na.Cartesian3dVectorArray(0, 0, 1)
-    else:
-        direction_ambient = direction
-
-    if normal is None:
-        normal = na.Cartesian3dVectorArray(0, 0, -1)
-
+    direction_ambient = direction
     n_ambient = n
 
     if substrate is not None:
-        n_substrate = substrate.n(wavelength)
-        direction_substrate = snells_law(
-            wavelength=wavelength / np.real(n_ambient),
-            direction=direction_ambient,
-            index_refraction=np.real(n_ambient),
-            index_refraction_new=np.real(n_substrate),
-            normal=normal,
-        )
-        interface_substrate = substrate.interface
+        substrate = dataclasses.replace(substrate, thickness=0 * u.nm)
     else:
-        n_substrate = 1
-        direction_substrate = direction_ambient
-        interface_substrate = None
+        substrate = optika.materials.Layer(thickness=0 * u.nm)
 
-    cos_theta_ambient = direction_ambient @ normal
-    cos_theta_substrate = direction_substrate @ normal
-
-    if polarization is None:
-        polarization = ["s", "p"]
-    elif polarization == "s" or polarization == "p":
-        polarization = [polarization]
-    else:  # pragma: nocover
-        raise ValueError(
-            f"Unrecognized polarization state '{polarization}'."
-            f"Only 's', 'p', or `None` is supported."
-        )
+    polarized_s = na.ScalarArray(
+        ndarray=np.array([True, False]),
+        axes="_polarization",
+    )
 
     if layers is None:
         layers = []
     if not isinstance(layers, optika.materials.AbstractLayer):
         layers = optika.materials.LayerSequence(layers)
 
-    reflectivity = []
-    transmissivity = []
+    n, direction, m = layers.transfer(
+        wavelength=wavelength,
+        direction=direction_ambient,
+        polarized_s=polarized_s,
+        n=n_ambient,
+    )
+    n_substrate, direction_substrate, m_substrate = substrate.transfer(
+        wavelength=wavelength,
+        direction=direction,
+        polarized_s=polarized_s,
+        n=n,
+    )
+    m = m @ m_substrate
 
-    for pol in polarization:
-        n, direction, m = layers.transfer(
-            wavelength=wavelength,
-            direction=direction_ambient,
-            polarization=pol,
-            n=n_ambient,
-            normal=normal,
-        )
-        m_substrate = matrices.refraction(
-            wavelength=wavelength,
-            direction_left=direction,
-            direction_right=direction_substrate,
-            polarization=pol,
-            n_left=n,
-            n_right=n_substrate,
-            normal=normal,
-            interface=interface_substrate,
-        )
-        m = m @ m_substrate
+    r = m.y.x / m.x.x
+    t = 1 / m.x.x
 
-        r = m.y.x / m.x.x
-        t = 1 / m.x.x
+    impedance_ambient = np.where(polarized_s, n_ambient, 1 / n_ambient)
+    impedance_substrate = np.where(polarized_s, n_substrate, 1 / n_substrate)
 
-        if pol == "s":
-            q_ambient = cos_theta_ambient * n_ambient
-            q_substrate = cos_theta_substrate * n_substrate
-        else:
-            q_ambient = cos_theta_ambient / n_ambient
-            q_substrate = cos_theta_substrate / n_substrate
+    q_ambient = direction_ambient * impedance_ambient
+    q_substrate = direction_substrate * impedance_substrate
 
-        R = np.square(np.abs(r))
-        T = np.square(np.abs(t)) * np.real(q_substrate / q_ambient)
+    reflectivity = np.square(np.abs(r))
+    transmissivity = np.square(np.abs(t)) * np.real(q_substrate / q_ambient)
 
-        reflectivity.append(R)
-        transmissivity.append(T)
+    index_s = dict(_polarization=0)
+    index_p = dict(_polarization=1)
 
-    reflectivity = na.stack(reflectivity, axis="polarization")
-    transmissivity = na.stack(transmissivity, axis="polarization")
+    reflectivity = optika.vectors.PolarizationVectorArray(
+        s=reflectivity[index_s],
+        p=reflectivity[index_p],
+    )
 
-    reflectivity = reflectivity.mean("polarization")
-    transmissivity = transmissivity.mean("polarization")
+    transmissivity = optika.vectors.PolarizationVectorArray(
+        s=transmissivity[index_s],
+        p=transmissivity[index_p],
+    )
 
     return reflectivity, transmissivity
 
@@ -530,14 +494,12 @@ class AbstractMultilayerFilm(
 
         reflectivity, transmissivity = multilayer_efficiency(
             wavelength=wavelength,
-            direction=rays.direction,
-            polarization=None,
+            direction=-rays.direction @ normal,
             n=n,
             layers=self.layers,
             substrate=None,
-            normal=normal,
         )
-        return transmissivity
+        return transmissivity.average
 
     def plot_layers(
         self,
@@ -588,13 +550,12 @@ class AbstractMultilayerMirror(
 
         reflectivity, transmissivity = multilayer_efficiency(
             wavelength=wavelength,
-            direction=rays.direction,
-            polarization=None,
+            direction=-rays.direction @ normal,
             n=n,
             layers=self.layers,
             substrate=self.substrate,
         )
-        return reflectivity
+        return reflectivity.average
 
     def plot_layers(
         self,

@@ -343,7 +343,7 @@ def quantum_efficiency_effective(
 
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
         wavelength=wavelength,
-        direction=direction,
+        direction=-direction @ normal,
         n=n,
         layers=optika.materials.Layer(
             chemical=chemical_oxide,
@@ -352,7 +352,6 @@ def quantum_efficiency_effective(
         substrate=optika.materials.Layer(
             chemical=chemical_substrate,
         ),
-        normal=normal,
     )
 
     n_substrate = chemical_substrate.n(wavelength)
@@ -376,7 +375,7 @@ def quantum_efficiency_effective(
     term_2 = ((1 - cce_backsurface) / z0) * (1 - exp_z0)
     term_3 = -np.exp(-absorption_substrate * thickness_substrate / cos_theta)
 
-    result = transmissivity * (term_1 + term_2 + term_3)
+    result = transmissivity.average * (term_1 + term_2 + term_3)
 
     return result
 
