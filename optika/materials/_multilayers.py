@@ -30,11 +30,10 @@ __all__ = [
 
 def multilayer_efficiency(
     wavelength: u.Quantity | na.AbstractScalar,
-    direction: None | na.AbstractCartesian3dVectorArray = None,
+    direction: float | na.AbstractScalar = 1,
     n: float | na.AbstractScalar = 1,
     layers: Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
     substrate: None | Layer = None,
-    normal: None | na.AbstractCartesian3dVectorArray = None,
 ) -> tuple[
     optika.vectors.PolarizationVectorArray,
     optika.vectors.PolarizationVectorArray,
@@ -48,9 +47,9 @@ def multilayer_efficiency(
     wavelength
         The wavelength of the incident light in vacuum.
     direction
-        The propagation direction of incident light in the ambient medium.
-        If :obj:`None`, the propagation direction is assumed to be
-        :math:`+\hat{z}`
+        The component of the incident light's propagation direction in the
+        ambient medium antiparallel to the surface normal.
+        Default is to assume normal incidence.
     n
         The complex index of refraction of the ambient medium.
     layers
@@ -61,9 +60,6 @@ def multilayer_efficiency(
         A layer representing the substrate supporting the multilayer stack.
         The thickness of this layer is ignored.
         If :obj:`None`, then the substrate is assumed to be a vacuum.
-    normal
-        A vector perpendicular to the interface between successive layers.
-        If :obj:`None`, the normal vector is assumed to be :math:`-\hat{z}`
 
     Examples
     --------
@@ -352,33 +348,13 @@ def multilayer_efficiency(
 
     The :class:`tuple` :math:`(R, T)` is the quantity returned by this function.
     """
-    if direction is None:
-        direction_ambient = na.Cartesian3dVectorArray(0, 0, 1)
-    else:
-        direction_ambient = direction
-
-    if normal is None:
-        normal = na.Cartesian3dVectorArray(0, 0, -1)
-
+    direction_ambient = direction
     n_ambient = n
 
     if substrate is not None:
-        n_substrate = substrate.n(wavelength)
-        direction_substrate = snells_law(
-            wavelength=wavelength / np.real(n_ambient),
-            direction=direction_ambient,
-            index_refraction=np.real(n_ambient),
-            index_refraction_new=np.real(n_substrate),
-            normal=normal,
-        )
-        interface_substrate = substrate.interface
+        substrate = dataclasses.replace(substrate, thickness=0 * u.nm)
     else:
-        n_substrate = 1
-        direction_substrate = direction_ambient
-        interface_substrate = None
-
-    cos_theta_ambient = direction_ambient @ normal
-    cos_theta_substrate = direction_substrate @ normal
+        substrate = optika.materials.Layer(thickness=0 * u.nm)
 
     polarized_s = na.ScalarArray(
         ndarray=np.array([True, False]),
@@ -395,17 +371,12 @@ def multilayer_efficiency(
         direction=direction_ambient,
         polarized_s=polarized_s,
         n=n_ambient,
-        normal=normal,
     )
-    m_substrate = matrices.refraction(
+    n_substrate, direction_substrate, m_substrate = substrate.transfer(
         wavelength=wavelength,
-        direction_left=direction,
-        direction_right=direction_substrate,
+        direction=direction,
         polarized_s=polarized_s,
-        n_left=n,
-        n_right=n_substrate,
-        normal=normal,
-        interface=interface_substrate,
+        n=n,
     )
     m = m @ m_substrate
 
@@ -415,8 +386,8 @@ def multilayer_efficiency(
     impedance_ambient = np.where(polarized_s, n_ambient, 1 / n_ambient)
     impedance_substrate = np.where(polarized_s, n_substrate, 1 / n_substrate)
 
-    q_ambient = cos_theta_ambient * impedance_ambient
-    q_substrate = cos_theta_substrate * impedance_substrate
+    q_ambient = direction_ambient * impedance_ambient
+    q_substrate = direction_substrate * impedance_substrate
 
     reflectivity = np.square(np.abs(r))
     transmissivity = np.square(np.abs(t)) * np.real(q_substrate / q_ambient)
@@ -523,11 +494,10 @@ class AbstractMultilayerFilm(
 
         reflectivity, transmissivity = multilayer_efficiency(
             wavelength=wavelength,
-            direction=rays.direction,
+            direction=-rays.direction @ normal,
             n=n,
             layers=self.layers,
             substrate=None,
-            normal=normal,
         )
         return transmissivity.average
 
@@ -580,7 +550,7 @@ class AbstractMultilayerMirror(
 
         reflectivity, transmissivity = multilayer_efficiency(
             wavelength=wavelength,
-            direction=rays.direction,
+            direction=-rays.direction @ normal,
             n=n,
             layers=self.layers,
             substrate=self.substrate,

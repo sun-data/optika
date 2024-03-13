@@ -38,11 +38,10 @@ class AbstractLayer(
     def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
+        direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
+    ) -> tuple[na.AbstractScalar, na.AbstractScalar, na.Cartesian2dMatrixArray]:
         """
         Compute the index of refraction, internal propagation direction,
         and the transfer matrix for this layer,
@@ -54,15 +53,13 @@ class AbstractLayer(
         wavelength
             The wavelength of the incident light in the medium before this layer.
         direction
-            The propagation direction of the incident light in the medium before
-            this layer.
+            The component of the incident light's propagation direction in the
+            medium before this layer antiparallel to the surface normal.
         polarized_s
             If :obj:`True`, the incident light is :math:`s`-polarized.
             If :obj:`False`, the incident light is :math:`p`-polarized.
         n
             The complex index of refraction of the medium before this layer.
-        normal
-            The vector perpendicular to the surface of this layer.
         """
 
     def plot(
@@ -165,30 +162,27 @@ class Layer(
     def n(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
-    ) -> na.AbstractScalar:
+    ) -> float | na.AbstractScalar:
         """
         The complex index of refraction of this layer.
         """
-        return self._chemical.n(wavelength)
+        if self.chemical is None:
+            return 1
+        else:
+            return self._chemical.n(wavelength)
 
     def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
+        direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
+    ) -> tuple[na.AbstractScalar, na.AbstractScalar, na.Cartesian2dMatrixArray]:
 
         n_internal = self.n(wavelength)
 
-        direction_internal = snells_law(
-            wavelength=wavelength / np.real(n),
-            direction=direction,
-            index_refraction=np.real(n),
-            index_refraction_new=np.real(n_internal),
-            normal=normal,
-        )
+        angle_internal = np.arcsin(n * np.sin(np.arccos(direction)) / n_internal)
+        direction_internal = np.cos(angle_internal)
 
         refraction = matrices.refraction(
             wavelength=wavelength,
@@ -197,7 +191,6 @@ class Layer(
             polarized_s=polarized_s,
             n_left=n,
             n_right=n_internal,
-            normal=normal,
             interface=self.interface,
         )
 
@@ -206,7 +199,6 @@ class Layer(
             direction=direction_internal,
             thickness=self.thickness,
             n=n_internal,
-            normal=normal,
         )
 
         transfer = refraction @ propagation
@@ -376,11 +368,10 @@ class LayerSequence(AbstractLayerSequence):
     def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
+        direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
+    ) -> tuple[na.AbstractScalar, na.AbstractScalar, na.Cartesian2dMatrixArray]:
 
         result = na.Cartesian2dIdentityMatrixArray()
 
@@ -390,7 +381,6 @@ class LayerSequence(AbstractLayerSequence):
                 direction=direction,
                 polarized_s=polarized_s,
                 n=n,
-                normal=normal,
             )
             result = result @ matrix_transfer
 
@@ -485,11 +475,10 @@ class PeriodicLayerSequence(AbstractLayerSequence):
     def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
+        direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> tuple[na.AbstractScalar, na.Cartesian3dVectorArray, na.Cartesian2dMatrixArray]:
+    ) -> tuple[na.AbstractScalar, na.AbstractScalar, na.Cartesian2dMatrixArray]:
 
         period = LayerSequence(self.layers)
 
@@ -498,7 +487,6 @@ class PeriodicLayerSequence(AbstractLayerSequence):
             direction=direction,
             polarized_s=polarized_s,
             n=n,
-            normal=normal,
         )
 
         n, direction, periodic = period.transfer(
@@ -506,7 +494,6 @@ class PeriodicLayerSequence(AbstractLayerSequence):
             direction=direction,
             polarized_s=polarized_s,
             n=n,
-            normal=normal,
         )
 
         periodic = periodic.power(self.num_periods - 1)

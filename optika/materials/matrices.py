@@ -20,12 +20,11 @@ __all__ = [
 
 def refraction(
     wavelength: u.Quantity | na.AbstractScalar,
-    direction_left: na.AbstractCartesian3dVectorArray,
-    direction_right: na.AbstractCartesian3dVectorArray,
+    direction_left: float | na.AbstractScalar,
+    direction_right: float | na.AbstractScalar,
     polarized_s: bool | na.AbstractScalar,
     n_left: float | na.AbstractScalar,
     n_right: float | na.AbstractScalar,
-    normal: na.AbstractCartesian3dVectorArray,
     interface: None | optika.materials.profiles.AbstractInterfaceProfile = None,
 ) -> na.Cartesian2dMatrixArray:
     r"""
@@ -37,9 +36,11 @@ def refraction(
     wavelength
         The wavelength of the incident light in vacuum
     direction_left
-        The direction of the incident light on the left side of the interface.
+        The component of the incident light's propagation direction before
+        the interface antiparallel to the surface normal.
     direction_right
-        The direction of the incident light on the right side of the interface.
+        The component of the incident light's propagation direction after
+        the interface antiparallel to the surface normal.
     polarized_s
         If :obj:`True`, the incident light is :math:`s`-polarized.
         If :obj:`False`, the incident light is :math:`p`-polarized.
@@ -47,8 +48,6 @@ def refraction(
         The complex index of refraction on the left side of the interface.
     n_right
         The complex index of refraction on the right side of the interface.
-    normal
-        The vector perpendicular to the surface of this layer.
     interface
         The interface profile between the left side and the right side.
 
@@ -73,12 +72,11 @@ def refraction(
         # Compute the refractive matrix
         optika.materials.matrices.refraction(
             wavelength=wavelength,
-            direction_left=na.Cartesian3dVectorArray(0, 0, 1),
-            direction_right=na.Cartesian3dVectorArray(0, 0, 1),
+            direction_left=1,
+            direction_right=1,
             polarized_s=True,
             n_left=1,
             n_right=sio2.n(wavelength),
-            normal=na.Cartesian3dVectorArray(0, 0, -1),
         )
 
     Notes
@@ -133,14 +131,11 @@ def refraction(
     n_i = n_left
     n_j = n_right
 
-    cos_theta_i = -direction_i @ normal
-    cos_theta_j = -direction_j @ normal
-
     impedance_i = np.where(polarized_s, n_i, 1 / n_i)
     impedance_j = np.where(polarized_s, n_j, 1 / n_j)
 
-    q_i = cos_theta_i * impedance_i
-    q_j = cos_theta_j * impedance_j
+    q_i = direction_i * impedance_i
+    q_j = direction_j * impedance_j
 
     a_ij = q_i + q_j
 
@@ -152,7 +147,6 @@ def refraction(
             wavelength=wavelength,
             direction=direction_i,
             n=n_i,
-            normal=normal,
         )
 
     result = na.Cartesian2dMatrixArray(
@@ -167,10 +161,9 @@ def refraction(
 
 def propagation(
     wavelength: u.Quantity | na.AbstractScalar,
-    direction: na.AbstractCartesian3dVectorArray,
+    direction: float | na.AbstractScalar,
     thickness: u.Quantity | na.AbstractScalar,
     n: u.Quantity | na.AbstractScalar,
-    normal: na.AbstractVectorArray,
 ) -> na.Cartesian2dMatrixArray:
     r"""
     Compute the propagation matrix, which propagates the electric field
@@ -181,13 +174,12 @@ def propagation(
     wavelength
         The wavelength of the incident light in vacuum.
     direction
-        The propagation direction of the light within the material.
+        The component of the incident light's propagation direction
+        antiparallel to the surface normal.
     thickness
         The thickness of the material.
     n
         The complex index of refraction of the material
-    normal
-        The vector perpendicular to the surface of the material.
 
     Examples
     --------
@@ -210,10 +202,9 @@ def propagation(
         # Compute the propagation matrix
         optika.materials.matrices.propagation(
             wavelength=wavelength,
-            direction=na.Cartesian3dVectorArray(0, 0, 1),
+            direction=1,
             thickness=10 * u.nm,
             n=sio2.n(wavelength),
-            normal=na.Cartesian3dVectorArray(0, 0, -1),
         )
 
     Notes
@@ -244,9 +235,8 @@ def propagation(
     and :math:`\theta` is the angle between the surface normal and the propagation
     direction of the incident light.
     """
-    cos_theta = -direction @ normal
 
-    beta = 2 * np.pi * thickness * n * cos_theta / wavelength
+    beta = 2 * np.pi * thickness * n * direction / wavelength
 
     return na.Cartesian2dMatrixArray(
         x=na.Cartesian2dVectorArray(np.exp(-1j * beta), 0),
@@ -334,6 +324,9 @@ def transfer(
         normal=normal,
     )
 
+    direction = -direction @ normal
+    direction_internal = -direction_internal @ normal
+
     matrix_refractive_left = refraction(
         wavelength=wavelength,
         direction_left=direction,
@@ -341,7 +334,6 @@ def transfer(
         polarized_s=polarized_s,
         n_left=1,
         n_right=n,
-        normal=normal,
     )
 
     matrix_propagation = propagation(
@@ -349,7 +341,6 @@ def transfer(
         direction=direction_internal,
         thickness=thickness,
         n=n,
-        normal=normal,
     )
 
     matrix_refractive_right = refraction(
@@ -359,7 +350,6 @@ def transfer(
         polarized_s=polarized_s,
         n_left=n,
         n_right=1,
-        normal=normal,
     )
 
     return matrix_refractive_left @ matrix_propagation @ matrix_refractive_right

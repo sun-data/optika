@@ -17,12 +17,8 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
 @pytest.mark.parametrize(
     argnames="direction",
     argvalues=[
-        na.Cartesian3dVectorArray(0, 0, 1),
-        na.Cartesian3dVectorArray(
-            x=np.sin(na.linspace(-1, 1, axis="angle", num=5)),
-            y=0,
-            z=np.cos(na.linspace(-1, 1, axis="angle", num=5)),
-        ),
+        1,
+        np.cos(na.linspace(-1, 1, axis="angle", num=5))
     ],
 )
 @pytest.mark.parametrize("n", [1])
@@ -42,19 +38,12 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
         Layer("SiO2"),
     ],
 )
-@pytest.mark.parametrize(
-    argnames="normal",
-    argvalues=[
-        None,
-    ],
-)
 def test_multilayer_efficiency(
     wavelength: u.Quantity | na.AbstractScalar,
-    direction: None | na.AbstractCartesian3dVectorArray,
+    direction: float | na.AbstractScalar,
     n: float | na.AbstractScalar,
     layers: Sequence[AbstractLayer] | AbstractLayer,
     substrate: None | Layer,
-    normal: None | na.AbstractCartesian3dVectorArray,
 ):
     reflected, transmitted = optika.materials.multilayer_efficiency(
         wavelength=wavelength,
@@ -62,7 +51,6 @@ def test_multilayer_efficiency(
         n=n,
         layers=layers,
         substrate=substrate,
-        normal=normal,
     )
 
     assert np.all(reflected >= 0)
@@ -86,7 +74,7 @@ def test_multilayer_efficiency(
     argvalues=[
         (
             pathlib.Path(__file__).parent / "_data/Si.txt",
-            None,
+            1,
             1,
             None,
             Layer("Si"),
@@ -94,7 +82,7 @@ def test_multilayer_efficiency(
         ),
         (
             pathlib.Path(__file__).parent / "_data/SiO2.txt",
-            None,
+            1,
             1,
             Layer("SiO2", thickness=50 * u.AA),
             Layer("Si"),
@@ -102,7 +90,7 @@ def test_multilayer_efficiency(
         ),
         (
             pathlib.Path(__file__).parent / "_data/SiO2_100A.txt",
-            None,
+            1,
             1,
             Layer("SiO2", thickness=100 * u.AA),
             Layer("Si"),
@@ -110,7 +98,7 @@ def test_multilayer_efficiency(
         ),
         (
             pathlib.Path(__file__).parent / "_data/SiC_Cr.txt",
-            None,
+            1,
             1,
             [
                 Layer("SiC", thickness=25 * u.nm),
@@ -121,7 +109,7 @@ def test_multilayer_efficiency(
         ),
         pytest.param(
             pathlib.Path(__file__).parent / "_data/SiC_Cr_Rough.txt",
-            None,
+            1,
             1,
             [
                 Layer(
@@ -148,7 +136,7 @@ def test_multilayer_efficiency(
 )
 def test_multilayer_efficiency_vs_file(
     file: pathlib.Path,
-    direction: None | na.AbstractCartesian3dVectorArray,
+    direction: float | na.AbstractScalar,
     n: float | na.AbstractScalar,
     layers: Sequence[AbstractLayer] | optika.materials.AbstractLayer,
     substrate: None | Layer,
@@ -176,7 +164,6 @@ def test_multilayer_efficiency_vs_file(
         n=n,
         layers=layers,
         substrate=substrate,
-        normal=None,
     )
 
     if is_mirror:
