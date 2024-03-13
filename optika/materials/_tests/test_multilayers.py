@@ -18,7 +18,7 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
     argnames="direction",
     argvalues=[
         1,
-        np.cos(na.linspace(-1, 1, axis="angle", num=5))
+        np.cos(na.linspace(-1, 1, axis="angle", num=5)),
     ],
 )
 @pytest.mark.parametrize("n", [1])
