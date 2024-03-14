@@ -284,8 +284,10 @@ class Layer(
 
             y_arrow = y_label = z + thickness / 2
 
+            formula = chemical.formula_latex
+
             ax.annotate(
-                text=rf"{chemical.formula} (${thickness.value:0.0f}\,${thickness.unit:latex_inline})",
+                text=rf"{formula} (${thickness.value:0.0f}\,${thickness.unit:latex_inline})",
                 xy=(x_arrow.to_value(unit_x), y_arrow.to_value(unit_z)),
                 xytext=(x_label.to_value(unit_x), y_label.to_value(unit_z)),
                 ha=ha,
