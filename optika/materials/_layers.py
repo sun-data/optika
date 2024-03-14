@@ -34,6 +34,11 @@ class AbstractLayer(
     def thickness(self) -> u.Quantity | na.AbstractScalar:
         """The thickness of this layer."""
 
+    @property
+    @abc.abstractmethod
+    def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
+        """The thickness of the layer when plotted."""
+
     @abc.abstractmethod
     def transfer(
         self,
@@ -151,6 +156,10 @@ class Layer(
     The horizontal coordinate of the label.
     If :obj:`None`, the label is plotted in the center of the layer
     """
+
+    @property
+    def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
+        return self.thickness
 
     @property
     def _chemical(self) -> optika.chemicals.AbstractChemical:
@@ -365,6 +374,10 @@ class LayerSequence(AbstractLayerSequence):
             result = result + layer.thickness
         return result
 
+    @property
+    def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
+        return self.thickness
+
     def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
@@ -406,7 +419,7 @@ class LayerSequence(AbstractLayerSequence):
                 ax=ax,
                 **kwargs,
             )
-            z_current = z_current + layer.thickness
+            z_current = z_current + layer._thickness_plot
 
         return result
 
@@ -471,6 +484,10 @@ class PeriodicLayerSequence(AbstractLayerSequence):
     @property
     def thickness(self) -> u.Quantity | na.AbstractScalar:
         return self.num_periods * LayerSequence(self.layers).thickness
+
+    @property
+    def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
+        return LayerSequence(self.layers).thickness
 
     def transfer(
         self,
