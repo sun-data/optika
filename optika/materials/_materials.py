@@ -241,6 +241,9 @@ class MeasuredMirror(
     substrate: None | Layer = None
     """A layer representing the substrate supporting the reflective surface."""
 
+    serial_number: None | str | na.AbstractArray = None
+    """A unique number associated with this material"""
+
     def efficiency(
         self,
         rays: optika.rays.RayVectorArray,
