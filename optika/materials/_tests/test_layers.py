@@ -121,6 +121,26 @@ class AbstractTestAbstractLayerSequence(
                 ),
             ]
         ),
+        optika.materials.LayerSequence(
+            layers=[
+                optika.materials.Layer(
+                    chemical="SiO2",
+                    thickness=10 * u.nm,
+                ),
+                optika.materials.LayerSequence(
+                    [
+                        optika.materials.Layer(
+                            chemical="Si",
+                            thickness=1 * u.um,
+                        ),
+                        optika.materials.Layer(
+                            chemical="Mo",
+                            thickness=1 * u.um,
+                        ),
+                    ]
+                ),
+            ]
+        ),
     ],
 )
 class TestLayerSequence(
@@ -150,6 +170,31 @@ class TestLayerSequence(
                 ),
             ],
             num_periods=10,
+        ),
+        optika.materials.PeriodicLayerSequence(
+            layers=[
+                optika.materials.PeriodicLayerSequence(
+                    layers=[
+                        optika.materials.Layer(
+                            chemical="Si",
+                            thickness=10 * u.nm,
+                            interface=optika.materials.profiles.ErfInterfaceProfile(
+                                width=2 * u.nm,
+                            ),
+                        ),
+                        optika.materials.Layer(
+                            chemical="Mo",
+                            thickness=10 * u.nm,
+                            interface=optika.materials.profiles.ErfInterfaceProfile(
+                                width=2 * u.nm,
+                            ),
+                        ),
+                    ],
+                    num_periods=2,
+                )
+
+            ],
+            num_periods=5,
         ),
     ],
 )
