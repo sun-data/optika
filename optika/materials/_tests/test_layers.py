@@ -82,12 +82,12 @@ class AbstractTestAbstractLayer(
         optika.materials.Layer(
             chemical="Si",
             thickness=10 * u.nm,
-            x_label=-0.1 * u.nm,
+            x_label=-0.1,
         ),
         optika.materials.Layer(
             chemical="Si",
             thickness=10 * u.nm,
-            x_label=1.1 * u.nm,
+            x_label=1.1,
         ),
     ],
 )
