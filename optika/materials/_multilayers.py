@@ -592,10 +592,13 @@ class AbstractMultilayerMirror(
             **(kwargs_substrate | kwargs),
         )
 
+        formula = substrate._chemical.formula_latex
+        thickness = substrate.thickness
+
         ax.text(
             x=width / 2,
             y=-thickness_substrate / 2,
-            s=rf"{substrate._chemical.formula} (${substrate.thickness.value:0.0f}\,${substrate.thickness.unit:latex_inline})",
+            s=rf"{formula} (${thickness.value:0.0f}\,${thickness.unit:latex_inline})",
             ha="center",
             va="center",
         )
