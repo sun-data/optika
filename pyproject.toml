@@ -29,7 +29,7 @@ doc = [
     "graphviz",
     "sphinx-autodoc-typehints",
     "sphinxcontrib-bibtex",
-    "pydata-sphinx-theme==0.13.2",
+    "pydata-sphinx-theme",
     "ipykernel",
     "jupyter-sphinx",
     "sphinx-codeautolink",
