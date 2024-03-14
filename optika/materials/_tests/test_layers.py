@@ -192,7 +192,6 @@ class TestLayerSequence(
                     ],
                     num_periods=2,
                 )
-
             ],
             num_periods=5,
         ),
