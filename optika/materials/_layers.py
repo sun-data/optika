@@ -252,6 +252,8 @@ class Layer(
 
         if x_label is None:
             x_label = x + width / 2
+        else:
+            x_label = x_label * width
 
         unit_x = na.unit(x)
         unit_z = na.unit(z)
@@ -278,7 +280,7 @@ class Layer(
                 x_arrow = x_label
             else:
                 ha = "left"
-                x_arrow = 1 * unit_x
+                x_arrow = width
 
             y_arrow = y_label = z + thickness / 2
 
