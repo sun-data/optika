@@ -21,6 +21,10 @@ class AbstractTestAbstractChemical(
         result = a.formula
         assert isinstance(result, (str, na.AbstractScalar))
 
+    def test_formula_latex(self, a: optika.chemicals.AbstractChemical):
+        result = a.formula_latex
+        assert isinstance(result, (str, na.AbstractScalar))
+
     def test_is_amorphous(self, a: optika.chemicals.AbstractChemical):
         result = a.is_amorphous
         assert np.issubdtype(na.get_dtype(result), bool)

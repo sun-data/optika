@@ -1,5 +1,5 @@
 import abc
-import functools
+import re
 import pathlib
 import dataclasses
 import numpy as np
@@ -31,6 +31,22 @@ class AbstractChemical(
         For example, water would be expressed as ``"H2O"``
         and hydrogen peroxide would be expressed as ``"H2O2"``.
         """
+
+    @property
+    def formula_latex(self) -> str:
+        """
+        LaTeX representation of the chemical formula, with appropriate subscripts.
+        """
+        formula = self.formula
+        pattern = r"\d+"
+        repl = r"$_\g<0>$"
+        if isinstance(formula, na.ScalarArray):
+            formula = formula.copy()
+            for index in formula.ndindex():
+                formula[index] = re.sub(pattern, repl, formula[index].ndarray)
+        else:
+            formula = re.sub(pattern, repl, formula)
+        return formula
 
     @property
     @abc.abstractmethod
