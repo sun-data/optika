@@ -28,9 +28,9 @@ class AbstractTestAbstractMesh(
             efficiency=0.8,
             pitch=70 / u.mm,
         )
-    ]
+    ],
 )
 class TestMesh(
-    AbstractTestAbstractMesh
+    AbstractTestAbstractMesh,
 ):
     pass
