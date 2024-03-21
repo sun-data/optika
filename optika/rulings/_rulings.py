@@ -71,7 +71,7 @@ class AbstractRulings(
 
 @dataclasses.dataclass(eq=False, repr=False)
 class Rulings(
-    AbstractRulings
+    AbstractRulings,
 ):
     """
     An idealized set of rulings which have perfect efficiency in all diffraction
@@ -85,9 +85,9 @@ class Rulings(
     """The diffraction order to simulate."""
 
     def efficiency(
-            self,
-            rays: optika.rays.RayVectorArray,
-            normal: na.AbstractCartesian3dVectorArray,
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> float:
         return 1
 

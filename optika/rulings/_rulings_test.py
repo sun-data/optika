@@ -26,13 +26,13 @@ class AbstractTestAbstractRulings(
 
     @pytest.mark.parametrize(
         argnames="rays",
-        argvalues=test_ray_vectors.rays
+        argvalues=test_ray_vectors.rays,
     )
     @pytest.mark.parametrize(
         argnames="normal",
         argvalues=[
             na.Cartesian3dVectorArray(0, 0, -1),
-        ]
+        ],
     )
     def test_efficiency(
         self,
@@ -62,7 +62,7 @@ class AbstractTestAbstractRulings(
     ],
 )
 class TestRulings(
-    AbstractTestAbstractRulings
+    AbstractTestAbstractRulings,
 ):
     pass
 
@@ -84,6 +84,6 @@ class TestRulings(
     ],
 )
 class TestMeasuredRulings(
-    AbstractTestAbstractRulings
+    AbstractTestAbstractRulings,
 ):
     pass
