@@ -1,26 +1,21 @@
 import abc
 import dataclasses
+from dataclasses import MISSING
 import astropy.units as u
 import named_arrays as na
 import optika
+from . import AbstractRulingSpacing
 
 __all__ = [
     "AbstractRulings",
-    "AbstractPolynomialDensityRulings",
-    "PolynomialDensityRulings",
-    "AbstractConstantDensityRulings",
-    "ConstantDensityRulings",
-    "AbstractPolynomialSpacingRulings",
-    "PolynomialSpacingRulings",
-    "AbstractConstantSpacingRulings",
-    "ConstantSpacingRulings",
+    "Rulings",
+    "MeasuredRulings",
 ]
 
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulings(
     optika.mixins.Printable,
-    optika.mixins.Transformable,
 ):
     """
     Interface for the interaction of a ruled surface with incident light
@@ -28,190 +23,117 @@ class AbstractRulings(
 
     @property
     @abc.abstractmethod
-    def diffraction_order(self) -> na.ScalarLike:
+    def diffraction_order(self) -> int | na.AbstractScalar:
         """
         the diffraction order to simulate
         """
 
+    @property
     @abc.abstractmethod
     def spacing(
         self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.ScalarLike:
+    ) -> u.Quantity | na.AbstractScalar | AbstractRulingSpacing:
         """
-        spacing between adjacent rulings at the given position
+        Spacing between adjacent rulings at the given position.
+        """
 
-        Parameters
-        ----------
-        position
-            location to evaluate the ruling spacing
+    @property
+    def spacing_(self) -> AbstractRulingSpacing:
         """
+        A normalized version of :attr:`spacing` that is guaranteed to be
+        an instance of :class:`optika.rulings.AbstractRulingSpacing`.
+        """
+        spacing = self.spacing
+        if not isinstance(spacing, optika.rulings.AbstractRulingSpacing):
+            spacing = optika.rulings.ConstantRulingSpacing(
+                constant=spacing,
+                normal=na.Cartesian3dVectorArray(1, 0, 0),
+            )
+        return spacing
 
     @abc.abstractmethod
-    def normal(
+    def efficiency(
         self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractCartesian3dVectorArray:
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> float | na.AbstractScalar:
         """
-        vector normal to the planes of the rulings
+        The fraction of light that is diffracted into a given order.
 
         Parameters
         ----------
-        position
-            location to evaluate the normal vector
+        rays
+            The light rays incident on the rulings
+        normal
+            The vector normal to the surface on which the rulings are placed.
         """
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class AbstractPolynomialDensityRulings(
+class Rulings(
+    AbstractRulings
+):
+    """
+    An idealized set of rulings which have perfect efficiency in all diffraction
+    orders.
+    """
+
+    spacing: u.Quantity | na.AbstractScalar | AbstractRulingSpacing = MISSING
+    """Spacing between adjacent rulings at the given position."""
+
+    diffraction_order: int | na.AbstractScalar = MISSING
+    """The diffraction order to simulate."""
+
+    def efficiency(
+            self,
+            rays: optika.rays.RayVectorArray,
+            normal: na.AbstractCartesian3dVectorArray,
+    ) -> float:
+        return 1
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class MeasuredRulings(
     AbstractRulings,
 ):
-    @property
-    @abc.abstractmethod
-    def coefficients(self) -> None | dict[int, na.ScalarLike]:
-        """The coefficients of the polynomial describing the ruling density"""
+    """
+    A set of rulings where the efficiency has been measured or calculated
+    by an independent source.
+    """
 
-    def frequency(
+    spacing: u.Quantity | na.AbstractScalar | AbstractRulingSpacing = MISSING
+    """Spacing between adjacent rulings at the given position."""
+
+    diffraction_order: int | na.AbstractScalar = MISSING
+    """The diffraction order to simulate."""
+
+    efficiency_measured: na.FunctionArray = MISSING
+    """The discrete measurements of the efficiency."""
+
+    def efficiency(
         self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.ScalarLike:
-        """
-        Density of rulings at the given position.
-        Equivalent to the multiplicative inverse of the ruling spacing.
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
 
-        Parameters
-        ----------
-        position
-            location to evaluate the ruling density
-        """
-        transformation = self.transformation
-        if transformation is not None:
-            position = transformation(position)
+        measurement = self.efficiency_measured
 
-        x = position @ self.normal(position)
+        wavelength = measurement.inputs.wavelength
+        direction = measurement.inputs.direction
+        efficiency = measurement.outputs
 
-        coefficients = self.coefficients
-        if coefficients is None:
-            coefficients = dict()
+        if direction.size != 1:  # pragma: nocover
+            raise ValueError(
+                f"Interpolating over different incidence angles is not supported."
+            )
 
-        result = 0 / u.mm
-        for power, coefficient in coefficients.items():
-            result = result + coefficient * (x**power)
+        if wavelength.ndim != 1:  # pragma: nocover
+            raise ValueError(
+                f"wavelength must be one dimensional, got shape {wavelength.shape}"
+            )
 
-        return result
-
-    def spacing(
-        self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.ScalarLike:
-        return 1 / self.frequency(position)
-
-    def normal(
-        self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractCartesian3dVectorArray:
-        return na.Cartesian3dVectorArray(1, 0, 0)
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class PolynomialDensityRulings(
-    AbstractPolynomialDensityRulings,
-):
-    coefficients: None | dict[int, na.ScalarLike] = None
-    diffraction_order: na.ScalarLike = 1
-    transformation: None | na.transformations.AbstractTransformation = None
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class AbstractConstantDensityRulings(
-    AbstractPolynomialDensityRulings,
-):
-    @property
-    @abc.abstractmethod
-    def density(self) -> na.ScalarLike:
-        """
-        the frequency of the ruling pattern
-        """
-
-    @property
-    def coefficients(self) -> None | dict[int, na.ScalarLike]:
-        return {0: self.density}
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class ConstantDensityRulings(
-    AbstractConstantDensityRulings,
-):
-    density: na.ScalarLike = 0 / u.mm
-    diffraction_order: na.ScalarLike = 1
-    transformation: None | na.transformations.AbstractTransformation = None
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class AbstractPolynomialSpacingRulings(
-    AbstractRulings,
-):
-    @property
-    @abc.abstractmethod
-    def coefficients(self) -> None | dict[int, na.ScalarLike]:
-        """The coefficients of the polynomial describing the ruling density"""
-
-    def spacing(
-        self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.ScalarLike:
-        transformation = self.transformation
-        if transformation is not None:
-            position = transformation(position)
-
-        x = position @ self.normal(position)
-
-        coefficients = self.coefficients
-        if coefficients is None:
-            coefficients = dict()
-
-        result = 0 * u.mm
-        for power, coefficient in coefficients.items():
-            result = result + coefficient * (x**power)
-
-        return result
-
-    def normal(
-        self,
-        position: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractCartesian3dVectorArray:
-        return na.Cartesian3dVectorArray(1, 0, 0)
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class PolynomialSpacingRulings(
-    AbstractPolynomialSpacingRulings,
-):
-    coefficients: None | dict[int, na.ScalarLike] = None
-    diffraction_order: na.ScalarLike = 1
-    transformation: None | na.transformations.AbstractTransformation = None
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class AbstractConstantSpacingRulings(
-    AbstractPolynomialSpacingRulings,
-):
-    @property
-    @abc.abstractmethod
-    def period(self) -> na.ScalarLike:
-        """
-        the spacing of the ruling pattern
-        """
-
-    @property
-    def coefficients(self) -> None | dict[int, na.ScalarLike]:
-        return {0: self.period}
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class ConstantSpacingRulings(
-    AbstractConstantSpacingRulings,
-):
-    period: na.ScalarLike = 0 * u.mm
-    diffraction_order: na.ScalarLike = 1
-    transformation: None | na.transformations.AbstractTransformation = None
+        return na.interp(
+            x=rays.wavelength,
+            xp=wavelength,
+            fp=efficiency,
+        )

@@ -151,8 +151,9 @@ class AbstractSurface(
 
         if rulings is not None:
             diffraction_order = rulings.diffraction_order
-            spacing_rulings = rulings.spacing(position_1)
-            normal_rulings = rulings.normal(position_1)
+            vector_rulings = rulings.spacing_(position_1)
+            spacing_rulings = vector_rulings.length
+            normal_rulings = vector_rulings / spacing_rulings
         else:
             diffraction_order = 0
             spacing_rulings = None
