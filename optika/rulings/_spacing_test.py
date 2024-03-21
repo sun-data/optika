@@ -3,11 +3,12 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-from .._tests.test_mixins import AbstractTestPrintable
+from .._tests import test_mixins
 
 
 class AbstractTestAbstractRulingSpacing(
-    AbstractTestPrintable,
+    test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestTransformable,
 ):
     @pytest.mark.parametrize(
         argnames="position",
@@ -55,6 +56,7 @@ class TestConstantSpacing(
                 2: 3 / u.um,
             },
             normal=na.Cartesian3dVectorArray(1, 0, 0),
+            transformation=na.transformations.Cartesian3dRotationZ(30 * u.deg),
         ),
     ],
 )
