@@ -22,7 +22,7 @@ surfaces = [
         material=optika.materials.Mirror(),
         aperture=optika.apertures.RectangularAperture(half_width=10 * u.mm),
         transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
-        rulings=optika.rulings.ConstantDensityRulings(density=5 / u.um),
+        rulings=optika.rulings.Rulings(spacing=1 * u.um, diffraction_order=1),
     ),
 ]
 
