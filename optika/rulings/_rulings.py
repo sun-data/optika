@@ -245,11 +245,12 @@ class SquareRulings(
         light, and :math:`\theta` is the angle of incidence inside the medium.
         """
 
-        spacing = self.spacing_(rays.position)
-        normal_rulings = spacing / spacing.length
+        normal_rulings = self.spacing_(rays.position).normalized
+
+        parallel_rulings = normal.cross(normal_rulings).normalized
 
         direction = rays.direction
-        direction = direction - direction @ normal_rulings
+        direction = direction - direction @ parallel_rulings
 
         wavelength = rays.wavelength
         cos_theta = -direction @ normal
