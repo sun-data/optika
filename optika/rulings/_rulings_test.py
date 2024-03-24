@@ -45,7 +45,8 @@ class AbstractTestAbstractRulings(
             normal=normal,
         )
 
-        assert np.all(result > 0)
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
 
 
 @pytest.mark.parametrize(
@@ -84,6 +85,22 @@ class TestRulings(
     ],
 )
 class TestMeasuredRulings(
+    AbstractTestAbstractRulings,
+):
+    pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.rulings.SquareRulings(
+            spacing=1 * u.um,
+            depth=10 * u.nm,
+            diffraction_order=na.ScalarArray(np.array([0, 1, 2]), axes="m"),
+        ),
+    ],
+)
+class TestSquareRulings(
     AbstractTestAbstractRulings,
 ):
     pass
