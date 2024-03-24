@@ -145,7 +145,7 @@ class MeasuredRulings(
 class SquareRulings(
     AbstractRulings,
 ):
-    """
+    r"""
     A ruling profile described by a square wave with a 50% duty cycle.
 
     Examples
@@ -156,6 +156,7 @@ class SquareRulings(
 
     .. jupyter-execute::
 
+        import numpy as np
         import matplotlib.pyplot as plt
         import astropy.units as u
         import named_arrays as na
@@ -177,10 +178,17 @@ class SquareRulings(
         # Define the wavelengths at which to sample the groove efficiency
         wavelength = na.geomspace(100, 1000, axis="wavelength", num=1001) * u.AA
 
+        # Define the incidence angles at which to sample the groove efficiency
+        angle = na.linspace(0, 30, num=3, axis="angle") * u.deg
+
         # Define the light rays incident on the grooves
         rays = optika.rays.RayVectorArray(
             wavelength=wavelength,
-            direction=na.Cartesian3dVectorArray(0, 0, 1),
+            direction=na.Cartesian3dVectorArray(
+                x=np.sin(angle),
+                y=0,
+                z=np.cos(angle),
+            ),
         )
 
         # Compute the efficiency of the grooves for the given wavelength
@@ -191,9 +199,17 @@ class SquareRulings(
 
         # Plot the groove efficiency as a function of wavelength
         fig, ax = plt.subplots()
-        na.plt.plot(wavelength, efficiency, ax=ax);
+        angle_str = angle.value.astype(str).astype(object)
+        na.plt.plot(
+            wavelength,
+            efficiency,
+            ax=ax,
+            axis="wavelength",
+            label=r"$\theta$ = " + angle_str + f"{angle.unit:latex_inline}",
+        );
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel(f"efficiency");
+        ax.legend();
     """
 
     spacing: u.Quantity | na.AbstractScalar | AbstractRulingSpacing = MISSING
