@@ -93,6 +93,22 @@ class TestMeasuredRulings(
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
+        optika.rulings.SinusoidalRulings(
+            spacing=1 * u.um,
+            depth=10 * u.nm,
+            diffraction_order=na.ScalarArray(np.array([0, 1, 2]), axes="m"),
+        ),
+    ],
+)
+class TestSinusoidalRulings(
+    AbstractTestAbstractRulings,
+):
+    pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
         optika.rulings.SquareRulings(
             spacing=1 * u.um,
             depth=10 * u.nm,
