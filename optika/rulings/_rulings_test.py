@@ -104,3 +104,19 @@ class TestSquareRulings(
     AbstractTestAbstractRulings,
 ):
     pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.rulings.SawtoothRulings(
+            spacing=1 * u.um,
+            depth=10 * u.nm,
+            diffraction_order=na.ScalarArray(np.array([0, 1, 2]), axes="m"),
+        ),
+    ],
+)
+class TestSawtoothRulings(
+    AbstractTestAbstractRulings,
+):
+    pass
