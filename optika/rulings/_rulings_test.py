@@ -152,4 +152,3 @@ class TestTriangularRulings(
     AbstractTestAbstractRulings,
 ):
     pass
-
