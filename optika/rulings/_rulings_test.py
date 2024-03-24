@@ -46,6 +46,7 @@ class AbstractTestAbstractRulings(
         )
 
         assert np.all(result >= 0)
+        assert np.all(result <= 1)
 
 
 @pytest.mark.parametrize(
