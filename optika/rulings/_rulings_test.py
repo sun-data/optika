@@ -106,7 +106,6 @@ class TestSinusoidalRulings(
     pass
 
 
-
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
