@@ -569,7 +569,7 @@ class TriangularRulings(
     AbstractRulings,
 ):
     r"""
-    A ruling profile described by a triangle wave with.
+    A ruling profile described by a triangle wave.
 
     Examples
     --------
