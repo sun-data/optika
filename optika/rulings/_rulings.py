@@ -411,7 +411,8 @@ class SquareRulings(
 
         wavelength = rays.wavelength
         cos_theta = -direction @ normal
-        d = self.depth
+        amplitude = np.pi / 4
+        d = self.depth / amplitude
         i = self.diffraction_order
 
         gamma = np.pi * d / (wavelength * cos_theta)
@@ -555,7 +556,8 @@ class SawtoothRulings(
 
         wavelength = rays.wavelength
         cos_theta = -direction @ normal
-        d = self.depth
+        amplitude = np.pi / 2
+        d = self.depth / amplitude
         i = self.diffraction_order
 
         gamma = np.pi * d / (wavelength * cos_theta)
@@ -693,7 +695,8 @@ class TriangularRulings(
 
         wavelength = rays.wavelength
         cos_theta = -direction @ normal
-        d = self.depth
+        amplitude = np.square(np.pi) / 8
+        d = self.depth / amplitude
         i = self.diffraction_order
 
         gamma = np.pi * d / (wavelength * cos_theta)
@@ -843,8 +846,9 @@ class RectangularRulings(
 
         wavelength = rays.wavelength
         cos_theta = -direction @ normal
-        d = self.depth
         a = 2 * np.pi * self.ratio_duty
+        amplitude = np.pi / (2 * np.sqrt(2 * (1 - np.cos(a))))
+        d = self.depth / amplitude
         i = self.diffraction_order
 
         gamma = np.pi * d / (wavelength * cos_theta)
