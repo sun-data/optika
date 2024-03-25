@@ -152,3 +152,21 @@ class TestTriangularRulings(
     AbstractTestAbstractRulings,
 ):
     pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.rulings.RectangularRulings(
+            spacing=1 * u.um,
+            depth=10 * u.nm,
+            ratio_duty=0.3,
+            diffraction_order=na.ScalarArray(np.array([0, 1, 2]), axes="m"),
+        ),
+    ],
+)
+class TestRectangularRulings(
+    AbstractTestAbstractRulings,
+):
+    pass
+

@@ -16,6 +16,7 @@ __all__ = [
     "SquareRulings",
     "SawtoothRulings",
     "TriangularRulings",
+    "RectangularRulings",
 ]
 
 
@@ -706,3 +707,156 @@ class TriangularRulings(
         )
 
         return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class RectangularRulings(
+    AbstractRulings,
+):
+    r"""
+    A ruling profile described by a rectangular wave.
+
+    Examples
+    --------
+
+    Compute the 1st-order groove efficiency of rectangular rulings with a groove
+    density of 2500 grooves/mm, a groove depth of 15 nm, and a duty cycle of
+    30 percent.
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the groove density
+        density = 2500 / u.mm
+
+        # Define the groove depth
+        depth = 15 * u.nm
+
+        # Define ruling model
+        rulings = optika.rulings.RectangularRulings(
+            spacing=1 / density,
+            depth=depth,
+            ratio_duty=0.3,
+            diffraction_order=1,
+        )
+
+        # Define the wavelengths at which to sample the groove efficiency
+        wavelength = na.geomspace(100, 1000, axis="wavelength", num=1001) * u.AA
+
+        # Define the incidence angles at which to sample the groove efficiency
+        angle = na.linspace(0, 30, num=3, axis="angle") * u.deg
+
+        # Define the light rays incident on the grooves
+        rays = optika.rays.RayVectorArray(
+            wavelength=wavelength,
+            direction=na.Cartesian3dVectorArray(
+                x=np.sin(angle),
+                y=0,
+                z=np.cos(angle),
+            ),
+        )
+
+        # Compute the efficiency of the grooves for the given wavelength
+        efficiency = rulings.efficiency(
+            rays=rays,
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+        )
+
+        # Plot the groove efficiency as a function of wavelength
+        fig, ax = plt.subplots()
+        angle_str = angle.value.astype(str).astype(object)
+        na.plt.plot(
+            wavelength,
+            efficiency,
+            ax=ax,
+            axis="wavelength",
+            label=r"$\theta$ = " + angle_str + f"{angle.unit:latex_inline}",
+        );
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel(f"efficiency");
+        ax.legend();
+    """
+
+    spacing: u.Quantity | na.AbstractScalar | AbstractRulingSpacing = MISSING
+    """Spacing between adjacent rulings at the given position."""
+
+    depth: u.Quantity | na.AbstractScalar = MISSING
+    """Depth of the ruling pattern."""
+
+    ratio_duty: u.Quantity | na.AbstractScalar = MISSING
+    """The duty cycle of the ruling pattern."""
+
+    diffraction_order: int | na.AbstractScalar = MISSING
+    """The diffraction order to simulate."""
+
+    def efficiency(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> float | na.AbstractScalar:
+        r"""
+        The fraction of light diffracted into a given order.
+
+        Calculated using the expression given in Table 1 of :cite:t:`Magnusson1978`.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the rulings
+        normal
+            The vector normal to the surface on which the rulings are placed.
+
+        Notes
+        -----
+
+        The theoretical efficiency of thin (wavelength much smaller than
+        the groove spacing), rectangular rulings is given by Table 1 of
+        :cite:t:`Magnusson1978`,
+
+        .. math::
+
+            \eta_i = \begin{cases}
+                1 - [(2 a / \pi) - (a / \pi)^2] \sin^2 \left\{ \pi \gamma / [2 (1 - \cos a)]^{1/2} \right\} & i = 0 \\
+                [2 / (i \pi)^2](1 - \cos i a) \sin^2 \left\{ \pi \gamma / [2 (1 - \cos a)]^{1/2} \right\} & i \ne 0, \\
+            \end{cases}
+
+        where :math:`\eta_i` is the groove efficiency for diffraction order :math:`i`,
+        :math:`a` :math:`(0 < a < 2 \pi)` is the duty cycle of the rectangular wave,
+        :math:`\gamma = \pi d n_1 / \lambda \cos \theta` is the
+        normalized amplitude of the fundamental grating, :math:`d` is the
+        thickness of the grating, :math:`n_1` is the amplitude of the fundamental
+        grating, :math:`\lambda` is the free-space wavelength of the incident
+        light, and :math:`\theta` is the angle of incidence inside the medium.
+        """
+
+        normal_rulings = self.spacing_(rays.position).normalized
+
+        parallel_rulings = normal.cross(normal_rulings).normalized
+
+        direction = rays.direction
+        direction = direction - direction @ parallel_rulings
+
+        wavelength = rays.wavelength
+        cos_theta = -direction @ normal
+        d = self.depth
+        a = 2 * np.pi * self.ratio_duty
+        i = self.diffraction_order
+
+        gamma = np.pi * d / (wavelength * cos_theta)
+
+        b = np.sin(np.pi * gamma / np.sqrt(2 * (1 - np.cos(a * u.rad))) * u.rad)
+        b = np.square(b)
+
+        result = np.where(
+            i == 0,
+            x=1 - ((2 * a / np.pi) - np.square(a / np.pi)) * b,
+            y=(2 / np.square(i * np.pi)) * (1 - np.cos(i * a * u.rad)) * b,
+        )
+
+        return result
+
