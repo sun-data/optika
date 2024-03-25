@@ -169,4 +169,3 @@ class TestRectangularRulings(
     AbstractTestAbstractRulings,
 ):
     pass
-

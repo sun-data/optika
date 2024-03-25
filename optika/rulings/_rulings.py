@@ -859,4 +859,3 @@ class RectangularRulings(
         )
 
         return result
-
