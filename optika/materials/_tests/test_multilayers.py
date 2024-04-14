@@ -1,4 +1,4 @@
-from typing import Sequence, Literal
+from typing import Sequence
 import pytest
 import pathlib
 import numpy as np

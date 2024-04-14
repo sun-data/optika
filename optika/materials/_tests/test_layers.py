@@ -1,4 +1,3 @@
-from typing import Literal
 import pytest
 import numpy as np
 import matplotlib
