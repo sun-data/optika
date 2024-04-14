@@ -20,6 +20,9 @@ from ._rulings import (
 )
 
 __all__ = [
+    "AbstractRulingSpacing",
+    "ConstantRulingSpacing",
+    "Polynomial1dRulingSpacing",
     "AbstractRulings",
     "Rulings",
     "MeasuredRulings",
