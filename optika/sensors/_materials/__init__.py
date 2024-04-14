@@ -21,4 +21,7 @@ __all__ = [
     "AbstractCCDMaterial",
     "AbstractBackilluminatedCCDMaterial",
     "AbstractStern1994BackilluminatedCCDMaterial",
+    "TektronixTK512CBMaterial",
+    "E2VCCD97Material",
+    "E2VCCDAIAMaterial",
 ]
