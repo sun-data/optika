@@ -6,6 +6,11 @@ import named_arrays as na
 from . import AbstractPupilVectorArray, PupilVectorArray
 from . import AbstractSceneVectorArray, SceneVectorArray
 
+__all__ = [
+    "AbstractObjectVectorArray",
+    "ObjectVectorArray",
+]
+
 
 WavelengthT = TypeVar("WavelengthT", bound=na.ScalarLike)
 FieldT = TypeVar("FieldT", bound=na.AbstractCartesian2dVectorArray)

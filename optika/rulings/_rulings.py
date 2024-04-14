@@ -131,7 +131,7 @@ class MeasuredRulings(
 
         if direction.size != 1:  # pragma: nocover
             raise ValueError(
-                f"Interpolating over different incidence angles is not supported."
+                "Interpolating over different incidence angles is not supported."
             )
 
         if wavelength.ndim != 1:  # pragma: nocover

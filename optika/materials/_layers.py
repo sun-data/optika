@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Literal, Sequence
+from typing import Sequence
 import abc
 import dataclasses
 import numpy as np
@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika
-from . import matrices, snells_law
+from . import matrices
 
 __all__ = [
     "AbstractLayer",

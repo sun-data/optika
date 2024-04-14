@@ -5,6 +5,11 @@ import dataclasses
 import named_arrays as na
 from . import AbstractFieldVectorArray, FieldVectorArray
 
+__all__ = [
+    "AbstractSceneVectorArray",
+    "SceneVectorArray",
+]
+
 
 WavelengthT = TypeVar("WavelengthT", bound=na.ScalarLike)
 FieldT = TypeVar("FieldT", bound=na.AbstractCartesian2dVectorArray)

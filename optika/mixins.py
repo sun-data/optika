@@ -1,8 +1,6 @@
 from __future__ import annotations
-from typing import Generic, TypeVar, Iterator, Iterable, Any, overload
-from typing_extensions import Self
+from typing import Any
 import abc
-import copy
 import dataclasses
 import numpy as np
 import numpy.typing as npt
@@ -44,7 +42,7 @@ class Printable:
             if isinstance(val, u.Quantity):
                 val_str = f"{val_str} {val.unit}"
         elif isinstance(val, list):
-            val_str = f"[\n"
+            val_str = "[\n"
             for v in val:
                 val_str += f"{pre}{tab}{tab}"
                 val_str += cls._val_to_string(

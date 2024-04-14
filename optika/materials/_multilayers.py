@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Sequence, Literal
+from typing import Sequence
 import abc
 import dataclasses
 import numpy as np
@@ -9,8 +9,6 @@ import astropy.units as u
 import named_arrays as na
 import optika
 from . import (
-    matrices,
-    snells_law,
     AbstractMaterial,
     AbstractMirror,
     AbstractLayer,
