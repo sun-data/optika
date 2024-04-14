@@ -22,6 +22,7 @@ from ._materials import (
 )
 from ._multilayers import (
     multilayer_efficiency,
+    AbstractMultilayerMaterial,
     AbstractMultilayerFilm,
     MultilayerFilm,
     AbstractMultilayerMirror,
@@ -48,6 +49,7 @@ __all__ = [
     "Mirror",
     "MeasuredMirror",
     "multilayer_efficiency",
+    "AbstractMultilayerMaterial",
     "AbstractMultilayerFilm",
     "MultilayerFilm",
     "AbstractMultilayerMirror",
