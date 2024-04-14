@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Sequence, TypeVar, Generic, Callable, Any
+from typing import Sequence, Callable, Any
 import abc
 import dataclasses
 import functools
@@ -234,7 +234,10 @@ class AbstractSequentialSystem(
                 )
                 result.outputs.direction = na.Cartesian3dVectorArray(0, 0, 1)
                 component_variable = "direction"
-                zfunc = lambda xy: np.sqrt(1 - np.square(xy.length))
+
+                def zfunc(xy: na.AbstractCartesian3dVectorArray):
+                    return np.sqrt(1 - np.square(xy.length))
+
             elif na.unit(grid_first).is_equivalent(u.dimensionless_unscaled):
                 result.outputs.direction = na.Cartesian3dVectorArray(
                     x=grid_first.x,
@@ -243,7 +246,10 @@ class AbstractSequentialSystem(
                 )
                 result.outputs.position = na.Cartesian3dVectorArray() * u.mm
                 component_variable = "position"
-                zfunc = lambda xy: surface_first.sag(xy)
+
+                def zfunc(xy: na.AbstractCartesian3dVectorArray):
+                    return surface_first.sag(xy)
+
             else:
                 raise ValueError(f"unrecognized input grid unit, {na.unit(grid_first)}")
 
