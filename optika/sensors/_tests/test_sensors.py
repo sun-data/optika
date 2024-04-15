@@ -24,7 +24,7 @@ class AbstractTestAbstractImagingSensor(
             width_pixel=15 * u.um,
             num_pixel=na.Cartesian2dVectorArray(2048, 1024),
         )
-    ]
+    ],
 )
 class TestIdealImagingSensor(
     AbstractTestAbstractImagingSensor,
