@@ -1,3 +1,7 @@
+"""
+Optical systems consisting of multiple optical surfaces.
+"""
+
 from __future__ import annotations
 from typing import Sequence, Callable, Any
 import abc
@@ -52,6 +56,15 @@ class AbstractSequentialSystem(
 
     @property
     @abc.abstractmethod
+    def sensor(self) -> None | optika.sensors.AbstractImagingSensor:
+        """
+        The imaging sensor that measures the light captured by this system.
+
+        This is the last surface in the optical system.
+        """
+
+    @property
+    @abc.abstractmethod
     def axis_surface(self) -> str:
         """
         The name of the logical axis representing the sequence of surfaces.
@@ -68,7 +81,13 @@ class AbstractSequentialSystem(
             result = [obj]
         else:
             result = []
+
         result += list(self.surfaces)
+
+        sensor = self.sensor
+        if sensor is not None:
+            result += [sensor]
+
         if not any(s.is_field_stop for s in result):
             result[0] = dataclasses.replace(result[0], is_field_stop=True)
         return result
@@ -580,10 +599,11 @@ class SequentialSystem(
             transformation=fold_mirror.transformation,
         )
 
-        # define the detector surface
-        detector = optika.surfaces.Surface(
-            name="detector",
-            aperture=optika.apertures.RectangularAperture(5 * u.mm),
+        # define the imaging sensor surface
+        sensor = optika.sensors.IdealImagingSensor(
+            name="sensor",
+            width_pixel=5 * u.um,
+            num_pixel=na.Cartesian2dVectorArray(1024, 1024),
             transformation=na.transformations.TransformationList([
                 na.transformations.Cartesian3dRotationX(90 * u.deg),
                 na.transformations.Cartesian3dTranslation(
@@ -621,8 +641,8 @@ class SequentialSystem(
                 obscuration,
                 primary_mirror,
                 fold_mirror,
-                detector,
             ],
+            sensor=sensor,
             grid_input_normalized=optika.vectors.ObjectVectorArray(
                 wavelength=500 * u.nm,
                 field=field,
@@ -647,6 +667,7 @@ class SequentialSystem(
 
     surfaces: Sequence[optika.surfaces.AbstractSurface] = dataclasses.MISSING
     object: optika.surfaces.AbstractSurface = None
+    sensor: optika.sensors.AbstractImagingSensor = None
     axis_surface: str = "surface"
     grid_input_normalized: optika.vectors.ObjectVectorArray = None
     transformation: None | na.transformations.AbstractTransformation = None

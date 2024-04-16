@@ -24,6 +24,10 @@ class AbstractTestAbstractSequentialSystem(
         for surface in a.surfaces:
             assert isinstance(surface, optika.surfaces.AbstractSurface)
 
+    def test_sensor(self, a: optika.systems.AbstractSequentialSystem):
+        if a.sensor is not None:
+            assert isinstance(a.sensor, optika.sensors.AbstractImagingSensor)
+
     def test_axis_surface(self, a: optika.systems.AbstractSequentialSystem):
         assert isinstance(a.axis_surface, str)
 
@@ -78,12 +82,13 @@ class AbstractTestAbstractSequentialSystem(
                         z=100 * u.mm
                     ),
                 ),
-                optika.surfaces.Surface(
-                    name="detector",
-                    aperture=optika.apertures.RectangularAperture(10 * u.mm),
-                    is_field_stop=True,
-                ),
             ],
+            sensor=optika.sensors.IdealImagingSensor(
+                name="sensor",
+                width_pixel=15 * u.um,
+                num_pixel=na.Cartesian2dVectorArray(2048, 1024),
+                is_field_stop=True,
+            ),
             grid_input_normalized=optika.vectors.ObjectVectorArray(
                 wavelength=500 * u.nm,
                 field=na.Cartesian2dVectorLinearSpace(
