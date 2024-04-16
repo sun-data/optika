@@ -603,7 +603,7 @@ class SequentialSystem(
         sensor = optika.sensors.IdealImagingSensor(
             name="sensor",
             width_pixel=5 * u.um,
-            num_pixel=na.Cartesian2dVectorArray(2048, 1024),
+            num_pixel=na.Cartesian2dVectorArray(1024, 2048),
             transformation=na.transformations.TransformationList([
                 na.transformations.Cartesian3dRotationX(90 * u.deg),
                 na.transformations.Cartesian3dTranslation(
