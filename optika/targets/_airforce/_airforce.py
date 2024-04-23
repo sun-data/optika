@@ -62,4 +62,3 @@ def airforce(
         ndarray=img.astype(float)[::-1, :, 3],
         axes=(axis_x, axis_y),
     )
-
