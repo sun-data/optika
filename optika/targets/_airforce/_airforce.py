@@ -1,8 +1,7 @@
-import io
 import pathlib
-import numpy as np
-import cairosvg
-import PIL
+import matplotlib.pyplot as plt
+from svglib import svglib
+from reportlab.graphics import renderPM
 import named_arrays as na
 
 __all__ = [
@@ -49,16 +48,31 @@ def airforce(
         na.plt.pcolormesh(C=target);
     """
     path = pathlib.Path(__file__).parent / "USAF-1951.svg"
-    buf = io.BytesIO()
-    cairosvg.svg2png(
-        url=str(path),
-        write_to=buf,
-        output_width=num_x,
-        output_height=num_y,
-    )
-    img = np.array(PIL.Image.open(buf))
+
+    fn = "tmp.png"
+    drawing = svglib.svg2rlg(path)
+
+    dpi = 100
+
+    width = num_x / dpi
+    height = num_y / dpi
+
+    scale_x = width / (drawing.width / 72)
+    scale_y = height / (drawing.height / 72)
+
+    drawing.scale(scale_x, scale_y)
+
+    drawing.width = width * 72
+    drawing.height = height * 72
+
+    renderPM.drawToFile(drawing, fn, fmt="PNG", dpi=dpi)
+    img = plt.imread(fn)
+
+    img = img.astype(float)[::-1].sum(~0)
+
+    img = img / img.max()
 
     return na.ScalarArray(
-        ndarray=img.astype(float)[::-1, :, 3],
-        axes=(axis_x, axis_y),
+        ndarray=img,
+        axes=(axis_y, axis_x),
     )

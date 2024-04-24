@@ -16,8 +16,7 @@ classifiers = [
 dependencies = [
     "astropy",
     "named-arrays",
-    "Pillow",
-    "cairosvg",
+    "svglib",
 ]
 dynamic = ["version"]
 
