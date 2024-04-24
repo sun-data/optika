@@ -17,6 +17,7 @@ dependencies = [
     "astropy",
     "named-arrays",
     "svglib",
+    "rlPyCairo",
 ]
 dynamic = ["version"]
 
