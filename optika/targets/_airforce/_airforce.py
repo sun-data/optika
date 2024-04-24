@@ -17,6 +17,7 @@ def airforce(
 ) -> na.ScalarArray:
     """
     A `1951 USAF resolution test target <https://en.wikipedia.org/wiki/1951_USAF_resolution_test_chart>`_
+    used for testing the performance of optical systems.
 
     Parameters
     ----------
