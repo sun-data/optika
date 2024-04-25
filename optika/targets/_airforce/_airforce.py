@@ -73,6 +73,8 @@ def airforce(
 
     img = img / img.max()
 
+    img = -img + 1
+
     return na.ScalarArray(
         ndarray=img,
         axes=(axis_y, axis_x),
