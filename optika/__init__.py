@@ -4,6 +4,7 @@ A Python package for simulating and designing optical systems.
 
 from . import mixins
 from . import vectors
+from . import targets
 from . import rays
 from . import metrology
 from . import sags
@@ -19,6 +20,7 @@ from . import systems
 __all__ = [
     "mixins",
     "vectors",
+    "targets",
     "rays",
     "metrology",
     "sags",
