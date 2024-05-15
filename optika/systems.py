@@ -502,7 +502,11 @@ class AbstractSequentialSystem(
         return raytrace[{axis: ~0}]
 
     @functools.cached_property
-    def rayfunction(self) -> optika.rays.RayFunctionArray:
+    def rayfunction_default(self) -> optika.rays.RayFunctionArray:
+        """
+        Computes the rays at the last surface in the system as a function of
+        input wavelength and position using :attr:`grid_input_normalized`.
+        """
         return self._calc_rayfunction()
 
     def plot(
