@@ -52,8 +52,43 @@ class AbstractTestAbstractSequentialSystem(
     def test_pupil_stop(self, a: optika.systems.AbstractSequentialSystem):
         assert a.pupil_stop.is_pupil_stop
 
-    def test_raytrace(self, a: optika.systems.AbstractSequentialSystem):
-        raytrace = a.raytrace()
+    @pytest.mark.parametrize(
+        argnames="wavelength,field,pupil",
+        argvalues=[
+            (
+                None,
+                None,
+                None,
+            ),
+            (
+                500 * u.nm,
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("x", "y"),
+                    num=11,
+                ),
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("x", "y"),
+                    num=11,
+                ),
+            ),
+        ],
+    )
+    def test_raytrace(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        wavelength: None | u.Quantity | na.AbstractScalar,
+        field: None | na.AbstractCartesian2dVectorArray,
+        pupil: None | na.AbstractCartesian2dVectorArray,
+    ):
+        raytrace = a.raytrace(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+        )
         assert isinstance(raytrace, optika.rays.RayFunctionArray)
         assert isinstance(raytrace.inputs, optika.vectors.ObjectVectorArray)
         assert isinstance(raytrace.outputs, optika.rays.RayVectorArray)
