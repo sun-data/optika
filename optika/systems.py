@@ -430,15 +430,26 @@ class AbstractSequentialSystem(
             grid_input=self.grid_input_normalized,
         )
 
-    def _calc_raytrace(
+    def raytrace(
         self,
-        rayfunction_input: optika.rays.RayFunctionArray,
-        axis: str,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        axis: None | str = None,
     ) -> optika.rays.RayFunctionArray:
-        rays = rayfunction_input.outputs
+        result = self._rayfunction_input.copy_shallow()
+        if wavelength is not None:
+            result.inputs.wavelength = wavelength
+        if field is not None:
+            result.inputs.field = field
+        if pupil is not None:
+            result.inputs.pupil = pupil
+        if axis is None:
+            axis = self.axis_surface
+
+        rays = result.outputs
         if self.transformation is not None:
             rays = self.transformation.inverse(rays)
-        result = rayfunction_input.copy_shallow()
         result.outputs = optika.propagators.accumulate_rays(
             propagators=self.surfaces_all,
             rays=rays,
@@ -446,20 +457,15 @@ class AbstractSequentialSystem(
         )
         return result
 
-    @property
-    def raytrace(self) -> optika.rays.RayFunctionArray:
-        return self._calc_raytrace(
-            rayfunction_input=self._rayfunction_input,
-            axis=self.axis_surface,
-        )
-
     def _calc_rayfunction(
         self,
         rayfunction_input: optika.rays.RayFunctionArray,
         axis: str,
     ) -> optika.rays.RayFunctionArray:
-        raytrace = self._calc_raytrace(
-            rayfunction_input=rayfunction_input,
+        raytrace = self.raytrace(
+            wavelength=rayfunction_input.inputs.wavelength,
+            field=rayfunction_input.inputs.field,
+            pupil=rayfunction_input.inputs.pupil,
             axis=axis,
         )
         return raytrace[{axis: ~0}]
@@ -508,7 +514,7 @@ class AbstractSequentialSystem(
             )
 
         if plot_rays:
-            raytrace = self.raytrace
+            raytrace = self.raytrace()
 
             if kwargs_rays is None:
                 kwargs_rays = dict()

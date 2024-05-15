@@ -53,7 +53,7 @@ class AbstractTestAbstractSequentialSystem(
         assert a.pupil_stop.is_pupil_stop
 
     def test_raytrace(self, a: optika.systems.AbstractSequentialSystem):
-        raytrace = a.raytrace
+        raytrace = a.raytrace()
         assert isinstance(raytrace, optika.rays.RayFunctionArray)
         assert isinstance(raytrace.inputs, optika.vectors.ObjectVectorArray)
         assert isinstance(raytrace.outputs, optika.rays.RayVectorArray)
