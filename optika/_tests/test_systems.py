@@ -35,8 +35,8 @@ class AbstractTestAbstractSequentialSystem(
         for surface in a.surfaces_all:
             assert isinstance(surface, optika.surfaces.AbstractSurface)
 
-    def grid_input_normalized(self, a: optika.systems.AbstractSequentialSystem):
-        assert isinstance(a.grid_input_normalized, optika.vectors.ObjectVectorArray)
+    def test_grid_input(self, a: optika.systems.AbstractSequentialSystem):
+        assert isinstance(a.grid_input, optika.vectors.ObjectVectorArray)
 
     def test_index_field_stop(self, a: optika.systems.AbstractSequentialSystem):
         assert isinstance(a.index_field_stop, int)
@@ -124,7 +124,7 @@ class AbstractTestAbstractSequentialSystem(
                 num_pixel=na.Cartesian2dVectorArray(2048, 1024),
                 is_field_stop=True,
             ),
-            grid_input_normalized=optika.vectors.ObjectVectorArray(
+            grid_input=optika.vectors.ObjectVectorArray(
                 wavelength=500 * u.nm,
                 field=na.Cartesian2dVectorLinearSpace(
                     start=0,
