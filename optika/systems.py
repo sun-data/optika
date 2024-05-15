@@ -491,13 +491,13 @@ class AbstractSequentialSystem(
         wavelength: None | u.Quantity | na.AbstractScalar = None,
         field: None | na.AbstractCartesian2dVectorArray = None,
         pupil: None | na.AbstractCartesian2dVectorArray = None,
-        axis: None | str = None,
     ) -> optika.rays.RayFunctionArray:
+        axis = "_dummy"
         raytrace = self.raytrace(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis=axis,
+            axis=axis
         )
         return raytrace[{axis: ~0}]
 
