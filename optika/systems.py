@@ -497,7 +497,7 @@ class AbstractSequentialSystem(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis=axis
+            axis=axis,
         )
         return raytrace[{axis: ~0}]
 
