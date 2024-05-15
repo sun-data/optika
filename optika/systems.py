@@ -430,15 +430,55 @@ class AbstractSequentialSystem(
             grid_input=self.grid_input_normalized,
         )
 
-    def _calc_raytrace(
+    def raytrace(
         self,
-        rayfunction_input: optika.rays.RayFunctionArray,
-        axis: str,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        axis: None | str = None,
     ) -> optika.rays.RayFunctionArray:
-        rays = rayfunction_input.outputs
+        """
+        Given the wavelength, field position, and pupil position of some input
+        rays, trace those rays through the system and return the result,
+        including all intermediate rays.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths of the input rays.
+            If :obj:`None` (the default), :attr:`grid_input_normalized.wavelength`
+            will be used.
+        field
+            The field positions of the input rays, in either normalized or physical units.
+            If :obj:`None` (the default), :attr:`grid_input_normalized.field`
+            will be used.
+        pupil
+            The pupil positions of the input rays, in either normalized or physical units.
+            If :obj:`None` (the default), :attr:`grid_input_normalized.pupil`
+            will be used.
+        axis
+            The axis along which the rays are accumulated.
+            If :obj:`None` (the default), :attr:`axis_surface` will be used.
+        """
+
+        if axis is None:
+            axis = self.axis_surface
+
+        if (wavelength is None) and (field is None) and (pupil is None):
+            result = self._rayfunction_input.copy_shallow()
+        else:
+            grid_input = self.grid_input_normalized.copy_shallow()
+            if wavelength is not None:
+                grid_input.wavelength = wavelength
+            if field is not None:
+                grid_input.field = field
+            if pupil is not None:
+                grid_input.pupil = pupil
+            result = self._calc_rayfunction_input(grid_input)
+
+        rays = result.outputs
         if self.transformation is not None:
             rays = self.transformation.inverse(rays)
-        result = rayfunction_input.copy_shallow()
         result.outputs = optika.propagators.accumulate_rays(
             propagators=self.surfaces_all,
             rays=rays,
@@ -446,30 +486,24 @@ class AbstractSequentialSystem(
         )
         return result
 
-    @property
-    def raytrace(self) -> optika.rays.RayFunctionArray:
-        return self._calc_raytrace(
-            rayfunction_input=self._rayfunction_input,
-            axis=self.axis_surface,
-        )
-
     def _calc_rayfunction(
         self,
-        rayfunction_input: optika.rays.RayFunctionArray,
-        axis: str,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
     ) -> optika.rays.RayFunctionArray:
-        raytrace = self._calc_raytrace(
-            rayfunction_input=rayfunction_input,
+        axis = "_dummy"
+        raytrace = self.raytrace(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
             axis=axis,
         )
         return raytrace[{axis: ~0}]
 
     @functools.cached_property
     def rayfunction(self) -> optika.rays.RayFunctionArray:
-        return self._calc_rayfunction(
-            rayfunction_input=self._rayfunction_input,
-            axis=self.axis_surface,
-        )
+        return self._calc_rayfunction()
 
     def plot(
         self,
@@ -508,7 +542,7 @@ class AbstractSequentialSystem(
             )
 
         if plot_rays:
-            raytrace = self.raytrace
+            raytrace = self.raytrace()
 
             if kwargs_rays is None:
                 kwargs_rays = dict()
