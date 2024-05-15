@@ -94,12 +94,12 @@ class AbstractSequentialSystem(
 
     @property
     @abc.abstractmethod
-    def grid_input_normalized(self) -> optika.vectors.ObjectVectorArray:
+    def grid_input(self) -> optika.vectors.ObjectVectorArray:
         """
         The input grid to sample with rays.
 
-        This grid is projected onto the 3 possible types of stops: field, pupil,
-        and spectral.
+        This grid is simultaneously projected onto both the field stop and the
+        pupil stop.
 
         Positions on the stop can be specified in either absolute or normalized
         coordinates. Using normalized coordinates allows for injecting different
@@ -107,7 +107,7 @@ class AbstractSequentialSystem(
         scale of the stop surface.
 
         If positions are specified in absolute units, they are measured in the
-        coordinate system of the corresponding stop surface
+        coordinate system of the corresponding stop surface.
         """
 
     @property
@@ -427,7 +427,7 @@ class AbstractSequentialSystem(
     @functools.cached_property
     def _rayfunction_input(self) -> optika.rays.RayFunctionArray:
         return self._calc_rayfunction_input(
-            grid_input=self.grid_input_normalized,
+            grid_input=self.grid_input,
         )
 
     def raytrace(
@@ -446,15 +446,15 @@ class AbstractSequentialSystem(
         ----------
         wavelength
             The wavelengths of the input rays.
-            If :obj:`None` (the default), :attr:`grid_input_normalized.wavelength`
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
             will be used.
         field
             The field positions of the input rays, in either normalized or physical units.
-            If :obj:`None` (the default), :attr:`grid_input_normalized.field`
+            If :obj:`None` (the default), ``self.grid_input.field``
             will be used.
         pupil
             The pupil positions of the input rays, in either normalized or physical units.
-            If :obj:`None` (the default), :attr:`grid_input_normalized.pupil`
+            If :obj:`None` (the default), ``self.grid_input.pupil``
             will be used.
         axis
             The axis along which the rays are accumulated.
@@ -467,7 +467,7 @@ class AbstractSequentialSystem(
         if (wavelength is None) and (field is None) and (pupil is None):
             result = self._rayfunction_input.copy_shallow()
         else:
-            grid_input = self.grid_input_normalized.copy_shallow()
+            grid_input = self.grid_input.copy_shallow()
             if wavelength is not None:
                 grid_input.wavelength = wavelength
             if field is not None:
@@ -505,7 +505,7 @@ class AbstractSequentialSystem(
     def rayfunction_default(self) -> optika.rays.RayFunctionArray:
         """
         Computes the rays at the last surface in the system as a function of
-        input wavelength and position using :attr:`grid_input_normalized`.
+        input wavelength and position using :attr:`grid_input`.
         """
         return self._calc_rayfunction()
 
@@ -681,7 +681,7 @@ class SequentialSystem(
                 fold_mirror,
             ],
             sensor=sensor,
-            grid_input_normalized=optika.vectors.ObjectVectorArray(
+            grid_input=optika.vectors.ObjectVectorArray(
                 wavelength=500 * u.nm,
                 field=field,
                 pupil=pupil,
@@ -707,6 +707,6 @@ class SequentialSystem(
     object: optika.surfaces.AbstractSurface = None
     sensor: optika.sensors.AbstractImagingSensor = None
     axis_surface: str = "surface"
-    grid_input_normalized: optika.vectors.ObjectVectorArray = None
+    grid_input: optika.vectors.ObjectVectorArray = None
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict[str, Any] = None
