@@ -120,6 +120,9 @@ class AbstractSequentialSystem(
 
     @property
     def index_field_stop(self) -> int:
+        """
+        The index of the field stop in :attr:`surfaces_all`.
+        """
         indices = self._indices_field_stop
         if not indices:
             raise ValueError(
@@ -130,6 +133,9 @@ class AbstractSequentialSystem(
 
     @property
     def index_pupil_stop(self) -> int:
+        """
+        The index of the pupil stop in :attr:`surfaces_all`.
+        """
         indices = self._indices_pupil_stop
         if not indices:
             raise ValueError(
@@ -141,10 +147,16 @@ class AbstractSequentialSystem(
 
     @property
     def field_stop(self) -> optika.surfaces.AbstractSurface:
+        """
+        The field stop surface.
+        """
         return self.surfaces_all[self.index_field_stop]
 
     @property
     def pupil_stop(self) -> optika.surfaces.AbstractSurface:
+        """
+        The pupil stop surface.
+        """
         return self.surfaces_all[self.index_pupil_stop]
 
     @classmethod
@@ -519,6 +531,27 @@ class AbstractSequentialSystem(
         kwargs_rays: None | dict[str, Any] = None,
         **kwargs,
     ) -> na.AbstractScalar | dict[str, na.AbstractScalar]:
+        """
+        Plot the surfaces of the system and the default raytrace.
+
+        Parameters
+        ----------
+        ax
+            The matplotlib axes on which to plot the system
+        transformation
+            Any additional transformation to apply to the system before plotting.
+        components
+            The vector components to plot if `ax` is 2-dimensional.
+        plot_rays
+            Boolean flag indicating whether to plot the rays.
+        plot_rays_vignetted
+            Boolean flag indicating whether to plot the vignetted rays.
+        kwargs_rays
+            Any additional keyword arguments to use when plotting the rays.
+        kwargs
+            Any additional keyword arguments to use when plotting the surfaces.
+        """
+
         surfaces = self.surfaces_all
         transformation_self = self.transformation
         kwargs_plot = self.kwargs_plot
@@ -704,9 +737,55 @@ class SequentialSystem(
     """
 
     surfaces: Sequence[optika.surfaces.AbstractSurface] = dataclasses.MISSING
+    """
+    a sequence of surfaces representing this optical system.
+
+    At least one of these surfaces needs to be marked as the pupil surface,
+    and if the object surface is not marked as the field stop, one of these
+    surfaces needs to be marked as the field stop.
+    """
+
     object: optika.surfaces.AbstractSurface = None
+    """
+    The external object being imaged or illuminated by this system.
+
+    If :obj:`None`, the external object is assumed to be at infinity.
+    """
+
     sensor: optika.sensors.AbstractImagingSensor = None
+    """
+    The imaging sensor that measures the light captured by this system.
+
+    This is the last surface in the optical system.
+    """
+
     axis_surface: str = "surface"
+    """
+    The name of the logical axis representing the sequence of surfaces.
+    """
+
     grid_input: optika.vectors.ObjectVectorArray = None
+    """
+    The input grid to sample with rays.
+
+    This grid is simultaneously projected onto both the field stop and the
+    pupil stop.
+
+    Positions on the stop can be specified in either absolute or normalized
+    coordinates. Using normalized coordinates allows for injecting different
+    grid types (cylindrical, stratified random, etc.) without specifying the
+    scale of the stop surface.
+
+    If positions are specified in absolute units, they are measured in the
+    coordinate system of the corresponding stop surface.
+    """
+
     transformation: None | na.transformations.AbstractTransformation = None
+    """
+    A optional coordinate transformation to apply to the entire optical system.
+    """
+
     kwargs_plot: None | dict[str, Any] = None
+    """
+    Additional keyword arguments used by default in :meth:`plot`.
+    """
