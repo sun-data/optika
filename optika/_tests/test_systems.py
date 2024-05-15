@@ -94,8 +94,8 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(raytrace.outputs, optika.rays.RayVectorArray)
         assert a.axis_surface in raytrace.shape
 
-    def test_rayfunction(self, a: optika.systems.AbstractSequentialSystem):
-        rayfunction = a.rayfunction
+    def test_rayfunction_default(self, a: optika.systems.AbstractSequentialSystem):
+        rayfunction = a.rayfunction_default
         assert isinstance(rayfunction, optika.rays.RayFunctionArray)
         assert isinstance(rayfunction.inputs, optika.vectors.ObjectVectorArray)
         assert isinstance(rayfunction.outputs, optika.rays.RayVectorArray)
