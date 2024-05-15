@@ -464,8 +464,8 @@ class AbstractSequentialSystem(
         if axis is None:
             axis = self.axis_surface
 
-        if wavelength is None and field is None and pupil is None:
-            result = self._rayfunction_input
+        if (wavelength is None) and (field is None) and (pupil is None):
+            result = self._rayfunction_input.copy_shallow()
         else:
             grid_input = self.grid_input_normalized.copy_shallow()
             if wavelength is not None:
@@ -488,23 +488,22 @@ class AbstractSequentialSystem(
 
     def _calc_rayfunction(
         self,
-        rayfunction_input: optika.rays.RayFunctionArray,
-        axis: str,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        axis: None | str = None,
     ) -> optika.rays.RayFunctionArray:
         raytrace = self.raytrace(
-            wavelength=rayfunction_input.inputs.wavelength,
-            field=rayfunction_input.inputs.field,
-            pupil=rayfunction_input.inputs.pupil,
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
             axis=axis,
         )
         return raytrace[{axis: ~0}]
 
     @functools.cached_property
     def rayfunction(self) -> optika.rays.RayFunctionArray:
-        return self._calc_rayfunction(
-            rayfunction_input=self._rayfunction_input,
-            axis=self.axis_surface,
-        )
+        return self._calc_rayfunction()
 
     def plot(
         self,
