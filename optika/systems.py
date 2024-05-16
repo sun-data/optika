@@ -3,7 +3,7 @@ Optical systems consisting of multiple optical surfaces.
 """
 
 from __future__ import annotations
-from typing import Sequence, Callable, Any
+from typing import Sequence, Callable, Any, ClassVar
 import abc
 import dataclasses
 import functools
@@ -213,7 +213,7 @@ class AbstractSequentialSystem(
         result = grid_last_trial - grid_last
         return result
 
-    def _calc_rayfunction_input_stops_only(
+    def _calc_rayfunction_stops_only(
         self,
         wavelength_input: na.ScalarLike,
         axis_pupil_stop: str,
@@ -339,7 +339,7 @@ class AbstractSequentialSystem(
 
         return result
 
-    def _calc_rayfunction_input_stops(
+    def _calc_rayfunction_stops(
         self,
         wavelength_input: na.ScalarLike,
         axis_pupil_stop: str,
@@ -356,7 +356,7 @@ class AbstractSequentialSystem(
 
         subsystem = surfaces[index_stop::-1]
 
-        rays_stop = self._calc_rayfunction_input_stops_only(
+        rays_stop = self._calc_rayfunction_stops_only(
             wavelength_input=wavelength_input,
             axis_pupil_stop=axis_pupil_stop,
             axis_field_stop=axis_field_stop,
@@ -375,29 +375,41 @@ class AbstractSequentialSystem(
 
         return result
 
-    def _calc_rayfunction_input(
-        self,
-        grid_input: optika.vectors.ObjectVectorArray,
-    ) -> optika.rays.RayFunctionArray:
-        rayfunction_inputs_stops = self._calc_rayfunction_input_stops(
-            wavelength_input=grid_input.wavelength,
-            axis_pupil_stop="wire_pupil",
-            axis_field_stop="wire_field_stop",
+    _axis_pupil_stop: ClassVar[str] = "_stop_pupil"
+    _axis_field_stop: ClassVar[str] = "_stop_field"
+
+    @functools.cached_property
+    def rayfunction_stops(self) -> optika.rays.RayFunctionArray:
+        """
+        A rayfunction defined on the input surface of the optical system,
+        which is designed to exactly strike the borders of both the field
+        stop and the pupil stop.
+        """
+        return self._calc_rayfunction_stops(
+            wavelength_input=self.grid_input.wavelength,
+            axis_pupil_stop=self._axis_pupil_stop,
+            axis_field_stop=self._axis_field_stop,
             samples_pupil_stop=21,
             samples_field_stop=21,
         )
 
-        # return rayfunction_inputs_stops
+    def _calc_rayfunction_input(
+        self,
+        grid_input: optika.vectors.ObjectVectorArray,
+    ) -> optika.rays.RayFunctionArray:
+
+        rayfunction_stops = self.rayfunction_stops
+
         object_is_at_infinity = self.object_is_at_infinity
 
-        result = rayfunction_inputs_stops.copy_shallow()
+        result = rayfunction_stops.copy_shallow()
 
         if object_is_at_infinity:
-            field = rayfunction_inputs_stops.outputs.direction.xy
-            pupil = rayfunction_inputs_stops.outputs.position.xy
+            field = rayfunction_stops.outputs.direction.xy
+            pupil = rayfunction_stops.outputs.position.xy
         else:
-            field = rayfunction_inputs_stops.outputs.position.xy
-            pupil = rayfunction_inputs_stops.outputs.direction.xy
+            field = rayfunction_stops.outputs.position.xy
+            pupil = rayfunction_stops.outputs.direction.xy
 
         axis_pupil = tuple(result.inputs.pupil.shape)
         axis_field = tuple(result.inputs.field.shape)

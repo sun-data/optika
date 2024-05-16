@@ -56,6 +56,13 @@ class AbstractTestAbstractSequentialSystem(
     def test_pupil_stop(self, a: optika.systems.AbstractSequentialSystem):
         assert a.pupil_stop.is_pupil_stop
 
+    def test_rayfunction_stops(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.rayfunction_stops
+        assert isinstance(result, optika.rays.RayFunctionArray)
+        assert isinstance(result.inputs, optika.vectors.ObjectVectorArray)
+        assert isinstance(result.outputs, optika.rays.RayVectorArray)
+        assert result.ndim >= 2
+
     @pytest.mark.parametrize(
         argnames="wavelength,field,pupil",
         argvalues=[
