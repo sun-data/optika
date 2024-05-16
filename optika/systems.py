@@ -52,7 +52,7 @@ class AbstractSequentialSystem(
                 unit_obj = na.unit_normalized(aperture_obj.bound_lower)
                 if unit_obj.is_equivalent(u.mm):
                     result = False
-                elif unit_obj.is_equivalent(u.deg):
+                elif unit_obj.is_equivalent(u.dimensionless_unscaled):
                     result = True
                 else:  # pragma: nocover
                     raise ValueError(
