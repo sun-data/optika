@@ -44,6 +44,27 @@ class AbstractSequentialSystem(
         """
 
     @property
+    def object_is_at_infinity(self) -> bool:
+        obj = self.object
+        if obj is not None:
+            aperture_obj = obj.aperture
+            if aperture_obj is not None:
+                unit_obj = na.unit_normalized(aperture_obj.bound_lower)
+                if unit_obj.is_equivalent(u.mm):
+                    result = False
+                elif unit_obj.is_equivalent(u.dimensionless_unscaled):
+                    result = True
+                else:  # pragma: nocover
+                    raise ValueError(
+                        f"Unrecognized unit for object aperture, {unit_obj}"
+                    )
+            else:
+                result = False
+        else:
+            result = True
+        return result
+
+    @property
     @abc.abstractmethod
     def surfaces(self) -> Sequence[optika.surfaces.AbstractSurface]:
         """
@@ -367,24 +388,11 @@ class AbstractSequentialSystem(
         )
 
         # return rayfunction_inputs_stops
-
-        obj = self.object
-        if obj is not None:
-            aperture_obj = obj.aperture
-            if aperture_obj is not None:
-                unit_obj = na.unit_normalized(aperture_obj.bound_lower)
-                if unit_obj.is_equivalent(u.mm):
-                    object_at_infinity = False
-                else:
-                    object_at_infinity = True
-            else:
-                object_at_infinity = False
-        else:
-            object_at_infinity = True
+        object_is_at_infinity = self.object_is_at_infinity
 
         result = rayfunction_inputs_stops.copy_shallow()
 
-        if object_at_infinity:
+        if object_is_at_infinity:
             field = rayfunction_inputs_stops.outputs.direction.xy
             pupil = rayfunction_inputs_stops.outputs.position.xy
         else:
@@ -407,7 +415,7 @@ class AbstractSequentialSystem(
         result.inputs.field = ptp_field * (result.inputs.field + 1) / 2 + min_field
         result.inputs.pupil = ptp_pupil * (result.inputs.pupil + 1) / 2 + min_pupil
 
-        if object_at_infinity:
+        if object_is_at_infinity:
             position = result.inputs.pupil
             direction = result.inputs.field
         else:
@@ -428,6 +436,7 @@ class AbstractSequentialSystem(
             ),
         )
 
+        obj = self.object
         if obj is not None:
             if obj.transformation is not None:
                 rays = obj.transformation(rays)

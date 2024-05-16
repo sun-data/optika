@@ -20,6 +20,10 @@ class AbstractTestAbstractSequentialSystem(
         if a.object is not None:
             assert isinstance(a.object, optika.surfaces.AbstractSurface)
 
+    def test_object_is_at_infinity(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.object_is_at_infinity
+        assert isinstance(result, bool)
+
     def test_surfaces(self, a: optika.systems.AbstractSequentialSystem):
         for surface in a.surfaces:
             assert isinstance(surface, optika.surfaces.AbstractSurface)
@@ -144,44 +148,62 @@ class AbstractTestAbstractSequentialSystem(
         assert a.axis_surface not in rayfunction.shape
 
 
+_objects = [
+    None,
+    optika.surfaces.Surface(),
+    optika.surfaces.Surface(
+        aperture=optika.apertures.CircularAperture(10 * u.mm),
+    ),
+    optika.surfaces.Surface(
+        aperture=optika.apertures.CircularAperture(0.1),
+    ),
+]
+
+_surfaces = [
+    optika.surfaces.Surface(
+        name="mirror",
+        sag=optika.sags.SphericalSag(-200 * u.mm),
+        material=optika.materials.Mirror(),
+        aperture=optika.apertures.CircularAperture(20 * u.mm),
+        is_pupil_stop=True,
+        transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
+    ),
+]
+
+_sensor = optika.sensors.IdealImagingSensor(
+    name="sensor",
+    width_pixel=15 * u.um,
+    num_pixel=na.Cartesian2dVectorArray(2048, 1024),
+    is_field_stop=True,
+)
+
+_grid_input = optika.vectors.ObjectVectorArray(
+    wavelength=500 * u.nm,
+    field=na.Cartesian2dVectorLinearSpace(
+        start=0,
+        stop=1,
+        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+        num=5,
+    ),
+    pupil=na.Cartesian2dVectorLinearSpace(
+        start=0,
+        stop=1,
+        axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+        num=5,
+    ),
+)
+
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
         optika.systems.SequentialSystem(
-            surfaces=[
-                optika.surfaces.Surface(
-                    name="mirror",
-                    sag=optika.sags.SphericalSag(-200 * u.mm),
-                    material=optika.materials.Mirror(),
-                    aperture=optika.apertures.CircularAperture(20 * u.mm),
-                    is_pupil_stop=True,
-                    transformation=na.transformations.Cartesian3dTranslation(
-                        z=100 * u.mm
-                    ),
-                ),
-            ],
-            sensor=optika.sensors.IdealImagingSensor(
-                name="sensor",
-                width_pixel=15 * u.um,
-                num_pixel=na.Cartesian2dVectorArray(2048, 1024),
-                is_field_stop=True,
-            ),
-            grid_input=optika.vectors.ObjectVectorArray(
-                wavelength=500 * u.nm,
-                field=na.Cartesian2dVectorLinearSpace(
-                    start=0,
-                    stop=1,
-                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-                    num=5,
-                ),
-                pupil=na.Cartesian2dVectorLinearSpace(
-                    start=0,
-                    stop=1,
-                    axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
-                    num=5,
-                ),
-            ),
+            object=obj,
+            surfaces=_surfaces,
+            sensor=_sensor,
+            grid_input=_grid_input,
         )
+        for obj in _objects
     ],
 )
 class TestSequentialSystem(AbstractTestAbstractSequentialSystem):
