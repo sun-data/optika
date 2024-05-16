@@ -20,6 +20,10 @@ class AbstractTestAbstractSequentialSystem(
         if a.object is not None:
             assert isinstance(a.object, optika.surfaces.AbstractSurface)
 
+    def test_object_is_at_infinity(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.object_is_at_infinity
+        assert isinstance(result, bool)
+
     def test_surfaces(self, a: optika.systems.AbstractSequentialSystem):
         for surface in a.surfaces:
             assert isinstance(surface, optika.surfaces.AbstractSurface)
