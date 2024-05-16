@@ -471,6 +471,10 @@ class AbstractSequentialSystem(
         axis
             The axis along which the rays are accumulated.
             If :obj:`None` (the default), :attr:`axis_surface` will be used.
+
+        See Also
+        --------
+        rayfunction : Similar to `raytrace` except it only returns the rays at the last surface.
         """
 
         if axis is None:
@@ -498,12 +502,37 @@ class AbstractSequentialSystem(
         )
         return result
 
-    def _calc_rayfunction(
+    def rayfunction(
         self,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
         field: None | na.AbstractCartesian2dVectorArray = None,
         pupil: None | na.AbstractCartesian2dVectorArray = None,
     ) -> optika.rays.RayFunctionArray:
+        """
+        Given the wavelength, field position, and pupil position of some input
+        rays, trace those rays through the system and return the resulting
+        rays at the last surface.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths of the input rays.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            will be used.
+        field
+            The field positions of the input rays, in either normalized or physical units.
+            If :obj:`None` (the default), ``self.grid_input.field``
+            will be used.
+        pupil
+            The pupil positions of the input rays, in either normalized or physical units.
+            If :obj:`None` (the default), ``self.grid_input.pupil``
+            will be used.
+
+        See Also
+        --------
+        raytrace : Similar to `rayfunction` except it computes all the intermediate rays.
+        """
+
         axis = "_dummy"
         raytrace = self.raytrace(
             wavelength=wavelength,
@@ -519,7 +548,7 @@ class AbstractSequentialSystem(
         Computes the rays at the last surface in the system as a function of
         input wavelength and position using :attr:`grid_input`.
         """
-        return self._calc_rayfunction()
+        return self.rayfunction()
 
     def plot(
         self,
