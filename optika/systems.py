@@ -393,6 +393,28 @@ class AbstractSequentialSystem(
             samples_field_stop=21,
         )
 
+    @property
+    def field_min(self) -> na.AbstractCartesian2dVectorArray:
+        """
+        The lower left corner of this optical system's field of view.
+        """
+        axis = (self._axis_field_stop, self._axis_pupil_stop)
+        if self.object_is_at_infinity:
+            return self.rayfunction_stops.outputs.direction.xy.min(axis)
+        else:
+            return self.rayfunction_stops.outputs.position.xy.min(axis)
+
+    @property
+    def field_max(self) -> na.AbstractCartesian2dVectorArray:
+        """
+        The upper right corner of this optical system's field of view.
+        """
+        axis = (self._axis_field_stop, self._axis_pupil_stop)
+        if self.object_is_at_infinity:
+            return self.rayfunction_stops.outputs.direction.xy.max(axis)
+        else:
+            return self.rayfunction_stops.outputs.position.xy.max(axis)
+
     def _calc_rayfunction_input(
         self,
         grid_input: optika.vectors.ObjectVectorArray,
