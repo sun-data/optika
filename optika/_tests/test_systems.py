@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -62,6 +63,15 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(result.inputs, optika.vectors.ObjectVectorArray)
         assert isinstance(result.outputs, optika.rays.RayVectorArray)
         assert result.ndim >= 2
+
+    def test_field_min(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.field_min
+        assert isinstance(result, na.AbstractCartesian2dVectorArray)
+
+    def test_field_max(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.field_max
+        assert isinstance(result, na.AbstractCartesian2dVectorArray)
+        assert np.all(result > a.field_min)
 
     @pytest.mark.parametrize(
         argnames="wavelength,field,pupil",
