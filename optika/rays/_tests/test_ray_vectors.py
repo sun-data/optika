@@ -104,11 +104,85 @@ class AbstractTestAbstractRayVectorArray(
     ):
         pass
 
+    @pytest.mark.parametrize(
+        argnames="array_2",
+        argvalues=[
+            na.Cartesian3dVectorArray(1, 2, 3) * u.mm,
+        ],
+    )
+    class TestAddCartesian3dVector:
+        def test_add_cartesian3d_vector(
+            self,
+            array: optika.rays.AbstractRayVectorArray,
+            array_2: na.AbstractCartesian3dVectorArray,
+        ):
+            result = array + array_2
+            assert result is not array
+            assert np.all(result.position == array.position + array_2)
+            assert result.wavelength is array.wavelength
+            assert result.direction is array.direction
+            assert result.index_refraction is array.index_refraction
+            assert result.attenuation is array.attenuation
+            assert result.intensity is array.intensity
+            assert result.unvignetted is array.unvignetted
+
+        def test_add_cartesian3d_vector_reversed(
+            self,
+            array: optika.rays.AbstractRayVectorArray,
+            array_2: na.AbstractCartesian3dVectorArray,
+        ):
+            result = array_2 + array
+            assert result is not array
+            assert np.all(result.position == array_2 + array.position)
+            assert result.wavelength is array.wavelength
+            assert result.direction is array.direction
+            assert result.index_refraction is array.index_refraction
+            assert result.attenuation is array.attenuation
+            assert result.intensity is array.intensity
+            assert result.unvignetted is array.unvignetted
+
     @pytest.mark.parametrize("array_2", rays)
     class TestMatmul(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestMatmul
     ):
         pass
+
+    @pytest.mark.parametrize(
+        argnames="array_2",
+        argvalues=[
+            na.Cartesian3dXRotationMatrixArray(30 * u.deg),
+        ],
+    )
+    class TestMatmulCartesian3dMatrix:
+        def test_matmul_cartesian3d_matrix(
+            self,
+            array: optika.rays.AbstractRayVectorArray,
+            array_2: na.AbstractCartesian3dVectorArray,
+        ):
+            result = array @ array_2
+            assert result is not array
+            assert np.all(result.position == array.position @ array_2)
+            assert np.all(result.direction == array.direction @ array_2)
+            assert result.wavelength is array.wavelength
+            assert result.index_refraction is array.index_refraction
+            assert result.attenuation is array.attenuation
+            assert result.intensity is array.intensity
+            assert result.unvignetted is array.unvignetted
+
+        def test_matmul_cartesian3d_matrix_reversed(
+            self,
+            array: optika.rays.AbstractRayVectorArray,
+            array_2: na.AbstractCartesian3dVectorArray,
+        ):
+            result = array_2 @ array
+            assert result is not array
+            assert np.all(result.position == array_2 @ array.position)
+            assert np.all(result.direction == array_2 @ array.direction)
+            assert result.wavelength is array.wavelength
+            assert result.index_refraction is array.index_refraction
+            assert result.attenuation is array.attenuation
+            assert result.intensity is array.intensity
+            assert result.unvignetted is array.unvignetted
 
     class TestArrayFunctions(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions
