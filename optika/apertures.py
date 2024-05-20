@@ -81,7 +81,7 @@ class AbstractAperture(
         else:
             raise ValueError(f"aperture with unit {unit} is not supported")
         rays = rays.copy_shallow()
-        rays.intensity = rays.intensity * mask
+        rays.unvignetted = rays.unvignetted & mask
         return rays
 
     @property

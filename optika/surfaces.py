@@ -176,7 +176,8 @@ class AbstractSurface(
         intensity_2 = intensity_1 * material.efficiency(rays_1, normal)
         attenuation_2 = material.attenuation(rays_1)
 
-        rays_2 = optika.rays.RayVectorArray(
+        rays_2 = dataclasses.replace(
+            rays_1,
             wavelength=wavelength_2,
             position=position_2,
             direction=b,

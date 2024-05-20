@@ -63,12 +63,13 @@ class AbstractTestAbstractAperture(
         result = a.clip_rays(rays)
         assert isinstance(result, optika.rays.RayVectorArray)
         assert result is not rays
-        assert result.intensity is not rays.intensity
-        assert np.mean(result.intensity) <= np.mean(rays.intensity)
         assert np.all(result.position == rays.position)
         assert np.all(result.direction == rays.direction)
+        assert np.all(result.intensity == rays.intensity)
         assert np.all(result.attenuation == rays.attenuation)
         assert np.all(result.index_refraction == rays.index_refraction)
+        assert result.unvignetted is not rays.unvignetted
+        assert np.mean(result.unvignetted) <= np.mean(rays.unvignetted)
 
     def test_bound_lower(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.bound_lower, na.AbstractCartesian3dVectorArray)
