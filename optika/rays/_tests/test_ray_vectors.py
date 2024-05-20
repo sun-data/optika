@@ -192,10 +192,3 @@ class TestRayVectorArray(
         value: float | na.ScalarArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
-
-
-class AbstractTestAbstractImplicitRayVectorArray(
-    AbstractTestAbstractRayVectorArray,
-    test_vectors_cartesian.AbstractTestAbstractImplicitCartesianVectorArray,
-):
-    pass

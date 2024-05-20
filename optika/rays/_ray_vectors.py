@@ -9,7 +9,6 @@ import named_arrays as na
 __all__ = [
     "AbstractRayVectorArray",
     "RayVectorArray",
-    "AbstractImplicitRayVectorArray",
 ]
 
 IntensityT = TypeVar("IntensityT", bound=na.ScalarLike)
@@ -220,29 +219,3 @@ class RayVectorArray(
             index_refraction=scalar,
             unvignetted=scalar,
         )
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class AbstractImplicitRayVectorArray(
-    AbstractRayVectorArray,
-    na.AbstractImplicitCartesianVectorArray,
-):
-    @property
-    def direction(self) -> na.AbstractCartesian3dVectorArray:
-        return self.explicit.direction
-
-    @property
-    def intensity(self) -> na.ScalarLike:
-        return self.explicit.intensity
-
-    @property
-    def attenuation(self) -> na.ScalarLike:
-        return self.explicit.attenuation
-
-    @property
-    def index_refraction(self) -> na.ScalarLike:
-        return self.explicit.index_refraction
-
-    @property
-    def unvignetted(self) -> na.ScalarLike:
-        return self.explicit.unvignetted
