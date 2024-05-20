@@ -80,6 +80,9 @@ class AbstractTestAbstractRayVectorArray(
     def test_index_refraction(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.index_refraction), na.AbstractScalar)
 
+    def test_unvignetted(self, array: optika.rays.AbstractRayVectorArray):
+        assert isinstance(na.as_named_array(array.unvignetted), na.AbstractScalar)
+
     @pytest.mark.xfail(raises=NotImplementedError)
     def test_matrix(self, array):
         return super().test_matrix(array=array)
@@ -189,10 +192,3 @@ class TestRayVectorArray(
         value: float | na.ScalarArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
-
-
-class AbstractTestAbstractImplicitRayVectorArray(
-    AbstractTestAbstractRayVectorArray,
-    test_vectors_cartesian.AbstractTestAbstractImplicitCartesianVectorArray,
-):
-    pass
