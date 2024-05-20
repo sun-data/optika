@@ -658,7 +658,7 @@ class AbstractSequentialSystem(
 
             where = True
             if not plot_rays_vignetted:
-                where = raytrace.outputs[dict(surface=~0)].unvignetted
+                where = raytrace.outputs.unvignetted[{self.axis_surface: ~0}]
 
             result["rays"] = na.plt.plot(
                 raytrace.outputs.position,

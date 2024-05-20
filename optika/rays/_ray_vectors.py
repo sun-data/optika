@@ -99,25 +99,19 @@ class AbstractRayVectorArray(
 
         if isinstance(x1, AbstractRayVectorArray):
             if isinstance(x2, na.AbstractCartesian3dMatrixArray):
-                return RayVectorArray(
-                    wavelength=x1.wavelength,
+                return dataclasses.replace(
+                    x1,
                     position=x1.position @ x2,
                     direction=x1.direction @ x2,
-                    intensity=x1.intensity,
-                    attenuation=x1.attenuation,
-                    index_refraction=x1.index_refraction,
                 )
             else:
                 return NotImplemented
         elif isinstance(x2, AbstractRayVectorArray):
             if isinstance(x1, na.AbstractCartesian3dMatrixArray):
-                return RayVectorArray(
-                    wavelength=x2.wavelength,
+                return dataclasses.replace(
+                    x2,
                     position=x1 @ x2.position,
                     direction=x1 @ x2.direction,
-                    intensity=x2.intensity,
-                    attenuation=x2.attenuation,
-                    index_refraction=x2.index_refraction,
                 )
             else:
                 return NotImplemented
@@ -133,25 +127,17 @@ class AbstractRayVectorArray(
     ) -> na.AbstractExplicitArray:
         if isinstance(x1, AbstractRayVectorArray):
             if isinstance(x2, na.AbstractCartesian3dVectorArray):
-                return RayVectorArray(
-                    wavelength=x1.wavelength,
+                return dataclasses.replace(
+                    x1,
                     position=x1.position + x2,
-                    direction=x1.direction,
-                    intensity=x1.intensity,
-                    attenuation=x1.attenuation,
-                    index_refraction=x1.index_refraction,
                 )
             else:
                 return NotImplemented
         elif isinstance(x2, AbstractRayVectorArray):
             if isinstance(x1, na.AbstractCartesian3dVectorArray):
-                return RayVectorArray(
-                    wavelength=x2.wavelength,
+                return dataclasses.replace(
+                    x2,
                     position=x1 + x2.position,
-                    direction=x2.direction,
-                    intensity=x2.intensity,
-                    attenuation=x2.attenuation,
-                    index_refraction=x2.index_refraction,
                 )
             else:
                 return NotImplemented
