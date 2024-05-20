@@ -73,6 +73,15 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
         assert np.all(result > a.field_min)
 
+    def test_pupil_min(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.pupil_min
+        assert isinstance(result, na.AbstractCartesian2dVectorArray)
+
+    def test_pupil_max(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.pupil_max
+        assert isinstance(result, na.AbstractCartesian2dVectorArray)
+        assert np.all(result > a.pupil_min)
+
     @pytest.mark.parametrize(
         argnames="wavelength,field,pupil",
         argvalues=[
