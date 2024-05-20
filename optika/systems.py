@@ -415,6 +415,30 @@ class AbstractSequentialSystem(
         else:
             return self.rayfunction_stops.outputs.position.xy.max(axis)
 
+    @property
+    def pupil_min(self) -> na.AbstractCartesian2dVectorArray:
+        """
+        The lower left corner of this optical system's entrance pupil in
+        physical units.
+        """
+        axis = (self._axis_field_stop, self._axis_pupil_stop)
+        if self.object_is_at_infinity:
+            return self.rayfunction_stops.outputs.position.xy.min(axis)
+        else:
+            return self.rayfunction_stops.outputs.direction.xy.min(axis)
+
+    @property
+    def pupil_max(self):
+        """
+        The upper right corner of this optical system's entrance pupil in
+        physical units.
+        """
+        axis = (self._axis_field_stop, self._axis_pupil_stop)
+        if self.object_is_at_infinity:
+            return self.rayfunction_stops.outputs.position.xy.max(axis)
+        else:
+            return self.rayfunction_stops.outputs.direction.xy.max(axis)
+
     def _calc_rayfunction_input(
         self,
         grid_input: optika.vectors.ObjectVectorArray,
