@@ -18,6 +18,7 @@ PositionT = TypeVar("PositionT", bound=na.Cartesian3dVectorArray)
 DirectionT = TypeVar("DirectionT", bound=na.Cartesian3dVectorArray)
 WavelengthT = TypeVar("WavelengthT", bound=na.ScalarLike)
 IndexRefractionT = TypeVar("IndexRefractionT", bound=na.ScalarLike)
+UnvignettedT = TypeVar("UnvignettedT", bound=na.ScalarLike)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -54,6 +55,15 @@ class AbstractRayVectorArray(
         """
         the current index of refraction of the medium that the ray is
         traveling in
+        """
+
+    @property
+    @abc.abstractmethod
+    def unvignetted(self) -> na.AbstractScalar:
+        """
+        A boolean mask where :obj:`True` indicates the ray makes it all the
+        way through the optical system without being blocked by an aperture,
+        and :obj:`False` indicates the ray has been blocked by an aperture.
         """
 
     @property
@@ -174,12 +184,26 @@ class AbstractRayVectorArray(
 class RayVectorArray(
     AbstractRayVectorArray,
     na.SpectralPositionalVectorArray[WavelengthT, PositionT],
-    Generic[IntensityT, PositionT, DirectionT, WavelengthT, IndexRefractionT],
+    Generic[
+        IntensityT,
+        PositionT,
+        DirectionT,
+        WavelengthT,
+        IndexRefractionT,
+        UnvignettedT,
+    ],
 ):
     direction: DirectionT = 0
     intensity: IntensityT = 1
     attenuation: AttenuationT = 0 / u.mm
     index_refraction: IndexRefractionT = 1
+
+    unvignetted: na.AbstractScalar = True
+    """
+    A boolean mask where :obj:`True` indicates the ray makes it all the
+    way through the optical system without being blocked by an aperture,
+    and :obj:`False` indicates the ray has been blocked by an aperture.
+    """
 
     @classmethod
     def from_scalar(
@@ -194,6 +218,7 @@ class RayVectorArray(
             intensity=scalar,
             attenuation=scalar,
             index_refraction=scalar,
+            unvignetted=scalar,
         )
 
 
@@ -217,3 +242,7 @@ class AbstractImplicitRayVectorArray(
     @property
     def index_refraction(self) -> na.ScalarLike:
         return self.explicit.index_refraction
+
+    @property
+    def unvignetted(self) -> na.ScalarLike:
+        return self.explicit.unvignetted
