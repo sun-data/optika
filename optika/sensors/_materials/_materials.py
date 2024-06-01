@@ -119,17 +119,17 @@ def quantum_efficiency_effective(
         The complex index of refraction of the ambient medium.
     thickness_oxide
         The thickness of the oxide layer on the back surface of the sensor.
-        Default is the value given in :cite:t:`Stearn1994`.
+        Default is the value given in :cite:t:`Stern1994`.
     thickness_implant
         The thickness of the implant layer.
-        Default is the value given in :cite:t:`Stearn1994`.
+        Default is the value given in :cite:t:`Stern1994`.
     thickness_substrate
         The thickness of the silicon substrate.
-        Default is the value given in :cite:t:`Stearn1994`.
+        Default is the value given in :cite:t:`Stern1994`.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
-        Default is the value given in :cite:t:`Stearn1994`.
+        Default is the value given in :cite:t:`Stern1994`.
     chemical_oxide
         The chemical composition of the oxide layer.
         The default is to assume the oxide layer is silicon dioxide.
