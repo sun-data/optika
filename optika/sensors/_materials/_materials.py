@@ -576,7 +576,8 @@ class AbstractStern1994BackilluminatedCCDMaterial(
             method="nelder-mead",
         )
 
-        thickness_oxide, thickness_implant, thickness_substrate, cce_backsurface = fit.x
+        thickness_oxide, thickness_implant, cce_backsurface = fit.x
+
         thickness_oxide = thickness_oxide << unit_thickness_oxide
         thickness_implant = thickness_implant << unit_thickness_implant
         cce_backsurface = cce_backsurface << unit_cce_backsurface
