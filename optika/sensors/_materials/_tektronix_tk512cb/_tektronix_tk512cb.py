@@ -135,3 +135,7 @@ class TektronixTK512CBMaterial(
             inputs=na.ScalarArray(wavelength, axes="wavelength"),
             outputs=na.ScalarArray(qe, axes="wavelength"),
         )
+
+    @property
+    def thickness_substrate(self) -> u.Quantity:
+        return 7 * u.um

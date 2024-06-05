@@ -543,14 +543,12 @@ class AbstractStern1994BackilluminatedCCDMaterial(
 
         unit_thickness_oxide = u.AA
         unit_thickness_implant = u.AA
-        unit_thickness_substrate = u.um
         unit_cce_backsurface = u.dimensionless_unscaled
 
         def eqe_rms_difference(x: tuple[float, float, float, float]):
             (
                 thickness_oxide,
                 thickness_implant,
-                thickness_substrate,
                 cce_backsurface,
             ) = x
             qe_fit = quantum_efficiency_effective(
@@ -558,7 +556,7 @@ class AbstractStern1994BackilluminatedCCDMaterial(
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
-                thickness_substrate=thickness_substrate << unit_thickness_substrate,
+                thickness_substrate=self.thickness_substrate,
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
             )
 
@@ -566,7 +564,6 @@ class AbstractStern1994BackilluminatedCCDMaterial(
 
         thickness_oxide_guess = 50 * u.AA
         thickness_implant_guess = 2317 * u.AA
-        thickness_substrate_guess = 7 * u.um
         cce_backsurface_guess = 0.21 * u.dimensionless_unscaled
 
         fit = scipy.optimize.minimize(
@@ -574,7 +571,6 @@ class AbstractStern1994BackilluminatedCCDMaterial(
             x0=[
                 thickness_oxide_guess.to_value(unit_thickness_oxide),
                 thickness_implant_guess.to_value(unit_thickness_implant),
-                thickness_substrate_guess.to_value(unit_thickness_substrate),
                 cce_backsurface_guess.to_value(unit_cce_backsurface),
             ],
             method="nelder-mead",
@@ -583,13 +579,11 @@ class AbstractStern1994BackilluminatedCCDMaterial(
         thickness_oxide, thickness_implant, thickness_substrate, cce_backsurface = fit.x
         thickness_oxide = thickness_oxide << unit_thickness_oxide
         thickness_implant = thickness_implant << unit_thickness_implant
-        thickness_substrate = thickness_substrate << unit_thickness_substrate
         cce_backsurface = cce_backsurface << unit_cce_backsurface
 
         return dict(
             thickness_oxide=thickness_oxide,
             thickness_implant=thickness_implant,
-            thickness_substrate=thickness_substrate,
             cce_backsurface=cce_backsurface,
         )
 
@@ -600,10 +594,6 @@ class AbstractStern1994BackilluminatedCCDMaterial(
     @property
     def thickness_implant(self) -> u.Quantity:
         return self._quantum_efficiency_fit["thickness_implant"]
-
-    @property
-    def thickness_substrate(self) -> u.Quantity:
-        return self._quantum_efficiency_fit["thickness_substrate"]
 
     @property
     def cce_backsurface(self) -> float:
