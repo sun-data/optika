@@ -79,7 +79,7 @@ class TektronixTK512CBMaterial(
 
         material_ccd.thickness_implant
 
-    The thickness of the substrate found by the fit is
+    The thickness of the substrate is
 
     .. jupyter-execute::
 

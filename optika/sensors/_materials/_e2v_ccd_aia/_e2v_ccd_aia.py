@@ -82,7 +82,7 @@ class E2VCCDAIAMaterial(
 
         material_ccd_aia.thickness_implant
 
-    The thickness of the substrate found by the fit is
+    The thickness of the substrate is
 
     .. jupyter-execute::
 

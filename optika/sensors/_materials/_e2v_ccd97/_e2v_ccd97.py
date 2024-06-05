@@ -81,7 +81,7 @@ class E2VCCD97Material(
 
         material_ccd97.thickness_implant
 
-    The thickness of the substrate found by the fit is
+    The thickness of the substrate is
 
     .. jupyter-execute::
 
