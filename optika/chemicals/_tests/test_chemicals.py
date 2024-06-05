@@ -60,6 +60,16 @@ class AbstractTestAbstractChemical(
         assert isinstance(result, na.AbstractScalar)
         assert np.all(result >= 0)
 
+    @pytest.mark.parametrize("wavelength", _wavelength)
+    def test_absorption(
+        self,
+        a: optika.chemicals.AbstractChemical,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        result = a.absorption(wavelength)
+        assert isinstance(result, na.AbstractScalar)
+        assert np.all(result >= 0)
+
 
 @pytest.mark.parametrize(
     argnames="a",

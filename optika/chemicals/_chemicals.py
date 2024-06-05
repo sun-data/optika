@@ -160,6 +160,21 @@ class AbstractChemical(
         """
         return np.imag(self.n(wavelength))
 
+    def absorption(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        """
+        The absorption coefficient of this chemical for the given wavelength.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of light in vacuum for which to compute the
+            absorption coefficient.
+        """
+        return 4 * np.pi * self.wavenumber(wavelength) / wavelength
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class Chemical(

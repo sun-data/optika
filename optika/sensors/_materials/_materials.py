@@ -420,9 +420,7 @@ class AbstractCCDMaterial(
         self,
         rays: optika.rays.AbstractRayVectorArray,
     ) -> na.ScalarLike:
-        result = self._chemical.wavenumber(rays.wavelength)
-        result = 4 * np.pi * result / rays.wavelength
-        return result
+        return self._chemical.absorption(rays.wavelength)
 
     @property
     def is_mirror(self) -> bool:
