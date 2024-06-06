@@ -81,7 +81,7 @@ class E2VCCD97Material(
 
         material_ccd97.thickness_implant
 
-    The thickness of the substrate found by the fit is
+    The thickness of the substrate is
 
     .. jupyter-execute::
 
@@ -151,3 +151,7 @@ class E2VCCD97Material(
             inputs=na.ScalarArray(wavelength, axes="wavelength"),
             outputs=na.ScalarArray(qe, axes="wavelength"),
         )
+
+    @property
+    def thickness_substrate(self) -> u.Quantity:
+        return 16 * u.um
