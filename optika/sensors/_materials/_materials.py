@@ -163,7 +163,7 @@ def charge_collection_efficiency(
     -----
 
     The charge collection efficiency is the fraction of photoelectrons that
-    are measured by the sensor \cite:p:`Janesick`2001`,
+    are measured by the sensor :cite:p:`Janesick`2001`,
     and is an important component of the quantum efficiency of the sensor
 
     In :cite:t:`Stern1994`, the authors define a differential charge collection
