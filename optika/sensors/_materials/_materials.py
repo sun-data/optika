@@ -162,6 +162,10 @@ def charge_collection_efficiency(
     Notes
     -----
 
+    The charge collection efficiency is the fraction of photoelectrons that
+    are measured by the sensor \cite:p:`Janesick`2001`,
+    and is an important component of the quantum efficiency of the sensor
+
     In :cite:t:`Stern1994`, the authors define a differential charge collection
     efficiency, :math:`\eta(z)`, which is the probability that a photoelectron
     resulting from a photon absorbed at a depth :math:`z` will be measured by
@@ -247,7 +251,7 @@ def quantum_efficiency_effective(
     normal: None | na.AbstractCartesian3dVectorArray = None,
 ) -> na.AbstractScalar:
     r"""
-    Calculate the effective quantum efficiency of a back-illuminated detector.
+    Calculate the effective quantum efficiency of a backilluminated detector.
 
     Parameters
     ----------
@@ -379,7 +383,7 @@ def quantum_efficiency_effective(
 
     where :math:`T(\lambda)` is the transmissivity of the backsurface of the
     sensor for a given wavelength :math:`\lambda`,
-    and :math:`\text{CCE}(\lambda) is the charge collection efficiency
+    and :math:`\text{CCE}(\lambda)` is the charge collection efficiency
     (computed by :func:`charge_collection_efficiency`).
     """
     if direction is None:
