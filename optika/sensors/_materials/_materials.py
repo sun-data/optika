@@ -219,7 +219,7 @@ def charge_collection_efficiency(
     .. math::
         :label: eqe-oblique
 
-        \text{CCE} =
+        \text{CCE}(\lambda, \theta) =
             \eta_0
             + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
             - e^{-\alpha D \sec \theta}
@@ -370,105 +370,17 @@ def quantum_efficiency_effective(
 
     Notes
     -----
-    Our goal is to recover Equation 11 in :cite:t:`Stern1994`, along wtih the
-    correction for photons lost by transmission through the entire CCD substrate.
-    From inspecting Equations 6 and 9 in :cite:t:`Stern1994`,
-    we can see that the effective quantum efficiency is:
-
-    .. math::
-        :label: eqe-definition
-
-        \text{EQE} = T_\lambda \int_0^\infty \alpha \eta(x) e^{-\alpha x} \; dx
-
-    where :math:`T_\lambda` is the net transmission of photons through the backsurface
-    oxide layer (accounting for both absorption and reflections) calculated using
-    :func:`optika.materials.multilayer_efficiency`,
-    :math:`\alpha` is the absorption coefficient of silicon,
-    :math:`x` is the distance from the backsurface,
-    and :math:`\eta(x)` is the differential charge collection efficiency (CCE).
-
-    :cite:t:`Stern1994` assumes that the differential CCE takes the following
-    linear form,
-
-    .. math::
-        :label: differential-cce
-
-        \eta(x) = \begin{cases}
-            \eta_0 + (1 - \eta_0) x / W, & 0 < x < W \\
-            1, & W < x < D, \\
-            0, & D < x
-        \end{cases}
-
-    where :math:`\eta_0` is the differential CCE at the backsurface,
-    :math:`W` is the thickness of the implant region,
-    and :math:`D` is the total thickness of the silicon substrate.
-
-    Plugging Equation :eq:`differential-cce` into Equation :eq:`eqe-definition`
-    and integrating yields
+    :cite:t:`Stern1994` defines the effective quantum efficiency as
 
     .. math::
         :label: eqe
 
-        \text{EQE} &= \alpha T_\lambda \left\{
-                        \int_0^W \left[ \eta_0 + \left( \frac{1 - \eta_0}{W} \right) x \right] e^{-\alpha x} \; dx
-                        + \int_W^D e^{-\alpha x} \; dx
-        \right\} \\
-        &= \alpha T_\lambda \left\{
-            \eta_0 \int_0^W e^{-\alpha x} \; dx
-            + \left( \frac{1 - \eta_0}{W} \right) \int_0^W x e^{-\alpha x} \; dx
-            + \int_W^D e^{-\alpha x} \; dx
-        \right\} \\
-        &= \alpha T_\lambda \left\{
-            -\left[ \frac{\eta_0}{\alpha} e^{-\alpha x} \right|_0^W
-            - \left( \frac{1 - \eta_0}{W} \right) \left[ \left( \frac{\alpha x + 1}{\alpha^2} \right) e^{-\alpha x} \right|_0^W
-            - \left[ \frac{1}{\alpha} e^{-\alpha x} \right|_W^D
-        \right\} \\
-        &= T_\lambda \left\{
-            - \left[ \eta_0 (e^{-\alpha W} - 1) \right]
-            - \left( \frac{1 - \eta_0}{\alpha W} \right) \left[ (\alpha W + 1) e^{-\alpha W} - 1 \right]
-            - \left[ e^{-\alpha D} - e^{-\alpha W} \right]
-        \right\} \\
-        &= T_\lambda \left\{
-            - \eta_0 e^{-\alpha W}
-            + \eta_0
-            - e^{-\alpha W}
-            + \eta_0 e^{-\alpha W}
-            + \left( \frac{1 - \eta_0}{\alpha W} \right) (1 - e^{-\alpha W})
-            - e^{-\alpha D}
-            + e^{-\alpha W}
-        \right\} \\
-        &= T_\lambda \left\{
-            \eta_0
-            + \left( \frac{1 - \eta_0}{\alpha W} \right) (1 - e^{-\alpha W})
-            - e^{-\alpha D}
-        \right\} \\
+        \text{EQE}(\lambda) = T(\lambda) \times \text{CCE}(\lambda),
 
-    Equation :eq:`eqe` is equivalent to Equation 11 in :cite:t:`Stern1994`,
-    with the addition of an :math:`e^{-\alpha W}-e^{-\alpha D}` term which represents photons
-    that traveled all the way through the silicon substrate without interacting.
-
-    Equation :eq:`eqe` is only valid for normally-incident light.
-    We can generalize it to obliquely-incident light by making the substitution
-
-    .. math::
-        :label: x-oblique
-
-        x \rightarrow \frac{x}{\cos \theta}
-
-    where :math:`\theta` is the angle between the propagation direction
-    inside the silicon substrate and the normal vector.
-
-    Substituting :eq:`x-oblique` into Equation :eq:`eqe` and solving yields
-
-    .. math::
-        :label: eqe-oblique
-
-        \text{EQE} = T_\lambda \left\{
-            \eta_0
-            + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
-            - e^{-\alpha D \sec \theta}
-        \right\} \\
-
+    where :math:`T(\lambda)` is the transmissivity of the backsurface of the
+    sensor for a given wavelength :math:`\lambda`,
+    and :math:`\text{CCE}(\lambda) is the charge collection efficiency
+    (computed by :func:`charge_collection_efficiency`).
     """
     if direction is None:
         direction = na.Cartesian3dVectorArray(0, 0, 1)
