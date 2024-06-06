@@ -11,6 +11,7 @@ __all__ = [
     "energy_bandgap",
     "energy_electron_hole",
     "quantum_yield_ideal",
+    "charge_collection_efficiency",
     "quantum_efficiency_effective",
     "AbstractImagingSensorMaterial",
     "AbstractCCDMaterial",
@@ -93,6 +94,150 @@ def quantum_yield_ideal(
     return result
 
 
+def charge_collection_efficiency(
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar = 2317 * u.AA,
+    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
+    cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
+    cos_incidence: float | na.AbstractScalar = 1,
+) -> na.AbstractScalar:
+    r"""
+    Compute the average charge collection efficiency using the differential
+    charge collection efficiency profile described in :cite:t:`Stern1994`.
+
+    Parameters
+    ----------
+    absorption
+        The absorption coefficient of the light-sensitive material for the
+        wavelength of interest.
+    thickness_implant
+        The thickness of the implant layer, the layer where recombination can
+        occur.
+        Default is the value given in :cite:t:`Stern1994`.
+    thickness_substrate
+        The total thickness of the light-sensitive material.
+        Default is the value given in :cite:t:`Stern1994`.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    cos_incidence
+        The cosine of the angle of the incident light's propagation direction
+        inside the substrate with the surface normal
+
+    Examples
+    --------
+
+    Plot the charge collection efficiency as a function of wavelength.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Compute the absorption coefficient for silicon
+        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+
+        # Compute the CCE vs wavelength
+        cce = optika.sensors.charge_collection_efficiency(
+            absorption=absorption,
+        )
+
+        # Plot the effective and maximum quantum efficiency
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.plot(
+            wavelength,
+            cce,
+            ax=ax,
+        );
+        ax.set_xscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel("charge collection efficiency");
+
+    Notes
+    -----
+
+    The charge collection efficiency is the fraction of photoelectrons that
+    are measured by the sensor :cite:p:`Janesick2001`,
+    and is an important component of the quantum efficiency of the sensor
+
+    In :cite:t:`Stern1994`, the authors define a differential charge collection
+    efficiency, :math:`\eta(z)`, which is the probability that a photoelectron
+    resulting from a photon absorbed at a depth :math:`z` will be measured by
+    the sensor.
+    In principle, :math:`\eta(z)` depends on the exact implant profile on the
+    backsurface of the sensor, however :cite:t:`Stern1994` and :cite:t:`Boerner2012`
+    have shown that a piecewise-linear approximation of :math:`\eta(z)`,
+
+    .. math::
+        :label: differential-cce
+
+        \eta(x) = \begin{cases}
+            \eta_0 + (1 - \eta_0) x / W, & 0 < x < W \\
+            1, & W < x < D \\
+            0, & D < x,
+        \end{cases}
+
+    is sufficient, given the uncertainties in the optical constants involved.
+
+    The total charge collection efficiency is then the average value of
+    :math:`\eta(z)` weighted by the probability of absorbing a photon at a
+    depth :math:`z`,
+
+    .. math::
+        :label: cce-definition
+
+        \text{CCE}(\lambda) = \frac{\int_0^\infty \eta(z) \exp(-\alpha z) \, dz}
+                               {\int_0^\infty \exp(-\alpha z) \, dz}.
+
+    Plugging Equation :eq:`differential-cce` into Equation :eq:`cce-definition`
+    and integrating yields
+
+    .. math::
+        :label: cce
+
+        \text{CCE}(\lambda) = \eta_0 + \left( \frac{1 - \eta_0}{\alpha W} \right)(1 - e^{-\alpha W}) - e^{-\alpha D}.
+
+    Equation :eq:`cce` is equivalent to the term in curly braces of Equation 11 in :cite:t:`Stern1994`,
+    with the addition of an :math:`e^{-\alpha W}-e^{-\alpha D}` term which represents photons
+    that traveled all the way through the silicon substrate without interacting.
+
+    Equation :eq:`cce` is only valid for normally-incident light.
+    We can generalize it to obliquely-incident light by making the substitution
+
+    .. math::
+        :label: x-oblique
+
+        x \rightarrow \frac{x}{\cos \theta}
+
+    where :math:`\theta` is the angle between the propagation direction
+    inside the silicon substrate and the normal vector.
+
+    Substituting :eq:`x-oblique` into Equation :eq:`cce` and solving yields
+
+    .. math::
+        :label: eqe-oblique
+
+        \text{CCE}(\lambda, \theta) =
+            \eta_0
+            + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
+            - e^{-\alpha D \sec \theta}
+    """
+    z0 = absorption * thickness_implant / cos_incidence
+    exp_z0 = np.exp(-z0)
+
+    term_1 = cce_backsurface
+    term_2 = ((1 - cce_backsurface) / z0) * (1 - exp_z0)
+    term_3 = -np.exp(-absorption * thickness_substrate / cos_incidence)
+
+    return term_1 + term_2 + term_3
+
+
 def quantum_efficiency_effective(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: None | na.AbstractCartesian3dVectorArray = None,
@@ -106,7 +251,7 @@ def quantum_efficiency_effective(
     normal: None | na.AbstractCartesian3dVectorArray = None,
 ) -> na.AbstractScalar:
     r"""
-    Calculate the effective quantum efficiency of a back-illuminated detector.
+    Calculate the effective quantum efficiency of a backilluminated detector.
 
     Parameters
     ----------
@@ -229,105 +374,17 @@ def quantum_efficiency_effective(
 
     Notes
     -----
-    Our goal is to recover Equation 11 in :cite:t:`Stern1994`, along wtih the
-    correction for photons lost by transmission through the entire CCD substrate.
-    From inspecting Equations 6 and 9 in :cite:t:`Stern1994`,
-    we can see that the effective quantum efficiency is:
-
-    .. math::
-        :label: eqe-definition
-
-        \text{EQE} = T_\lambda \int_0^\infty \alpha \eta(x) e^{-\alpha x} \; dx
-
-    where :math:`T_\lambda` is the net transmission of photons through the backsurface
-    oxide layer (accounting for both absorption and reflections) calculated using
-    :func:`optika.materials.multilayer_efficiency`,
-    :math:`\alpha` is the absorption coefficient of silicon,
-    :math:`x` is the distance from the backsurface,
-    and :math:`\eta(x)` is the differential charge collection efficiency (CCE).
-
-    :cite:t:`Stern1994` assumes that the differential CCE takes the following
-    linear form,
-
-    .. math::
-        :label: differential-cce
-
-        \eta(x) = \begin{cases}
-            \eta_0 + (1 - \eta_0) x / W, & 0 < x < W \\
-            1, & W < x < D, \\
-            0, & D < x
-        \end{cases}
-
-    where :math:`\eta_0` is the differential CCE at the backsurface,
-    :math:`W` is the thickness of the implant region,
-    and :math:`D` is the total thickness of the silicon substrate.
-
-    Plugging Equation :eq:`differential-cce` into Equation :eq:`eqe-definition`
-    and integrating yields
+    :cite:t:`Stern1994` defines the effective quantum efficiency as
 
     .. math::
         :label: eqe
 
-        \text{EQE} &= \alpha T_\lambda \left\{
-                        \int_0^W \left[ \eta_0 + \left( \frac{1 - \eta_0}{W} \right) x \right] e^{-\alpha x} \; dx
-                        + \int_W^D e^{-\alpha x} \; dx
-        \right\} \\
-        &= \alpha T_\lambda \left\{
-            \eta_0 \int_0^W e^{-\alpha x} \; dx
-            + \left( \frac{1 - \eta_0}{W} \right) \int_0^W x e^{-\alpha x} \; dx
-            + \int_W^D e^{-\alpha x} \; dx
-        \right\} \\
-        &= \alpha T_\lambda \left\{
-            -\left[ \frac{\eta_0}{\alpha} e^{-\alpha x} \right|_0^W
-            - \left( \frac{1 - \eta_0}{W} \right) \left[ \left( \frac{\alpha x + 1}{\alpha^2} \right) e^{-\alpha x} \right|_0^W
-            - \left[ \frac{1}{\alpha} e^{-\alpha x} \right|_W^D
-        \right\} \\
-        &= T_\lambda \left\{
-            - \left[ \eta_0 (e^{-\alpha W} - 1) \right]
-            - \left( \frac{1 - \eta_0}{\alpha W} \right) \left[ (\alpha W + 1) e^{-\alpha W} - 1 \right]
-            - \left[ e^{-\alpha D} - e^{-\alpha W} \right]
-        \right\} \\
-        &= T_\lambda \left\{
-            - \eta_0 e^{-\alpha W}
-            + \eta_0
-            - e^{-\alpha W}
-            + \eta_0 e^{-\alpha W}
-            + \left( \frac{1 - \eta_0}{\alpha W} \right) (1 - e^{-\alpha W})
-            - e^{-\alpha D}
-            + e^{-\alpha W}
-        \right\} \\
-        &= T_\lambda \left\{
-            \eta_0
-            + \left( \frac{1 - \eta_0}{\alpha W} \right) (1 - e^{-\alpha W})
-            - e^{-\alpha D}
-        \right\} \\
+        \text{EQE}(\lambda) = T(\lambda) \times \text{CCE}(\lambda),
 
-    Equation :eq:`eqe` is equivalent to Equation 11 in :cite:t:`Stern1994`,
-    with the addition of an :math:`e^{-\alpha W}-e^{-\alpha D}` term which represents photons
-    that traveled all the way through the silicon substrate without interacting.
-
-    Equation :eq:`eqe` is only valid for normally-incident light.
-    We can generalize it to obliquely-incident light by making the substitution
-
-    .. math::
-        :label: x-oblique
-
-        x \rightarrow \frac{x}{\cos \theta}
-
-    where :math:`\theta` is the angle between the propagation direction
-    inside the silicon substrate and the normal vector.
-
-    Substituting :eq:`x-oblique` into Equation :eq:`eqe` and solving yields
-
-    .. math::
-        :label: eqe-oblique
-
-        \text{EQE} = T_\lambda \left\{
-            \eta_0
-            + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
-            - e^{-\alpha D \sec \theta}
-        \right\} \\
-
+    where :math:`T(\lambda)` is the transmissivity of the backsurface of the
+    sensor for a given wavelength :math:`\lambda`,
+    and :math:`\text{CCE}(\lambda)` is the charge collection efficiency
+    (computed by :func:`charge_collection_efficiency`).
     """
     if direction is None:
         direction = na.Cartesian3dVectorArray(0, 0, 1)
@@ -368,14 +425,15 @@ def quantum_efficiency_effective(
 
     cos_theta = -direction_substrate @ normal
 
-    z0 = absorption_substrate * thickness_implant / cos_theta
-    exp_z0 = np.exp(-z0)
+    cce = charge_collection_efficiency(
+        absorption=absorption_substrate,
+        thickness_implant=thickness_implant,
+        thickness_substrate=thickness_substrate,
+        cce_backsurface=cce_backsurface,
+        cos_incidence=cos_theta,
+    )
 
-    term_1 = cce_backsurface
-    term_2 = ((1 - cce_backsurface) / z0) * (1 - exp_z0)
-    term_3 = -np.exp(-absorption_substrate * thickness_substrate / cos_theta)
-
-    result = transmissivity.average * (term_1 + term_2 + term_3)
+    result = transmissivity.average * cce
 
     return result
 

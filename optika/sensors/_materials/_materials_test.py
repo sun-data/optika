@@ -22,6 +22,56 @@ def test_quantum_yield_ideal(
 
 
 @pytest.mark.parametrize(
+    argnames="absorption",
+    argvalues=[
+        1 / u.mm,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_implant",
+    argvalues=[
+        1000 * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_substrate",
+    argvalues=[
+        1 * u.um,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="cce_backsurface",
+    argvalues=[
+        0.2,
+        1,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="cos_incidence",
+    argvalues=[
+        1,
+    ],
+)
+def test_charge_collection_efficiency(
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    cos_incidence: float | na.AbstractScalar,
+):
+    result = optika.sensors.charge_collection_efficiency(
+        absorption=absorption,
+        thickness_implant=thickness_implant,
+        thickness_substrate=thickness_substrate,
+        cce_backsurface=cce_backsurface,
+        cos_incidence=cos_incidence,
+    )
+
+    assert np.all(result >= 0)
+    assert np.all(result <= 1)
+
+
+@pytest.mark.parametrize(
     argnames="wavelength",
     argvalues=[
         304 * u.AA,
