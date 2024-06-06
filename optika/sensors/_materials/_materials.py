@@ -11,6 +11,7 @@ __all__ = [
     "energy_bandgap",
     "energy_electron_hole",
     "quantum_yield_ideal",
+    "charge_collection_efficiency",
     "quantum_efficiency_effective",
     "AbstractImagingSensorMaterial",
     "AbstractCCDMaterial",
@@ -91,6 +92,101 @@ def quantum_yield_ideal(
     result = np.where(energy > energy_bandgap, result, 0)
 
     return result
+
+
+def charge_collection_efficiency(
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar = 2317 * u.AA,
+    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
+    cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
+    cos_incidence: float | na.AbstractScalar = 1,
+) -> na.AbstractScalar:
+    """
+    Compute the average charge collection efficiency using the differential
+    charge collection efficiency profile described in :cite:t:`Stern1994`.
+
+    Parameters
+    ----------
+    absorption
+        The absorption coefficient of the light-sensitive material for the
+        wavelength of interest.
+    thickness_implant
+        The thickness of the implant layer, the layer where recombination can
+        occur.
+        Default is the value given in :cite:t:`Stern1994`.
+    thickness_substrate
+        The total thickness of the light-sensitive material.
+        Default is the value given in :cite:t:`Stern1994`.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    cos_incidence
+        The cosine of the angle of the incident light's propagation direction
+        inside the substrate with the surface normal
+
+    Examples
+    --------
+
+    Plot the charge collection efficiency as a function of wavelength.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Compute the absorption coefficient for silicon
+        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+
+        # Compute the CCE vs wavelength
+        cce = optika.sensors.charge_collection_efficiency(
+            absorption=absorption,
+        )
+
+        # Plot the effective and maximum quantum efficiency
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.plot(
+            wavelength,
+            cce,
+            ax=ax,
+        );
+        ax.set_xscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel("charge collection efficiency");
+
+    Notes
+    -----
+
+    In \cite:t:`Stern1994`, the authors define a differential charge collection
+    efficiency, :math:`\eta(z)` which is the probability that a photoelectron
+    resulting from a photon absorbed at a depth :math:`z` will be measured.
+    In principle, :math:`\eta(z)` depends on the exact implant profile on the
+    backsurface of the sensor, however :cite:t:`Stern1994` and :cite:t:`Boerner2012`
+    have shown that a piecewise-linear approximation of :math:`\eta(z)`,
+
+    .. math::
+        :label: differential-cce
+        \eta(x) = \begin{cases}
+            \eta_0 + (1 - \eta_0) x / W, & 0 < x < W \\
+            1, & W < x < D \\
+            0, & D < x,
+        \end{cases}
+
+    is sufficient, given the uncertainties in the optical constants involved.
+    """
+    z0 = absorption * thickness_implant / cos_incidence
+    exp_z0 = np.exp(-z0)
+
+    term_1 = cce_backsurface
+    term_2 = ((1 - cce_backsurface) / z0) * (1 - exp_z0)
+    term_3 = -np.exp(-absorption * thickness_substrate / cos_incidence)
+
+    return term_1 + term_2 + term_3
 
 
 def quantum_efficiency_effective(
@@ -368,14 +464,15 @@ def quantum_efficiency_effective(
 
     cos_theta = -direction_substrate @ normal
 
-    z0 = absorption_substrate * thickness_implant / cos_theta
-    exp_z0 = np.exp(-z0)
+    cce = charge_collection_efficiency(
+        absorption=absorption_substrate,
+        thickness_implant=thickness_implant,
+        thickness_substrate=thickness_substrate,
+        cce_backsurface=cce_backsurface,
+        cos_incidence=cos_theta,
+    )
 
-    term_1 = cce_backsurface
-    term_2 = ((1 - cce_backsurface) / z0) * (1 - exp_z0)
-    term_3 = -np.exp(-absorption_substrate * thickness_substrate / cos_theta)
-
-    result = transmissivity.average * (term_1 + term_2 + term_3)
+    result = transmissivity.average * cce
 
     return result
 
