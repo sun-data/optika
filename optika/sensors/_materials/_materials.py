@@ -101,7 +101,7 @@ def charge_collection_efficiency(
     cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
     cos_incidence: float | na.AbstractScalar = 1,
 ) -> na.AbstractScalar:
-    """
+    r"""
     Compute the average charge collection efficiency using the differential
     charge collection efficiency profile described in :cite:t:`Stern1994`.
 
@@ -162,15 +162,17 @@ def charge_collection_efficiency(
     Notes
     -----
 
-    In \cite:t:`Stern1994`, the authors define a differential charge collection
-    efficiency, :math:`\eta(z)` which is the probability that a photoelectron
-    resulting from a photon absorbed at a depth :math:`z` will be measured.
+    In :cite:t:`Stern1994`, the authors define a differential charge collection
+    efficiency, :math:`\eta(z)`, which is the probability that a photoelectron
+    resulting from a photon absorbed at a depth :math:`z` will be measured by
+    the sensor.
     In principle, :math:`\eta(z)` depends on the exact implant profile on the
     backsurface of the sensor, however :cite:t:`Stern1994` and :cite:t:`Boerner2012`
     have shown that a piecewise-linear approximation of :math:`\eta(z)`,
 
     .. math::
         :label: differential-cce
+
         \eta(x) = \begin{cases}
             \eta_0 + (1 - \eta_0) x / W, & 0 < x < W \\
             1, & W < x < D \\
@@ -178,6 +180,49 @@ def charge_collection_efficiency(
         \end{cases}
 
     is sufficient, given the uncertainties in the optical constants involved.
+
+    The total charge collection efficiency is then the average value of
+    :math:`\eta(z)` weighted by the probability of absorbing a photon at a
+    depth :math:`z`,
+
+    .. math::
+        :label: cce-definition
+
+        \text{CCE}(\lambda) = \frac{\int_0^\infty \eta(z) \exp(-\alpha z) \, dz}
+                               {\int_0^\infty \exp(-\alpha z) \, dz}.
+
+    Plugging Equation :eq:`differential-cce` into Equation :eq:`cce-definition`
+    and integrating yields
+
+    .. math::
+        :label: cce
+
+        \text{CCE}(\lambda) = \eta_0 + \left( \frac{1 - \eta_0}{\alpha W} \right)(1 - e^{-\alpha W}) - e^{-\alpha D}.
+
+    Equation :eq:`cce` is equivalent to the term in curly braces of Equation 11 in :cite:t:`Stern1994`,
+    with the addition of an :math:`e^{-\alpha W}-e^{-\alpha D}` term which represents photons
+    that traveled all the way through the silicon substrate without interacting.
+
+    Equation :eq:`cce` is only valid for normally-incident light.
+    We can generalize it to obliquely-incident light by making the substitution
+
+    .. math::
+        :label: x-oblique
+
+        x \rightarrow \frac{x}{\cos \theta}
+
+    where :math:`\theta` is the angle between the propagation direction
+    inside the silicon substrate and the normal vector.
+
+    Substituting :eq:`x-oblique` into Equation :eq:`cce` and solving yields
+
+    .. math::
+        :label: eqe-oblique
+
+        \text{CCE} =
+            \eta_0
+            + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
+            - e^{-\alpha D \sec \theta}
     """
     z0 = absorption * thickness_implant / cos_incidence
     exp_z0 = np.exp(-z0)
