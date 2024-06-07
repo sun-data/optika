@@ -97,7 +97,6 @@ def quantum_yield_ideal(
 def charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar = 2317 * u.AA,
-    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
     cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
     cos_incidence: float | na.AbstractScalar = 1,
 ) -> na.AbstractScalar:
@@ -113,9 +112,6 @@ def charge_collection_efficiency(
     thickness_implant
         The thickness of the implant layer, the layer where recombination can
         occur.
-        Default is the value given in :cite:t:`Stern1994`.
-    thickness_substrate
-        The total thickness of the light-sensitive material.
         Default is the value given in :cite:t:`Stern1994`.
     cce_backsurface
         The differential charge collection efficiency on the back surface
@@ -177,10 +173,9 @@ def charge_collection_efficiency(
     .. math::
         :label: differential-cce
 
-        \eta(x) = \begin{cases}
-            \eta_0 + (1 - \eta_0) x / W, & 0 < x < W \\
-            1, & W < x < D \\
-            0, & D < x,
+        \eta(z) = \begin{cases}
+            \eta_0 + (1 - \eta_0) z / W, & 0 < z < W \\
+            1, & W < z < D,
         \end{cases}
 
     is sufficient, given the uncertainties in the optical constants involved.
@@ -192,8 +187,8 @@ def charge_collection_efficiency(
     .. math::
         :label: cce-definition
 
-        \text{CCE}(\lambda) = \frac{\int_0^\infty \eta(z) \exp(-\alpha z) \, dz}
-                               {\int_0^\infty \exp(-\alpha z) \, dz}.
+        \text{CCE}(\lambda) = \frac{\int_0^\infty \eta(z) e^{-\alpha z} \, dz}
+                               {\int_0^\infty e^{-\alpha z] \, dz}.
 
     Plugging Equation :eq:`differential-cce` into Equation :eq:`cce-definition`
     and integrating yields
@@ -201,7 +196,7 @@ def charge_collection_efficiency(
     .. math::
         :label: cce
 
-        \text{CCE}(\lambda) = \eta_0 + \left( \frac{1 - \eta_0}{\alpha W} \right)(1 - e^{-\alpha W}) - e^{-\alpha D}.
+        \text{CCE}(\lambda) = \eta_0 + \left( \frac{1 - \eta_0}{\alpha W} \right)(1 - e^{-\alpha W}).
 
     Equation :eq:`cce` is equivalent to the term in curly braces of Equation 11 in :cite:t:`Stern1994`,
     with the addition of an :math:`e^{-\alpha W}-e^{-\alpha D}` term which represents photons
@@ -226,16 +221,14 @@ def charge_collection_efficiency(
         \text{CCE}(\lambda, \theta) =
             \eta_0
             + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
-            - e^{-\alpha D \sec \theta}
     """
     z0 = absorption * thickness_implant / cos_incidence
     exp_z0 = np.exp(-z0)
 
     term_1 = cce_backsurface
     term_2 = ((1 - cce_backsurface) / z0) * (1 - exp_z0)
-    term_3 = -np.exp(-absorption * thickness_substrate / cos_incidence)
 
-    return term_1 + term_2 + term_3
+    return term_1 + term_2
 
 
 def quantum_efficiency_effective(
@@ -379,10 +372,10 @@ def quantum_efficiency_effective(
     .. math::
         :label: eqe
 
-        \text{EQE}(\lambda) = T(\lambda) \times \text{CCE}(\lambda),
+        \text{EQE}(\lambda) = A(\lambda) \times \text{CCE}(\lambda),
 
-    where :math:`T(\lambda)` is the transmissivity of the backsurface of the
-    sensor for a given wavelength :math:`\lambda`,
+    where :math:`A(\lambda)` is the absorbtivity of the epitaxial silicon layer
+    for a given wavelength :math:`\lambda`,
     and :math:`\text{CCE}(\lambda)` is the charge collection efficiency
     (computed by :func:`charge_collection_efficiency`).
     """
@@ -398,7 +391,7 @@ def quantum_efficiency_effective(
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    reflectivity, transmissivity = optika.materials.multilayer_efficiency(
+    reflectivity_ox, transmissivity_ox = optika.materials.multilayer_efficiency(
         wavelength=wavelength,
         direction=-direction @ normal,
         n=n,
@@ -410,6 +403,26 @@ def quantum_efficiency_effective(
             chemical=chemical_substrate,
         ),
     )
+    absorbtivity_ox = 1 - (reflectivity_ox + transmissivity_ox)
+
+    reflectivity, transmissivity = optika.materials.multilayer_efficiency(
+        wavelength=wavelength,
+        direction=-direction @ normal,
+        n=n,
+        layers=[
+            optika.materials.Layer(
+                chemical=chemical_oxide,
+                thickness=thickness_oxide,
+            ),
+            optika.materials.Layer(
+                chemical=chemical_substrate,
+                thickness=thickness_substrate,
+            ),
+        ],
+    )
+    absorbtivity = 1 - (transmissivity + reflectivity)
+
+    absorbtivity_si = absorbtivity - absorbtivity_ox
 
     n_substrate = chemical_substrate.n(wavelength)
     wavenumber_substrate = np.imag(n_substrate)
@@ -428,12 +441,11 @@ def quantum_efficiency_effective(
     cce = charge_collection_efficiency(
         absorption=absorption_substrate,
         thickness_implant=thickness_implant,
-        thickness_substrate=thickness_substrate,
         cce_backsurface=cce_backsurface,
         cos_incidence=cos_theta,
     )
 
-    result = transmissivity.average * cce
+    result = absorbtivity_si.average * cce
 
     return result
 
