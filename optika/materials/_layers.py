@@ -39,6 +39,13 @@ class AbstractLayer(
     def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
         """The thickness of the layer when plotted."""
 
+    @property
+    @abc.abstractmethod
+    def layer_sequence(self) -> LayerSequence:
+        """
+        This object interpreted as an instance of :class:`LayerSequence`.
+        """
+
     @abc.abstractmethod
     def transfer(
         self,
@@ -179,6 +186,10 @@ class Layer(
             return 1
         else:
             return self._chemical.n(wavelength)
+
+    @property
+    def layer_sequence(self) -> LayerSequence:
+        return LayerSequence([self])
 
     def transfer(
         self,
@@ -382,6 +393,10 @@ class LayerSequence(AbstractLayerSequence):
     def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
         return self.thickness
 
+    @property
+    def layer_sequence(self) -> LayerSequence:
+        return self
+
     def transfer(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
@@ -492,6 +507,10 @@ class PeriodicLayerSequence(AbstractLayerSequence):
     @property
     def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
         return LayerSequence(self.layers).thickness
+
+    @property
+    def layer_sequence(self) -> LayerSequence:
+        return LayerSequence(self.layers * self.num_periods)
 
     def transfer(
         self,

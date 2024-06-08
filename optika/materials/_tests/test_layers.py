@@ -18,6 +18,15 @@ class AbstractTestAbstractLayer(
         result = a.thickness
         assert np.all(result >= 0 * u.nm)
 
+    def test_layer_sequence(
+        self,
+        a: optika.materials.AbstractLayer,
+    ):
+        result = a.layer_sequence
+        assert isinstance(result, optika.materials.LayerSequence)
+        for layer in result.layers:
+            assert isinstance(layer, optika.materials.AbstractLayer)
+
     @pytest.mark.parametrize(
         argnames="wavelength",
         argvalues=[
