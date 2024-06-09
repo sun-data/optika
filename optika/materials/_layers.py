@@ -393,6 +393,9 @@ class LayerSequence(AbstractLayerSequence):
     def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
         return self.thickness
 
+    def __getitem__(self, item: int | slice) -> LayerSequence:
+        return type(self)(self.layers[item])
+
     @property
     def layer_sequence(self) -> LayerSequence:
         return self
