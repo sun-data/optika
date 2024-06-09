@@ -17,6 +17,7 @@ from . import (
 )
 
 __all__ = [
+    "multilayer_coefficients",
     "multilayer_efficiency",
     "AbstractMultilayerMaterial",
     "AbstractMultilayerFilm",
@@ -235,7 +236,7 @@ def multilayer_efficiency(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
     n: float | na.AbstractScalar = 1,
-    layers: Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
+    layers: None | Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
     substrate: None | Layer = None,
 ) -> tuple[
     optika.vectors.PolarizationVectorArray,

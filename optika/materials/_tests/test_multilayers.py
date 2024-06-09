@@ -38,6 +38,53 @@ _wavelength = na.linspace(100, 200, axis="wavelength", num=4) * u.AA
         Layer("SiO2"),
     ],
 )
+def test_multilayer_coefficients(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar,
+    n: float | na.AbstractScalar,
+    layers: Sequence[AbstractLayer] | AbstractLayer,
+    substrate: None | Layer,
+):
+    r, t = optika.materials.multilayer_coefficients(
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        layers=layers,
+        substrate=substrate,
+    )
+
+    assert np.all(np.real(r) >= -1)
+    assert np.all(np.real(r) <= 1)
+
+    assert np.all(np.imag(r) >= -1)
+    assert np.all(np.imag(r) <= 1)
+
+
+@pytest.mark.parametrize("wavelength", [_wavelength])
+@pytest.mark.parametrize(
+    argnames="direction",
+    argvalues=[
+        1,
+        np.cos(na.linspace(-1, 1, axis="angle", num=5)),
+    ],
+)
+@pytest.mark.parametrize("n", [1])
+@pytest.mark.parametrize(
+    argnames="layers",
+    argvalues=[
+        Layer(
+            chemical="SiC",
+            thickness=10 * u.nm,
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="substrate",
+    argvalues=[
+        None,
+        Layer("SiO2"),
+    ],
+)
 def test_multilayer_efficiency(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar,
