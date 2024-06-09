@@ -4,8 +4,35 @@ import astropy.units as u
 import named_arrays as na
 
 __all__ = [
+    "snells_law_scalar",
     "snells_law",
 ]
+
+
+def snells_law_scalar(
+    cos_incidence: float | na.AbstractScalar,
+    index_refraction: float | na.AbstractScalar,
+    index_refraction_new: float | na.AbstractScalar,
+) -> na.AbstractScalar:
+    """
+    A simple form of Snell's law which computes the cosine of the angle
+    between the propagation direction inside the new medium and the interface
+    normal.
+
+    Parameters
+    ----------
+    cos_incidence
+        The cosine of the incidence angle (the angle between the propagation
+        direction and the interface normal.)
+    index_refraction
+        The index of refraction in the current medium.
+    index_refraction_new
+        The index of refraction in the new medium.
+    """
+    sin_incidence = np.sqrt(1 - np.square(cos_incidence))
+    sin_transmitted = index_refraction * sin_incidence / index_refraction_new
+    cos_transmitted = np.sqrt(1 - np.square(sin_transmitted))
+    return cos_transmitted
 
 
 def snells_law(

@@ -6,6 +6,44 @@ import optika
 
 
 @pytest.mark.parametrize(
+    argnames="cos_incidence",
+    argvalues=[
+        1,
+        na.linspace(-1, 1, axis="angle", num=7),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="index_refraction",
+    argvalues=[
+        1,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="index_refraction_new",
+    argvalues=[
+        1.5,
+        na.linspace(1, 2, axis="index_refraction_new", num=4),
+    ],
+)
+def test_snells_law_scalar(
+    cos_incidence: float | na.AbstractScalar,
+    index_refraction: float | na.AbstractScalar,
+    index_refraction_new: float | na.AbstractScalar,
+):
+    result = optika.materials.snells_law_scalar(
+        cos_incidence=cos_incidence,
+        index_refraction=index_refraction,
+        index_refraction_new=index_refraction_new,
+    )
+
+    n1 = index_refraction
+    n2 = index_refraction_new
+    result_expected = np.cos(np.arcsin(n1 * np.sin(np.arccos(cos_incidence)) / n2))
+
+    assert np.allclose(result, result_expected)
+
+
+@pytest.mark.parametrize(
     argnames="wavelength",
     argvalues=[
         350 * u.nm,
