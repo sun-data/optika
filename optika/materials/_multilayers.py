@@ -175,8 +175,8 @@ def multilayer_coefficients(
 
         \vec{t} = \begin{pmatrix}
             t_s \\
-            t_p,
-        \end{pmatrix}
+            t_p
+        \end{pmatrix},
 
     then the :class:`tuple` :math:`(\vec{r}, \vec{t})` is the quantity returned
     by this function.
@@ -422,15 +422,15 @@ def multilayer_efficiency(
     Notes
     -----
 
-    The reflectivity and transmissivity of a multilayer stack can be calculated
-    using Equations 5.2-5 and 5.2-6 in :cite:t:`Yeh1988`,
+    The reflectivity of a multilayer stack can be calculated
+    using Equation 5.2-5 in :cite:t:`Yeh1988`,
 
     .. math::
         :label: reflectivity
 
         R_k = |r_k|^2,
 
-    and
+    and the transmissivity can be calculated using Equation 5.2-6,
 
     .. math::
         :label: transmissivity
@@ -471,8 +471,8 @@ def multilayer_efficiency(
 
         \vec{T} = \begin{pmatrix}
             T_s \\
-            T_p,
-        \end{pmatrix}
+            T_p
+        \end{pmatrix},
 
     then the :class:`tuple` :math:`(\vec{R}, \vec{T})` is the quantity returned
     by this function.
