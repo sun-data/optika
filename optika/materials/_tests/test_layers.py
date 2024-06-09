@@ -155,6 +155,7 @@ class TestLayerSequence(
     AbstractTestAbstractLayerSequence,
 ):
 
+    @pytest.mark.parametrize("item", [0, slice(0, 1)])
     def test__getitem__(
         self,
         a: optika.materials.LayerSequence,
