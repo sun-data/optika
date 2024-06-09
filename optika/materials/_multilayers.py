@@ -26,6 +26,211 @@ __all__ = [
 ]
 
 
+def multilayer_coefficients(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar = 1,
+    n: float | na.AbstractScalar = 1,
+    layers: Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
+    substrate: None | Layer = None,
+) -> tuple[
+    optika.vectors.PolarizationVectorArray,
+    optika.vectors.PolarizationVectorArray,
+]:
+    r"""
+    Calculate the reflection and transmission coefficients of a multilayer
+    stack using the method described in :cite:t:`Yeh1998`.
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The component of the incident light's propagation direction in the
+        ambient medium antiparallel to the surface normal.
+        Default is to assume normal incidence.
+    n
+        The complex index of refraction of the ambient medium.
+    layers
+        A sequence of layers representing the multilayer stack.
+        If :obj:`None`, then this function computes the reflectivity and
+        transmissivity of the ambient medium and the substrate.
+    substrate
+        A layer representing the substrate supporting the multilayer stack.
+        The thickness of this layer is ignored.
+        If :obj:`None`, then the substrate is assumed to be a vacuum.
+
+    Notes
+    -----
+
+    The reflection and transmission coefficients of the multilayer stack can
+    be calculated using the system transfer matrix method described in
+    :cite:t:`Yeh1988`.
+
+    The system transfer matrix is calculated using the transfer matrices of each
+    layer, where each consists of two parts:
+    the refractive matrix and propagation matrix.
+
+    The refractive matrix is given by :cite:t:`Yeh1988` Equation 5.1-12,
+
+    .. math::
+        :label: refractive-matrix
+
+        W_{kij} = \frac{1}{t_{kij}} \begin{pmatrix}
+                                    1 & r_{kij} \\
+                                    r_{kij} & 1 \\
+                                  \end{pmatrix},
+
+    where :math:`k=(s, p)` is the polarization state, :math:`i=j-1` is the index
+    of the previous material, :math:`j` is the index of the current material,
+
+    .. math::
+        :label: fresnel-reflection
+
+        r_{kij} = \frac{q_{ki} - q_{kj}}{q_{ki} + q_{kj}}
+
+    is the Fresnel reflection coefficient between materials :math:`i` and :math:`j`,
+
+    .. math::
+        :label: fresnel-transmission
+
+        t_{kij} = \frac{2 q_{ki}}{q_{ki} + q_{kj}}
+
+    is the Fresnel transmission coefficient between materials :math:`i` and :math:`j`,
+
+    .. math::
+
+        q_{si} = n_i \cos \theta_i
+
+    and
+
+    .. math::
+
+        q_{pi} = \frac{\cos \theta_i}{n_i}
+
+    are the :math:`z` components of the wave's momentum for :math:`s` and
+    :math:`p` polarization,
+    :math:`n_i` is the index of refraction inside material :math:`i`,
+    and :math:`\theta_i` is the angle between the wave's propagation direction
+    and the vector normal to the interface inside material :math:`i`.
+
+    The propagation matrix takes the form
+
+    .. math::
+        :label: propagation-matrix
+
+        U_{kj} = \begin{pmatrix}
+                    e^{-i \beta_j} & 0 \\
+                    0 & e^{i \beta_j} \\
+                \end{pmatrix}
+
+    where
+
+    .. math::
+
+        \beta_j = \frac{2 \pi}{\lambda} n_j h_j \cos \theta_j,
+
+    is the phase change from propagating through material :math:`j`,
+    :math:`\lambda` is the vacuum wavelength of the incident light,
+    and :math:`h_j` is the thickness of material :math:`j`.
+
+    To compute the system transfer matrix, we find the matrix product of the
+    :math:`S=N+1` refractive matrices from each interface and the :math:`N`
+    propagation matrices from each layer
+
+    .. math::
+        :label: sytem-transfer-matrix
+
+        M_k = \left( \prod_{j=1}^N W_{kij} U_{kj} \right) W_{kNS}
+
+    where :math:`i=j-1`.
+
+    Once the system transfer matrix has been calculated, we can use
+    :cite:t:`Yeh1988` Equation 5.2-3 to compute the system reflection coefficient
+
+    .. math::
+        :label: system-fresnel-reflection
+
+        r_k = \frac{M_{k21}}{M_{k11}},
+
+    and Equation 5.2-4 to compute the system transmission coefficient
+
+    .. math::
+        :label: system-fresnel-transmission
+
+        t_k = \frac{1}{M_{k11}}.
+
+    If we define the vectors
+
+    .. math::
+
+        \vec{r} = \begin{pmatrix}
+            r_s \\
+            r_p
+        \end{pmatrix}
+
+    and
+
+    .. math::
+
+        \vec{t} = \begin{pmatrix}
+            t_s \\
+            t_p,
+        \end{pmatrix}
+
+    then the :class:`tuple` :math:`(\vec{r}, \vec{t})` is the quantity returned
+    by this function.
+    """
+    direction_ambient = direction
+    n_ambient = n
+
+    if substrate is not None:
+        substrate = dataclasses.replace(substrate, thickness=0 * u.nm)
+    else:
+        substrate = optika.materials.Layer(thickness=0 * u.nm)
+
+    polarized_s = na.ScalarArray(
+        ndarray=np.array([True, False]),
+        axes="_polarization",
+    )
+
+    if layers is None:
+        layers = []
+    if not isinstance(layers, optika.materials.AbstractLayer):
+        layers = optika.materials.LayerSequence(layers)
+
+    n, direction, m = layers.transfer(
+        wavelength=wavelength,
+        direction=direction_ambient,
+        polarized_s=polarized_s,
+        n=n_ambient,
+    )
+    n_substrate, direction_substrate, m_substrate = substrate.transfer(
+        wavelength=wavelength,
+        direction=direction,
+        polarized_s=polarized_s,
+        n=n,
+    )
+    m = m @ m_substrate
+
+    r = m.y.x / m.x.x
+    t = 1 / m.x.x
+
+    index_s = dict(_polarization=0)
+    index_p = dict(_polarization=1)
+
+    r = optika.vectors.PolarizationVectorArray(
+        s=r[index_s],
+        p=r[index_p],
+    )
+
+    t = optika.vectors.PolarizationVectorArray(
+        s=t[index_s],
+        p=t[index_p],
+    )
+
+    return r, t
+
+
 def multilayer_efficiency(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
@@ -216,106 +421,8 @@ def multilayer_efficiency(
     Notes
     -----
 
-    The reflection and transmission coefficients of the multilayer stack can
-    be calculated using the system transfer matrix method described in
-    :cite:t:`Yeh1988`.
-
-    The system transfer matrix is calculated using the transfer matrices of each
-    layer, where each consists of two parts:
-    the refractive matrix and propagation matrix.
-
-    The refractive matrix is given by :cite:t:`Yeh1988` Equation 5.1-12,
-
-    .. math::
-        :label: refractive-matrix
-
-        W_{kij} = \frac{1}{t_{kij}} \begin{pmatrix}
-                                    1 & r_{kij} \\
-                                    r_{kij} & 1 \\
-                                  \end{pmatrix},
-
-    where :math:`k=(s, p)` is the polarization state, :math:`i=j-1` is the index
-    of the previous material, :math:`j` is the index of the current material,
-
-    .. math::
-        :label: fresnel-reflection
-
-        r_{kij} = \frac{q_{ki} - q_{kj}}{q_{ki} + q_{kj}}
-
-    is the Fresnel reflection coefficient between materials :math:`i` and :math:`j`,
-
-    .. math::
-        :label: fresnel-transmission
-
-        t_{kij} = \frac{2 q_{ki}}{q_{ki} + q_{kj}}
-
-    is the Fresnel transmission coefficient between materials :math:`i` and :math:`j`,
-
-    .. math::
-
-        q_{si} = n_i \cos \theta_i
-
-    and
-
-    .. math::
-
-        q_{pi} = \frac{\cos \theta_i}{n_i}
-
-    are the :math:`z` components of the wave's momentum for :math:`s` and
-    :math:`p` polarization,
-    :math:`n_i` is the index of refraction inside material :math:`i`,
-    and :math:`\theta_i` is the angle between the wave's propagation direction
-    and the vector normal to the interface inside material :math:`i`.
-
-    The propagation matrix takes the form
-
-    .. math::
-        :label: propagation-matrix
-
-        U_{kj} = \begin{pmatrix}
-                    e^{-i \beta_j} & 0 \\
-                    0 & e^{i \beta_j} \\
-                \end{pmatrix}
-
-    where
-
-    .. math::
-
-        \beta_j = \frac{2 \pi}{\lambda} n_j h_j \cos \theta_j,
-
-    is the phase change from propagating through material :math:`j`,
-    :math:`\lambda` is the vacuum wavelength of the incident light,
-    and :math:`h_j` is the thickness of material :math:`j`.
-
-    To compute the system transfer matrix, we find the matrix product of the
-    :math:`S=N+1` refractive matrices from each interface and the :math:`N`
-    propagation matrices from each layer
-
-    .. math::
-        :label: sytem-transfer-matrix
-
-        M_k = \left( \prod_{j=1}^N W_{kij} U_{kj} \right) W_{kNS}
-
-    where :math:`i=j-1`.
-
-    Once the system transfer matrix has been calculated, we can use
-    :cite:t:`Yeh1988` Equation 5.2-3 to compute the system reflection coefficient
-
-    .. math::
-        :label: system-fresnel-reflection
-
-        r_k = \frac{M_{k21}}{M_{k11}},
-
-    and Equation 5.2-4 to compute the system transmission coefficient
-
-    .. math::
-        :label: system-fresnel-transmission
-
-        t_k = \frac{1}{M_{k11}}.
-
-    With the system reflection and transmission coefficients, we can compute the
-    reflectivity and transmissivity for each polarization state using the
-    expressions
+    The reflectivity and transmissivity of a multilayer stack can be calculated
+    using Equations 5.2-5 and 5.2-6 in :cite:t:`Yeh1988`,
 
     .. math::
         :label: reflectivity
@@ -327,24 +434,47 @@ def multilayer_efficiency(
     .. math::
         :label: transmissivity
 
-        T_k = \Re \left( \frac{p_{kS}}{p_{k0}} \right) |t_k|^2.
+        T_k = \text{Re} \left( \frac{q_{kS}}{q_{k0}} \right) |t_k|^2,
 
-    From Equations :eq:`reflectivity` and :eq:`transmissivity` we can finally
-    compute the average reflectivity and transmissivity of the multilayer stack
+    where :math:`r_k` and :math:`t_k` are the system reflection and transmission
+    coefficients calculated by :func:`multilayer_coefficients`,
+    :math:`k = (s, p)` is the polarization state,
 
     .. math::
-        :label: avg-reflectivity
 
-        R = \frac{R_s + R_p}{2}
+        q_{si} = n_i \cos \theta_i
 
     and
 
     .. math::
-        :label: avg-transmissivity
 
-        T = \frac{T_s + T_p}{2}.
+        q_{pi} = \frac{\cos \theta_i}{n_i}
 
-    The :class:`tuple` :math:`(R, T)` is the quantity returned by this function.
+    are the :math:`z` components of the wave's momentum for an arbitrary layer :math:`i`,
+    :math:`n_i` is the index of refraction inside material :math:`i`,
+    and :math:`\theta_i` is the angle between the wave's propagation direction
+    and the vector normal to the interface inside material :math:`i`.
+
+    If we define the vectors
+
+    .. math::
+
+        \vec{R} = \begin{pmatrix}
+            R_s \\
+            R_p
+        \end{pmatrix}
+
+    and
+
+    .. math::
+
+        \vec{T} = \begin{pmatrix}
+            T_s \\
+            T_p,
+        \end{pmatrix}
+
+    then the :class:`tuple` :math:`(\vec{R}, \vec{T})` is the quantity returned
+    by this function.
     """
     direction_ambient = direction
     n_ambient = n
@@ -354,54 +484,32 @@ def multilayer_efficiency(
     else:
         substrate = optika.materials.Layer(thickness=0 * u.nm)
 
-    polarized_s = na.ScalarArray(
-        ndarray=np.array([True, False]),
-        axes="_polarization",
-    )
-
-    if layers is None:
-        layers = []
-    if not isinstance(layers, optika.materials.AbstractLayer):
-        layers = optika.materials.LayerSequence(layers)
-
-    n, direction, m = layers.transfer(
+    r, t = multilayer_coefficients(
         wavelength=wavelength,
         direction=direction_ambient,
-        polarized_s=polarized_s,
         n=n_ambient,
+        layers=layers,
+        substrate=substrate,
     )
-    n_substrate, direction_substrate, m_substrate = substrate.transfer(
-        wavelength=wavelength,
-        direction=direction,
-        polarized_s=polarized_s,
-        n=n,
+
+    n_substrate = substrate.n(wavelength)
+    angle_substrate = np.arcsin(n * np.sin(np.arccos(direction_ambient)) / n_ambient)
+    direction_substrate = np.cos(angle_substrate)
+
+    impedance_ambient = optika.vectors.PolarizationVectorArray(
+        s=n_ambient,
+        p=1 / n_ambient,
     )
-    m = m @ m_substrate
-
-    r = m.y.x / m.x.x
-    t = 1 / m.x.x
-
-    impedance_ambient = np.where(polarized_s, n_ambient, 1 / n_ambient)
-    impedance_substrate = np.where(polarized_s, n_substrate, 1 / n_substrate)
+    impedance_substrate = optika.vectors.PolarizationVectorArray(
+        s=n_substrate,
+        p=1 / n_substrate,
+    )
 
     q_ambient = direction_ambient * impedance_ambient
     q_substrate = direction_substrate * impedance_substrate
 
     reflectivity = np.square(np.abs(r))
     transmissivity = np.square(np.abs(t)) * np.real(q_substrate / q_ambient)
-
-    index_s = dict(_polarization=0)
-    index_p = dict(_polarization=1)
-
-    reflectivity = optika.vectors.PolarizationVectorArray(
-        s=reflectivity[index_s],
-        p=reflectivity[index_p],
-    )
-
-    transmissivity = optika.vectors.PolarizationVectorArray(
-        s=transmissivity[index_s],
-        p=transmissivity[index_p],
-    )
 
     return reflectivity, transmissivity
 
