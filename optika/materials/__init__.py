@@ -3,7 +3,10 @@ A subpackage for simulating the interaction of light with transparent
 or reflective materials.
 """
 
-from ._snells_law import snells_law
+from ._snells_law import (
+    snells_law_scalar,
+    snells_law,
+)
 from . import profiles
 from . import matrices
 from ._layers import (
@@ -36,6 +39,7 @@ from ._thin_films import (
 )
 
 __all__ = [
+    "snells_law_scalar",
     "snells_law",
     "profiles",
     "matrices",
