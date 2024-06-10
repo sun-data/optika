@@ -18,8 +18,8 @@ class AbstractTestAbstractLayer(
         wavelength: u.Quantity | na.AbstractScalar,
     ):
         result = a.n(wavelength)
-        assert np.all(np.real(result) >=0)
-        assert np.all(np.imag(result) >=0)
+        assert np.all(np.real(result) >= 0)
+        assert np.all(np.imag(result) >= 0)
 
     def test_thickness(
         self,
