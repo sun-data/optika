@@ -28,6 +28,20 @@ class AbstractLayer(
     of homogeneous layers.
     """
 
+    @abc.abstractmethod
+    def n(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The index of refraction on the left side of the layer.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum
+        """
+
     @property
     @abc.abstractmethod
     def thickness(self) -> u.Quantity | na.AbstractScalar:
@@ -179,7 +193,7 @@ class Layer(
         wavelength: u.Quantity | na.AbstractScalar,
     ) -> float | na.AbstractScalar:
         """
-        The complex index of refraction of this layer.
+        The complex index of refraction of this entire layer.
         """
         if self.chemical is None:
             return 1
@@ -384,6 +398,12 @@ class LayerSequence(AbstractLayerSequence):
     layers: Sequence[AbstractLayer] = dataclasses.MISSING
     """A sequence of layers."""
 
+    def n(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        return self.layers[0].n(wavelength)
+
     @property
     def thickness(self) -> u.Quantity | na.AbstractScalar:
         result = 0 * u.nm
@@ -507,6 +527,12 @@ class PeriodicLayerSequence(AbstractLayerSequence):
 
     num_periods: int = dataclasses.MISSING
     """The number of times to repeat the layer sequence."""
+
+    def n(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        return self.layers[0].n(wavelength)
 
     @property
     def thickness(self) -> u.Quantity | na.AbstractScalar:

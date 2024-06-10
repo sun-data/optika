@@ -11,6 +11,16 @@ class AbstractTestAbstractLayer(
     optika._tests.test_mixins.AbstractTestPrintable,
 ):
 
+    @pytest.mark.parametrize("wavelength", [100 * u.AA])
+    def test_n(
+        self,
+        a: optika.materials.AbstractLayer,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        result = a.n(wavelength)
+        assert np.all(np.real(result) >=0)
+        assert np.all(np.imag(result) >=0)
+
     def test_thickness(
         self,
         a: optika.materials.AbstractLayer,
