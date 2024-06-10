@@ -22,6 +22,7 @@ import optika
     argnames="index_refraction_new",
     argvalues=[
         1.5,
+        1.5 + 0.2j,
         na.linspace(1, 2, axis="index_refraction_new", num=4),
     ],
 )
@@ -35,9 +36,10 @@ def test_snells_law_scalar(
         index_refraction=index_refraction,
         index_refraction_new=index_refraction_new,
     )
+    assert np.all(np.imag(result) == 0)
 
-    n1 = index_refraction
-    n2 = index_refraction_new
+    n1 = np.real(index_refraction)
+    n2 = np.real(index_refraction_new)
     result_expected = np.cos(np.arcsin(n1 * np.sin(np.arccos(cos_incidence)) / n2))
 
     assert np.allclose(result, result_expected)
