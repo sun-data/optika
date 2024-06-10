@@ -206,7 +206,7 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
         self,
         a: optika.sensors.AbstractBackilluminatedCCDMaterial,
         rays: optika.rays.AbstractRayVectorArray,
-        normal:na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ):
         result = a.charge_collection_efficiency(rays, normal)
         assert np.all(result >= 0)
