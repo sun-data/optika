@@ -2,13 +2,12 @@ from __future__ import annotations
 from typing import Sequence
 import abc
 import dataclasses
-import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika
-from . import matrices
+from . import matrices, snells_law_scalar
 
 __all__ = [
     "AbstractLayer",
@@ -201,8 +200,11 @@ class Layer(
 
         n_internal = self.n(wavelength)
 
-        angle_internal = np.arcsin(n * np.sin(np.arccos(direction)) / n_internal)
-        direction_internal = np.cos(angle_internal)
+        direction_internal = snells_law_scalar(
+            cos_incidence=direction,
+            index_refraction=n,
+            index_refraction_new=n_internal,
+        )
 
         refraction = matrices.refraction(
             wavelength=wavelength,

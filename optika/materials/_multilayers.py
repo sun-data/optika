@@ -9,6 +9,7 @@ import astropy.units as u
 import named_arrays as na
 import optika
 from . import (
+    snells_law_scalar,
     AbstractMaterial,
     AbstractMirror,
     AbstractLayer,
@@ -39,7 +40,7 @@ def multilayer_coefficients(
 ]:
     r"""
     Calculate the reflection and transmission coefficients of a multilayer
-    stack using the method described in :cite:t:`Yeh1998`.
+    stack using the method described in :cite:t:`Yeh1988`.
 
     Parameters
     ----------
@@ -494,8 +495,11 @@ def multilayer_efficiency(
     )
 
     n_substrate = substrate.n(wavelength)
-    angle_substrate = np.arcsin(n * np.sin(np.arccos(direction_ambient)) / n_ambient)
-    direction_substrate = np.cos(angle_substrate)
+    direction_substrate = snells_law_scalar(
+        cos_incidence=direction_ambient,
+        index_refraction=n_ambient,
+        index_refraction_new=n_substrate,
+    )
 
     impedance_ambient = optika.vectors.PolarizationVectorArray(
         s=n_ambient,
