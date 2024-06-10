@@ -28,6 +28,16 @@ class AbstractTestAbstractLayer(
         result = a.thickness
         assert np.all(result >= 0 * u.nm)
 
+    def test_interface(
+        self,
+        a: optika.materials.AbstractLayer,
+    ):
+        result = a.interface
+        if result is not None:
+            assert isinstance(
+                result, optika.materials.profiles.AbstractInterfaceProfile
+            )
+
     def test_layer_sequence(
         self,
         a: optika.materials.AbstractLayer,

@@ -54,6 +54,13 @@ class AbstractLayer(
 
     @property
     @abc.abstractmethod
+    def interface(self) -> None | optika.materials.profiles.AbstractInterfaceProfile:
+        """
+        The interface profile on the left side of this layer.
+        """
+
+    @property
+    @abc.abstractmethod
     def layer_sequence(self) -> LayerSequence:
         """
         This object interpreted as an instance of :class:`LayerSequence`.
@@ -161,11 +168,7 @@ class Layer(
 
     interface: None | optika.materials.profiles.AbstractInterfaceProfile = None
     """
-    The interface profile for the right side of this layer.
-
-    While it might be more natural to want to specify the interface profile for
-    the left side of the layer, specifying the right side was chosen so that
-    there would not be any coupling between subsequent layers.
+    The interface profile on the left side of this layer.
     """
 
     kwargs_plot: None | dict = None
@@ -415,6 +418,10 @@ class LayerSequence(AbstractLayerSequence):
     def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
         return self.thickness
 
+    @property
+    def interface(self) -> None | optika.materials.profiles.AbstractInterfaceProfile:
+        return self.layers[0].interface
+
     def __getitem__(self, item: int | slice) -> LayerSequence:
         if isinstance(item, int):
             return self.layers[item]
@@ -541,6 +548,10 @@ class PeriodicLayerSequence(AbstractLayerSequence):
     @property
     def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
         return LayerSequence(self.layers).thickness
+
+    @property
+    def interface(self) -> None | optika.materials.profiles.AbstractInterfaceProfile:
+        return self.layers[0].interface
 
     @property
     def layer_sequence(self) -> LayerSequence:
