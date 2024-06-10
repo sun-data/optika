@@ -22,7 +22,7 @@ import optika
     argnames="index_refraction_new",
     argvalues=[
         1.5,
-        1.5 + .2j,
+        1.5 + 0.2j,
         na.linspace(1, 2, axis="index_refraction_new", num=4),
     ],
 )
