@@ -162,7 +162,10 @@ class TestLayerSequence(
         item: int | slice,
     ):
         result = a[item]
-        assert isinstance(result, optika.materials.LayerSequence)
+        if isinstance(item, int):
+            assert isinstance(result, optika.materials.AbstractLayer)
+        else:
+            assert isinstance(result, optika.materials.LayerSequence)
 
 
 @pytest.mark.parametrize(
