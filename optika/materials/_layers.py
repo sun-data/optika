@@ -63,7 +63,7 @@ class AbstractLayer(
         Parameters
         ----------
         wavelength
-            The wavelength of the incident light in the medium before this layer.
+            The wavelength of the incident light in vacuum.
         direction
             The component of the incident light's propagation direction in the
             medium before this layer antiparallel to the surface normal.
