@@ -394,7 +394,10 @@ class LayerSequence(AbstractLayerSequence):
         return self.thickness
 
     def __getitem__(self, item: int | slice) -> LayerSequence:
-        return type(self)(self.layers[item])
+        if isinstance(item, int):
+            return self.layers[item]
+        else:
+            return type(self)(self.layers[item])
 
     @property
     def layer_sequence(self) -> LayerSequence:
