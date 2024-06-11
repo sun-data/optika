@@ -535,6 +535,30 @@ class AbstractBackilluminatedCCDMaterial(
         """
         return quantum_yield_ideal(wavelength)
 
+    def charge_collection_efficiency(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Compute the charge collection efficiency of this CCD sensor material
+        using :func:`charge_collection_efficiency`.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the CCD surface.
+        normal
+            The vector perpendicular to the surface of the CCD sensor.
+        """
+        return charge_collection_efficiency(
+            absorption=self._chemical.absorption(rays.wavelength),
+            thickness_implant=self.thickness_implant,
+            thickness_substrate=self.thickness_substrate,
+            cce_backsurface=self.cce_backsurface,
+            cos_incidence=-rays.direction @ normal,
+        )
+
     def quantum_efficiency_effective(
         self,
         rays: optika.rays.AbstractRayVectorArray,
