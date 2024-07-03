@@ -11,6 +11,7 @@ __all__ = [
     "energy_bandgap",
     "energy_electron_hole",
     "quantum_yield_ideal",
+    "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
     "AbstractImagingSensorMaterial",
@@ -92,6 +93,97 @@ def quantum_yield_ideal(
     result = np.where(energy > energy_bandgap, result, 0)
 
     return result
+
+
+def absorbance(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar = 1,
+    n: float | na.AbstractScalar = 1,
+    thickness_oxide: u.Quantity | na.AbstractScalar = 50 * u.AA,
+    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
+    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
+) -> optika.vectors.PolarizationVectorArray:
+    """
+    The fraction of incident energy absorbed by the light-sensitive
+    region of the sensor
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The component of the incident light's propagation direction antiparallel
+        to the surface normal of the sensor.
+        Default is normal incidence.
+    n
+        The index of refraction in the ambient medium.
+    thickness_oxide
+        The thickness of the oxide layer on the illuminated surface of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    thickness_substrate
+        The thickness of the light-sensitive substrate layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    chemical_oxide
+        The chemical formula of the oxide layer on the illuminated surface of the sensor.
+        Default is silicon dioxide.
+    chemical_substrate
+        The chemical formula of the light-sensitive portion of the sensor.
+        Default is silicon.
+
+    Examples
+    --------
+
+    Plot the absorbance as a function of wavelength.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Compute the absorbance vs wavelength
+        absorbance = optika.sensors.absorbance(
+            absorption=absorption,
+        )
+
+        # Plot the effective and maximum quantum efficiency
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.plot(
+            wavelength,
+            absorbance,
+            ax=ax,
+        );
+        ax.set_xscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel("incident energy fraction");
+    """
+    if not isinstance(chemical_oxide, optika.chemicals.AbstractChemical):
+        chemical_oxide = optika.chemicals.Chemical(chemical_oxide)
+
+    if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
+        chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
+
+    return optika.materials.layer_absorbance(
+        index=1,
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        layers=[
+            optika.materials.Layer(
+                chemical=chemical_oxide,
+                thickness=thickness_oxide,
+            ),
+            optika.materials.Layer(
+                chemical=chemical_substrate,
+                thickness=thickness_substrate,
+            ),
+        ],
+    )
 
 
 def charge_collection_efficiency(
