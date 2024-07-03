@@ -148,7 +148,7 @@ def absorbance(
 
         # Compute the absorbance vs wavelength
         absorbance = optika.sensors.absorbance(
-            absorption=absorption,
+            wavelength=wavelength,
         )
 
         # Plot the effective and maximum quantum efficiency
