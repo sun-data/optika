@@ -65,7 +65,7 @@ class AbstractTestAbstractLayer(
             polarized_s: bool | na.AbstractScalar,
             n: float | na.AbstractScalar,
         ):
-            n, direction, result = a.transfer(
+            n, direction, result, where = a.transfer(
                 wavelength=wavelength,
                 direction=direction,
                 polarized_s=polarized_s,
@@ -260,14 +260,24 @@ class TestPeriodicLayerSequence(
 
             b = optika.materials.LayerSequence(list(a.layers) * a.num_periods)
 
-            n_test, direction_test, result_test = a.transfer(
+            (
+                n_test,
+                direction_test,
+                result_test,
+                where_test,
+            ) = a.transfer(
                 wavelength=wavelength,
                 direction=direction,
                 polarized_s=polarized_s,
                 n=n,
             )
 
-            n_expected, direction_expected, result_expected = b.transfer(
+            (
+                n_expected,
+                direction_expected,
+                result_expected,
+                where_expected,
+            ) = b.transfer(
                 wavelength=wavelength,
                 direction=direction,
                 polarized_s=polarized_s,
@@ -277,3 +287,4 @@ class TestPeriodicLayerSequence(
             assert np.allclose(n_test, n_expected)
             assert np.allclose(direction_test, direction_expected)
             assert np.allclose(result_test, result_expected)
+            assert np.allclose(where_test, where_expected)

@@ -13,7 +13,7 @@ class AbstractTestAbstractRulings(
     test_mixins.AbstractTestPrintable,
 ):
     def test_diffraction_order(self, a: optika.rulings.AbstractRulings):
-        assert na.get_dtype(a.diffraction_order) == int
+        assert np.issubdtype(na.get_dtype(a.diffraction_order), int)
 
     def test_spacing(self, a: optika.rulings.AbstractRulings):
         result = a.spacing
