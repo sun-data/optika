@@ -109,6 +109,68 @@ def test_multilayer_efficiency(
     assert np.all(np.imag(transmitted) == 0)
 
 
+@pytest.mark.parametrize("index", [0])
+@pytest.mark.parametrize("wavelength", [100 * u.AA, _wavelength])
+@pytest.mark.parametrize(
+    argnames="direction",
+    argvalues=[
+        1,
+        np.cos(na.linspace(-1, 1, axis="angle", num=5)),
+    ],
+)
+@pytest.mark.parametrize("n", [1])
+@pytest.mark.parametrize(
+    argnames="layers",
+    argvalues=[
+        Layer(
+            chemical="SiC",
+            thickness=10 * u.nm,
+        ),
+        [
+            Layer(
+                chemical="SiC",
+                thickness=10 * u.nm,
+            )
+        ],
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="substrate",
+    argvalues=[
+        None,
+        Layer("SiO2"),
+    ],
+)
+def test_layer_absorbance(
+    index: int,
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar,
+    n: float | na.AbstractScalar,
+    layers: None | Sequence[AbstractLayer] | optika.materials.AbstractLayer,
+    substrate: None | Layer,
+):
+    result = optika.materials.layer_absorbance(
+        index=index,
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        layers=layers,
+        substrate=substrate,
+    )
+
+    reflectivity, transmissivity = optika.materials.multilayer_efficiency(
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        layers=layers,
+        substrate=substrate,
+    )
+
+    result_expected = 1 - reflectivity - transmissivity
+
+    assert np.allclose(result, result_expected)
+
+
 @pytest.mark.parametrize(
     argnames=[
         "file",

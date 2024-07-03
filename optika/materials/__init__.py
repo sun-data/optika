@@ -26,6 +26,7 @@ from ._materials import (
 from ._multilayers import (
     multilayer_coefficients,
     multilayer_efficiency,
+    layer_absorbance,
     AbstractMultilayerMaterial,
     AbstractMultilayerFilm,
     MultilayerFilm,
@@ -55,6 +56,7 @@ __all__ = [
     "MeasuredMirror",
     "multilayer_coefficients",
     "multilayer_efficiency",
+    "layer_absorbance",
     "AbstractMultilayerMaterial",
     "AbstractMultilayerFilm",
     "MultilayerFilm",
