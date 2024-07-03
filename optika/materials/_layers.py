@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Sequence
 import abc
 import dataclasses
+import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import astropy.units as u
@@ -73,10 +74,16 @@ class AbstractLayer(
         direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-    ) -> tuple[na.AbstractScalar, na.AbstractScalar, na.Cartesian2dMatrixArray]:
+        where: bool | na.AbstractScalar = True,
+    ) -> tuple[
+        na.AbstractScalar,
+        na.AbstractScalar,
+        na.Cartesian2dMatrixArray,
+        na.AbstractScalar,
+    ]:
         """
         Compute the index of refraction, internal propagation direction,
-        and the transfer matrix for this layer,
+        transfer matrix, and where the transfer matrix is valid for this layer,
         which propagates the electric field from the left side of the layer to
         the right side.
 
@@ -92,6 +99,9 @@ class AbstractLayer(
             If :obj:`False`, the incident light is :math:`p`-polarized.
         n
             The complex index of refraction of the medium before this layer.
+        where
+            The boolean mask that should be applied to the transfer matrix.
+            :obj:`True` where the transfer matrix is invertible.
         """
 
     def plot(
@@ -213,7 +223,13 @@ class Layer(
         direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-    ) -> tuple[na.AbstractScalar, na.AbstractScalar, na.Cartesian2dMatrixArray]:
+        where: bool | na.AbstractScalar = True,
+    ) -> tuple[
+        na.AbstractScalar,
+        na.AbstractScalar,
+        na.Cartesian2dMatrixArray,
+        na.AbstractScalar,
+    ]:
 
         n_internal = self.n(wavelength)
 
@@ -233,6 +249,9 @@ class Layer(
             interface=self.interface,
         )
 
+        identity = na.Cartesian2dIdentityMatrixArray()
+        refraction = np.where(where, refraction, identity)
+
         propagation = matrices.propagation(
             wavelength=wavelength,
             direction=direction_internal,
@@ -240,9 +259,13 @@ class Layer(
             n=n_internal,
         )
 
-        transfer = refraction @ propagation
+        where_propagation = np.abs(propagation.x.x) < 1e10
+        where = where & where_propagation
 
-        return n_internal, direction_internal, transfer
+        transfer = refraction @ propagation
+        transfer = np.where(where, transfer, refraction)
+
+        return n_internal, direction_internal, transfer, where
 
     def plot(
         self,
@@ -438,20 +461,27 @@ class LayerSequence(AbstractLayerSequence):
         direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-    ) -> tuple[na.AbstractScalar, na.AbstractScalar, na.Cartesian2dMatrixArray]:
+        where: bool |na.AbstractScalar = True,
+    ) -> tuple[
+        na.AbstractScalar,
+        na.AbstractScalar,
+        na.Cartesian2dMatrixArray,
+        na.AbstractScalar,
+    ]:
 
         result = na.Cartesian2dIdentityMatrixArray()
 
         for layer in self.layers:
-            n, direction, matrix_transfer = layer.transfer(
+            n, direction, matrix_transfer, where = layer.transfer(
                 wavelength=wavelength,
                 direction=direction,
                 polarized_s=polarized_s,
                 n=n,
+                where=where,
             )
             result = result @ matrix_transfer
 
-        return n, direction, result
+        return n, direction, result, where
 
     def plot(
         self,
@@ -563,27 +593,35 @@ class PeriodicLayerSequence(AbstractLayerSequence):
         direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-    ) -> tuple[na.AbstractScalar, na.AbstractScalar, na.Cartesian2dMatrixArray]:
+        where: bool |na.AbstractScalar = True,
+    ) -> tuple[
+        na.AbstractScalar,
+        na.AbstractScalar,
+        na.Cartesian2dMatrixArray,
+        na.AbstractScalar,
+    ]:
 
         period = LayerSequence(self.layers)
 
-        n, direction, start = period.transfer(
+        n, direction, start, where = period.transfer(
             wavelength=wavelength,
             direction=direction,
             polarized_s=polarized_s,
             n=n,
+            where=where,
         )
 
-        n, direction, periodic = period.transfer(
+        n, direction, periodic, where, = period.transfer(
             wavelength=wavelength,
             direction=direction,
             polarized_s=polarized_s,
             n=n,
+            where=where,
         )
 
         periodic = periodic.power(self.num_periods - 1)
 
-        return n, direction, start @ periodic
+        return n, direction, start @ periodic, where
 
     def plot(
         self,
