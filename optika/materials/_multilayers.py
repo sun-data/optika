@@ -10,6 +10,7 @@ import named_arrays as na
 import optika
 from . import (
     snells_law_scalar,
+    matrices,
     AbstractMaterial,
     AbstractMirror,
     AbstractLayer,
@@ -20,6 +21,7 @@ from . import (
 __all__ = [
     "multilayer_coefficients",
     "multilayer_efficiency",
+    "layer_absorbance",
     "AbstractMultilayerMaterial",
     "AbstractMultilayerFilm",
     "MultilayerFilm",
@@ -519,6 +521,242 @@ def multilayer_efficiency(
     transmissivity = np.square(np.abs(t)) * np.real(q_substrate / q_ambient)
 
     return reflectivity, transmissivity
+
+
+def layer_absorbance(
+    index: int,
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar = 1,
+    n: float | na.AbstractScalar = 1,
+    layers: None | Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
+    substrate: None | Layer = None,
+) -> optika.vectors.PolarizationVectorArray:
+    """
+    Compute the fraction of energy absorbed for a particular layer in the
+    multilayer stack.
+
+    Parameters
+    ----------
+    index
+        The index of a :class:`AbstractLayer` in `layers` to find the absorbance of.
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The component of the incident light's propagation direction in the
+        ambient medium antiparallel to the surface normal.
+        Default is to assume normal incidence.
+    n
+        The complex index of refraction of the ambient medium.
+    layers
+        A sequence of layers representing the multilayer stack.
+        If :obj:`None`, then this function computes the reflectivity and
+        transmissivity of the ambient medium and the substrate.
+    substrate
+        A layer representing the substrate supporting the multilayer stack.
+        The thickness of this layer is ignored.
+        If :obj:`None`, then the substrate is assumed to be a vacuum.
+
+    Examples
+    --------
+
+    Compute the amount of energy absorbed in a layer of silicon coated by a
+    thin layer of silicon dioxide and compare it to the energy absorbed by
+    both layers
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define a grid of wavelengths at which to evaluate the absorbance
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Define a thin layer of silicon dioxide and a thick layer of silicon
+        layers = [
+            optika.materials.Layer(
+                chemical="SiO2",
+                thickness=5 * u.nm,
+            ),
+            optika.materials.Layer(
+                chemical="Si",
+                thickness=16 * u.um,
+            )
+        ]
+
+        # Compute the fraction of energy absorbed by the silicon
+        absorbance = optika.materials.layer_absorbance(
+            index=1,
+            wavelength=wavelength,
+            layers=layers,
+        )
+
+        # Compute the fraction of energy absorbed by both layers
+        reflected, transmitted = optika.materials.multilayer_efficiency(
+            wavelength=wavelength,
+            layers=layers,
+        )
+        absorbance_total = 1 - reflected - transmitted
+
+        # Plot the results
+        fig, ax = plt.subplots()
+        na.plt.plot(
+            wavelength,
+            absorbance.average,
+            ax=ax,
+            label="absorbance",
+        )
+        na.plt.plot(
+            wavelength,
+            absorbance_total.average,
+            ax=ax,
+            label="total absorbance",
+        )
+        ax.set_xscale("log")
+        ax.legend()
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel("incident energy fraction");
+    """
+    if not isinstance(layers, AbstractLayer):
+        layers = LayerSequence(layers)
+    layers = layers.layer_sequence
+
+    if substrate is not None:
+        substrate = dataclasses.replace(substrate, thickness=0 * u.nm)
+    else:
+        substrate = optika.materials.Layer(thickness=0 * u.nm)
+
+    r, t = multilayer_coefficients(
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        layers=layers,
+        substrate=substrate,
+    )
+    r = na.stack([r.s, r.p], axis="_polarization")
+
+    layer = layers[index]
+
+    polarized_s = na.ScalarArray(
+        ndarray=np.array([True, False]),
+        axes="_polarization",
+    )
+
+    n_i, direction_i, m_i, where_i = layers[:index].transfer(
+        wavelength=wavelength,
+        direction=direction,
+        polarized_s=polarized_s,
+        n=n,
+    )
+
+    n_left = layer.n(wavelength)
+    direction_left = snells_law_scalar(direction, n, n_left)
+    m_left = m_i @ matrices.refraction(
+        wavelength=wavelength,
+        direction_left=direction_i,
+        direction_right=direction_left,
+        polarized_s=polarized_s,
+        n_left=n_i,
+        n_right=n_left,
+        interface=layer.interface,
+    )
+
+    n_right, direction_right, m_right, where_right = layers[:index + 1].transfer(
+        wavelength=wavelength,
+        direction=direction,
+        polarized_s=polarized_s,
+        n=n,
+    )
+
+    amplitude_ambient = na.Cartesian2dVectorArray(1, r)
+
+    a_right = m_right.inverse @ amplitude_ambient
+    a_left = m_left.inverse @ amplitude_ambient
+
+    a_right[~where_right] = 0
+
+    a_right, b_right = a_right.x, a_right.y
+    a_left, b_left = a_left.x, a_left.y
+
+    angle_right = np.arccos(direction_right)
+    angle_left = np.arccos(direction_left)
+
+    rotation_right = na.Cartesian3dYRotationMatrixArray(angle_right)
+    rotation_left = na.Cartesian3dYRotationMatrixArray(angle_left)
+
+    antirotation_right = na.Cartesian3dYRotationMatrixArray(-angle_right)
+    antirotation_left = na.Cartesian3dYRotationMatrixArray(-angle_left)
+
+    a_right = a_right * np.where(
+        polarized_s,
+        na.Cartesian3dVectorArray(0, 1, 0),
+        rotation_right @ na.Cartesian3dVectorArray(1, 0, 0),
+    )
+    a_left = a_left * np.where(
+        polarized_s,
+        na.Cartesian3dVectorArray(0, 1, 0),
+        rotation_left @ na.Cartesian3dVectorArray(1, 0, 0),
+    )
+
+    b_right = b_right * np.where(
+        polarized_s,
+        na.Cartesian3dVectorArray(0, 1, 0),
+        antirotation_right @ na.Cartesian3dVectorArray(1, 0, 0),
+    )
+    b_left = b_left * np.where(
+        polarized_s,
+        na.Cartesian3dVectorArray(0, 1, 0),
+        antirotation_left @ na.Cartesian3dVectorArray(1, 0, 0),
+    )
+
+    impedance_ambient = np.where(
+        polarized_s,
+        n,
+        1 / n,
+    )
+    impedance_right = np.where(
+        polarized_s,
+        n_right,
+        1 / n_right,
+    )
+    impedance_left = np.where(
+        polarized_s,
+        n_left,
+        1 / n_left,
+    )
+
+    ka_right = rotation_right @ na.Cartesian3dVectorArray(0, 0, 1)
+    ka_left = rotation_left @ na.Cartesian3dVectorArray(0, 0, 1)
+    kb_right = antirotation_right @ na.Cartesian3dVectorArray(0, 0, -1)
+    kb_left = antirotation_left @ na.Cartesian3dVectorArray(0, 0, -1)
+
+    ka_right = impedance_right * ka_right
+    ka_left = impedance_left * ka_left
+    kb_right = impedance_right * kb_right
+    kb_left = impedance_left * kb_left
+
+    c_right = ka_right.cross(a_right)
+    c_left = ka_left.cross(a_left)
+
+    d_right = kb_right.cross(b_right)
+    d_left = kb_left.cross(b_left)
+
+    flux_right = np.real((a_right + b_right).cross(np.conj(c_right + d_right)))
+    flux_left = np.real((a_left + b_left).cross(np.conj(c_left + d_left)))
+
+    flux_absorbed = (flux_left.z - flux_right.z) / (impedance_ambient * direction)
+
+    index_s = dict(_polarization=0)
+    index_p = dict(_polarization=1)
+
+    flux_absorbed = optika.vectors.PolarizationVectorArray(
+        s=flux_absorbed[index_s],
+        p=flux_absorbed[index_p],
+    )
+
+    return flux_absorbed
 
 
 @dataclasses.dataclass(eq=False, repr=False)
