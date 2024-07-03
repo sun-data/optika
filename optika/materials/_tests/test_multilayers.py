@@ -126,6 +126,12 @@ def test_multilayer_efficiency(
             chemical="SiC",
             thickness=10 * u.nm,
         ),
+        [
+            Layer(
+                chemical="SiC",
+                thickness=10 * u.nm,
+            )
+        ],
     ],
 )
 @pytest.mark.parametrize(
