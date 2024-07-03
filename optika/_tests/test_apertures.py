@@ -35,11 +35,11 @@ class AbstractTestAbstractAperture(
 
     def test_active(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.active, (bool, na.AbstractScalar))
-        assert na.get_dtype(a.active) == bool
+        assert np.issubdtype(na.get_dtype(a.active), bool)
 
     def test_inverted(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.inverted, (bool, na.AbstractScalar))
-        assert na.get_dtype(a.inverted) == bool
+        assert np.issubdtype(na.get_dtype(a.inverted), bool)
 
     def test__call__(self, a: optika.apertures.AbstractAperture):
         position = na.Cartesian3dVectorLinearSpace(
@@ -50,7 +50,7 @@ class AbstractTestAbstractAperture(
         )
 
         result = a(position)
-        assert na.get_dtype(result) == bool
+        assert np.issubdtype(na.get_dtype(result), bool)
         assert set(na.shape(position)).issubset(na.shape(result))
         assert np.any(result)
 
