@@ -108,6 +108,7 @@ def test_multilayer_efficiency(
     assert np.all(np.imag(reflected) == 0)
     assert np.all(np.imag(transmitted) == 0)
 
+
 @pytest.mark.parametrize("index", [0])
 @pytest.mark.parametrize("wavelength", [100 * u.AA, _wavelength])
 @pytest.mark.parametrize(

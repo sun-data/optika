@@ -663,7 +663,7 @@ def layer_absorbance(
         interface=layer.interface,
     )
 
-    n_right, direction_right, m_right, where_right = layers[:index + 1].transfer(
+    n_right, direction_right, m_right, where_right = layers[: index + 1].transfer(
         wavelength=wavelength,
         direction=direction,
         polarized_s=polarized_s,
