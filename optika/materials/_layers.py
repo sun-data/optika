@@ -461,7 +461,7 @@ class LayerSequence(AbstractLayerSequence):
         direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-        where: bool |na.AbstractScalar = True,
+        where: bool | na.AbstractScalar = True,
     ) -> tuple[
         na.AbstractScalar,
         na.AbstractScalar,
@@ -593,7 +593,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
         direction: float | na.AbstractScalar,
         polarized_s: bool | na.AbstractScalar,
         n: float | na.AbstractScalar,
-        where: bool |na.AbstractScalar = True,
+        where: bool | na.AbstractScalar = True,
     ) -> tuple[
         na.AbstractScalar,
         na.AbstractScalar,
@@ -611,7 +611,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
             where=where,
         )
 
-        n, direction, periodic, where, = period.transfer(
+        n, direction, periodic, where = period.transfer(
             wavelength=wavelength,
             direction=direction,
             polarized_s=polarized_s,
