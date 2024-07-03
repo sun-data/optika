@@ -200,22 +200,25 @@ def multilayer_coefficients(
     if not isinstance(layers, optika.materials.AbstractLayer):
         layers = optika.materials.LayerSequence(layers)
 
-    n, direction, m = layers.transfer(
+    n, direction, m_layers, where = layers.transfer(
         wavelength=wavelength,
         direction=direction_ambient,
         polarized_s=polarized_s,
         n=n_ambient,
     )
-    n_substrate, direction_substrate, m_substrate = substrate.transfer(
+    n, direction, m_substrate, where = substrate.transfer(
         wavelength=wavelength,
         direction=direction,
         polarized_s=polarized_s,
         n=n,
+        where=where,
+
     )
-    m = m @ m_substrate
+    m = m_layers @ m_substrate
 
     r = m.y.x / m.x.x
     t = 1 / m.x.x
+    t[~where] = 0
 
     index_s = dict(_polarization=0)
     index_p = dict(_polarization=1)
