@@ -483,61 +483,36 @@ def quantum_efficiency_effective(
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    reflectivity_ox, transmissivity_ox = optika.materials.multilayer_efficiency(
-        wavelength=wavelength,
-        direction=-direction @ normal,
-        n=n,
-        layers=optika.materials.Layer(
-            chemical=chemical_oxide,
-            thickness=thickness_oxide,
-        ),
-        substrate=optika.materials.Layer(
-            chemical=chemical_substrate,
-        ),
-    )
-    absorbtivity_ox = 1 - (reflectivity_ox + transmissivity_ox)
+    direction = -direction @ normal
 
-    reflectivity, transmissivity = optika.materials.multilayer_efficiency(
+    absorbance_substrate = absorbance(
         wavelength=wavelength,
-        direction=-direction @ normal,
+        direction=direction,
         n=n,
-        layers=[
-            optika.materials.Layer(
-                chemical=chemical_oxide,
-                thickness=thickness_oxide,
-            ),
-            optika.materials.Layer(
-                chemical=chemical_substrate,
-                thickness=thickness_substrate,
-            ),
-        ],
+        thickness_oxide=thickness_oxide,
+        thickness_substrate=thickness_substrate,
+        chemical_oxide=chemical_oxide,
+        chemical_substrate=chemical_substrate,
     )
-    absorbtivity = 1 - (transmissivity + reflectivity)
-
-    absorbtivity_si = absorbtivity - absorbtivity_ox
 
     n_substrate = chemical_substrate.n(wavelength)
     wavenumber_substrate = np.imag(n_substrate)
     absorption_substrate = 4 * np.pi * wavenumber_substrate / wavelength
 
-    direction_substrate = optika.materials.snells_law(
-        wavelength=wavelength,
-        direction=direction,
-        index_refraction=np.real(n),
-        index_refraction_new=np.real(n_substrate),
-        normal=normal,
+    direction_substrate = optika.materials.snells_law_scalar(
+        cos_incidence=direction,
+        index_refraction=n,
+        index_refraction_new=n_substrate,
     )
-
-    cos_theta = -direction_substrate @ normal
 
     cce = charge_collection_efficiency(
         absorption=absorption_substrate,
         thickness_implant=thickness_implant,
         cce_backsurface=cce_backsurface,
-        cos_incidence=cos_theta,
+        cos_incidence=direction_substrate,
     )
 
-    result = absorbtivity_si.average * cce
+    result = absorbance_substrate.average * cce
 
     return result
 
