@@ -85,12 +85,6 @@ def test_absorbance(
     ],
 )
 @pytest.mark.parametrize(
-    argnames="thickness_substrate",
-    argvalues=[
-        1 * u.um,
-    ],
-)
-@pytest.mark.parametrize(
     argnames="cce_backsurface",
     argvalues=[
         0.2,
@@ -106,14 +100,12 @@ def test_absorbance(
 def test_charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar,
-    thickness_substrate: u.Quantity | na.AbstractScalar,
     cce_backsurface: u.Quantity | na.AbstractScalar,
     cos_incidence: float | na.AbstractScalar,
 ):
     result = optika.sensors.charge_collection_efficiency(
         absorption=absorption,
         thickness_implant=thickness_implant,
-        thickness_substrate=thickness_substrate,
         cce_backsurface=cce_backsurface,
         cos_incidence=cos_incidence,
     )
