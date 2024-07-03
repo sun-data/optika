@@ -155,7 +155,7 @@ def absorbance(
         fig, ax = plt.subplots(constrained_layout=True)
         na.plt.plot(
             wavelength,
-            absorbance,
+            absorbance.average,
             ax=ax,
         );
         ax.set_xscale("log");
