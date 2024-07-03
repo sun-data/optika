@@ -280,7 +280,7 @@ def charge_collection_efficiency(
         :label: cce-definition
 
         \text{CCE}(\lambda) = \frac{\int_0^\infty \eta(z) e^{-\alpha z} \, dz}
-                               {\int_0^\infty e^{-\alpha z] \, dz}.
+                               {\int_0^\infty e^{-\alpha z} \, dz}.
 
     Plugging Equation :eq:`differential-cce` into Equation :eq:`cce-definition`
     and integrating yields
@@ -613,6 +613,32 @@ class AbstractBackilluminatedCCDMaterial(
             The wavelength of the incident light
         """
         return quantum_yield_ideal(wavelength)
+
+    def absorbance(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> optika.vectors.PolarizationVectorArray:
+        """
+        Compute the fraction of energy absorbed by the light-sensitive region
+        of the sensor.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the CCD surface.
+        normal
+            The vector perpendicular to the surface of the CCD sensor.
+        """
+        return absorbance(
+            wavelength=rays.wavelength,
+            direction=-rays.direction @ normal,
+            n=rays.index_refraction,
+            thickness_oxide=self.thickness_oxide,
+            thickness_substrate=self.thickness_substrate,
+            chemical_oxide=self._chemical_oxide,
+            chemical_substrate=self._chemical,
+        )
 
     def charge_collection_efficiency(
         self,
