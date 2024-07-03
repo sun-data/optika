@@ -658,7 +658,6 @@ class AbstractBackilluminatedCCDMaterial(
         return charge_collection_efficiency(
             absorption=self._chemical.absorption(rays.wavelength),
             thickness_implant=self.thickness_implant,
-            thickness_substrate=self.thickness_substrate,
             cce_backsurface=self.cce_backsurface,
             cos_incidence=-rays.direction @ normal,
         )
