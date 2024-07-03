@@ -212,7 +212,6 @@ def multilayer_coefficients(
         polarized_s=polarized_s,
         n=n,
         where=where,
-
     )
     m = m_layers @ m_substrate
 
