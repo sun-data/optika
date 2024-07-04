@@ -291,8 +291,8 @@ def charge_collection_efficiency(
         \text{CCE}(\lambda) = \eta_0 + \left( \frac{1 - \eta_0}{\alpha W} \right)(1 - e^{-\alpha W}).
 
     Equation :eq:`cce` is equivalent to the term in curly braces of Equation 11 in :cite:t:`Stern1994`,
-    with the addition of an :math:`e^{-\alpha W}-e^{-\alpha D}` term which represents photons
-    that traveled all the way through the silicon substrate without interacting.
+    with the addition of an :math:`e^{-\alpha W}` term which represents photons
+    absorbed inside the epitaxial layer but outside the implant layer.
 
     Equation :eq:`cce` is only valid for normally-incident light.
     We can generalize it to obliquely-incident light by making the substitution
