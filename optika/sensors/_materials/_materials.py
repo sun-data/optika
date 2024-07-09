@@ -11,6 +11,7 @@ __all__ = [
     "energy_bandgap",
     "energy_electron_hole",
     "quantum_yield_ideal",
+    "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
     "AbstractImagingSensorMaterial",
@@ -94,10 +95,100 @@ def quantum_yield_ideal(
     return result
 
 
+def absorbance(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar = 1,
+    n: float | na.AbstractScalar = 1,
+    thickness_oxide: u.Quantity | na.AbstractScalar = 50 * u.AA,
+    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
+    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
+) -> optika.vectors.PolarizationVectorArray:
+    """
+    The fraction of incident energy absorbed by the light-sensitive
+    region of the sensor
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The component of the incident light's propagation direction antiparallel
+        to the surface normal of the sensor.
+        Default is normal incidence.
+    n
+        The index of refraction in the ambient medium.
+    thickness_oxide
+        The thickness of the oxide layer on the illuminated surface of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    thickness_substrate
+        The thickness of the light-sensitive substrate layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    chemical_oxide
+        The chemical formula of the oxide layer on the illuminated surface of the sensor.
+        Default is silicon dioxide.
+    chemical_substrate
+        The chemical formula of the light-sensitive portion of the sensor.
+        Default is silicon.
+
+    Examples
+    --------
+
+    Plot the absorbance as a function of wavelength.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Compute the absorbance vs wavelength
+        absorbance = optika.sensors.absorbance(
+            wavelength=wavelength,
+        )
+
+        # Plot the effective and maximum quantum efficiency
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.plot(
+            wavelength,
+            absorbance.average,
+            ax=ax,
+        );
+        ax.set_xscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel("incident energy fraction");
+    """
+    if not isinstance(chemical_oxide, optika.chemicals.AbstractChemical):
+        chemical_oxide = optika.chemicals.Chemical(chemical_oxide)
+
+    if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
+        chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
+
+    return optika.materials.layer_absorbance(
+        index=1,
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        layers=[
+            optika.materials.Layer(
+                chemical=chemical_oxide,
+                thickness=thickness_oxide,
+            ),
+            optika.materials.Layer(
+                chemical=chemical_substrate,
+                thickness=thickness_substrate,
+            ),
+        ],
+    )
+
+
 def charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar = 2317 * u.AA,
-    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
     cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
     cos_incidence: float | na.AbstractScalar = 1,
 ) -> na.AbstractScalar:
@@ -113,9 +204,6 @@ def charge_collection_efficiency(
     thickness_implant
         The thickness of the implant layer, the layer where recombination can
         occur.
-        Default is the value given in :cite:t:`Stern1994`.
-    thickness_substrate
-        The total thickness of the light-sensitive material.
         Default is the value given in :cite:t:`Stern1994`.
     cce_backsurface
         The differential charge collection efficiency on the back surface
@@ -177,10 +265,9 @@ def charge_collection_efficiency(
     .. math::
         :label: differential-cce
 
-        \eta(x) = \begin{cases}
-            \eta_0 + (1 - \eta_0) x / W, & 0 < x < W \\
-            1, & W < x < D \\
-            0, & D < x,
+        \eta(z) = \begin{cases}
+            \eta_0 + (1 - \eta_0) z / W, & 0 < z < W \\
+            1, & W < z < D,
         \end{cases}
 
     is sufficient, given the uncertainties in the optical constants involved.
@@ -192,8 +279,8 @@ def charge_collection_efficiency(
     .. math::
         :label: cce-definition
 
-        \text{CCE}(\lambda) = \frac{\int_0^\infty \eta(z) \exp(-\alpha z) \, dz}
-                               {\int_0^\infty \exp(-\alpha z) \, dz}.
+        \text{CCE}(\lambda) = \frac{\int_0^\infty \eta(z) e^{-\alpha z} \, dz}
+                               {\int_0^\infty e^{-\alpha z} \, dz}.
 
     Plugging Equation :eq:`differential-cce` into Equation :eq:`cce-definition`
     and integrating yields
@@ -201,11 +288,11 @@ def charge_collection_efficiency(
     .. math::
         :label: cce
 
-        \text{CCE}(\lambda) = \eta_0 + \left( \frac{1 - \eta_0}{\alpha W} \right)(1 - e^{-\alpha W}) - e^{-\alpha D}.
+        \text{CCE}(\lambda) = \eta_0 + \left( \frac{1 - \eta_0}{\alpha W} \right)(1 - e^{-\alpha W}).
 
     Equation :eq:`cce` is equivalent to the term in curly braces of Equation 11 in :cite:t:`Stern1994`,
-    with the addition of an :math:`e^{-\alpha W}-e^{-\alpha D}` term which represents photons
-    that traveled all the way through the silicon substrate without interacting.
+    with the addition of an :math:`e^{-\alpha W}` term which represents photons
+    absorbed inside the epitaxial layer but outside the implant layer.
 
     Equation :eq:`cce` is only valid for normally-incident light.
     We can generalize it to obliquely-incident light by making the substitution
@@ -226,16 +313,14 @@ def charge_collection_efficiency(
         \text{CCE}(\lambda, \theta) =
             \eta_0
             + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
-            - e^{-\alpha D \sec \theta}
     """
     z0 = absorption * thickness_implant / cos_incidence
     exp_z0 = np.exp(-z0)
 
     term_1 = cce_backsurface
     term_2 = ((1 - cce_backsurface) / z0) * (1 - exp_z0)
-    term_3 = -np.exp(-absorption * thickness_substrate / cos_incidence)
 
-    return term_1 + term_2 + term_3
+    return term_1 + term_2
 
 
 def quantum_efficiency_effective(
@@ -379,10 +464,10 @@ def quantum_efficiency_effective(
     .. math::
         :label: eqe
 
-        \text{EQE}(\lambda) = T(\lambda) \times \text{CCE}(\lambda),
+        \text{EQE}(\lambda) = A(\lambda) \times \text{CCE}(\lambda),
 
-    where :math:`T(\lambda)` is the transmissivity of the backsurface of the
-    sensor for a given wavelength :math:`\lambda`,
+    where :math:`A(\lambda)` is the absorbtivity of the epitaxial silicon layer
+    for a given wavelength :math:`\lambda`,
     and :math:`\text{CCE}(\lambda)` is the charge collection efficiency
     (computed by :func:`charge_collection_efficiency`).
     """
@@ -398,42 +483,36 @@ def quantum_efficiency_effective(
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    reflectivity, transmissivity = optika.materials.multilayer_efficiency(
+    direction = -direction @ normal
+
+    absorbance_substrate = absorbance(
         wavelength=wavelength,
-        direction=-direction @ normal,
+        direction=direction,
         n=n,
-        layers=optika.materials.Layer(
-            chemical=chemical_oxide,
-            thickness=thickness_oxide,
-        ),
-        substrate=optika.materials.Layer(
-            chemical=chemical_substrate,
-        ),
+        thickness_oxide=thickness_oxide,
+        thickness_substrate=thickness_substrate,
+        chemical_oxide=chemical_oxide,
+        chemical_substrate=chemical_substrate,
     )
 
     n_substrate = chemical_substrate.n(wavelength)
     wavenumber_substrate = np.imag(n_substrate)
     absorption_substrate = 4 * np.pi * wavenumber_substrate / wavelength
 
-    direction_substrate = optika.materials.snells_law(
-        wavelength=wavelength,
-        direction=direction,
-        index_refraction=np.real(n),
-        index_refraction_new=np.real(n_substrate),
-        normal=normal,
+    direction_substrate = optika.materials.snells_law_scalar(
+        cos_incidence=direction,
+        index_refraction=n,
+        index_refraction_new=n_substrate,
     )
-
-    cos_theta = -direction_substrate @ normal
 
     cce = charge_collection_efficiency(
         absorption=absorption_substrate,
         thickness_implant=thickness_implant,
-        thickness_substrate=thickness_substrate,
         cce_backsurface=cce_backsurface,
-        cos_incidence=cos_theta,
+        cos_incidence=direction_substrate,
     )
 
-    result = transmissivity.average * cce
+    result = absorbance_substrate.average * cce
 
     return result
 
@@ -535,6 +614,32 @@ class AbstractBackilluminatedCCDMaterial(
         """
         return quantum_yield_ideal(wavelength)
 
+    def absorbance(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> optika.vectors.PolarizationVectorArray:
+        """
+        Compute the fraction of energy absorbed by the light-sensitive region
+        of the sensor.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the CCD surface.
+        normal
+            The vector perpendicular to the surface of the CCD sensor.
+        """
+        return absorbance(
+            wavelength=rays.wavelength,
+            direction=-rays.direction @ normal,
+            n=rays.index_refraction,
+            thickness_oxide=self.thickness_oxide,
+            thickness_substrate=self.thickness_substrate,
+            chemical_oxide=self._chemical_oxide,
+            chemical_substrate=self._chemical,
+        )
+
     def charge_collection_efficiency(
         self,
         rays: optika.rays.AbstractRayVectorArray,
@@ -554,7 +659,6 @@ class AbstractBackilluminatedCCDMaterial(
         return charge_collection_efficiency(
             absorption=self._chemical.absorption(rays.wavelength),
             thickness_implant=self.thickness_implant,
-            thickness_substrate=self.thickness_substrate,
             cce_backsurface=self.cce_backsurface,
             cos_incidence=-rays.direction @ normal,
         )

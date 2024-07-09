@@ -22,6 +22,57 @@ def test_quantum_yield_ideal(
 
 
 @pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        304 * u.AA,
+        na.linspace(100, 200, axis="wavelength", num=4) * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="direction",
+    argvalues=[
+        1,
+        0.5,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="n",
+    argvalues=[
+        1,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_oxide",
+    argvalues=[
+        10 * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_substrate",
+    argvalues=[
+        10 * u.um,
+    ],
+)
+def test_absorbance(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar,
+    n: float | na.AbstractScalar,
+    thickness_oxide: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+):
+    result = optika.sensors.absorbance(
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        thickness_oxide=thickness_oxide,
+        thickness_substrate=thickness_substrate,
+    )
+
+    assert np.all(result >= 0)
+    assert np.all(result <= 1)
+
+
+@pytest.mark.parametrize(
     argnames="absorption",
     argvalues=[
         1 / u.mm,
@@ -31,12 +82,6 @@ def test_quantum_yield_ideal(
     argnames="thickness_implant",
     argvalues=[
         1000 * u.AA,
-    ],
-)
-@pytest.mark.parametrize(
-    argnames="thickness_substrate",
-    argvalues=[
-        1 * u.um,
     ],
 )
 @pytest.mark.parametrize(
@@ -55,14 +100,12 @@ def test_quantum_yield_ideal(
 def test_charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar,
-    thickness_substrate: u.Quantity | na.AbstractScalar,
     cce_backsurface: u.Quantity | na.AbstractScalar,
     cos_incidence: float | na.AbstractScalar,
 ):
     result = optika.sensors.charge_collection_efficiency(
         absorption=absorption,
         thickness_implant=thickness_implant,
-        thickness_substrate=thickness_substrate,
         cce_backsurface=cce_backsurface,
         cos_incidence=cos_incidence,
     )
@@ -186,6 +229,31 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     ):
         result = a.quantum_yield_ideal(wavelength)
         assert result >= 0
+
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                wavelength=100 * u.AA,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_absorbance(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.absorbance(rays, normal)
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
 
     @pytest.mark.parametrize(
         argnames="rays",
