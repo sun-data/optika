@@ -40,4 +40,4 @@ by specifying the materials and thicknesses of the layers.
 
 Model the [quantum efficiency of a backilluminated CCD](https://optika.readthedocs.io/en/latest/_autosummary/optika.sensors.quantum_efficiency_effective.html#optika.sensors.quantum_efficiency_effective)
 
-![QE example](https://optika.readthedocs.io/en/latest/_images/optika.sensors.quantum_efficiency_effective_0_0.png)
+![QE example](https://optika.readthedocs.io/en/latest/_images/optika.sensors.quantum_efficiency_effective_0_1.png)
