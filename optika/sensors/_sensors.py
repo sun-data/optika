@@ -57,6 +57,13 @@ class AbstractImagingSensor(
         """
 
     @property
+    @abc.abstractmethod
+    def timedelta_exposure(self) -> u.Quantity | na.AbstractScalar:
+        """
+        The exposure time of the sensor.
+        """
+
+    @property
     def aperture(self):
         """
         The light-sensitive aperture of the sensor.
@@ -82,6 +89,9 @@ class IdealImagingSensor(
 
     num_pixel: na.Cartesian2dVectorArray[int, int] = None
     """The number of pixels along each axis of the sensor."""
+
+    timedelta_exposure: u.Quantity | na.AbstractScalar = 0 * u.s
+    """The exposure time of the sensor."""
 
     aperture_mechanical: optika.apertures.RectangularAperture = None
     """The shape of the physical substrate supporting the sensor."""
