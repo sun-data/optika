@@ -9,9 +9,9 @@ from optika.materials._tests.test_materials import AbstractTestAbstractMaterial
 @pytest.mark.parametrize(
     argnames="wavelength,result_expected",
     argvalues=[
-        (1.0 * u.eV, 0),
-        (2.0 * u.eV, 1),
-        (2 * optika.sensors.energy_electron_hole, 2),
+        (1.0 * u.eV, 0 * u.electron / u.photon),
+        (2.0 * u.eV, 1 * u.electron / u.photon),
+        (2 * optika.sensors.energy_electron_hole, 2 * u.electron / u.photon),
     ],
 )
 def test_quantum_yield_ideal(
