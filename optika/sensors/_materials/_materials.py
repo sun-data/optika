@@ -610,7 +610,7 @@ def electrons_measured(
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})")
         ax.set_ylabel(f"electrons measured ({electrons.unit:latex_inline})")
     """
-    photons_absorbed_expected = absorbance * photons
+    photons_absorbed_expected = absorbance * photons.to(u.ph)
     photons_absorbed = na.random.poisson(photons_absorbed_expected)
     electrons = iqy * photons_absorbed
     e_fractional, e_integral = np.modf(electrons / u.electron)
@@ -820,13 +820,12 @@ class AbstractBackilluminatedCCDMaterial(
         if not intensity.unit.is_equivalent(u.photon):
             h = astropy.constants.h
             c = astropy.constants.c
-            f = intensity * h * c / rays.wavelength * u.photon
-            intensity = f * intensity
+            intensity = intensity / (h * c / rays.wavelength) * u.photon
         return electrons_measured(
             photons=intensity,
             absorbance=self.absorbance(rays, normal).average,
             iqy=self.quantum_yield_ideal(rays.wavelength),
-            cce=self.charge_collection_efficiency(rays, normal)
+            cce=self.charge_collection_efficiency(rays, normal),
         )
 
     def efficiency(

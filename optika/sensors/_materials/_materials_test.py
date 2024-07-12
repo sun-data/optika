@@ -315,7 +315,7 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
         argnames="rays",
         argvalues=[
             optika.rays.RayVectorArray(
-                intensity=1 * u.erg,
+                intensity=1e-6 * u.erg,
                 wavelength=100 * u.AA,
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
             ),
