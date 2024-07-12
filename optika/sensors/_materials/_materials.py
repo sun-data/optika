@@ -52,9 +52,9 @@ def quantum_yield_ideal(
     .. math::
 
         \text{QY}(\epsilon) = \begin{cases}
-            0, & \epsilon < E_\text{g}\\
+            0, & 0 \leq \epsilon < E_\text{g}\\
             1, &  E_\text{g} \leq \epsilon < E_\text{e-h} \\
-            E_\text{e-h} / \epsilon, & E_\text{e-h} \leq \epsilon,
+            E_\text{e-h} / \epsilon, & E_\text{e-h} \leq \epsilon < \infty,
         \end{cases},
 
     where :math:`\epsilon` is the energy of the incident photon,
@@ -85,7 +85,7 @@ def quantum_yield_ideal(
         na.plt.plot(wavelength, qy, ax=ax);
         ax.set_xscale("log");
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
-        ax.set_ylabel("quantum yield ({qy.unit:latex_inline})");
+        ax.set_ylabel(f"quantum yield ({qy.unit:latex_inline})");
     """
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
 
