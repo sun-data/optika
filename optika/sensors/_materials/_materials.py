@@ -45,15 +45,16 @@ def quantum_yield_ideal(
     Notes
     -----
     The quantum yield is the number of electron-hole pairs produced per photon.
+    This is also known in the literature as the pair-production energy.
 
     The ideal quantum yield is given in :cite:t:`Janesick2001` as:
 
     .. math::
 
         \text{QY}(\epsilon) = \begin{cases}
-            0, & \epsilon < E_\text{g}\\
+            0, & 0 \leq \epsilon < E_\text{g}\\
             1, &  E_\text{g} \leq \epsilon < E_\text{e-h} \\
-            E_\text{e-h} / \epsilon, & E_\text{e-h} \leq \epsilon,
+            E_\text{e-h} / \epsilon, & E_\text{e-h} \leq \epsilon < \infty,
         \end{cases},
 
     where :math:`\epsilon` is the energy of the incident photon,
@@ -84,7 +85,7 @@ def quantum_yield_ideal(
         na.plt.plot(wavelength, qy, ax=ax);
         ax.set_xscale("log");
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
-        ax.set_ylabel("quantum yield");
+        ax.set_ylabel(f"quantum yield ({qy.unit:latex_inline})");
     """
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
 
@@ -92,7 +93,7 @@ def quantum_yield_ideal(
     result = np.where(energy > energy_electron_hole, result, 1)
     result = np.where(energy > energy_bandgap, result, 0)
 
-    return result
+    return result * u.electron / u.photon
 
 
 def absorbance(
