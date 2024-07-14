@@ -628,6 +628,25 @@ class AbstractImagingSensorMaterial(
     An interface representing the light-sensitive material of an imaging sensor.
     """
 
+    def electrons_measured(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Given a set of incident rays, compute the number of electrons
+        measured by the sensor using :func:`electrons_measured`.
+
+        Parameters
+        ----------
+        rays
+            The rays incident on the sensor surface.
+            The :attr:`optika.rays.RayVectorArray.intensity` field should
+            either be in units of photons or energy.
+        normal
+            The vector perpendicular to the surface of the sensor.
+        """
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractCCDMaterial(
@@ -803,19 +822,7 @@ class AbstractBackilluminatedCCDMaterial(
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        """
-        Given a set of incident rays, compute the number of electrons
-        measured by the sensor using :func:`electrons_measured`.
 
-        Parameters
-        ----------
-        rays
-            The rays incident on the sensor surface.
-            The :attr:`optika.rays.RayVectorArray.intensity` field should
-            either be in units of photons or energy.
-        normal
-            The vector perpendicular to the surface of the sensor.
-        """
         intensity = rays.intensity
         if not intensity.unit.is_equivalent(u.photon):
             h = astropy.constants.h
