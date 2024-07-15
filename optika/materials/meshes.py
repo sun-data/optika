@@ -18,6 +18,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractMesh(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     An interface describing the supporting mesh for a thin-film filter.

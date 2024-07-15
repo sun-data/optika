@@ -1,11 +1,12 @@
 import pytest
-import abc
 import astropy.units as u
 import optika
+from optika._tests import test_mixins
 
 
 class AbstractTestAbstractMesh(
-    abc.ABC,
+    test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
 ):
     def test_chemical(self, a: optika.materials.meshes.AbstractMesh):
         result = a.chemical

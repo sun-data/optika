@@ -38,6 +38,7 @@ FocalLengthT = TypeVar(
 class AbstractSag(
     optika.mixins.Printable,
     optika.mixins.Transformable,
+    optika.mixins.Shaped,
 ):
     """
     Base class for all types of sag surfaces.

@@ -23,6 +23,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulings(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     Interface for the interaction of a ruled surface with incident light

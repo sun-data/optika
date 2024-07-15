@@ -11,6 +11,7 @@ _wavelength = na.linspace(100, 300, axis="wavelength", num=11) * u.AA
 
 class AbstractTestAbstractMaterial(
     optika._tests.test_mixins.AbstractTestTransformable,
+    optika._tests.test_mixins.AbstractTestShaped,
 ):
     def test_is_mirror(self, a: optika.materials.AbstractMaterial):
         assert isinstance(a.is_mirror, bool)

@@ -22,6 +22,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractLayer(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
     abc.ABC,
 ):
     """

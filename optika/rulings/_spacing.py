@@ -14,6 +14,7 @@ __all__ = [
 class AbstractRulingSpacing(
     optika.mixins.Printable,
     optika.mixins.Transformable,
+    optika.mixins.Shaped,
 ):
     """
     An interface describing the instantaneous ruling spacing on the surface

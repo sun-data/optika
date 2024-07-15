@@ -32,6 +32,17 @@ kwargs_plot_parameterization = [
 ]
 
 
+class AbstractTestShaped(
+    abc.ABC
+):
+    def test_shape(self, a: optika.mixins.Shaped):
+        result = a.shape
+        assert isinstance(result, dict)
+        for k in result:
+            assert isinstance(k, str)
+            assert isinstance(result[k], int)
+
+
 class AbstractTestPrintable(
     abc.ABC,
 ):

@@ -9,6 +9,7 @@ from . import test_mixins
 class AbstractTestAbstractSag(
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
+    test_mixins.AbstractTestShaped,
 ):
     def test_parameters_slope_error(self, a: optika.sags.AbstractSag):
         if a.parameters_slope_error is not None:

@@ -26,6 +26,7 @@ class AbstractSystem(
     optika.mixins.Plottable,
     optika.mixins.Printable,
     optika.mixins.Transformable,
+    optika.mixins.Shaped,
 ):
     pass
 

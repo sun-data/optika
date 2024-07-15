@@ -39,6 +39,7 @@ class AbstractSurface(
     optika.mixins.Plottable,
     optika.mixins.Printable,
     optika.mixins.Transformable,
+    optika.mixins.Shaped,
     optika.propagators.AbstractLightPropagator,
     Generic[SagT, MaterialT, ApertureT, ApertureMechanicalT, RulingsT],
 ):

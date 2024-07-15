@@ -13,6 +13,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSlopeErrorParameters(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """collection of parameters used to compute the slope error"""
 

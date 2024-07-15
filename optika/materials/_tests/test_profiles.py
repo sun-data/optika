@@ -4,10 +4,12 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from optika._tests import test_mixins
 
 
 class AbstractTestAbstractInterfaceProfile(
-    abc.ABC,
+    test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
 ):
     def test_width(self, a: optika.materials.profiles.AbstractInterfaceProfile):
         result = a.width

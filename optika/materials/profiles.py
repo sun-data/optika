@@ -18,6 +18,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractInterfaceProfile(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     Abstract interface describing the :cite:t:`Stearns1989`

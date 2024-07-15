@@ -31,6 +31,7 @@ class AbstractTestAbstractSurface(
     test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
+    test_mixins.AbstractTestShaped,
     test_propagators.AbstractTestAbstractLightPropagator,
 ):
     def test_name(self, a: optika.surfaces.AbstractSurface):

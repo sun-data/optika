@@ -1,12 +1,15 @@
 import pytest
-import abc
 import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from optika._tests import test_mixins
 
 
-class AbstractTestAbstractRoughnessParameters(abc.ABC):
+class AbstractTestAbstractRoughnessParameters(
+    test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
+):
     def test_period_min(self, a: optika.metrology.AbstractRoughnessParameters):
         assert np.issubdtype(na.get_dtype(a.period_min), float)
         assert na.unit_normalized(a.period_min).is_equivalent(u.mm)

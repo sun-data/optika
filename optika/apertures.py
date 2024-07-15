@@ -31,6 +31,7 @@ class AbstractAperture(
     optika.mixins.Printable,
     optika.mixins.Plottable,
     optika.mixins.Transformable,
+    optika.mixins.Shaped,
 ):
     @property
     @abc.abstractmethod
