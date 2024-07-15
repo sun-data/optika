@@ -33,7 +33,7 @@ kwargs_plot_parameterization = [
 
 
 class AbstractTestShaped(
-    abc.ABC
+    abc.ABC,
 ):
     def test_shape(self, a: optika.mixins.Shaped):
         result = a.shape
