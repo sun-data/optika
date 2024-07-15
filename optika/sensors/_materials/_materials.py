@@ -4,6 +4,7 @@ import dataclasses
 import numpy as np
 import scipy.optimize
 import astropy.units as u
+import astropy.constants
 import named_arrays as na
 import optika
 
@@ -14,6 +15,7 @@ __all__ = [
     "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
+    "electrons_measured",
     "AbstractImagingSensorMaterial",
     "AbstractCCDMaterial",
     "AbstractBackilluminatedCCDMaterial",
@@ -518,6 +520,106 @@ def quantum_efficiency_effective(
     return result
 
 
+def electrons_measured(
+    photons: u.Quantity | na.AbstractScalar,
+    absorbance: float | na.AbstractScalar = 1,
+    iqy: u.Quantity | na.AbstractScalar = 1 * u.electron / u.photon,
+    cce: float | na.AbstractScalar = 1,
+) -> na.AbstractScalar:
+    r"""
+    Calculate the actual number of electrons measured for a given number of
+    photons by drawing samples from a random distribution.
+
+    This function uses both a Poisson distribution to compute the actual number
+    of photons absorbed by the detector and a binomial distribution to compute
+    the number of electrons measured by the detector.
+
+    Parameters
+    ----------
+    photons
+        The `expected` number of photons incident on the detector surface.
+    absorbance
+        The fraction of incident energy absorbed by the light-sensitive layer
+        of the detector computed using the average of :func:`absorbance`.
+    iqy
+        The ideal quantum yield of the sensor in electrons per photon.
+    cce
+        The charge collection efficiency of the detector computed using
+        :func:`charge_collection_efficiency`.
+
+    Examples
+    --------
+
+    Plot a 2D histogram of the number of electrons measured by the sensor
+    as a function of wavelength.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the number of experiments to perform
+        num_experiments = 100
+
+        # Define the expected number of photons
+        # for each experiment
+        photons_expected = na.broadcast_to(
+            array=100 * u.photon,
+            shape=dict(experiment=num_experiments)
+        )
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Compute the fraction of light absorbed by the light-sensitive
+        # region of the detector
+        absorbance = optika.sensors.absorbance(wavelength).average
+
+        # Compute the ideal quantum yield of silicon for each wavelength
+        iqy = optika.sensors.quantum_yield_ideal(wavelength)
+
+        # Compute the average fraction of charge collected for each wavelength
+        cce = optika.sensors.charge_collection_efficiency(
+            absorption=optika.chemicals.Chemical("Si").absorption(wavelength),
+        )
+
+        # Compute the actual number of electrons measured for each experiment
+        electrons = optika.sensors.electrons_measured(
+            photons=photons_expected,
+            absorbance=absorbance,
+            iqy=iqy,
+            cce=cce,
+        )
+
+        # Plot the result as a histogram
+        # with astropy.visualization.quantity_support():
+        fig, ax = plt.subplots(constrained_layout=True)
+        hist = na.histogram2d(
+            x=wavelength,
+            y=electrons,
+            bins=na.Cartesian2dVectorArray(
+                x=na.geomspace(10, 10000, axis="wavelength", num=101) * u.AA,
+                y=na.geomspace(1 * u.electron, electrons.max(), axis="electron", num=101)
+            ),
+        )
+        img = na.plt.pcolormesh(C=hist, ax=ax)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})")
+        ax.set_ylabel(f"electrons measured ({electrons.unit:latex_inline})")
+    """
+    photons_absorbed_expected = absorbance * photons.to(u.ph)
+    photons_absorbed = na.random.poisson(photons_absorbed_expected)
+    electrons = iqy * photons_absorbed
+    e_fractional, e_integral = np.modf(electrons / u.electron)
+    e_random = na.random.uniform(0, 1, electrons.shape) < e_fractional
+    electrons_total = e_integral + e_random
+    result = na.random.binomial(electrons_total.astype(int), cce)
+    return result * u.electron
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractImagingSensorMaterial(
     optika.materials.AbstractMaterial,
@@ -525,6 +627,25 @@ class AbstractImagingSensorMaterial(
     """
     An interface representing the light-sensitive material of an imaging sensor.
     """
+
+    def electrons_measured(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Given a set of incident rays, compute the number of electrons
+        measured by the sensor using :func:`electrons_measured`.
+
+        Parameters
+        ----------
+        rays
+            The rays incident on the sensor surface.
+            The :attr:`optika.rays.RayVectorArray.intensity` field should
+            either be in units of photons or energy.
+        normal
+            The vector perpendicular to the surface of the sensor.
+        """
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -694,6 +815,24 @@ class AbstractBackilluminatedCCDMaterial(
             chemical_oxide=self._chemical_oxide,
             chemical_substrate=self._chemical,
             normal=normal,
+        )
+
+    def electrons_measured(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+
+        intensity = rays.intensity
+        if not intensity.unit.is_equivalent(u.photon):
+            h = astropy.constants.h
+            c = astropy.constants.c
+            intensity = intensity / (h * c / rays.wavelength) * u.photon
+        return electrons_measured(
+            photons=intensity,
+            absorbance=self.absorbance(rays, normal).average,
+            iqy=self.quantum_yield_ideal(rays.wavelength),
+            cce=self.charge_collection_efficiency(rays, normal),
         )
 
     def efficiency(

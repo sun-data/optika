@@ -173,10 +173,64 @@ def test_quantum_efficiency_effective(
     assert np.all(result <= 1)
 
 
+@pytest.mark.parametrize(
+    argnames="photons",
+    argvalues=[100 * u.photon],
+)
+@pytest.mark.parametrize(
+    argnames="absorbance",
+    argvalues=[0.75],
+)
+@pytest.mark.parametrize(
+    argnames="iqy",
+    argvalues=[1.61 * u.electron / u.photon],
+)
+@pytest.mark.parametrize(
+    argnames="cce",
+    argvalues=[0.9],
+)
+def test_electrons_measured(
+    photons: u.Quantity | na.AbstractScalar,
+    absorbance: float | na.AbstractScalar,
+    iqy: u.Quantity | na.AbstractScalar,
+    cce: float | na.AbstractScalar,
+):
+    result = optika.sensors.electrons_measured(
+        photons=photons,
+        absorbance=absorbance,
+        iqy=iqy,
+        cce=cce,
+    )
+    assert np.all(result >= 0 * u.electron)
+
+
 class AbstractTestAbstractImagingSensorMaterial(
     AbstractTestAbstractMaterial,
 ):
-    pass
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                intensity=1e-6 * u.erg,
+                wavelength=100 * u.AA,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_electrons_measured(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.electrons_measured(rays, normal)
+        assert np.all(result >= 0 * u.electron)
 
 
 class AbstractTestAbstractCCDMaterial(
