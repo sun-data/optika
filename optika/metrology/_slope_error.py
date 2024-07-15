@@ -37,3 +37,10 @@ class SlopeErrorParameters(
 ):
     step_size: na.ScalarLike = 0 * u.mm
     kernel_size: na.ScalarLike = 0 * u.mm
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.step_size),
+            optika.shape(self.kernel_size),
+        )

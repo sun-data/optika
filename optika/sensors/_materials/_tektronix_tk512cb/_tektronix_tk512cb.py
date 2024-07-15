@@ -139,3 +139,7 @@ class TektronixTK512CBMaterial(
     @property
     def thickness_substrate(self) -> u.Quantity:
         return 7 * u.um
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return dict()

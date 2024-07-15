@@ -325,3 +325,14 @@ class Surface(
             self.sag = optika.sags.NoSag()
         if self.material is None:
             self.material = optika.materials.Vacuum()
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.name),
+            optika.shape(self.sag),
+            optika.shape(self.material),
+            optika.shape(self.aperture),
+            optika.shape(self.rulings),
+            optika.shape(self.transformation),
+        )

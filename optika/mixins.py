@@ -24,17 +24,11 @@ __all__ = [
 class Shaped(abc.ABC):
 
     @property
+    @abc.abstractmethod
     def shape(self) -> dict[str, int]:
         """
         The array shape of this object.
         """
-        types = (
-            na.AbstractArray,
-            na.transformations.AbstractTransformation,
-            Shaped,
-        )
-        shapes = [f.shape for f in dataclasses.fields(self) if isinstance(f, types)]
-        return na.broadcast_shapes(*shapes)
 
 
 @dataclasses.dataclass(repr=False)

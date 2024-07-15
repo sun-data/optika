@@ -52,6 +52,13 @@ class ConstantRulingSpacing(
     """The unit vector normal to the planes of the rulings."""
 
     @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.constant),
+            optika.shape(self.normal),
+        )
+
+    @property
     def transformation(self) -> None:
         return None
 
@@ -85,6 +92,14 @@ class Polynomial1dRulingSpacing(
     An arbitrary coordinate system transformation applied to the argument
     of the polynomial.
     """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.coefficients),
+            optika.shape(self.normal),
+            optika.shape(self.transformation),
+        )
 
     def __call__(
         self,

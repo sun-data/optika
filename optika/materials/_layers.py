@@ -192,6 +192,14 @@ class Layer(
     """
 
     @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.chemical),
+            optika.shape(self.thickness),
+            optika.shape(self.interface),
+        )
+
+    @property
     def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
         return self.thickness
 
@@ -425,6 +433,12 @@ class LayerSequence(AbstractLayerSequence):
     layers: Sequence[AbstractLayer] = dataclasses.MISSING
     """A sequence of layers."""
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            *[optika.shape(layer) for layer in self.layers],
+        )
+
     def n(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
@@ -565,6 +579,12 @@ class PeriodicLayerSequence(AbstractLayerSequence):
 
     num_periods: int = dataclasses.MISSING
     """The number of times to repeat the layer sequence."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            *[optika.shape(layer) for layer in self.layers]
+        )
 
     def n(
         self,

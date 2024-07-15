@@ -36,3 +36,10 @@ class RoughnessParameters(
 ):
     period_min: na.ScalarLike = 0 * u.mm
     period_max: na.ScalarLike = 0 * u.mm
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.period_min),
+            optika.shape(self.period_max),
+        )

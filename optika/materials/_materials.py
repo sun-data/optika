@@ -79,6 +79,10 @@ class Vacuum(
     AbstractMaterial,
 ):
     @property
+    def shape(self) -> dict[str, int]:
+        return dict()
+
+    @property
     def transformation(self) -> None:
         return None
 
@@ -152,6 +156,12 @@ class Mirror(
 ):
     substrate: None | Layer = None
     """A layer representing the substrate supporting the reflective surface."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.substrate),
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -244,6 +254,18 @@ class MeasuredMirror(
 
     serial_number: None | str | na.AbstractArray = None
     """A unique number associated with this material"""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        axis_wavelength = self.efficiency_measured.inputs.wavelength.axes
+        shape = optika.shape(self.efficiency_measured.outputs)
+        for ax in axis_wavelength:
+            shape.pop(ax, None)
+        return na.broadcast_shapes(
+            shape,
+            optika.shape(self.substrate),
+            optika.shape(self.serial_number),
+        )
 
     def efficiency(
         self,
