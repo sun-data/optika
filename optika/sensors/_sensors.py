@@ -2,12 +2,13 @@
 Models of light sensors that can be used in optical systems.
 """
 
-from typing import TypeVar
+from typing import TypeVar, Sequence
 import abc
 import dataclasses
 import astropy.units as u
 import named_arrays as na
 import optika
+from . import AbstractImagingSensorMaterial
 
 __all__ = [
     "AbstractImagingSensor",
@@ -16,7 +17,7 @@ __all__ = [
 ]
 
 
-MaterialT = TypeVar("MaterialT", bound=optika.materials.AbstractMaterial)
+MaterialT = TypeVar("MaterialT", bound=AbstractImagingSensorMaterial)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -71,6 +72,70 @@ class AbstractImagingSensor(
         return optika.apertures.RectangularAperture(
             half_width=self.width_pixel * self.num_pixel / 2,
         )
+
+    def readout(
+        self,
+        rays: optika.rays.RayVectorArray,
+        timedelta: None | u.Quantity | na.AbstractScalar = None,
+        axis: None | str | Sequence[str] = None,
+        where: bool | na.AbstractScalar = True,
+    ) -> na.FunctionArray[
+        na.Cartesian2dVectorArray,
+        na.AbstractScalar,
+    ]:
+        """
+        Given a set of rays incident on the sensor surface,
+        where each ray represents an expected number of photons per unit time,
+        simulate the number of electrons that would be measured by the sensor.
+
+        This method is inherently stochastic since it applies both photon shot
+        noise and electron recombination noise to arrive at the final number of
+        electrons measured.
+
+        Parameters
+        ----------
+        rays
+            A set of incident rays in global coordinates to measure.
+        timedelta
+            The exposure time of the measurement.
+            If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
+            will be used.
+        axis
+            The logical axes along which to collect photons.
+        where
+            A boolean mask used to indicate which photons should be considered
+            when calculating the signal measured by the sensor.
+        """
+        if timedelta is None:
+            timedelta = self.timedelta_exposure
+
+        if self.transformation is not None:
+            rays = self.transformation.inverse(rays)
+
+        rays = dataclasses.replace(
+            rays,
+            intensity=rays.intensity * timedelta,
+        )
+
+        electrons = self.material.electrons_measured(
+            rays=rays,
+            normal=self.sag.normal(rays.position),
+        )
+
+        hist = na.histogram2d(
+            x=rays.position.x,
+            y=rays.position.y,
+            bins=dict(
+                x=self.num_pixel.x,
+                y=self.num_pixel.y,
+            ),
+            axis=axis,
+            min=self.aperture.bound_lower,
+            max=self.aperture.bound_upper,
+            weights=electrons * where,
+        )
+
+        return hist
 
 
 @dataclasses.dataclass(eq=False, repr=False)
