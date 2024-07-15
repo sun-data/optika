@@ -11,6 +11,7 @@ _wavelength = na.linspace(100, 300, axis="wavelength", num=11) * u.AA
 
 class AbstractTestAbstractRulings(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
 ):
     def test_diffraction_order(self, a: optika.rulings.AbstractRulings):
         assert np.issubdtype(na.get_dtype(a.diffraction_order), int)

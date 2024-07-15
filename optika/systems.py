@@ -26,6 +26,7 @@ class AbstractSystem(
     optika.mixins.Plottable,
     optika.mixins.Printable,
     optika.mixins.Transformable,
+    optika.mixins.Shaped,
 ):
     pass
 
@@ -884,3 +885,12 @@ class SequentialSystem(
     """
     Additional keyword arguments used by default in :meth:`plot`.
     """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            *[optika.shape(surface) for surface in self.surfaces],
+            optika.shape(self.object),
+            optika.shape(self.sensor),
+            optika.shape(self.transformation),
+        )

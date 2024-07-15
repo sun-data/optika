@@ -155,3 +155,7 @@ class E2VCCD97Material(
     @property
     def thickness_substrate(self) -> u.Quantity:
         return 16 * u.um
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return dict()

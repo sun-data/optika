@@ -5,6 +5,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from optika._tests import test_mixins
 
 
 _wavelength = [
@@ -15,6 +16,8 @@ _wavelength = [
 
 
 class AbstractTestAbstractChemical(
+    test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
     abc.ABC,
 ):
     def test_formula(self, a: optika.chemicals.AbstractChemical):

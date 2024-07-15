@@ -28,6 +28,7 @@ class AbstractTestAbstractAperture(
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestTransformable,
+    test_mixins.AbstractTestShaped,
 ):
     def test_samples_wire(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.samples_wire, int)

@@ -9,6 +9,7 @@ import astropy.units as u
 import named_arrays as na
 
 __all__ = [
+    "Shaped",
     "Printable",
     "Plottable",
     "Transformable",
@@ -17,6 +18,17 @@ __all__ = [
     "Yawable",
     "Rollable",
 ]
+
+
+@dataclasses.dataclass(repr=False)
+class Shaped(abc.ABC):
+
+    @property
+    @abc.abstractmethod
+    def shape(self) -> dict[str, int]:
+        """
+        The array shape of this object.
+        """
 
 
 @dataclasses.dataclass(repr=False)

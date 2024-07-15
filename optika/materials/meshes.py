@@ -18,6 +18,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractMesh(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     An interface describing the supporting mesh for a thin-film filter.
@@ -55,3 +56,11 @@ class Mesh(
 
     pitch: u.Quantity | na.AbstractScalar = dataclasses.MISSING
     """The density of the mesh in lines per inch or equivalent."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.chemical),
+            optika.shape(self.efficiency),
+            optika.shape(self.pitch),
+        )

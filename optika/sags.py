@@ -38,6 +38,7 @@ FocalLengthT = TypeVar(
 class AbstractSag(
     optika.mixins.Printable,
     optika.mixins.Transformable,
+    optika.mixins.Shaped,
 ):
     """
     Base class for all types of sag surfaces.
@@ -119,6 +120,14 @@ class NoSag(
     parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
     parameters_roughness: None | optika.metrology.RoughnessParameters = None
     parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.parameters_slope_error),
+            optika.shape(self.parameters_roughness),
+            optika.shape(self.parameters_microroughness),
+        )
 
     @property
     def transformation(self) -> None:
@@ -216,6 +225,16 @@ class SphericalSag(
     parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
     parameters_roughness: None | optika.metrology.RoughnessParameters = None
     parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius),
+            optika.shape(self.transformation),
+            optika.shape(self.parameters_slope_error),
+            optika.shape(self.parameters_roughness),
+            optika.shape(self.parameters_microroughness),
+        )
 
     def __call__(
         self,
@@ -401,6 +420,17 @@ class ConicSag(
     parameters_roughness: None | optika.metrology.RoughnessParameters = None
     parameters_microroughness: None | optika.metrology.RoughnessParameters = None
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius),
+            optika.shape(self.conic),
+            optika.shape(self.transformation),
+            optika.shape(self.parameters_slope_error),
+            optika.shape(self.parameters_roughness),
+            optika.shape(self.parameters_microroughness),
+        )
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class ParabolicSag(
@@ -411,6 +441,16 @@ class ParabolicSag(
     parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
     parameters_roughness: None | optika.metrology.RoughnessParameters = None
     parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.focal_length),
+            optika.shape(self.transformation),
+            optika.shape(self.parameters_slope_error),
+            optika.shape(self.parameters_roughness),
+            optika.shape(self.parameters_microroughness),
+        )
 
     @property
     def radius(self) -> RadiusT:
@@ -436,6 +476,17 @@ class ToroidalSag(
     parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
     parameters_roughness: None | optika.metrology.RoughnessParameters = None
     parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius),
+            optika.shape(self.radius_of_rotation),
+            optika.shape(self.transformation),
+            optika.shape(self.parameters_slope_error),
+            optika.shape(self.parameters_roughness),
+            optika.shape(self.parameters_microroughness),
+        )
 
     def __call__(
         self,

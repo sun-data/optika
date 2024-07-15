@@ -22,6 +22,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractLayer(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
     abc.ABC,
 ):
     """
@@ -189,6 +190,14 @@ class Layer(
     The horizontal coordinate of the label.
     If :obj:`None`, the label is plotted in the center of the layer
     """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.chemical),
+            optika.shape(self.thickness),
+            optika.shape(self.interface),
+        )
 
     @property
     def _thickness_plot(self) -> u.Quantity | na.AbstractScalar:
@@ -424,6 +433,12 @@ class LayerSequence(AbstractLayerSequence):
     layers: Sequence[AbstractLayer] = dataclasses.MISSING
     """A sequence of layers."""
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            *[optika.shape(layer) for layer in self.layers],
+        )
+
     def n(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
@@ -564,6 +579,12 @@ class PeriodicLayerSequence(AbstractLayerSequence):
 
     num_periods: int = dataclasses.MISSING
     """The number of times to repeat the layer sequence."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            *[optika.shape(layer) for layer in self.layers],
+        )
 
     def n(
         self,

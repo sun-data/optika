@@ -3,6 +3,7 @@ A Python package for simulating and designing optical systems.
 """
 
 from . import mixins
+from ._util import shape
 from . import vectors
 from . import targets
 from . import rays
@@ -19,6 +20,7 @@ from . import systems
 
 __all__ = [
     "mixins",
+    "shape",
     "vectors",
     "targets",
     "rays",

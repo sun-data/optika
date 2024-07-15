@@ -127,3 +127,11 @@ class ThinFilmFilter(
 
     mesh: meshes.AbstractMesh = dataclasses.MISSING
     """The mesh backing supporting this thin-film filter."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.layer),
+            optika.shape(self.layer_oxide),
+            optika.shape(self.mesh),
+        )

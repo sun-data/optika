@@ -16,6 +16,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractChemical(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     Interface defining the optical constants for a given chemical.
@@ -253,3 +254,11 @@ class Chemical(
     The default value, :obj:`None`, usually means concatenating the
     tables in :cite:t:`Palik1997` and :cite:t:`Henke1993`.
     """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.formula),
+            optika.shape(self.is_amorphous),
+            optika.shape(self.table),
+        )

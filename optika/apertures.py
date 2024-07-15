@@ -31,6 +31,7 @@ class AbstractAperture(
     optika.mixins.Printable,
     optika.mixins.Plottable,
     optika.mixins.Transformable,
+    optika.mixins.Shaped,
 ):
     @property
     @abc.abstractmethod
@@ -222,6 +223,15 @@ class CircularAperture(
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius),
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
+
     def __call__(
         self,
         position: na.AbstractCartesian3dVectorArray,
@@ -400,6 +410,17 @@ class PolygonalAperture(
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
 
+    @property
+    def shape(self) -> dict[str, int]:
+        shape = optika.shape(self.vertices)
+        shape.pop("vertex")
+        return na.broadcast_shapes(
+            shape,
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class RectangularAperture(
@@ -479,6 +500,15 @@ class RectangularAperture(
     inverted: bool | na.AbstractScalar = False
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.half_width),
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
 
     def __call__(
         self,
@@ -579,6 +609,15 @@ class RegularPolygonalAperture(
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius),
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractOctagonalAperture(
@@ -599,6 +638,15 @@ class OctagonalAperture(
     inverted: bool | na.AbstractScalar = False
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius),
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -692,3 +740,14 @@ class IsoscelesTrapezoidalAperture(
     inverted: bool | na.AbstractScalar = False
     transformation: None | na.transformations.AbstractTransformation = None
     kwargs_plot: None | dict = None
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.x_left),
+            optika.shape(self.x_right),
+            optika.shape(self.angle),
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )

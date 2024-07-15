@@ -872,6 +872,12 @@ class MultilayerFilm(
     layers: None | AbstractLayer | Sequence[AbstractLayer] = None
     """A sequence of layers representing the multilayer stack."""
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            *[optika.shape(layer) for layer in self.layers],
+        )
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractMultilayerMirror(
@@ -1081,3 +1087,10 @@ class MultilayerMirror(
 
     substrate: None | Layer = None
     """A layer representing the substrate that the layers are deposited onto."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            *[optika.shape(layer) for layer in self.layers],
+            optika.shape(self.substrate),
+        )

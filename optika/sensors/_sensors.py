@@ -109,6 +109,16 @@ class IdealImagingSensor(
     """Extra keyword arguments to pass to :meth:`plot`"""
 
     @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.name),
+            optika.shape(self.width_pixel),
+            optika.shape(self.num_pixel),
+            optika.shape(self.timedelta_exposure),
+            optika.shape(self.transformation),
+        )
+
+    @property
     def material(self) -> optika.materials.AbstractMaterial:
         return optika.materials.Vacuum()
 

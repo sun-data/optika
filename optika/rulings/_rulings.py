@@ -23,6 +23,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulings(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     Interface for the interaction of a ruled surface with incident light
@@ -91,6 +92,13 @@ class Rulings(
     diffraction_order: int | na.AbstractScalar = MISSING
     """The diffraction order to simulate."""
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.spacing),
+            optika.shape(self.diffraction_order),
+        )
+
     def efficiency(
         self,
         rays: optika.rays.RayVectorArray,
@@ -114,8 +122,23 @@ class MeasuredRulings(
     diffraction_order: int | na.AbstractScalar = MISSING
     """The diffraction order to simulate."""
 
-    efficiency_measured: na.FunctionArray = MISSING
+    efficiency_measured: na.FunctionArray[
+        na.SpectralDirectionalVectorArray,
+        na.AbstractScalar,
+    ] = MISSING
     """The discrete measurements of the efficiency."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        axis_wavelength = self.efficiency_measured.inputs.wavelength.axes
+        shape = optika.shape(self.efficiency_measured.outputs)
+        for ax in axis_wavelength:
+            shape.pop(ax, None)
+        return na.broadcast_shapes(
+            optika.shape(self.spacing),
+            optika.shape(self.diffraction_order),
+            shape,
+        )
 
     def efficiency(
         self,
@@ -225,6 +248,14 @@ class SinusoidalRulings(
 
     diffraction_order: int | na.AbstractScalar = MISSING
     """The diffraction order to simulate."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.spacing),
+            optika.shape(self.depth),
+            optika.shape(self.diffraction_order),
+        )
 
     def efficiency(
         self,
@@ -361,6 +392,14 @@ class SquareRulings(
 
     diffraction_order: int | na.AbstractScalar = MISSING
     """The diffraction order to simulate."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.spacing),
+            optika.shape(self.depth),
+            optika.shape(self.diffraction_order),
+        )
 
     def efficiency(
         self,
@@ -511,6 +550,14 @@ class SawtoothRulings(
     diffraction_order: int | na.AbstractScalar = MISSING
     """The diffraction order to simulate."""
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.spacing),
+            optika.shape(self.depth),
+            optika.shape(self.diffraction_order),
+        )
+
     def efficiency(
         self,
         rays: optika.rays.RayVectorArray,
@@ -646,6 +693,14 @@ class TriangularRulings(
 
     diffraction_order: int | na.AbstractScalar = MISSING
     """The diffraction order to simulate."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.spacing),
+            optika.shape(self.depth),
+            optika.shape(self.diffraction_order),
+        )
 
     def efficiency(
         self,
@@ -796,6 +851,15 @@ class RectangularRulings(
 
     diffraction_order: int | na.AbstractScalar = MISSING
     """The diffraction order to simulate."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.spacing),
+            optika.shape(self.depth),
+            optika.shape(self.ratio_duty),
+            optika.shape(self.diffraction_order),
+        )
 
     def efficiency(
         self,

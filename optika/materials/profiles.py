@@ -18,6 +18,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractInterfaceProfile(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     Abstract interface describing the :cite:t:`Stearns1989`
@@ -201,6 +202,12 @@ class ErfInterfaceProfile(
     the width of the Gaussian in the intergrand of :math:`\text{erf}(x)`
     """
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.width),
+        )
+
     def __call__(self, z: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
         width = self.width
         x = z / (np.sqrt(2) * width)
@@ -293,6 +300,12 @@ class ExponentialInterfaceProfile(
     r"""
     the width of the exponential
     """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.width),
+        )
 
     def __call__(self, z: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
         width = self.width
@@ -390,6 +403,12 @@ class LinearInterfaceProfile(
     """
     the width of the linear region
     """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.width),
+        )
 
     def __call__(self, z: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
         width = self.width
@@ -492,6 +511,12 @@ class SinusoidalInterfaceProfile(
     """
     the characteristic size of the sine wave
     """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.width),
+        )
 
     def __call__(self, z: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
         width = self.width

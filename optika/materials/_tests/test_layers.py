@@ -9,6 +9,7 @@ import optika._tests.test_mixins
 
 class AbstractTestAbstractLayer(
     optika._tests.test_mixins.AbstractTestPrintable,
+    optika._tests.test_mixins.AbstractTestShaped,
 ):
 
     @pytest.mark.parametrize("wavelength", [100 * u.AA])
