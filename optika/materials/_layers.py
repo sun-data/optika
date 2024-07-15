@@ -583,7 +583,7 @@ class PeriodicLayerSequence(AbstractLayerSequence):
     @property
     def shape(self) -> dict[str, int]:
         return na.broadcast_shapes(
-            *[optika.shape(layer) for layer in self.layers]
+            *[optika.shape(layer) for layer in self.layers],
         )
 
     def n(
