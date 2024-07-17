@@ -24,12 +24,16 @@ class AbstractTestAbstractImagingSensor(
         argvalues=[
             optika.rays.RayVectorArray(
                 intensity=100 * u.photon / u.s,
-                position=na.Cartesian2dVectorLinearSpace(
-                    start=-10 * u.mm,
-                    stop=10 * u.mm,
-                    axis=na.Cartesian2dVectorArray("x", "y"),
-                    num=11,
-                ),
+                position=na.Cartesian3dVectorArray() * u.mm,
+            ),
+            optika.rays.RayVectorArray(
+                intensity=na.random.poisson(100, shape_random=dict(t=11)) * u.erg / u.s,
+                wavelength=500 * u.nm,
+                position=na.Cartesian3dVectorArray(
+                    x=na.random.uniform(-1, 1, shape_random=dict(t=11)) * u.mm,
+                    y=na.random.uniform(-1, 1, shape_random=dict(t=11)) * u.mm,
+                    z=0 * u.mm,
+                )
             )
         ],
     )
@@ -51,8 +55,10 @@ class AbstractTestAbstractImagingSensor(
         optika.sensors.IdealImagingSensor(
             name="test sensor",
             width_pixel=15 * u.um,
+            axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
             num_pixel=na.Cartesian2dVectorArray(2048, 1024),
-        )
+            transformation=na.transformations.Cartesian3dTranslation(x=1 * u.mm),
+        ),
     ],
 )
 class TestIdealImagingSensor(
