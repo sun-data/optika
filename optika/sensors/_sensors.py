@@ -120,7 +120,7 @@ class IdealImagingSensor(
 
     @property
     def material(self) -> optika.materials.AbstractMaterial:
-        return optika.materials.Vacuum()
+        return optika.sensors.IdealImagingSensorMaterial()
 
 
 class AbstractCCD(

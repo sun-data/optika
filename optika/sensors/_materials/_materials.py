@@ -17,6 +17,7 @@ __all__ = [
     "quantum_efficiency_effective",
     "electrons_measured",
     "AbstractImagingSensorMaterial",
+    "IdealImagingSensorMaterial",
     "AbstractCCDMaterial",
     "AbstractBackilluminatedCCDMaterial",
     "AbstractStern1994BackilluminatedCCDMaterial",
@@ -646,6 +647,29 @@ class AbstractImagingSensorMaterial(
         normal
             The vector perpendicular to the surface of the sensor.
         """
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class IdealImagingSensorMaterial(
+    optika.materials.Vacuum,
+    AbstractImagingSensorMaterial,
+):
+    """
+    An idealized sensor material with a quantum efficiency of 1.
+    """
+
+    def electrons_measured(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        intensity = rays.intensity
+        if not intensity.unit.is_equivalent(u.photon):
+            h = astropy.constants.h
+            c = astropy.constants.c
+            intensity = intensity / (h * c / rays.wavelength) * u.photon
+        electrons = intensity * u.electron / u.photon
+        return electrons.to(u.electron)
 
 
 @dataclasses.dataclass(eq=False, repr=False)

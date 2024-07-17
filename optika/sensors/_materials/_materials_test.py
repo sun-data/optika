@@ -233,6 +233,18 @@ class AbstractTestAbstractImagingSensorMaterial(
         assert np.all(result >= 0 * u.electron)
 
 
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.sensors.IdealImagingSensorMaterial(),
+    ],
+)
+class TestIdealImagingSensorMaterial(
+    AbstractTestAbstractImagingSensorMaterial,
+):
+    pass
+
+
 class AbstractTestAbstractCCDMaterial(
     AbstractTestAbstractImagingSensorMaterial,
 ):
