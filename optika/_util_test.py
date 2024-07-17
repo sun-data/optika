@@ -36,7 +36,7 @@ def test_direction(angles: na.AbstractCartesian2dVectorArray):
     argnames="direction",
     argvalues=[
         na.Cartesian3dVectorArray(1, 2, 5).normalized,
-    ]
+    ],
 )
 def test_angles(direction: na.AbstractCartesian3dVectorArray):
     result = optika.angles(direction)

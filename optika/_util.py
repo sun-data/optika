@@ -77,6 +77,6 @@ def angles(
     :func:`direction` : Inverse of this function
     """
     return na.Cartesian2dVectorArray(
-        x=np.arctan2(-direction.x, direction.z,),
+        x=np.arctan2(-direction.x, direction.z),
         y=-np.arcsin(direction.y / direction.length),
     )
