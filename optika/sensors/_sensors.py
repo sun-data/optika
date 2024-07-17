@@ -96,10 +96,6 @@ class AbstractImagingSensor(
         where each ray represents an expected number of photons per unit time,
         simulate the number of electrons that would be measured by the sensor.
 
-        This method is inherently stochastic since it applies both photon shot
-        noise and electron recombination noise to arrive at the final number of
-        electrons measured.
-
         Parameters
         ----------
         rays
