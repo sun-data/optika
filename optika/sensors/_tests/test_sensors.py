@@ -33,8 +33,8 @@ class AbstractTestAbstractImagingSensor(
                     x=na.random.uniform(-1, 1, shape_random=dict(t=11)) * u.mm,
                     y=na.random.uniform(-1, 1, shape_random=dict(t=11)) * u.mm,
                     z=0 * u.mm,
-                )
-            )
+                ),
+            ),
         ],
     )
     def test_readout(
@@ -47,6 +47,8 @@ class AbstractTestAbstractImagingSensor(
         assert isinstance(result.inputs, na.Cartesian2dVectorArray)
         assert isinstance(result.outputs, na.AbstractScalar)
         assert result.outputs.unit.is_equivalent(u.electron)
+        assert a.axis_pixel.x in result.outputs.shape
+        assert a.axis_pixel.y in result.outputs.shape
 
 
 @pytest.mark.parametrize(

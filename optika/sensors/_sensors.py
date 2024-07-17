@@ -52,6 +52,14 @@ class AbstractImagingSensor(
 
     @property
     @abc.abstractmethod
+    def axis_pixel(self) -> na.Cartesian2dVectorArray[str, str]:
+        """
+        The names of the logical axes corresponding to the rows and
+        columns of the pixel grid.
+        """
+
+    @property
+    @abc.abstractmethod
     def num_pixel(self) -> na.Cartesian2dVectorArray[int, int]:
         """
         The number of pixels along each axis of the sensor.
@@ -125,15 +133,15 @@ class AbstractImagingSensor(
         )
 
         hist = na.histogram2d(
-            x=rays.position.x,
+            x=na.as_named_array(rays.position.x),
             y=rays.position.y,
-            bins=dict(
-                x=self.num_pixel.x,
-                y=self.num_pixel.y,
-            ),
+            bins={
+                self.axis_pixel.x: self.num_pixel.x,
+                self.axis_pixel.y: self.num_pixel.y,
+            },
             axis=axis,
-            min=self.aperture.bound_lower,
-            max=self.aperture.bound_upper,
+            min=self.aperture.bound_lower.xy,
+            max=self.aperture.bound_upper.xy,
             weights=electrons * where,
         )
 
@@ -153,6 +161,12 @@ class IdealImagingSensor(
 
     width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray = 0 * u.um
     """The physical size of each pixel on the sensor."""
+
+    axis_pixel: na.Cartesian2dVectorArray[str, str] = None
+    """
+    The names of the logical axes corresponding to the rows and 
+    columns of the pixel grid.
+    """
 
     num_pixel: na.Cartesian2dVectorArray[int, int] = None
     """The number of pixels along each axis of the sensor."""
