@@ -112,6 +112,8 @@ class AbstractImagingSensor(
         if self.transformation is not None:
             rays = self.transformation.inverse(rays)
 
+        where = where & rays.unvignetted
+
         rays = dataclasses.replace(
             rays,
             intensity=rays.intensity * timedelta,
