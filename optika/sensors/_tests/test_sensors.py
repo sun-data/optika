@@ -19,6 +19,31 @@ class AbstractTestAbstractImagingSensor(
         result = a.timedelta_exposure
         assert result >= 0 * u.s
 
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                intensity=100 * u.photon / u.s,
+                position=na.Cartesian2dVectorLinearSpace(
+                    start=-10 * u.mm,
+                    stop=10 * u.mm,
+                    axis=na.Cartesian2dVectorArray("x", "y"),
+                    num=11,
+                )
+            )
+        ],
+    )
+    def test_readout(
+        self,
+        a: optika.sensors.AbstractImagingSensor,
+        rays: optika.rays.RayVectorArray,
+    ):
+        result = a.readout(rays)
+        assert isinstance(result, na.FunctionArray)
+        assert isinstance(result.inputs, na.Cartesian2dVectorArray)
+        assert isinstance(result.outputs, na.AbstractScalar)
+        assert result.outputs.unit.is_equivalent(u.electron)
+
 
 @pytest.mark.parametrize(
     argnames="a",
