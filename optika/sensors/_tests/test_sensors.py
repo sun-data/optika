@@ -29,7 +29,7 @@ class AbstractTestAbstractImagingSensor(
                     stop=10 * u.mm,
                     axis=na.Cartesian2dVectorArray("x", "y"),
                     num=11,
-                )
+                ),
             )
         ],
     )
