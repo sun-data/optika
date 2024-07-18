@@ -82,7 +82,6 @@ class AbstractTestAbstractSequentialSystem(
         else:
             assert na.unit(result).is_equivalent(u.m)
 
-
     def test_pupil_min(self, a: optika.systems.AbstractSequentialSystem):
         result = a.pupil_min
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
@@ -90,7 +89,6 @@ class AbstractTestAbstractSequentialSystem(
             assert na.unit(result).is_equivalent(u.m)
         else:
             assert na.unit(result).is_equivalent(u.deg)
-
 
     def test_pupil_max(self, a: optika.systems.AbstractSequentialSystem):
         result = a.pupil_max
