@@ -401,7 +401,8 @@ class AbstractSequentialSystem(
         """
         axis = (self._axis_field_stop, self._axis_pupil_stop)
         if self.object_is_at_infinity:
-            return self.rayfunction_stops.outputs.direction.xy.min(axis)
+            angles = optika.angles(self.rayfunction_stops.outputs.direction)
+            return angles.min(axis)
         else:
             return self.rayfunction_stops.outputs.position.xy.min(axis)
 
@@ -412,7 +413,8 @@ class AbstractSequentialSystem(
         """
         axis = (self._axis_field_stop, self._axis_pupil_stop)
         if self.object_is_at_infinity:
-            return self.rayfunction_stops.outputs.direction.xy.max(axis)
+            angles = optika.angles(self.rayfunction_stops.outputs.direction)
+            return angles.max(axis)
         else:
             return self.rayfunction_stops.outputs.position.xy.max(axis)
 
@@ -426,7 +428,8 @@ class AbstractSequentialSystem(
         if self.object_is_at_infinity:
             return self.rayfunction_stops.outputs.position.xy.min(axis)
         else:
-            return self.rayfunction_stops.outputs.direction.xy.min(axis)
+            angles = optika.angles(self.rayfunction_stops.outputs.direction)
+            return angles.min(axis)
 
     @property
     def pupil_max(self):
@@ -438,7 +441,8 @@ class AbstractSequentialSystem(
         if self.object_is_at_infinity:
             return self.rayfunction_stops.outputs.position.xy.max(axis)
         else:
-            return self.rayfunction_stops.outputs.direction.xy.max(axis)
+            angles = optika.angles(self.rayfunction_stops.outputs.direction)
+            return angles.max(axis)
 
     def _calc_rayfunction_input(
         self,
