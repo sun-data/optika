@@ -1,5 +1,6 @@
 from typing import Any
 import numpy as np
+import astropy.units as u
 import named_arrays as na
 import optika
 
@@ -39,7 +40,7 @@ def shape(a: Any) -> dict[str, int]:
 
 def direction(
     angles: na.AbstractCartesian2dVectorArray,
-) -> na.AbstractCartesian3dVectorArray:
+) -> na.Cartesian3dVectorArray:
     r"""
     Given a 2D vector of azimuth and elevation angles, convert to a
     3D vector of direction cosines.
@@ -89,6 +90,6 @@ def angles(
     :func:`direction` : Inverse of this function
     """
     return na.Cartesian2dVectorArray(
-        x=np.arctan2(-direction.x, direction.z),
-        y=-np.arcsin(direction.y / direction.length),
+        x=-np.arctan2(direction.x, direction.z).to(u.deg),
+        y=-np.arcsin(direction.y / direction.length).to(u.deg),
     )
