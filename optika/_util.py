@@ -40,7 +40,7 @@ def shape(a: Any) -> dict[str, int]:
 def direction(
     angles: na.AbstractCartesian2dVectorArray,
 ) -> na.AbstractCartesian3dVectorArray:
-    """
+    r"""
     Given a 2D vector of azimuth and elevation angles, convert to a
     3D vector of direction cosines.
 
@@ -48,6 +48,18 @@ def direction(
     ----------
     angles
         A vector of azimuth and elevation angles.
+
+    Notes
+    -----
+    If the azimuth and elevation angles are taken to :math:`\phi_x` and
+    :math:`\phi_y`, the direction cosines :math:`\vec{d}` can be found by
+
+    .. math::
+
+        \vec{d} = R_y(\phi_x) R_x(\phi_y) \hat{z}
+
+    where :math:`R_x(\theta)` and :math:`R_y(\theta)` are the rotation matrices
+    about the :math:`\phi_x` and :math:`\phi_y` axes respectively.
 
     See Also
     --------
