@@ -89,6 +89,8 @@ def angles(
     --------
     :func:`direction` : Inverse of this function
     """
+    if na.unit(direction) is None:
+        direction = direction << u.dimensionless_unscaled
     return na.Cartesian2dVectorArray(
         x=-np.arctan2(direction.x, direction.z).to(u.deg),
         y=-np.arcsin(direction.y / direction.length).to(u.deg),
