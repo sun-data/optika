@@ -68,20 +68,36 @@ class AbstractTestAbstractSequentialSystem(
     def test_field_min(self, a: optika.systems.AbstractSequentialSystem):
         result = a.field_min
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
+        if a.object_is_at_infinity:
+            assert na.unit(result).is_equivalent(u.deg)
+        else:
+            assert na.unit(result).is_equivalent(u.m)
 
     def test_field_max(self, a: optika.systems.AbstractSequentialSystem):
         result = a.field_max
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
         assert np.all(result > a.field_min)
+        if a.object_is_at_infinity:
+            assert na.unit(result).is_equivalent(u.deg)
+        else:
+            assert na.unit(result).is_equivalent(u.m)
 
     def test_pupil_min(self, a: optika.systems.AbstractSequentialSystem):
         result = a.pupil_min
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
+        if a.object_is_at_infinity:
+            assert na.unit(result).is_equivalent(u.m)
+        else:
+            assert na.unit(result).is_equivalent(u.deg)
 
     def test_pupil_max(self, a: optika.systems.AbstractSequentialSystem):
         result = a.pupil_max
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
         assert np.all(result > a.pupil_min)
+        if a.object_is_at_infinity:
+            assert na.unit(result).is_equivalent(u.m)
+        else:
+            assert na.unit(result).is_equivalent(u.deg)
 
     @pytest.mark.parametrize(
         argnames="wavelength,field,pupil",
