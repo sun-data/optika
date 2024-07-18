@@ -59,7 +59,7 @@ def direction(
         \vec{d} = R_y(\phi_x) R_x(\phi_y) \hat{z}
 
     where :math:`R_x(\theta)` and :math:`R_y(\theta)` are the rotation matrices
-    about the :math:`\phi_x` and :math:`\phi_y` axes respectively.
+    about the :math:`x` and :math:`y` axes respectively.
 
     See Also
     --------
