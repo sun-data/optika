@@ -87,8 +87,21 @@ def test_snells_law_scalar(
 @pytest.mark.parametrize(
     argnames="diffraction_order,spacing_rulings,normal_rulings",
     argvalues=[
-        (0, None, None),
-        (1, 5 * u.um, na.Cartesian3dVectorArray(1, 0, 0)),
+        (
+            0,
+            None,
+            None,
+        ),
+        (
+            1,
+            5 * u.um,
+            na.Cartesian3dVectorArray(1, 0, 0),
+        ),
+        (
+            na.linspace(-2, 2, "m", 5),
+            5 * u.um,
+            na.Cartesian3dVectorArray(1, 0, 0),
+        ),
     ],
 )
 def test_snells_law(
