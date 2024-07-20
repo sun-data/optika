@@ -8,11 +8,11 @@ import dataclasses
 import astropy.units as u
 import named_arrays as na
 import optika
-from . import AbstractImagingSensorMaterial
+from . import AbstractImagingSensorMaterial, IdealImagingSensorMaterial
 
 __all__ = [
     "AbstractImagingSensor",
-    "IdealImagingSensor",
+    "ImagingSensor",
     "AbstractCCD",
 ]
 
@@ -145,11 +145,12 @@ class AbstractImagingSensor(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class IdealImagingSensor(
+class ImagingSensor(
     AbstractImagingSensor,
 ):
     """
-    An idealized imaging sensor with perfect efficiency and no noise sources.
+    An arbitrary imaging sensor described by a pixel grid and a light-sensitive
+    material.
     """
 
     name: None | str = None
@@ -170,6 +171,14 @@ class IdealImagingSensor(
     timedelta_exposure: u.Quantity | na.AbstractScalar = 0 * u.s
     """The exposure time of the sensor."""
 
+    material: AbstractImagingSensorMaterial = None
+    """
+    A model of the light-sensitive material composing this sensor.
+    
+    If :obj:`None` (the default), :class:`optika.sensors.IdealImagingSensor`
+    will be used.
+    """
+
     aperture_mechanical: optika.apertures.RectangularAperture = None
     """The shape of the physical substrate supporting the sensor."""
 
@@ -185,6 +194,10 @@ class IdealImagingSensor(
     kwargs_plot: None | dict = None
     """Extra keyword arguments to pass to :meth:`plot`"""
 
+    def __post_init__(self) -> None:
+        if self.material is None:
+            self.material = IdealImagingSensorMaterial()
+
     @property
     def shape(self) -> dict[str, int]:
         return na.broadcast_shapes(
@@ -194,10 +207,6 @@ class IdealImagingSensor(
             optika.shape(self.timedelta_exposure),
             optika.shape(self.transformation),
         )
-
-    @property
-    def material(self) -> optika.materials.AbstractMaterial:
-        return optika.sensors.IdealImagingSensorMaterial()
 
 
 class AbstractCCD(

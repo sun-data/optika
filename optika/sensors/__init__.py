@@ -22,7 +22,7 @@ from ._materials import (
 )
 from ._sensors import (
     AbstractImagingSensor,
-    IdealImagingSensor,
+    ImagingSensor,
     AbstractCCD,
 )
 
@@ -43,6 +43,6 @@ __all__ = [
     "E2VCCD97Material",
     "E2VCCDAIAMaterial",
     "AbstractImagingSensor",
-    "IdealImagingSensor",
+    "ImagingSensor",
     "AbstractCCD",
 ]
