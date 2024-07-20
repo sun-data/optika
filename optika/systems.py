@@ -771,7 +771,7 @@ class SequentialSystem(
         )
 
         # define the imaging sensor surface
-        sensor = optika.sensors.IdealImagingSensor(
+        sensor = optika.sensors.ImagingSensor(
             name="sensor",
             width_pixel=5 * u.um,
             num_pixel=na.Cartesian2dVectorArray(1024, 2048),
