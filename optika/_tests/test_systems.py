@@ -213,7 +213,7 @@ _surfaces = [
     ),
 ]
 
-_sensor = optika.sensors.IdealImagingSensor(
+_sensor = optika.sensors.ImagingSensor(
     name="sensor",
     width_pixel=15 * u.um,
     num_pixel=na.Cartesian2dVectorArray(2048, 1024),

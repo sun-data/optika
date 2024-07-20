@@ -54,7 +54,7 @@ class AbstractTestAbstractImagingSensor(
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
-        optika.sensors.IdealImagingSensor(
+        optika.sensors.ImagingSensor(
             name="test sensor",
             width_pixel=15 * u.um,
             axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
@@ -63,7 +63,7 @@ class AbstractTestAbstractImagingSensor(
         ),
     ],
 )
-class TestIdealImagingSensor(
+class TestImagingSensor(
     AbstractTestAbstractImagingSensor,
 ):
     pass
