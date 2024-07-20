@@ -331,7 +331,7 @@ def snells_law(
 
     wavelength_new = wavelength / r
 
-    if m != 0:
+    if np.any(m != 0):
         d = spacing_rulings
         g = normal_rulings
         a = a - np.sign(-a @ normal) * (m * wavelength_new * g) / (n1 * d)
