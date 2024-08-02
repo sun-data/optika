@@ -174,7 +174,11 @@ class AbstractSurface(
             normal_rulings=normal_rulings,
         )
 
-        intensity_2 = intensity_1 * material.efficiency(rays_1, normal)
+        efficiency = material.efficiency(rays_1, normal)
+        if rulings is not None:
+            efficiency = efficiency * rulings.efficiency(rays_1, normal)
+
+        intensity_2 = intensity_1 * efficiency
         attenuation_2 = material.attenuation(rays_1)
 
         rays_2 = dataclasses.replace(
