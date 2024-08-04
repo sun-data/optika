@@ -249,7 +249,7 @@ class CircularAperture(
         inverted = na.broadcast_to(inverted, shape)
         position = na.broadcast_to(position, shape)
 
-        mask = position.length <= radius
+        mask = position.xy.length <= radius
 
         mask[inverted] = ~mask[inverted]
         mask[~active] = True
