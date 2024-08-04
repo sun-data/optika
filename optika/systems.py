@@ -569,7 +569,7 @@ class AbstractSequentialSystem(
             if obj.transformation is not None:
                 rays = obj.transformation(rays)
 
-        result = na.FunctionArray(inputs=grid_input, outputs=rays)
+        result = optika.rays.RayFunctionArray(inputs=grid_input, outputs=rays)
 
         return result
 
