@@ -768,19 +768,6 @@ class AbstractSequentialSystem(
 
         return cls._lerp(i[axis], a0, a1)
 
-    @classmethod
-    def _bilerp(
-        cls,
-        i: na.AbstractCartesian2dVectorArray,
-        a00: na.AbstractScalar,
-        a10: na.AbstractScalar,
-        a01: na.AbstractScalar,
-        a11: na.AbstractScalar,
-    ):
-        a0 = cls._lerp(i.x, a00, a10)
-        a1 = cls._lerp(i.x, a01, a11)
-        return cls._lerp(i.y, a0, a1)
-
     def _rayfunction_from_vertices(
         self,
         radiance: na.AbstractScalar,
@@ -979,10 +966,9 @@ class AbstractSequentialSystem(
         wavelength = scene.inputs.wavelength
         field = scene.inputs.position
 
-        if grid_pupil is None:
+        pupil = grid_pupil
+        if pupil is None:
             pupil = self.grid_input.pupil
-        else:
-            pupil = grid_pupil
 
         unit_field = na.unit_normalized(field)
         unit_pupil = na.unit_normalized(pupil)
