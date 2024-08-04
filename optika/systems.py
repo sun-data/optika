@@ -1168,9 +1168,9 @@ class SequentialSystem(
         # define the imaging sensor surface
         sensor = optika.sensors.ImagingSensor(
             name="sensor",
-            width_pixel=10 * u.um,
+            width_pixel=20 * u.um,
             axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
-            num_pixel=na.Cartesian2dVectorArray(256, 256),
+            num_pixel=na.Cartesian2dVectorArray(128, 128),
             timedelta_exposure=1 * u.s,
             material=optika.sensors.E2VCCDAIAMaterial(),
             transformation=na.transformations.TransformationList([
@@ -1264,16 +1264,8 @@ class SequentialSystem(
             ) * 100 * u.photon / u.s / u.m ** 2 / u.arcsec ** 2 / u.nm,
         )
 
-        # Define a normalized pupil grid
-        grid_pupil = na.Cartesian2dVectorLinearSpace(
-            start=-1,
-            stop=1,
-            axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
-            num=num_pupil + 1,
-        )
-
         # Simulate an image of the scene using the optical system
-        image = system(scene=scene, grid_pupil=grid_pupil)
+        image = system(scene)
 
         # Plot the original scene and the simulated image
         with astropy.visualization.quantity_support():
