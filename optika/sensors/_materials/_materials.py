@@ -696,14 +696,13 @@ class AbstractCCDMaterial(
         self,
         rays: optika.rays.AbstractRayVectorArray,
     ) -> na.ScalarLike:
-        result = self._chemical.index_refraction(rays.wavelength)
-        return result
+        return rays.index_refraction
 
     def attenuation(
         self,
         rays: optika.rays.AbstractRayVectorArray,
     ) -> na.ScalarLike:
-        return self._chemical.absorption(rays.wavelength)
+        return rays.attenuation
 
     @property
     def is_mirror(self) -> bool:
@@ -852,11 +851,14 @@ class AbstractBackilluminatedCCDMaterial(
             h = astropy.constants.h
             c = astropy.constants.c
             intensity = intensity / (h * c / rays.wavelength) * u.photon
+        absorbance = self.absorbance(rays, normal).average
+        iqy = self.quantum_yield_ideal(rays.wavelength)
+        cce = self.charge_collection_efficiency(rays, normal)
         return electrons_measured(
             photons=intensity,
-            absorbance=self.absorbance(rays, normal).average,
-            iqy=self.quantum_yield_ideal(rays.wavelength),
-            cce=self.charge_collection_efficiency(rays, normal),
+            absorbance=absorbance,
+            iqy=iqy,
+            cce=cce,
         )
 
     def efficiency(
@@ -864,10 +866,7 @@ class AbstractBackilluminatedCCDMaterial(
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
-        return self.quantum_efficiency_effective(
-            rays=rays,
-            normal=normal,
-        )
+        return 1
 
 
 @dataclasses.dataclass(eq=False, repr=False)
