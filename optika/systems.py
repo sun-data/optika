@@ -32,7 +32,7 @@ class AbstractSystem(
     @abc.abstractmethod
     def __call__(
         self,
-        scene: na.SpectralPositionalVectorArray,
+        scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
         **kwargs: Any,
     ) -> na.SpectralPositionalVectorArray:
         """
@@ -1172,7 +1172,6 @@ class SequentialSystem(
             axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
             num_pixel=na.Cartesian2dVectorArray(128, 128),
             timedelta_exposure=1 * u.s,
-            material=optika.sensors.E2VCCDAIAMaterial(),
             transformation=na.transformations.TransformationList([
                 na.transformations.Cartesian3dRotationY(-90 * u.deg),
                 na.transformations.Cartesian3dTranslation(
