@@ -1295,7 +1295,8 @@ class SequentialSystem(
                 location="top",
             )
             cbar_1.set_label(f"measured charge ({image.outputs.unit:latex_inline})")
-            ax.set_aspect("equal")
+            ax[0].set_aspect("equal")
+            ax[1].set_aspect("equal")
     """
 
     surfaces: Sequence[optika.surfaces.AbstractSurface] = dataclasses.MISSING
