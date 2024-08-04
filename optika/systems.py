@@ -28,6 +28,11 @@ class AbstractSystem(
     optika.mixins.Transformable,
     optika.mixins.Shaped,
 ):
+    """
+    An interface describing an optical system.
+
+    Could potentially be sequential or non-sequential.
+    """
 
     @abc.abstractmethod
     def __call__(
@@ -54,6 +59,13 @@ class AbstractSystem(
 class AbstractSequentialSystem(
     AbstractSystem,
 ):
+    """
+    An interface describing a sequential optical system.
+
+    A sequential optical system is a system where the ordering of the optical
+    surfaces is known in advance.
+    """
+
     @property
     @abc.abstractmethod
     def object(self) -> None | optika.surfaces.AbstractSurface:
@@ -972,6 +984,12 @@ class AbstractSequentialSystem(
         else:
             pupil = grid_pupil
 
+        unit_field = na.unit_normalized(field)
+        unit_pupil = na.unit_normalized(pupil)
+
+        normalized_field = unit_field.is_equivalent(u.dimensionless_unscaled)
+        normalized_pupil = unit_pupil.is_equivalent(u.dimensionless_unscaled)
+
         shape_wavelength = na.broadcast_shapes(shape, wavelength.shape)
         shape_field = na.broadcast_shapes(shape, field.shape)
         shape_pupil = na.broadcast_shapes(shape, pupil.shape)
@@ -1004,12 +1022,13 @@ class AbstractSequentialSystem(
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             axis_pupil=axis_pupil,
-            normalized_field=False,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
         )
 
         return self.sensor.readout(
             rays=rayfunction.outputs,
-            axis=tuple(shape_wavelength | shape_field | shape_pupil),
+            axis=tuple(shape_field | shape_pupil),
         )
 
     def plot(
@@ -1238,8 +1257,7 @@ class SequentialSystem(
     .. jupyter-execute::
 
         # Define the number of points to sample
-        num_field = system.sensor.num_pixel
-        num_pupil = 6
+        num_field = 2 * system.sensor.num_pixel
 
         # Define the scene as an airforce target.
         # Note how the coordinates (inputs) are defined on
@@ -1270,7 +1288,7 @@ class SequentialSystem(
         with astropy.visualization.quantity_support():
             fig, ax = plt.subplots(
                 ncols=2,
-                figsize=(8, 4),
+                figsize=(8, 5),
                 constrained_layout=True,
             )
             mappable_scene = na.plt.pcolormesh(
@@ -1279,8 +1297,8 @@ class SequentialSystem(
                 ax=ax[0],
             )
             mappable_image = na.plt.pcolormesh(
-                image.inputs,
-                C=image.outputs.value,
+                image.inputs.position.mean("wavelength"),
+                C=image.outputs.value.sum("wavelength"),
                 ax=ax[1],
             )
             cbar_0 = fig.colorbar(
