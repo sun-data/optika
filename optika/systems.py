@@ -1238,6 +1238,8 @@ class SequentialSystem(
                 zorder=10,
             )
 
+    |
+
     Using this model, we can simulate an image of an airforce target
 
     .. jupyter-execute::
@@ -1301,6 +1303,12 @@ class SequentialSystem(
             cbar_1.set_label(f"measured charge ({image.outputs.unit:latex_inline})")
             ax[0].set_aspect("equal")
             ax[1].set_aspect("equal")
+
+    The result is flipped vertically and horizontally since due to the layout
+    of the optical system.
+    The noise on the image is from the stratified random sampling used to
+    generate the grid of rays traced through the system, there is no
+    additional noise sources, such as photon shot noise in this simulation.
     """
 
     surfaces: Sequence[optika.surfaces.AbstractSurface] = dataclasses.MISSING
