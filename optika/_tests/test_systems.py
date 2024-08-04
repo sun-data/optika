@@ -32,12 +32,12 @@ class AbstractTestAbstractSystem(
                     ),
                 ),
                 outputs=na.random.uniform(
-                    low=0,
-                    high=100,
+                    low=0 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm,
+                    high=100 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm,
                     shape_random=dict(field_x=10, field_y=10),
-                ) * u.photon / u.cm ** 2 / u.arcsec ** 2 / u.s / u.nm,
+                ),
             )
-        ]
+        ],
     )
     def test__call__(
         self,
