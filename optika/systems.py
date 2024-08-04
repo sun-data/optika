@@ -1304,7 +1304,7 @@ class SequentialSystem(
             ax[0].set_aspect("equal")
             ax[1].set_aspect("equal")
 
-    The result is flipped vertically and horizontally since due to the layout
+    The result is flipped vertically and horizontally due to the layout
     of the optical system.
     The noise on the image is from the stratified random sampling used to
     generate the grid of rays traced through the system, there is no
