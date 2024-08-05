@@ -5,6 +5,7 @@ Models of light sensors that can be used in optical systems.
 from typing import TypeVar, Sequence
 import abc
 import dataclasses
+import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -88,7 +89,7 @@ class AbstractImagingSensor(
         axis: None | str | Sequence[str] = None,
         where: bool | na.AbstractScalar = True,
     ) -> na.FunctionArray[
-        na.Cartesian2dVectorArray,
+        na.SpectralPositionalVectorArray,
         na.AbstractScalar,
     ]:
         """
@@ -141,7 +142,13 @@ class AbstractImagingSensor(
             weights=electrons * where,
         )
 
-        return hist
+        return na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=np.mean(rays.wavelength, axis=axis),
+                position=hist.inputs,
+            ),
+            outputs=hist.outputs,
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)

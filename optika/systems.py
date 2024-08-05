@@ -28,13 +28,44 @@ class AbstractSystem(
     optika.mixins.Transformable,
     optika.mixins.Shaped,
 ):
-    pass
+    """
+    An interface describing an optical system.
+
+    Could potentially be sequential or non-sequential.
+    """
+
+    @abc.abstractmethod
+    def __call__(
+        self,
+        scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        **kwargs: Any,
+    ) -> na.SpectralPositionalVectorArray:
+        """
+        Forward model of the optical system.
+        Maps the given spectral radiance of a scene to detector counts.
+
+        Parameters
+        ----------
+        scene
+            The spectral radiance of the scene as a function of wavelength
+            and field position
+        kwargs
+            Additional keyword arguments used by subclass implementations
+            of this method.
+        """
 
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSequentialSystem(
     AbstractSystem,
 ):
+    """
+    An interface describing a sequential optical system.
+
+    A sequential optical system is a system where the ordering of the optical
+    surfaces is known in advance.
+    """
+
     @property
     @abc.abstractmethod
     def object(self) -> None | optika.surfaces.AbstractSurface:
@@ -371,6 +402,14 @@ class AbstractSequentialSystem(
             rays=rays_stop.outputs,
         )
 
+        obj = subsystem[~0]
+        rays = result.outputs
+        if obj.transformation is not None:
+            rays = obj.transformation.inverse(rays)
+
+        where = rays.direction @ obj.sag.normal(rays.position) != -1
+        result.outputs.direction[where] = -result.outputs.direction[where]
+
         if self.transformation is not None:
             result.outputs = self.transformation(result.outputs)
 
@@ -444,17 +483,30 @@ class AbstractSequentialSystem(
             angles = optika.angles(self.rayfunction_stops.outputs.direction)
             return angles.max(axis)
 
-    def _calc_rayfunction_input(
+    def _denormalize_grid(
         self,
-        grid_input: optika.vectors.ObjectVectorArray,
-    ) -> optika.rays.RayFunctionArray:
+        grid: optika.vectors.ObjectVectorArray,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+    ) -> optika.vectors.ObjectVectorArray:
 
-        rayfunction_stops = self.rayfunction_stops
+        if (not normalized_field) and (not normalized_pupil):
+            return grid
+
+        axis_field = self._axis_field_stop
+        axis_pupil = self._axis_pupil_stop
+
+        rayfunction_stops = self._calc_rayfunction_stops(
+            wavelength_input=grid.wavelength,
+            axis_pupil_stop=axis_pupil,
+            axis_field_stop=axis_field,
+            samples_pupil_stop=21,
+            samples_field_stop=21,
+        )
+
+        result = grid.copy_shallow()
 
         object_is_at_infinity = self.object_is_at_infinity
-
-        result = rayfunction_stops.copy_shallow()
-
         if object_is_at_infinity:
             field = rayfunction_stops.outputs.direction.xy
             pupil = rayfunction_stops.outputs.position.xy
@@ -462,28 +514,57 @@ class AbstractSequentialSystem(
             field = rayfunction_stops.outputs.position.xy
             pupil = rayfunction_stops.outputs.direction.xy
 
-        axis_pupil = tuple(result.inputs.pupil.shape)
-        axis_field = tuple(result.inputs.field.shape)
+        if normalized_field:
+            min_field = field.min(axis=(axis_field, axis_pupil))
+            ptp_field = field.ptp(axis=(axis_field, axis_pupil))
+            result.field = ptp_field * (result.field + 1) / 2 + min_field
 
-        field = (field.min(axis_pupil) + field.max(axis_pupil)) / 2
-        pupil = (pupil.min(axis_field) + pupil.max(axis_field)) / 2
+            if object_is_at_infinity:
+                direction = na.Cartesian3dVectorArray(
+                    x=result.field.x,
+                    y=result.field.y,
+                    z=np.sqrt(
+                        1 - np.square(result.field.x) - np.square(result.field.y)
+                    ),
+                )
+                result.field = optika.angles(direction)
 
-        min_field = field.min(axis=axis_field)
-        min_pupil = pupil.min(axis=axis_pupil)
+        if normalized_pupil:
+            min_pupil = pupil.min(axis=(axis_field, axis_pupil))
+            ptp_pupil = pupil.ptp(axis=(axis_field, axis_pupil))
+            result.pupil = ptp_pupil * (result.pupil + 1) / 2 + min_pupil
 
-        ptp_field = field.ptp(axis=axis_field)
-        ptp_pupil = pupil.ptp(axis=axis_pupil)
+            if not object_is_at_infinity:
+                direction = na.Cartesian3dVectorArray(
+                    x=result.pupil.x,
+                    y=result.pupil.y,
+                    z=np.sqrt(
+                        1 - np.square(result.pupil.x) - np.square(result.pupil.y)
+                    ),
+                )
+                result.pupil = optika.angles(direction)
 
-        result.inputs = grid_input.copy_shallow()
-        result.inputs.field = ptp_field * (result.inputs.field + 1) / 2 + min_field
-        result.inputs.pupil = ptp_pupil * (result.inputs.pupil + 1) / 2 + min_pupil
+        return result
 
-        if object_is_at_infinity:
-            position = result.inputs.pupil
-            direction = result.inputs.field
+    def _calc_rayfunction_input(
+        self,
+        grid_input: optika.vectors.ObjectVectorArray,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+    ) -> optika.rays.RayFunctionArray:
+
+        grid_input = self._denormalize_grid(
+            grid=grid_input,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+
+        if self.object_is_at_infinity:
+            position = grid_input.pupil
+            direction = optika.direction(grid_input.field)
         else:
-            position = result.inputs.field
-            direction = result.inputs.pupil
+            position = grid_input.field
+            direction = optika.direction(grid_input.pupil)
 
         rays = optika.rays.RayVectorArray(
             wavelength=grid_input.wavelength,
@@ -492,11 +573,7 @@ class AbstractSequentialSystem(
                 y=position.y,
                 z=0 * position.x.unit,
             ),
-            direction=na.Cartesian3dVectorArray(
-                x=direction.x,
-                y=direction.y,
-                z=np.sqrt(1 - np.square(direction.length)),
-            ),
+            direction=direction,
         )
 
         obj = self.object
@@ -504,7 +581,7 @@ class AbstractSequentialSystem(
             if obj.transformation is not None:
                 rays = obj.transformation(rays)
 
-        result.outputs = rays
+        result = optika.rays.RayFunctionArray(inputs=grid_input, outputs=rays)
 
         return result
 
@@ -516,10 +593,13 @@ class AbstractSequentialSystem(
 
     def raytrace(
         self,
+        intensity: None | float | u.Quantity | na.AbstractScalar = None,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
         field: None | na.AbstractCartesian2dVectorArray = None,
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         axis: None | str = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -528,6 +608,8 @@ class AbstractSequentialSystem(
 
         Parameters
         ----------
+        intensity
+            The energy density of the input rays.
         wavelength
             The wavelengths of the input rays.
             If :obj:`None` (the default), ``self.grid_input.wavelength``
@@ -543,6 +625,12 @@ class AbstractSequentialSystem(
         axis
             The axis along which the rays are accumulated.
             If :obj:`None` (the default), :attr:`axis_surface` will be used.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
 
         See Also
         --------
@@ -562,13 +650,22 @@ class AbstractSequentialSystem(
                 grid_input.field = field
             if pupil is not None:
                 grid_input.pupil = pupil
-            result = self._calc_rayfunction_input(grid_input)
+            result = self._calc_rayfunction_input(
+                grid_input,
+                normalized_field=normalized_field,
+                normalized_pupil=normalized_pupil,
+            )
 
         rays = result.outputs
+        if intensity is not None:
+            rays.intensity = intensity
         if self.transformation is not None:
             rays = self.transformation.inverse(rays)
+
+        surfaces = self.surfaces_all
+
         result.outputs = optika.propagators.accumulate_rays(
-            propagators=self.surfaces_all,
+            propagators=surfaces,
             rays=rays,
             axis=axis,
         )
@@ -576,9 +673,12 @@ class AbstractSequentialSystem(
 
     def rayfunction(
         self,
+        intensity: None | float | u.Quantity | na.AbstractScalar = None,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
         field: None | na.AbstractCartesian2dVectorArray = None,
         pupil: None | na.AbstractCartesian2dVectorArray = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -587,6 +687,8 @@ class AbstractSequentialSystem(
 
         Parameters
         ----------
+        intensity
+            The energy density of the input rays.
         wavelength
             The wavelengths of the input rays.
             If :obj:`None` (the default), ``self.grid_input.wavelength``
@@ -599,6 +701,12 @@ class AbstractSequentialSystem(
             The pupil positions of the input rays, in either normalized or physical units.
             If :obj:`None` (the default), ``self.grid_input.pupil``
             will be used.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
 
         See Also
         --------
@@ -607,10 +715,13 @@ class AbstractSequentialSystem(
 
         axis = "_dummy"
         raytrace = self.raytrace(
+            intensity=intensity,
             wavelength=wavelength,
             field=field,
             pupil=pupil,
             axis=axis,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
         )
         return raytrace[{axis: ~0}]
 
@@ -621,6 +732,290 @@ class AbstractSequentialSystem(
         input wavelength and position using :attr:`grid_input`.
         """
         return self.rayfunction()
+
+    @classmethod
+    def _avg_left_right(cls, a: na.AbstractArray, axis: str) -> na.AbstractArray:
+        a_left = a[{axis: slice(None, ~0)}]
+        a_right = a[{axis: slice(1, None)}]
+        return (a_left + a_right) / 2
+
+    @classmethod
+    def _lerp(
+        cls,
+        i: float | na.AbstractScalar,
+        a0: float | na.AbstractScalar,
+        a1: float | na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        return a0 * (1 - i) + a1 * i
+
+    @classmethod
+    def _nlerp(
+        cls,
+        i: dict[str, na.AbstractScalar],
+        a: na.AbstractArray,
+    ) -> na.AbstractArray:
+
+        axis = next(iter(i))
+
+        i_new = {ax: i[ax] for ax in i if ax != axis}
+
+        a0 = a[{axis: slice(None, ~0)}]
+        a1 = a[{axis: slice(1, None)}]
+
+        if i_new:
+            a0 = cls._nlerp(i_new, a0)
+            a1 = cls._nlerp(i_new, a1)
+
+        return cls._lerp(i[axis], a0, a1)
+
+    def _rayfunction_from_vertices(
+        self,
+        radiance: na.AbstractScalar,
+        wavelength: na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+        pupil: na.AbstractCartesian2dVectorArray,
+        axis_wavelength: str,
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        Similar to :meth:`rayfunction` except that the wavelength, field, and
+        pupil positions are specified on cell vertices instead of cell centers.
+
+        This function uses the vertices to compute both the area and centroid of
+        each cell before calling :meth:`rayfunction` and returning the result.
+
+        Parameters
+        ----------
+        radiance
+            The <spectral radiance https://en.wikipedia.org/wiki/Spectral_radiance>_
+            of each field position.
+            This will be converted into a flux before being passed into
+            :meth:`rayfunction`.
+        wavelength
+            The vertices of the wavelength grid, unless `area_wavelength` is
+            specified.
+        field
+            The vertices of the field grid (in either normalized or physical units),
+            unless `area_field` is specified.
+        pupil
+            The vertices of the pupil grid (in either normalized or physical units),
+            unless `area_pupil` is specified.
+        axis_wavelength
+            The logical axis corresponding to changing wavelength.
+            This axis should only be present in the `wavelength` and `pupil`
+            parameters.
+        axis_field
+            The two logical axes corresponding to changing field positions.
+            These axes should only be present in the `field` and `pupil`
+            parameters.
+        axis_pupil
+            The two logical axes corresponding to changing pupil positions.
+            These axes should only be present in the `pupil` parameter.
+        area_wavelength
+            An optional parameter specifying the width of each wavelength cell.
+            If :obj:`None` (the default), the `wavelength` parameter is assumed
+            to be specified on cell vertices, otherwise the `wavelength` parameter
+            is assumed to be specified on cell centers.
+        area_field
+            An optional parameter specifying the area of each field position.
+            If :obj:`None` (the default), the `field` parameter is assumed
+            to be specified on cell vertices, otherwise the `field` parameter
+            is assumed to be specified on cell centers.
+        area_pupil
+            An optional parameter specifying the area of each pupil position.
+            If :obj:`None` (the default), the `pupil` parameter is assumed
+            to be specified on cell vertices, otherwise the `pupil` parameter
+            is assumed to be specified on cell centers.
+        normalized_field
+            A boolean flag indicating if the `field` parameter is in normalized
+            units.
+        normalized_pupil
+            A boolean flag indicating if the `pupil` parameter is in normalized
+            units.
+        """
+
+        grid = optika.vectors.ObjectVectorArray(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+        )
+
+        grid = self._denormalize_grid(
+            grid=grid,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+
+        wavelength = grid.wavelength
+        field = grid.field
+        pupil = grid.pupil
+
+        shape_self = self.shape
+        shape_wavelength = wavelength.shape
+        shape_field = field.shape
+        shape_pupil = pupil.shape
+
+        shape = na.broadcast_shapes(
+            shape_self,
+            shape_wavelength,
+            shape_field,
+            shape_pupil,
+        )
+
+        if axis_wavelength not in shape_wavelength:
+            raise ValueError(  # pragma: nocover
+                f"{axis_wavelength=} must be in {shape_wavelength=}",
+            )
+        if not set(axis_field).issubset(shape_field):
+            raise ValueError(  # pragma: nocover
+                f"{axis_field=} must be a subset of {shape_field=}",
+            )
+        if set(axis_field).intersection(shape_wavelength):
+            raise ValueError(  # pragma: nocover
+                f"{axis_field=} must not intersect {shape_wavelength=}"
+            )
+        if not set(axis_pupil).issubset(shape_pupil):
+            raise ValueError(  # pragma: nocover
+                f"{axis_pupil=} must be a subset of {shape_pupil=}",
+            )
+        if set(axis_pupil).intersection(shape_wavelength | shape_field):
+            raise ValueError(  # pragma: nocover
+                f"{axis_pupil=} must not intersect {shape_wavelength=} or {shape_field=}"
+            )
+
+        axis_field_x, axis_field_y = axis_field
+        axis_pupil_x, axis_pupil_y = axis_pupil
+
+        area_wavelength = wavelength.volume_cell(axis_wavelength)
+
+        shape_field = na.broadcast_shapes(
+            shape_wavelength,
+            shape_field,
+        )
+        field = field.broadcast_to(shape_field)
+
+        shape_pupil = na.broadcast_shapes(shape_wavelength, shape_field, shape_pupil)
+        pupil = pupil.broadcast_to(shape_pupil)
+
+        if self.object_is_at_infinity:
+            area_field = optika.direction(field).solid_angle_cell(axis_field)
+            area_pupil = pupil.volume_cell(axis_pupil)
+        else:
+            area_field = field.volume_cell(axis_field)
+            area_pupil = optika.direction(pupil).solid_angle_cell(axis_pupil)
+
+        area_field = self._avg_left_right(area_field, axis_wavelength)
+
+        area_pupil = self._avg_left_right(area_pupil, axis_wavelength)
+        area_pupil = self._avg_left_right(area_pupil, axis_field_x)
+        area_pupil = self._avg_left_right(area_pupil, axis_field_y)
+
+        axis = (axis_wavelength,) + axis_field + axis_pupil
+        shape_centers = {ax: shape[ax] - 1 if ax in axis else shape[ax] for ax in shape}
+
+        wavelength = self._nlerp(
+            i={axis_wavelength: na.random.uniform(0, 1, shape_random=shape_centers)},
+            a=wavelength,
+        )
+
+        field = self._nlerp(
+            i={
+                axis_wavelength: na.random.uniform(0, 1, shape_random=shape_centers),
+                axis_field_x: na.random.uniform(0, 1, shape_random=shape_centers),
+                axis_field_y: na.random.uniform(0, 1, shape_random=shape_centers),
+            },
+            a=field,
+        )
+
+        pupil = self._nlerp(
+            i={
+                axis_wavelength: na.random.uniform(0, 1, shape_random=shape_centers),
+                axis_field_x: na.random.uniform(0, 1, shape_random=shape_centers),
+                axis_field_y: na.random.uniform(0, 1, shape_random=shape_centers),
+                axis_pupil_x: na.random.uniform(0, 1, shape_random=shape_centers),
+                axis_pupil_y: na.random.uniform(0, 1, shape_random=shape_centers),
+            },
+            a=pupil,
+        )
+
+        flux = radiance * area_wavelength * area_field * area_pupil
+
+        return self.rayfunction(
+            intensity=flux,
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=False,
+            normalized_pupil=False,
+        )
+
+    def __call__(
+        self,
+        scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        grid_pupil: None | na.AbstractCartesian2dVectorArray = None,
+        **kwargs,
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+
+        shape = self.shape
+
+        scene = scene.explicit
+
+        wavelength = scene.inputs.wavelength
+        field = scene.inputs.position
+
+        pupil = grid_pupil
+        if pupil is None:
+            pupil = self.grid_input.pupil
+
+        unit_field = na.unit_normalized(field)
+        unit_pupil = na.unit_normalized(pupil)
+
+        normalized_field = unit_field.is_equivalent(u.dimensionless_unscaled)
+        normalized_pupil = unit_pupil.is_equivalent(u.dimensionless_unscaled)
+
+        shape_wavelength = na.broadcast_shapes(shape, wavelength.shape)
+        shape_field = na.broadcast_shapes(shape, field.shape)
+        shape_pupil = na.broadcast_shapes(shape, pupil.shape)
+
+        shape_wavelength = {
+            axis: shape_wavelength[axis]
+            for axis in shape_wavelength
+            if axis not in shape
+        }
+        shape_field = {
+            axis: shape_field[axis]
+            for axis in shape_field
+            if axis not in shape | shape_wavelength
+        }
+        shape_pupil = {
+            axis: shape_pupil[axis]
+            for axis in shape_pupil
+            if axis not in shape | shape_wavelength | shape_field
+        }
+
+        (axis_wavelength,) = tuple(shape_wavelength)
+        axis_field = tuple(shape_field)
+        axis_pupil = tuple(shape_pupil)
+
+        rayfunction = self._rayfunction_from_vertices(
+            radiance=scene.outputs,
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+
+        return self.sensor.readout(
+            rays=rayfunction.outputs,
+            axis=tuple(shape_field | shape_pupil),
+        )
 
     def plot(
         self,
@@ -719,23 +1114,31 @@ class SequentialSystem(
 
     .. jupyter-execute::
 
+        import dataclasses
         import matplotlib.pyplot as plt
-        import matplotlib as mpl
-        import numpy as np
         import astropy.units as u
         import astropy.visualization
         import named_arrays as na
         import optika
 
-        # store the z-coordinate of the primary  and fold mirror
-        # so that we can determine the detector position
-        primary_mirror_z = 300 * u.mm
+        # store the coordinates of the primary mirror, fold mirror,
+        # and sensor, so we can determine the focal length of the
+        # primary mirror.
+        primary_mirror_z = 200 * u.mm
         fold_mirror_z = 50 * u.mm
+        sensor_x = 50 * u.mm
 
-        # define the parabolic primary mirror
+        # Define the front aperture surface.
+        front = optika.surfaces.Surface(
+            name="front",
+        )
+
+        # Define the parabolic primary mirror.
         primary_mirror = optika.surfaces.Surface(
             name="mirror",
-            sag=optika.sags.ParabolicSag(-300 * u.mm),
+            sag=optika.sags.ParabolicSag(
+                focal_length=-(primary_mirror_z - fold_mirror_z + sensor_x),
+            ),
             aperture=optika.apertures.RectangularAperture(40 * u.mm),
             material=optika.materials.Mirror(),
             is_pupil_stop=True,
@@ -744,71 +1147,71 @@ class SequentialSystem(
             ),
         )
 
-        # define the flat fold mirror which directs light
-        # to the detector surface
+        # Define the flat fold mirror which directs light
+        # to the detector surface.
         fold_mirror = optika.surfaces.Surface(
             name="fold_mirror",
-            aperture=optika.apertures.CircularAperture(15 * u.mm),
+            aperture=optika.apertures.RectangularAperture(25 * u.mm),
             material=optika.materials.Mirror(),
             transformation=na.transformations.TransformationList([
-                na.transformations.Cartesian3dRotationX(45 * u.deg),
+                na.transformations.Cartesian3dRotationY((90 + 45) * u.deg),
                 na.transformations.Cartesian3dTranslation(
                     z=fold_mirror_z,
                 ),
             ]),
         )
 
-        # define the central obscuration, the back face
+        # Define the central obscuration, the back face
         # of the fold mirror which blocks some of the
-        # incoming light
+        # incoming light.
         obscuration = optika.surfaces.Surface(
             name="obscuration",
-            aperture=optika.apertures.CircularAperture(
-                radius=fold_mirror.aperture.radius,
-                inverted=True,
-            ),
+            aperture=dataclasses.replace(fold_mirror.aperture, inverted=True),
             transformation=fold_mirror.transformation,
         )
 
         # define the imaging sensor surface
         sensor = optika.sensors.ImagingSensor(
             name="sensor",
-            width_pixel=5 * u.um,
-            num_pixel=na.Cartesian2dVectorArray(1024, 2048),
+            width_pixel=20 * u.um,
+            axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+            num_pixel=na.Cartesian2dVectorArray(128, 128),
+            timedelta_exposure=1 * u.s,
             transformation=na.transformations.TransformationList([
-                na.transformations.Cartesian3dRotationX(90 * u.deg),
+                na.transformations.Cartesian3dRotationY(-90 * u.deg),
                 na.transformations.Cartesian3dTranslation(
-                    y=primary_mirror.sag.focal_length + (primary_mirror_z - fold_mirror_z),
+                    x=-sensor_x,
                     z=fold_mirror_z,
                 ),
             ]),
             is_field_stop=True,
         )
 
-        # define the grid of normalized field coordinates,
-        # which are in the range +/-0.99 because the range +/-1
-        # would be clipped by the edge of the detector
-        field = 0.99 * na.Cartesian2dVectorLinearSpace(
+        # Define the grid of normalized field coordinates,
+        field = na.Cartesian2dVectorLinearSpace(
             start=-1,
             stop=1,
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
             num=5,
+            centers=True,
         )
 
-        # define the grid of normalized pupil coordinates
+        # Define the grid of normalized pupil coordinates
         # in a similar fashion to the normalized field
         # coordinates
-        pupil = 0.99 * na.Cartesian2dVectorLinearSpace(
+        pupil = na.Cartesian2dVectorLinearSpace(
             start=-1,
             stop=1,
             axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
             num=5,
+            centers=True,
         )
 
         # define the optical system using the surfaces
         # and the normalized field/pupil coordinates
         system = optika.systems.SequentialSystem(
             surfaces=[
+                front,
                 obscuration,
                 primary_mirror,
                 fold_mirror,
@@ -823,17 +1226,89 @@ class SequentialSystem(
 
         # plot the system
         with astropy.visualization.quantity_support():
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(constrained_layout=True)
             ax.set_aspect("equal")
             system.plot(
                 ax=ax,
-                components=("z", "y"),
+                components=("z", "x"),
                 kwargs_rays=dict(
                     color="tab:blue",
                 ),
                 color="black",
                 zorder=10,
             )
+
+    |
+
+    Using this model, we can simulate an image of an airforce target
+
+    .. jupyter-execute::
+
+        # Define the number of points to sample
+        num_field = 2 * system.sensor.num_pixel
+
+        # Define the scene as an airforce target.
+        # Note how the coordinates (inputs) are defined on
+        # cell vertices and the values (outputs) are
+        # defined on cell centers.
+        scene = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.linspace(530, 531, axis="wavelength", num=2) * u.nm,
+                position=na.Cartesian2dVectorLinearSpace(
+                    start=system.field_min,
+                    stop=system.field_max,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=num_field + 1,
+                ),
+            ),
+            outputs=optika.targets.airforce(
+                axis_x="field_x",
+                axis_y="field_y",
+                num_x=num_field.x,
+                num_y=num_field.y,
+            ) * 100 * u.photon / u.s / u.m ** 2 / u.arcsec ** 2 / u.nm,
+        )
+
+        # Simulate an image of the scene using the optical system
+        image = system(scene)
+
+        # Plot the original scene and the simulated image
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(
+                ncols=2,
+                figsize=(8, 5),
+                constrained_layout=True,
+            )
+            mappable_scene = na.plt.pcolormesh(
+                scene.inputs.position,
+                C=scene.outputs.value,
+                ax=ax[0],
+            )
+            mappable_image = na.plt.pcolormesh(
+                image.inputs.position.mean("wavelength"),
+                C=image.outputs.value.sum("wavelength"),
+                ax=ax[1],
+            )
+            cbar_0 = fig.colorbar(
+                mappable=mappable_scene.ndarray.item(),
+                ax=ax[0],
+                location="top",
+            )
+            cbar_0.set_label(f"radiance ({scene.outputs.unit:latex_inline})")
+            cbar_1 = fig.colorbar(
+                mappable=mappable_image.ndarray.item(),
+                ax=ax[1],
+                location="top",
+            )
+            cbar_1.set_label(f"measured charge ({image.outputs.unit:latex_inline})")
+            ax[0].set_aspect("equal")
+            ax[1].set_aspect("equal")
+
+    The result is flipped vertically and horizontally due to the layout
+    of the optical system.
+    The noise on the image is from the stratified random sampling used to
+    generate the grid of rays traced through the system, there is no
+    additional noise sources, such as photon shot noise in this simulation.
     """
 
     surfaces: Sequence[optika.surfaces.AbstractSurface] = dataclasses.MISSING

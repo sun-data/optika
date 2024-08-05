@@ -44,7 +44,7 @@ class AbstractTestAbstractImagingSensor(
     ):
         result = a.readout(rays)
         assert isinstance(result, na.FunctionArray)
-        assert isinstance(result.inputs, na.Cartesian2dVectorArray)
+        assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert isinstance(result.outputs, na.AbstractScalar)
         assert result.outputs.unit.is_equivalent(u.electron)
         assert a.axis_pixel.x in result.outputs.shape
