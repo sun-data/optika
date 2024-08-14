@@ -170,6 +170,23 @@ class TestSphericalSag(
     pass
 
 
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.sags.CylindricalSag(
+            radius=radius,
+            transformation=transformation,
+        )
+        for radius in radius_parameterization()
+        for transformation in test_mixins.transformation_parameterization
+    ],
+)
+class TestCylindricalSag(
+    AbstractTestAbstractSag,
+):
+    pass
+
+
 class AbstractTestAbstractConicSag(
     AbstractTestAbstractSag,
 ):
