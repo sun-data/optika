@@ -29,6 +29,8 @@ def snells_law_scalar(
     index_refraction_new
         The index of refraction in the new medium.
     """
+    if na.unit(cos_incidence) is not None:
+        cos_incidence.to(u.dimensionless_unscaled).value
     sin_incidence = np.emath.sqrt(1 - np.square(cos_incidence))
     sin_transmitted = index_refraction * sin_incidence / index_refraction_new
     cos_transmitted = np.emath.sqrt(1 - np.square(sin_transmitted))
