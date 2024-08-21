@@ -910,7 +910,7 @@ class AbstractStern1994BackilluminatedCCDMaterial(
             )
 
             result = np.sqrt(np.mean(np.square(qe_measured.outputs - qe_fit))).ndarray
-            print(f"{result=}")
+
             return result
 
         thickness_oxide_guess = 50 * u.AA
