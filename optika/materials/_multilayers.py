@@ -514,6 +514,15 @@ def multilayer_efficiency(
         p=1 / n_substrate,
     )
 
+    direction_ambient = optika.vectors.PolarizationVectorArray(
+        s=direction_ambient,
+        p=np.conj(direction_ambient),
+    )
+    direction_substrate = optika.vectors.PolarizationVectorArray(
+        s=direction_substrate,
+        p=np.conj(direction_substrate),
+    )
+
     q_ambient = direction_ambient * impedance_ambient
     q_substrate = direction_substrate * impedance_substrate
 

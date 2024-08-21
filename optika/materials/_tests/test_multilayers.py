@@ -158,6 +158,10 @@ def test_layer_absorbance(
         substrate=substrate,
     )
 
+    assert np.all(np.imag(result) == 0)
+    assert np.all(result >= 0)
+    assert np.all(result <= 1)
+
     reflectivity, transmissivity = optika.materials.multilayer_efficiency(
         wavelength=wavelength,
         direction=direction,

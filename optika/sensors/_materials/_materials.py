@@ -318,7 +318,7 @@ def charge_collection_efficiency(
             \eta_0
             + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
     """
-    z0 = absorption * thickness_implant / cos_incidence
+    z0 = absorption * thickness_implant / np.real(cos_incidence)
     exp_z0 = np.exp(-z0)
 
     term_1 = cce_backsurface
