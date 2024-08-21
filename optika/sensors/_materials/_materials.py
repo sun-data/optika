@@ -909,9 +909,7 @@ class AbstractStern1994BackilluminatedCCDMaterial(
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
             )
 
-            result = np.sqrt(np.mean(np.square(qe_measured.outputs - qe_fit))).ndarray
-
-            return result
+            return np.sqrt(np.mean(np.square(qe_measured.outputs - qe_fit))).ndarray
 
         thickness_oxide_guess = 50 * u.AA
         thickness_implant_guess = 2317 * u.AA
