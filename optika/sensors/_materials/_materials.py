@@ -318,7 +318,7 @@ def charge_collection_efficiency(
             \eta_0
             + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
     """
-    z0 = absorption * thickness_implant / cos_incidence
+    z0 = absorption * thickness_implant / np.real(cos_incidence)
     exp_z0 = np.exp(-z0)
 
     term_1 = cce_backsurface
@@ -515,6 +515,9 @@ def quantum_efficiency_effective(
         cce_backsurface=cce_backsurface,
         cos_incidence=direction_substrate,
     )
+
+    print(f"{absorbance_substrate=}")
+    print(f"{cce=}")
 
     result = absorbance_substrate.average * cce
 
@@ -909,7 +912,9 @@ class AbstractStern1994BackilluminatedCCDMaterial(
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
             )
 
-            return np.sqrt(np.mean(np.square(qe_measured.outputs - qe_fit))).ndarray
+            result = np.sqrt(np.mean(np.square(qe_measured.outputs - qe_fit))).ndarray
+            print(f"{result=}")
+            return result
 
         thickness_oxide_guess = 50 * u.AA
         thickness_implant_guess = 2317 * u.AA
