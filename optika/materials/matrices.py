@@ -128,8 +128,8 @@ def refraction(
     direction_i = direction_left
     direction_j = direction_right
 
-    direction_i = np.where(polarized_s, np.conj(direction_i), direction_i)
-    direction_j = np.where(polarized_s, np.conj(direction_j), direction_j)
+    direction_i = np.where(polarized_s, direction_i, np.conj(direction_i))
+    direction_j = np.where(polarized_s, direction_j, np.conj(direction_j))
 
     n_i = n_left
     n_j = n_right

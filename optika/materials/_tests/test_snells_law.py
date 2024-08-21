@@ -36,11 +36,12 @@ def test_snells_law_scalar(
         index_refraction=index_refraction,
         index_refraction_new=index_refraction_new,
     )
-    assert np.all(np.imag(result) == 0)
 
-    n1 = np.real(index_refraction)
-    n2 = np.real(index_refraction_new)
-    result_expected = np.cos(np.arcsin(n1 * np.sin(np.arccos(cos_incidence)) / n2))
+    n1 = index_refraction
+    n2 = index_refraction_new
+    result_expected = np.cos(
+        np.emath.arcsin(n1 * np.sin(np.emath.arccos(cos_incidence)) / n2)
+    )
 
     assert np.allclose(result, result_expected)
 

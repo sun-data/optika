@@ -29,8 +29,6 @@ def snells_law_scalar(
     index_refraction_new
         The index of refraction in the new medium.
     """
-    index_refraction = np.real(index_refraction)
-    index_refraction_new = np.real(index_refraction_new)
     sin_incidence = np.emath.sqrt(1 - np.square(cos_incidence))
     sin_transmitted = index_refraction * sin_incidence / index_refraction_new
     cos_transmitted = np.emath.sqrt(1 - np.square(sin_transmitted))
