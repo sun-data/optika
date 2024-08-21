@@ -516,9 +516,6 @@ def quantum_efficiency_effective(
         cos_incidence=direction_substrate,
     )
 
-    print(f"{absorbance_substrate=}")
-    print(f"{cce=}")
-
     result = absorbance_substrate.average * cce
 
     return result
