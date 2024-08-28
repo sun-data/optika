@@ -15,6 +15,7 @@ __all__ = [
     "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
+    "probability_measurement",
     "electrons_measured",
     "AbstractImagingSensorMaterial",
     "IdealImagingSensorMaterial",
@@ -519,6 +520,100 @@ def quantum_efficiency_effective(
     result = absorbance_substrate.average * cce
 
     return result
+
+
+def probability_measurement(
+    iqy: u.Quantity | na.AbstractScalar = 1 * u.electron / u.photon,
+    cce: float | na.AbstractScalar = 1,
+) -> na.AbstractScalar:
+    """
+    The probability that a photon absorbed in the epitaxial silicon layer results
+    in at least one photoelectron measured by the sensor.
+
+    For most of the electromagnetic spectrum, this quantity is nearly unity,
+    but in the ultraviolet, there is a significant chance that all the
+    photoelectrons associated with a photon recombine before being measured.
+
+    Parameters
+    ----------
+    iqy
+        The ideal quantum yield of the sensor in electrons per photon,
+        calculated by :func:`quantum_yield_ideal`.
+    cce
+        The charge collection efficiency of the detector computed using
+        :func:`charge_collection_efficiency`.
+
+    Examples
+    --------
+
+    Plot the probability of measuring an absorbed photon vs the charge collection
+    efficiency
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Compute the ideal quantum yield of silicon for these wavelengths
+        iqy = optika.sensors.quantum_yield_ideal()
+
+        # Compute the charge collection efficiency for each wavelength
+        cce optika.sensors.charge_collection_efficiency(
+            absorption=optika.chemicals.Chemical("Si").absorption(wavelength),
+        )
+
+        # Compute the probability of measuring an absorbed photon
+        # vs the charge collection efficiency
+        p_m = optika.sensors.probability_measurement(iqy, cce)
+
+        # Plot the results
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(constrained_layout=True)
+            na.plt.plot(
+                wavelength,
+                cce,
+                ax=ax,
+                label="charge collection efficiency",
+            )
+            na.plt.plot(
+                wavelength,
+                p_m,
+                ax=ax,
+                label="probability of measurement",
+            )
+            ax.set_xlabel(f"wavelength ({ax.get_xlabel()}));
+            ax.set_ylabel("probability");
+            ax.legend();
+
+    Notes
+    -----
+
+    The probability that `all` the electrons recombine before
+    being measured is
+
+    .. math::
+
+        P_r = (1 - \text{CCE})^{IQY}
+
+    Where :math:`\text{CCE}` is the charge collection efficiency,
+    and :math:`\text{IQY}` is the ideal quantum yield of the sensor.
+    So then the probability of a photon being measured is just the compliment
+    of :math:`P_r`,
+
+    .. math::
+
+        P_m = 1 - P_r.
+    """
+    iqy = iqy.to(u.electron / u.photon).value
+    p_r = (1 - cce) ** iqy
+    p_m = 1 - p_r
+    return p_m
 
 
 def electrons_measured(

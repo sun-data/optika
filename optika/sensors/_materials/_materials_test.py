@@ -174,6 +174,26 @@ def test_quantum_efficiency_effective(
 
 
 @pytest.mark.parametrize(
+    argnames="iqy",
+    argvalues=[1.61 * u.electron / u.photon],
+)
+@pytest.mark.parametrize(
+    argnames="cce",
+    argvalues=[0.9],
+)
+def test_(
+    iqy: u.Quantity | na.AbstractScalar,
+    cce: float | na.AbstractScalar,
+):
+    result = optika.sensors.probability_measurement(
+        iqy=iqy,
+        cce=cce,
+    )
+    assert np.all(result >= 0)
+    assert np.all(result <= 1)
+
+
+@pytest.mark.parametrize(
     argnames="photons",
     argvalues=[100 * u.photon],
 )
