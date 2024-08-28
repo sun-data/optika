@@ -600,7 +600,7 @@ def probability_measurement(
 
     .. math::
 
-        P_r = (1 - \text{CCE})^{IQY}
+        P_r = (1 - \text{CCE})^\text{IQY}
 
     Where :math:`\text{CCE}` is the charge collection efficiency,
     and :math:`\text{IQY}` is the ideal quantum yield of the sensor.
