@@ -366,6 +366,31 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
         assert np.all(result >= 0)
         assert np.all(result <= 1)
 
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                wavelength=100 * u.AA,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_probability_measurement(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.probability_measurement(rays, normal)
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
+
 
 class AbstractTestAbstractStern1994BackilluminatedCCDMaterial(
     AbstractTestAbstractBackilluminatedCCDMaterial,

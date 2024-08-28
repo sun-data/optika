@@ -587,7 +587,7 @@ def probability_measurement(
                 ax=ax,
                 label="probability of measurement",
             )
-            ax.set_xlabel(f"wavelength ({ax.get_xlabel()}));
+            ax.set_xlabel(f"wavelength ({ax.get_xlabel()})");
             ax.set_ylabel("probability");
             ax.legend();
 
@@ -933,6 +933,27 @@ class AbstractBackilluminatedCCDMaterial(
             chemical_oxide=self._chemical_oxide,
             chemical_substrate=self._chemical,
             normal=normal,
+        )
+
+    def probability_measurement(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Compute the probability of measuring an absorbed photon for this sensor
+        using :func:`probability_measurement`.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the CCD surface
+        normal
+            The vector perpendicular to the surface of the CCD.
+        """
+        return probability_measurement(
+            iqy=self.quantum_yield_ideal(rays.wavelength),
+            cce=self.charge_collection_efficiency(rays, normal),
         )
 
     def electrons_measured(
