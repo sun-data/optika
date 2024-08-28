@@ -526,7 +526,7 @@ def probability_measurement(
     iqy: u.Quantity | na.AbstractScalar = 1 * u.electron / u.photon,
     cce: float | na.AbstractScalar = 1,
 ) -> na.AbstractScalar:
-    """
+    r"""
     The probability that a photon absorbed in the epitaxial silicon layer results
     in at least one photoelectron measured by the sensor.
 
