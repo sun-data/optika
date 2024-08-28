@@ -174,6 +174,26 @@ def test_quantum_efficiency_effective(
 
 
 @pytest.mark.parametrize(
+    argnames="iqy",
+    argvalues=[1.61 * u.electron / u.photon],
+)
+@pytest.mark.parametrize(
+    argnames="cce",
+    argvalues=[0.9],
+)
+def test_(
+    iqy: u.Quantity | na.AbstractScalar,
+    cce: float | na.AbstractScalar,
+):
+    result = optika.sensors.probability_measurement(
+        iqy=iqy,
+        cce=cce,
+    )
+    assert np.all(result >= 0)
+    assert np.all(result <= 1)
+
+
+@pytest.mark.parametrize(
     argnames="photons",
     argvalues=[100 * u.photon],
 )
@@ -343,6 +363,31 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
         normal: na.AbstractCartesian3dVectorArray,
     ):
         result = a.charge_collection_efficiency(rays, normal)
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
+
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                wavelength=100 * u.AA,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_probability_measurement(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.probability_measurement(rays, normal)
         assert np.all(result >= 0)
         assert np.all(result <= 1)
 
