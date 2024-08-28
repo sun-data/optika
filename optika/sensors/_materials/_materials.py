@@ -587,6 +587,7 @@ def probability_measurement(
                 ax=ax,
                 label="probability of measurement",
             )
+            ax.set_xscale("log");
             ax.set_xlabel(f"wavelength ({ax.get_xlabel()})");
             ax.set_ylabel("probability");
             ax.legend();
