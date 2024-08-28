@@ -561,7 +561,7 @@ def probability_measurement(
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
         # Compute the ideal quantum yield of silicon for these wavelengths
-        iqy = optika.sensors.quantum_yield_ideal()
+        iqy = optika.sensors.quantum_yield_ideal(wavelength)
 
         # Compute the charge collection efficiency for each wavelength
         cce = optika.sensors.charge_collection_efficiency(
