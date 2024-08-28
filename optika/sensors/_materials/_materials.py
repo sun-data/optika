@@ -564,7 +564,7 @@ def probability_measurement(
         iqy = optika.sensors.quantum_yield_ideal()
 
         # Compute the charge collection efficiency for each wavelength
-        cce optika.sensors.charge_collection_efficiency(
+        cce = optika.sensors.charge_collection_efficiency(
             absorption=optika.chemicals.Chemical("Si").absorption(wavelength),
         )
 
