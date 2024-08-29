@@ -58,7 +58,7 @@ def quantum_yield_ideal(
         \text{QY}(\epsilon) = \begin{cases}
             0, & 0 \leq \epsilon < E_\text{g}\\
             1, &  E_\text{g} \leq \epsilon < E_\text{e-h} \\
-            E_\text{e-h} / \epsilon, & E_\text{e-h} \leq \epsilon < \infty,
+            \epsilon / E_\text{e-h}, & E_\text{e-h} \leq \epsilon < \infty,
         \end{cases},
 
     where :math:`\epsilon` is the energy of the incident photon,
