@@ -381,6 +381,30 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
             na.Cartesian3dVectorArray(0, 0, -1),
         ],
     )
+    def test_quantum_efficiency(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.quantum_efficiency(rays, normal)
+        assert result > 0 * u.electron / u.photon
+
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                wavelength=100 * u.AA,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
     def test_probability_measurement(
         self,
         a: optika.sensors.AbstractBackilluminatedCCDMaterial,

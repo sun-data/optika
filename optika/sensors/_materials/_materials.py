@@ -936,6 +936,27 @@ class AbstractBackilluminatedCCDMaterial(
             normal=normal,
         )
 
+    def quantum_efficiency(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Compute the quantum efficiency of this CCD material using
+        :meth:`quantum_efficiency_effective` and
+        :meth:`quantum_yield_ideal`.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the CCD surface
+        normal
+            The vector perpendicular to the surface of the CCD.
+        """
+        iqy = self.quantum_yield_ideal(rays.wavelength)
+        eqe = self.quantum_efficiency_effective(rays, normal)
+        return iqy * eqe
+
     def probability_measurement(
         self,
         rays: optika.rays.AbstractRayVectorArray,
