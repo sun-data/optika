@@ -953,9 +953,9 @@ class AbstractBackilluminatedCCDMaterial(
         normal
             The vector perpendicular to the surface of the CCD.
         """
-        a = self.absorbance(rays, normal)
+        iqy = self.quantum_yield_ideal(rays.wavelength)
         eqe = self.quantum_efficiency_effective(rays, normal)
-        return a * eqe
+        return iqy * eqe
 
     def probability_measurement(
         self,
