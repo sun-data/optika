@@ -944,7 +944,7 @@ class AbstractBackilluminatedCCDMaterial(
         """
         Compute the quantum efficiency of this CCD material using
         :meth:`quantum_efficiency_effective` and
-        :meth:`absorbance`.
+        :meth:`quantum_yield_ideal`.
 
         Parameters
         ----------
