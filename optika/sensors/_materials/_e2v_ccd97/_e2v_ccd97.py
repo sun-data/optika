@@ -14,7 +14,10 @@ class E2VCCD97Material(
 ):
     """
     A model of the light-sensitive material of an e2v CCD97 sensor based on
-    measurements by :cite:t:`Moody2017`.
+    measurements by :cite:t:`Moody2017` and :cite:t:Heymes2020`.
+
+    This is a measurement of e2v's "enhanced" process, which has a narrower
+    partial charge collection region than e2v's "standard" process.
 
     Examples
     --------
@@ -139,14 +142,29 @@ class E2VCCD97Material(
 
     @property
     def quantum_efficiency_measured(self) -> na.FunctionArray:
+
         directory = pathlib.Path(__file__).parent
-        energy, qe = np.genfromtxt(
+
+        energy_moody, qe_moody = np.genfromtxt(
             fname=directory / "e2v_ccd97_qe_moody2017.csv",
             delimiter=", ",
             unpack=True,
         )
-        energy = energy << u.eV
-        wavelength = energy.to(u.AA, equivalencies=u.spectral())
+        energy_moody = energy_moody << u.eV
+        wavelength_moody = energy_moody.to(u.AA, equivalencies=u.spectral())
+        qe_moody = qe_moody << u.percent
+
+        wavelength_heymes, qe_heymes = np.genfromtxt(
+            fname=directory / "e2v_ccd97_qe_heymes2020.csv",
+            delimiter=", ",
+            unpack=True,
+        )
+        wavelength_heymes = wavelength_heymes << u.nm
+        qe_heymes = qe_heymes << u.percent
+
+        wavelength = np.concatenate([wavelength_moody, wavelength_heymes])
+        qe = np.concatenate([qe_moody, qe_heymes])
+
         return na.FunctionArray(
             inputs=na.ScalarArray(wavelength, axes="wavelength"),
             outputs=na.ScalarArray(qe, axes="wavelength"),
