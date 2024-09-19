@@ -14,7 +14,7 @@ class E2VCCD97Material(
 ):
     """
     A model of the light-sensitive material of an e2v CCD97 sensor based on
-    measurements by :cite:t:`Moody2017` and :cite:t:Heymes2020`.
+    measurements by :cite:t:`Moody2017` and :cite:t:`Heymes2020`.
 
     This is a measurement of e2v's "enhanced" process, which has a narrower
     partial charge collection region than e2v's "standard" process.
@@ -174,7 +174,7 @@ class E2VCCD97Material(
 
     @property
     def thickness_substrate(self) -> u.Quantity:
-        return 16 * u.um
+        return 14 * u.um
 
     @property
     def shape(self) -> dict[str, int]:
