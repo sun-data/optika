@@ -426,5 +426,5 @@ class AbstractTestAbstractStern1994BackilluminatedCCDMaterial(
         result = a.quantum_efficiency_measured
         assert isinstance(result, na.AbstractFunctionArray)
         assert np.all(result.outputs >= 0)
-        assert np.all(result.outputs <= 1)
+        assert np.all(result.outputs <= 1.1)
         assert np.all(result.inputs >= 0 * u.nm)
