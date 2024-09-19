@@ -119,12 +119,12 @@ class E2VCCD97Material(
             na.plt.scatter(
                 wavelength_measured,
                 qe_measured,
-                label="Moody 2017 measured",
+                label="Heymes 2020 measured",
             )
             na.plt.plot(
                 wavelength_fit,
                 qe_fit,
-                label="Moody 2017 fit",
+                label="Heymes 2020 fit",
             )
             na.plt.scatter(
                 material_ccd_aia.quantum_efficiency_measured.inputs,
