@@ -97,7 +97,9 @@ class E2VCCD97Material(
 
         material_ccd97.cce_backsurface
 
-    Plot the effective quantum efficiency of the fit to this data vs. the fit
+    |
+
+    Now plot the effective quantum efficiency of the fit to this data vs. the fit
     to the data in :class:`optika.sensors.E2VCCDAIAMaterial`
 
     .. jupyter-execute::
@@ -163,7 +165,7 @@ class E2VCCD97Material(
         qe_heymes = qe_heymes << u.percent
 
         wavelength = np.concatenate([wavelength_moody, wavelength_heymes])
-        qe = np.concatenate([qe_moody, qe_heymes])
+        qe = np.concatenate([qe_moody, qe_heymes]).to_value(u.dimensionless_unscaled)
 
         return na.FunctionArray(
             inputs=na.ScalarArray(wavelength, axes="wavelength"),
