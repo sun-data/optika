@@ -303,6 +303,163 @@ class CircularAperture(
             result = self.transformation(result)
         return result
 
+@dataclasses.dataclass(eq=False, repr=False)
+class CircularSectorAperture(
+    AbstractAperture,
+):
+    """
+    A circular aperture or obscuration
+
+    Examples
+    --------
+
+    Plot a single circular aperture
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        aperture = optika.apertures.CircularAperture(50 * u.mm)
+
+        with astropy.visualization.quantity_support():
+            plt.figure()
+            plt.gca().set_aspect("equal")
+            aperture.plot(components=("x", "y"), color="black")
+
+    |
+
+    Plot an array of circular apertures, similar to the configuration of the
+    `Giant Magellan Telescope <https://en.wikipedia.org/wiki/Giant_Magellan_Telescope>`_.
+
+    .. jupyter-execute::
+
+        diameter = 8.417 * u.m
+        radius = diameter / 2
+
+        angle = na.linspace(0, 360, axis="segment", num=6, endpoint=False) * u.deg
+
+        displacement = na.Cartesian3dVectorArray(
+            x=diameter * np.cos(angle),
+            y=diameter * np.sin(angle),
+        )
+        displacement = np.concatenate([
+            na.Cartesian3dVectorArray().add_axes("segment") * u.mm,
+            displacement
+        ], axis="segment")
+
+        aperture = optika.apertures.CircularAperture(
+            radius=radius,
+            transformation=na.transformations.Translation(displacement),
+        )
+
+        with astropy.visualization.quantity_support():
+            plt.figure()
+            plt.gca().set_aspect("equal")
+            aperture.plot(components=("x", "y"), color="black")
+    """
+
+    radius: u.Quantity | na.AbstractScalar = 0 * u.mm
+    """the radius of the aperture"""
+
+    angle_start: u.Quantity | na.AbstractScalar = 0 * u.deg
+    """The starting angle of a circular sector."""
+
+    angle_stop: u.Quantity | na.AbstractScalar = 180 * u.deg
+    """The ending angle of a circular sector."""
+
+    samples_wire: int = 101
+    active: bool | na.AbstractScalar = True
+    inverted: bool | na.AbstractScalar = False
+    transformation: None | na.transformations.AbstractTransformation = None
+    kwargs_plot: None | dict = None
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius),
+            optika.shape(self.angle_start),
+            optika.shape(self.angle_stop),
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
+
+    def __call__(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        radius = self.radius
+        angle_start = self.angle_start
+        angle_stop = self.angle_stop
+        active = self.active
+        inverted = self.inverted
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
+
+        shape = na.shape_broadcasted(radius, angle_start, angle_stop, active, inverted, position)
+
+        radius = na.broadcast_to(radius, shape)
+        angle_start = na.broadcast_to(angle_start, shape)
+        angle_stop = na.broadcast_to(angle_stop, shape)
+        active = na.broadcast_to(active, shape)
+        inverted = na.broadcast_to(inverted, shape)
+        position = na.broadcast_to(position, shape)
+
+        mask = position.xy.length <= radius
+        angle = np.arctan2(position.y, position.x) % (2 * np.pi * u.rad)
+        mask2 = (angle_start < angle) & (angle < angle_stop)
+
+        mask = mask & mask2
+
+        mask[inverted] = ~mask[inverted]
+        mask[~active] = True
+
+        return mask
+
+    @property
+    def bound_lower(self) -> na.Cartesian3dVectorArray:
+        return self.wire().min()
+
+    @property
+    def bound_upper(self) -> na.Cartesian3dVectorArray:
+        return self.wire().max()
+
+    @property
+    def vertices(self) -> None:
+        return None
+
+    def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
+        if num is None:
+            num = self.samples_wire
+        az = na.linspace(
+            start=self.angle_start,
+            stop=self.angle_stop,
+            axis="wire",
+            num=num - 1,
+        )
+        unit_radius = na.unit(self.radius)
+        result = na.Cartesian3dVectorArray(
+            x=self.radius * np.cos(az),
+            y=self.radius * np.sin(az),
+            z=0 * unit_radius if unit_radius is not None else 0,
+        )
+        print(result)
+        vertex = na.Cartesian3dVectorArray().add_axes("wire")
+        result = np.concatenate(
+            [
+                vertex * unit_radius if unit_radius is not None else vertex,
+                result,
+            ],
+            axis="wire",
+        )
+        if self.transformation is not None:
+            result = self.transformation(result)
+        return result
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractPolygonalAperture(
