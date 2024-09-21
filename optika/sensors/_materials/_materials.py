@@ -108,6 +108,8 @@ def absorbance(
     thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
+    roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
+    roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
 ) -> optika.vectors.PolarizationVectorArray:
     """
     The fraction of incident energy absorbed by the light-sensitive
@@ -135,6 +137,10 @@ def absorbance(
     chemical_substrate
         The chemical formula of the light-sensitive portion of the sensor.
         Default is silicon.
+    roughness_oxide
+        The RMS roughness the oxide layer surface.
+    roughness_substrate
+        The RMS roughness of the substrate surface.
 
     Examples
     --------
@@ -182,10 +188,16 @@ def absorbance(
             optika.materials.Layer(
                 chemical=chemical_oxide,
                 thickness=thickness_oxide,
+                interface=optika.materials.profiles.ErfInterfaceProfile(
+                    width=roughness_oxide,
+                ),
             ),
             optika.materials.Layer(
                 chemical=chemical_substrate,
                 thickness=thickness_substrate,
+                interface=optika.materials.profiles.ErfInterfaceProfile(
+                    width=roughness_substrate,
+                ),
             ),
         ],
     )
@@ -338,6 +350,8 @@ def quantum_efficiency_effective(
     cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
+    roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
+    roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
     normal: None | na.AbstractCartesian3dVectorArray = None,
 ) -> na.AbstractScalar:
     r"""
@@ -371,6 +385,10 @@ def quantum_efficiency_effective(
     chemical_substrate
         Optional complex refractive index of the implant region and substrate.
         The default is to assume the substrate is made from silicon.
+    roughness_oxide
+        The RMS roughness the oxide layer surface.
+    roughness_substrate
+        The RMS roughness of the substrate surface.
     normal
         The vector perpendicular to the surface of the sensor.
         If :obj:`None`, then the normal is assumed to be :math:`-\hat{z}`
@@ -498,6 +516,8 @@ def quantum_efficiency_effective(
         thickness_substrate=thickness_substrate,
         chemical_oxide=chemical_oxide,
         chemical_substrate=chemical_substrate,
+        roughness_oxide=roughness_oxide,
+        roughness_substrate=roughness_substrate,
     )
 
     n_substrate = chemical_substrate.n(wavelength)
@@ -786,7 +806,7 @@ class AbstractCCDMaterial(
 
     @functools.cached_property
     def _chemical_oxide(self) -> optika.chemicals.Chemical:
-        return optika.chemicals.Chemical("SiO2")
+        return optika.chemicals.Chemical("SiO2_llnl_cxro_rodriguez")
 
     def index_refraction(
         self,
@@ -835,6 +855,16 @@ class AbstractBackilluminatedCCDMaterial(
 
     @property
     @abc.abstractmethod
+    def roughness_oxide(self):
+        """The RMS roughness of the oxide layer surface."""
+
+    @property
+    @abc.abstractmethod
+    def roughness_substrate(self):
+        """The RMS roughness of the substrate surface."""
+
+    @property
+    @abc.abstractmethod
     def cce_backsurface(self) -> float | na.AbstractScalar:
         """
         The charge collection efficiency on the backsurface of the CCD sensor.
@@ -879,6 +909,8 @@ class AbstractBackilluminatedCCDMaterial(
             thickness_substrate=self.thickness_substrate,
             chemical_oxide=self._chemical_oxide,
             chemical_substrate=self._chemical,
+            roughness_oxide=self.roughness_oxide,
+            roughness_substrate=self.roughness_substrate,
         )
 
     def charge_collection_efficiency(
@@ -933,6 +965,8 @@ class AbstractBackilluminatedCCDMaterial(
             cce_backsurface=self.cce_backsurface,
             chemical_oxide=self._chemical_oxide,
             chemical_substrate=self._chemical,
+            roughness_oxide=self.roughness_oxide,
+            roughness_substrate=self.roughness_substrate,
             normal=normal,
         )
 
@@ -1030,12 +1064,15 @@ class AbstractStern1994BackilluminatedCCDMaterial(
 
         unit_thickness_oxide = u.AA
         unit_thickness_implant = u.AA
+        unit_roughness = u.nm
         unit_cce_backsurface = u.dimensionless_unscaled
 
         def eqe_rms_difference(x: tuple[float, float, float, float]):
             (
                 thickness_oxide,
                 thickness_implant,
+                roughness_oxide,
+                roughness_substrate,
                 cce_backsurface,
             ) = x
             qe_fit = quantum_efficiency_effective(
@@ -1044,6 +1081,8 @@ class AbstractStern1994BackilluminatedCCDMaterial(
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
                 thickness_substrate=self.thickness_substrate,
+                roughness_oxide=roughness_oxide << unit_roughness,
+                roughness_substrate=roughness_substrate << unit_roughness,
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
             )
 
@@ -1051,6 +1090,8 @@ class AbstractStern1994BackilluminatedCCDMaterial(
 
         thickness_oxide_guess = 50 * u.AA
         thickness_implant_guess = 2317 * u.AA
+        roughness_oxide_guess = 5 * u.nm
+        roughness_substrate_guess = 5 * u.nm
         cce_backsurface_guess = 0.21 * u.dimensionless_unscaled
 
         fit = scipy.optimize.minimize(
@@ -1058,20 +1099,39 @@ class AbstractStern1994BackilluminatedCCDMaterial(
             x0=[
                 thickness_oxide_guess.to_value(unit_thickness_oxide),
                 thickness_implant_guess.to_value(unit_thickness_implant),
+                roughness_oxide_guess.to_value(unit_roughness),
+                roughness_substrate_guess.to_value(unit_roughness),
                 cce_backsurface_guess.to_value(unit_cce_backsurface),
+            ],
+            bounds=[
+                (0, None),
+                (0, None),
+                (0, None),
+                (0, None),
+                (0, 1),
             ],
             method="nelder-mead",
         )
 
-        thickness_oxide, thickness_implant, cce_backsurface = fit.x
+        (
+            thickness_oxide,
+            thickness_implant,
+            roughness_oxide,
+            roughness_substrate,
+            cce_backsurface,
+        ) = fit.x
 
         thickness_oxide = thickness_oxide << unit_thickness_oxide
         thickness_implant = thickness_implant << unit_thickness_implant
+        roughness_oxide = roughness_oxide << unit_roughness
+        roughness_substrate = roughness_substrate << unit_roughness
         cce_backsurface = cce_backsurface << unit_cce_backsurface
 
         return dict(
             thickness_oxide=thickness_oxide,
             thickness_implant=thickness_implant,
+            roughness_oxide=roughness_oxide,
+            roughness_substrate=roughness_substrate,
             cce_backsurface=cce_backsurface,
         )
 
@@ -1082,6 +1142,14 @@ class AbstractStern1994BackilluminatedCCDMaterial(
     @property
     def thickness_implant(self) -> u.Quantity:
         return self._quantum_efficiency_fit["thickness_implant"]
+
+    @property
+    def roughness_oxide(self):
+        return self._quantum_efficiency_fit["roughness_oxide"]
+
+    @property
+    def roughness_substrate(self):
+        return self._quantum_efficiency_fit["roughness_substrate"]
 
     @property
     def cce_backsurface(self) -> float:
