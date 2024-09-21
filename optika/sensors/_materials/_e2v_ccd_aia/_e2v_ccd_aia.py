@@ -99,13 +99,13 @@ class E2VCCDAIAMaterial(
 
     .. jupyter-execute::
 
-        material_ccd97.roughness_oxide
+        material_ccd_aia.roughness_oxide
 
     And the roughness of the substrate found by the fit is
 
     .. jupyter-execute::
 
-        material_ccd97.roughness_substrate
+        material_ccd_aia.roughness_substrate
     """
 
     @property

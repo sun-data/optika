@@ -96,13 +96,13 @@ class TektronixTK512CBMaterial(
 
     .. jupyter-execute::
 
-        material_ccd97.roughness_oxide
+        material_ccd.roughness_oxide
 
     And the roughness of the substrate found by the fit is
 
     .. jupyter-execute::
 
-        material_ccd97.roughness_substrate
+        material_ccd.roughness_substrate
     """
 
     @property
