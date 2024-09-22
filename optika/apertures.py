@@ -303,6 +303,7 @@ class CircularAperture(
             result = self.transformation(result)
         return result
 
+
 @dataclasses.dataclass(eq=False, repr=False)
 class CircularSectorAperture(
     AbstractAperture,
@@ -401,7 +402,14 @@ class CircularSectorAperture(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        shape = na.shape_broadcasted(radius, angle_start, angle_stop, active, inverted, position)
+        shape = na.shape_broadcasted(
+            radius,
+            angle_start,
+            angle_stop,
+            active,
+            inverted,
+            position,
+        )
 
         radius = na.broadcast_to(radius, shape)
         angle_start = na.broadcast_to(angle_start, shape)
@@ -460,6 +468,7 @@ class CircularSectorAperture(
         if self.transformation is not None:
             result = self.transformation(result)
         return result
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractPolygonalAperture(
