@@ -142,6 +142,40 @@ class TestCircularAperture(
         assert np.all(a.radius >= 0)
 
 
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.CircularSectorAperture(
+            radius=radius,
+            samples_wire=21,
+            active=active,
+            inverted=inverted,
+            transformation=transformation,
+            kwargs_plot=kwargs_plot,
+        )
+        for radius in radius_parameterization
+        for active in active_parameterization
+        for inverted in inverted_parameterization
+        for transformation in transform_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+    ],
+)
+class TestCircularSectorAperture(
+    AbstractTestAbstractAperture,
+):
+    def test_radius(self, a: optika.apertures.CircularSectorAperture):
+        assert isinstance(a.radius, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius >= 0)
+
+    def test_angle_start(self, a: optika.apertures.CircularSectorAperture):
+        assert isinstance(a.radius, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius >= 0)
+
+    def test_angle_stop(self, a: optika.apertures.CircularSectorAperture):
+        assert isinstance(a.radius, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius >= 0)
+
+
 class AbstractTestAbstractPolygonalAperture(
     AbstractTestAbstractAperture,
 ):
