@@ -314,50 +314,19 @@ class CircularSectorAperture(
     Examples
     --------
 
-    Plot a single circular aperture
+    Plot a single circular aperture sector
 
     .. jupyter-execute::
 
         import matplotlib.pyplot as plt
-        import numpy as np
         import astropy.units as u
         import astropy.visualization
-        import named_arrays as na
         import optika
 
+        # Define a circular aperture sector
         aperture = optika.apertures.CircularAperture(50 * u.mm)
 
-        with astropy.visualization.quantity_support():
-            plt.figure()
-            plt.gca().set_aspect("equal")
-            aperture.plot(components=("x", "y"), color="black")
-
-    |
-
-    Plot an array of circular apertures, similar to the configuration of the
-    `Giant Magellan Telescope <https://en.wikipedia.org/wiki/Giant_Magellan_Telescope>`_.
-
-    .. jupyter-execute::
-
-        diameter = 8.417 * u.m
-        radius = diameter / 2
-
-        angle = na.linspace(0, 360, axis="segment", num=6, endpoint=False) * u.deg
-
-        displacement = na.Cartesian3dVectorArray(
-            x=diameter * np.cos(angle),
-            y=diameter * np.sin(angle),
-        )
-        displacement = np.concatenate([
-            na.Cartesian3dVectorArray().add_axes("segment") * u.mm,
-            displacement
-        ], axis="segment")
-
-        aperture = optika.apertures.CircularAperture(
-            radius=radius,
-            transformation=na.transformations.Translation(displacement),
-        )
-
+        # Plot the circular aperture sector
         with astropy.visualization.quantity_support():
             plt.figure()
             plt.gca().set_aspect("equal")
