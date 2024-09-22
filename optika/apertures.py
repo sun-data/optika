@@ -355,13 +355,22 @@ class CircularSectorAperture(
     """
 
     radius: u.Quantity | na.AbstractScalar = 0 * u.mm
-    """the radius of the aperture"""
+    """
+    The radius of the cirucular sector.
+    """
 
     angle_start: u.Quantity | na.AbstractScalar = 0 * u.deg
-    """The starting angle of a circular sector."""
+    r"""
+    The starting angle of the circular sector.
+    Must be between :math:`-2 \pi` and :math:`+2 \pi` radians.
+    """
 
     angle_stop: u.Quantity | na.AbstractScalar = 180 * u.deg
-    """The ending angle of a circular sector."""
+    """
+    The ending angle of the circular sector.
+    Must be between :math:`-2 \pi` and :math:`+2 \pi` radians and 
+    counterclockwise from `angle_start`.
+    """
 
     samples_wire: int = 101
     active: bool | na.AbstractScalar = True
