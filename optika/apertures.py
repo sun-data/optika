@@ -324,7 +324,11 @@ class CircularSectorAperture(
         import optika
 
         # Define a circular aperture sector
-        aperture = optika.apertures.CircularAperture(50 * u.mm)
+        aperture = optika.apertures.CircularAperture(
+            radius=50 * u.mm,
+            angle_start=31 * u.deg,
+            angle_stop=105 * u.deg,
+        )
 
         # Plot the circular aperture sector
         with astropy.visualization.quantity_support():
