@@ -144,6 +144,8 @@ class AbstractSurface(
         intensity_1 = rays_1.intensity * np.exp(-attenuation_1 * displacement.length)
         n1 = rays_1.index_refraction
 
+        normal = sag.normal(position_1)
+
         position_2 = position_1
         n2 = material.index_refraction(rays_1)
         r = n1 / n2
@@ -152,15 +154,13 @@ class AbstractSurface(
 
         if rulings is not None:
             diffraction_order = rulings.diffraction_order
-            vector_rulings = rulings.spacing_(position_1)
+            vector_rulings = rulings.spacing_(position_1, normal)
             spacing_rulings = vector_rulings.length
             normal_rulings = vector_rulings / spacing_rulings
         else:
             diffraction_order = 0
             spacing_rulings = None
             normal_rulings = None
-
-        normal = sag.normal(position_1)
 
         b = optika.materials.snells_law(
             wavelength=wavelength_1,
