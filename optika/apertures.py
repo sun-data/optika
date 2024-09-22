@@ -443,7 +443,7 @@ class CircularSectorAperture(
             start=self.angle_start,
             stop=self.angle_stop,
             axis="wire",
-            num=num - 1,
+            num=num - 2,
         )
         unit_radius = na.unit(self.radius)
         result = na.Cartesian3dVectorArray(
