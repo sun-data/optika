@@ -16,6 +16,7 @@ import optika
 __all__ = [
     "AbstractAperture",
     "CircularAperture",
+    "CircularSectorAperture",
     "AbstractPolygonalAperture",
     "PolygonalAperture",
     "AbstractRegularPolygonalAperture",
