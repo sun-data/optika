@@ -321,20 +321,37 @@ class CircularSectorAperture(
         import matplotlib.pyplot as plt
         import astropy.units as u
         import astropy.visualization
+        import named_arrays as na
         import optika
 
         # Define a circular aperture sector
-        aperture = optika.apertures.CircularAperture(
+        aperture = optika.apertures.CircularSectorAperture(
             radius=50 * u.mm,
-            angle_start=31 * u.deg,
-            angle_stop=105 * u.deg,
+            angle_start=-11 * u.deg,
+            angle_stop=40 * u.deg,
         )
+
+        # Define points to sample the aperture with
+        points = na.Cartesian3dVectorLinearSpace(
+            start=aperture.bound_lower,
+            stop=aperture.bound_upper,
+            axis=na.Cartesian3dVectorArray("x", "y", "z"),
+            num=na.Cartesian3dVectorArray(11, 11, 1),
+        )
+
+        # Compute which points are inside the aperture
+        where = aperture(points)
 
         # Plot the circular aperture sector
         with astropy.visualization.quantity_support():
             plt.figure()
             plt.gca().set_aspect("equal")
             aperture.plot(components=("x", "y"), color="black")
+            na.plt.scatter(
+                points.x,
+                points.y,
+                c=where.astype(float)
+            )
     """
 
     radius: u.Quantity | na.AbstractScalar = 0 * u.mm
@@ -391,11 +408,16 @@ class CircularSectorAperture(
         inverted = na.broadcast_to(inverted, shape)
         position = na.broadcast_to(position, shape)
 
-        mask = position.xy.length <= radius
-        angle = np.arctan2(position.y, position.x) % (2 * np.pi * u.rad)
-        mask2 = (angle_start < angle) & (angle < angle_stop)
+        mask_radius = position.xy.length <= radius
 
-        mask = mask & mask2
+        angle = np.arctan2(position.y, position.x)
+        angle_positive = angle % (+2 * np.pi * u.rad)
+        angle_negative = angle % (-2 * np.pi * u.rad)
+        mask_positive = (angle_start < angle_positive) & (angle_positive < angle_stop)
+        mask_negative = (angle_start < angle_negative) & (angle_negative < angle_stop)
+        mask_angle = mask_positive | mask_negative
+
+        mask = mask_radius & mask_angle
 
         mask[inverted] = ~mask[inverted]
         mask[~active] = True
@@ -431,10 +453,12 @@ class CircularSectorAperture(
         )
 
         vertex = na.Cartesian3dVectorArray().add_axes("wire")
+        vertex = vertex * unit_radius if unit_radius is not None else vertex
         result = np.concatenate(
             [
-                vertex * unit_radius if unit_radius is not None else vertex,
+                vertex,
                 result,
+                vertex,
             ],
             axis="wire",
         )
