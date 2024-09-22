@@ -309,7 +309,8 @@ class CircularSectorAperture(
     AbstractAperture,
 ):
     """
-    A circular aperture or obscuration
+    A `circular sector <https://en.wikipedia.org/wiki/Circular_sector>`_
+    aperture.
 
     Examples
     --------
