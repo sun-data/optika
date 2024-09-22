@@ -88,12 +88,24 @@ class E2VCCDAIAMaterial(
 
         material_ccd_aia.thickness_substrate
 
-    And the differential charge collection efficiency at the backsurface
+    The differential charge collection efficiency at the backsurface
     found by the fit is
 
     .. jupyter-execute::
 
         material_ccd_aia.cce_backsurface
+
+    The roughness of the oxide layer found by the fit is
+
+    .. jupyter-execute::
+
+        material_ccd_aia.roughness_oxide
+
+    And the roughness of the substrate found by the fit is
+
+    .. jupyter-execute::
+
+        material_ccd_aia.roughness_substrate
     """
 
     @property
