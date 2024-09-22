@@ -448,7 +448,7 @@ class CircularSectorAperture(
             y=self.radius * np.sin(az),
             z=0 * unit_radius if unit_radius is not None else 0,
         )
-        print(result)
+
         vertex = na.Cartesian3dVectorArray().add_axes("wire")
         result = np.concatenate(
             [
