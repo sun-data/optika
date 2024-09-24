@@ -7,6 +7,7 @@ __all__ = [
     "AbstractRulingSpacing",
     "ConstantRulingSpacing",
     "Polynomial1dRulingSpacing",
+    "HolographicRulingSpacing",
 ]
 
 
@@ -68,6 +69,7 @@ class ConstantRulingSpacing(
     def __call__(
         self,
         position: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> na.Cartesian3dVectorArray:
         return self.constant * self.normal
 
@@ -161,6 +163,11 @@ class HolographicRulingSpacing(
     second beam.
     """
 
+    transformation: None | na.transformations.AbstractTransformation = None
+    """
+    A transformation from surface coordinates to ruling coordinates.
+    """
+
     @property
     def shape(self) -> dict[str, int]:
         return na.broadcast_shapes(
@@ -176,14 +183,18 @@ class HolographicRulingSpacing(
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.Cartesian3dVectorArray:
 
-        x1 = self.x1.normalized
-        x2 = self.x2.normalized
+        x1 = self.x1
+        x2 = self.x2
         wavelength = self.wavelength
-        is_diverging_1 = self.is_diverging_1
-        is_diverging_2 = self.is_diverging_2
 
-        x = (x2 - x1) / wavelength
+        r1 = x1 - position
+        r2 = x2 - position
 
-        result = normal.cross(x)
+        r1 = r1.normalized
+        r2 = r2.normalized
+
+        x = (r2 - r1) / wavelength
+
+        result = 1 / normal.cross(x)
 
         return result

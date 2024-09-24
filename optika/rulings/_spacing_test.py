@@ -22,12 +22,19 @@ class AbstractTestAbstractRulingSpacing(
             ),
         ],
     )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ]
+    )
     def test__call__(
         self,
         a: optika.rulings.AbstractRulingSpacing,
         position: na.AbstractCartesian3dVectorArray,
+        normal: na.Cartesian3dVectorArray,
     ):
-        result = a(position)
+        result = a(position, normal)
         assert isinstance(result, na.AbstractCartesian3dVectorArray)
         assert np.all(result.length > (0 * u.mm))
 
@@ -62,6 +69,22 @@ class TestConstantSpacing(
     ],
 )
 class TestPolynomial1dRulingSpacing(
+    AbstractTestAbstractRulingSpacing,
+):
+    pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.rulings.HolographicRulingSpacing(
+            x1=na.Cartesian3dVectorArray(0, 1, 2) * u.mm,
+            x2=na.Cartesian3dVectorArray(1, 2, 3) * u.mm,
+            wavelength=500 * u.nm,
+        ),
+    ],
+)
+class TestHolographicRulingSpacing(
     AbstractTestAbstractRulingSpacing,
 ):
     pass

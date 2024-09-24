@@ -7,6 +7,7 @@ from ._spacing import (
     AbstractRulingSpacing,
     ConstantRulingSpacing,
     Polynomial1dRulingSpacing,
+    HolographicRulingSpacing,
 )
 from ._rulings import (
     AbstractRulings,
@@ -23,6 +24,7 @@ __all__ = [
     "AbstractRulingSpacing",
     "ConstantRulingSpacing",
     "Polynomial1dRulingSpacing",
+    "HolographicRulingSpacing",
     "AbstractRulings",
     "Rulings",
     "MeasuredRulings",
