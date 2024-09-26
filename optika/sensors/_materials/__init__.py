@@ -1,5 +1,5 @@
 from ._diffusion import (
-    charge_diffusion
+    charge_diffusion,
 )
 from ._materials import (
     energy_bandgap,
