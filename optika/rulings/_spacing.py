@@ -151,6 +151,11 @@ class HolographicRulingSpacing(
     The wavelength of the recording beams.
     """
 
+    diffraction_order: int | na.AbstractScalar
+    """
+    The diffraction order of the recording beams.
+    """
+
     is_diverging_1: bool | na.AbstractScalar = True
     """
     A boolean flag indicating if rays are diverging from the origin of the
@@ -186,6 +191,7 @@ class HolographicRulingSpacing(
         x1 = self.x1
         x2 = self.x2
         wavelength = self.wavelength
+        m = self.diffraction_order
 
         r1 = x1 - position
         r2 = x2 - position
@@ -193,8 +199,9 @@ class HolographicRulingSpacing(
         r1 = r1.normalized
         r2 = r2.normalized
 
-        x = (r2 - r1) / wavelength
+        x = (r2 - r1) * m / wavelength
 
-        result = 1 / normal.cross(x)
+        result = normal.cross(x)
+        result = (1 / result.length) * normal.cross(result).normalized
 
         return result
