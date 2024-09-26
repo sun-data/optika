@@ -102,7 +102,7 @@ def charge_diffusion(
 
     .. math::
 
-        L_A &= \frac{\int_0^{x_s} x e^{-\alpha x} dx}{\int_0^\infty dx}
+        L_A &= \frac{\int_0^{x_s} x e^{-\alpha x} dx}{\int_0^\infty dx} \\
             &= \frac{1 - (\alpha x_s + 1) e^{-\alpha x_s}}{\alpha^2 x_s}
 
     is the average distance from the back surface at which to photon is absorbed,
