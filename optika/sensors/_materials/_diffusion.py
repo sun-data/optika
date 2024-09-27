@@ -221,7 +221,7 @@ def mean_charge_capture(
 
     .. math::
 
-        P_\text{MCC} = \left\{ \int_{-d/2}^{d/2} \left[ K(x') * \frac{1}{d} \Pi \left( \frac{x'}{d} \right) \right](x) dx \right\}^2,
+        P_\text{MCC} = \left\{ \frac{1}{d} \int_{-d/2}^{d/2} \left[ K(x') * \Pi \left( \frac{x'}{d} \right) \right](x) \, dx \right\}^2,
 
     where :math:`K(x)` is the charge diffusion kernel,
     :math:`\Pi(x)` is the `rectangle function <https://en.wikipedia.org/wiki/Rectangular_function>`_,
