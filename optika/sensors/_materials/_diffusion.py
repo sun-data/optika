@@ -216,12 +216,12 @@ def mean_charge_capture(
     diffusion kernel over the extent of a pixel.
     However, since a photon can strike anywhere within the central pixel,
     the charge diffusion kernel should be convolved with a rectangle function
-    with the width of a pixel before integrating.
+    the width of a pixel before integrating.
     So, our definition for the MCC is
 
     .. math::
 
-        P_\text{MCC} = \left[ \int_{-d/2}^{d/2} left( K(x') * \frac{1}{d} \Pi(x'/d) \right)(x) dx \right]^2,
+        P_\text{MCC} = \left\{ \int_{-d/2}^{d/2} \left[ K(x') * \frac{1}{d} \Pi \left( \frac{x'}{d} \right) \right](x) dx \right\}^2,
 
     where :math:`K(x)` is the charge diffusion kernel,
     :math:`\Pi(x)` is the `rectangle function <https://en.wikipedia.org/wiki/Rectangular_function>`_,
@@ -237,8 +237,8 @@ def mean_charge_capture(
 
     .. math::
 
-        p_\text{MCC} &= \left[ \frac{1}{2d} \int_{-d/2}^{d/2} \left( \text{erf} \left( \frac{d - 2x}{2 \sqrt{2} \sigma} \right) + \text{erf} \left( \frac{d + 2x}{2 \sqrt{2} \sigma} \right) \right) dx \right]^2 \\
-                     &= \left[ \sqrt{\frac{2}{\pi}} \frac{\sigma}{d} \left( e^{-d^2 / (2 \sigma^2)} - 1 \right) + \text{erf} \left( \frac{d}{\sqrt{2} \sigma} \right) \right]^2,
+        P_\text{MCC} &= \left\{ \frac{1}{2d} \int_{-d/2}^{d/2} \left[ \text{erf} \left( \frac{d - 2x}{2 \sqrt{2} \sigma} \right) + \text{erf} \left( \frac{d + 2x}{2 \sqrt{2} \sigma} \right) \right] dx \right\}^2 \\
+                     &= \left\{ \sqrt{\frac{2}{\pi}} \frac{\sigma}{d} \left[ \exp \left( -\frac{d^2}{2 \sigma^2} \right) - 1 \right] + \text{erf} \left( \frac{d}{\sqrt{2} \sigma} \right) \right\}^2,
 
     where :math:`\text{erf}(x)` is the `error function <https://en.wikipedia.org/wiki/Error_function>`_.
     """
