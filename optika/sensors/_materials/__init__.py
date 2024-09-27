@@ -1,5 +1,6 @@
 from ._diffusion import (
     charge_diffusion,
+    mean_charge_capture,
 )
 from ._materials import (
     energy_bandgap,
@@ -22,6 +23,7 @@ from ._e2v_ccd_aia import E2VCCDAIAMaterial
 
 __all__ = [
     "charge_diffusion",
+    "mean_charge_capture",
     "energy_bandgap",
     "energy_electron_hole",
     "quantum_yield_ideal",
