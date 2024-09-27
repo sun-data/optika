@@ -249,4 +249,4 @@ def mean_charge_capture(
 
     result = np.square(t1 + t2)
 
-    return result
+    return result.to(u.dimensionless_unscaled)
