@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -48,6 +49,22 @@ class AbstractTestAbstractJanesickDepletionModel(
     ):
         result = a.width_pixel
         assert np.all(result > 0 * u.um)
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+            na.geomspace(1, 10000, "w", num=11) * u.AA,
+        ]
+    )
+    def test_mean_charge_capture(
+        self,
+        a: optika.sensors.AbstractJanesickDepletionModel,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        result = a.mean_charge_capture(wavelength)
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
 
     def test_mean_charge_capture_measured(
         self,
