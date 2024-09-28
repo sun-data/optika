@@ -112,11 +112,11 @@ class E2VCCD97Material(
     |
 
     Now plot the effective quantum efficiency of the fit to this data vs. the fit
-    to the data in :class:`optika.sensors.E2VCCDAIAMaterial`
+    to the data in :class:`optika.sensors.E2VCCD203Material`
 
     .. jupyter-execute::
 
-        material_ccd_aia = optika.sensors.E2VCCDAIAMaterial()
+        material_ccd_aia = optika.sensors.E2VCCD203Material()
 
         qe_fit_aia = material_ccd_aia.quantum_efficiency_effective(
             rays=optika.rays.RayVectorArray(
