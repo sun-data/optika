@@ -55,7 +55,7 @@ class AbstractTestAbstractJanesickDepletionModel(
         argvalues=[
             100 * u.AA,
             na.geomspace(1, 10000, "w", num=11) * u.AA,
-        ]
+        ],
     )
     def test_mean_charge_capture(
         self,
