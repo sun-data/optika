@@ -5,6 +5,7 @@ system.
 
 from ._materials import (
     charge_diffusion,
+    mean_charge_capture,
     energy_bandgap,
     energy_electron_hole,
     quantum_yield_ideal,
@@ -30,6 +31,7 @@ from ._sensors import (
 
 __all__ = [
     "charge_diffusion",
+    "mean_charge_capture",
     "energy_bandgap",
     "energy_electron_hole",
     "quantum_yield_ideal",
