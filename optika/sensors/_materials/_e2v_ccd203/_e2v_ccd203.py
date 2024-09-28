@@ -5,11 +5,11 @@ import named_arrays as na
 from .._materials import AbstractStern1994BackilluminatedCCDMaterial
 
 __all__ = [
-    "E2VCCDAIAMaterial",
+    "E2VCCD203Material",
 ]
 
 
-class E2VCCDAIAMaterial(
+class E2VCCD203Material(
     AbstractStern1994BackilluminatedCCDMaterial,
 ):
     """
@@ -32,7 +32,7 @@ class E2VCCDAIAMaterial(
         import optika
 
         # Create a new instance of the e2v CCD97 light-sensitive material
-        material_ccd_aia = optika.sensors.E2VCCDAIAMaterial()
+        material_ccd_aia = optika.sensors.E2VCCD203Material()
 
         # Store the wavelengths at which the QE was measured
         wavelength_measured = material_ccd_aia.quantum_efficiency_measured.inputs
@@ -121,7 +121,7 @@ class E2VCCDAIAMaterial(
             wavelength_4,
             qe_4,
         ) = np.genfromtxt(
-            fname=directory / "e2v_ccd_aia_qe_boerner2012.csv",
+            fname=directory / "e2v_ccd203_qe_boerner2012.csv",
             skip_header=2,
             delimiter=",",
             unpack=True,
