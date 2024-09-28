@@ -128,7 +128,7 @@ def charge_diffusion(
 
     result = x_ff * np.sqrt(1 - depth_avg / x_ff)
 
-    return result
+    return np.nan_to_num(result)
 
 
 def mean_charge_capture(
