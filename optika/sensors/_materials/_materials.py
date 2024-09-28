@@ -1071,7 +1071,6 @@ class AbstractStern1994BackilluminatedCCDMaterial(
             (
                 thickness_oxide,
                 thickness_implant,
-                roughness_oxide,
                 roughness_substrate,
                 cce_backsurface,
             ) = x
@@ -1081,7 +1080,7 @@ class AbstractStern1994BackilluminatedCCDMaterial(
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
                 thickness_substrate=self.thickness_substrate,
-                roughness_oxide=roughness_oxide << unit_roughness,
+                roughness_oxide=self.roughness_oxide,
                 roughness_substrate=roughness_substrate << unit_roughness,
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
             )
@@ -1090,7 +1089,6 @@ class AbstractStern1994BackilluminatedCCDMaterial(
 
         thickness_oxide_guess = 50 * u.AA
         thickness_implant_guess = 2317 * u.AA
-        roughness_oxide_guess = 5 * u.nm
         roughness_substrate_guess = 5 * u.nm
         cce_backsurface_guess = 0.21 * u.dimensionless_unscaled
 
@@ -1099,12 +1097,10 @@ class AbstractStern1994BackilluminatedCCDMaterial(
             x0=[
                 thickness_oxide_guess.to_value(unit_thickness_oxide),
                 thickness_implant_guess.to_value(unit_thickness_implant),
-                roughness_oxide_guess.to_value(unit_roughness),
                 roughness_substrate_guess.to_value(unit_roughness),
                 cce_backsurface_guess.to_value(unit_cce_backsurface),
             ],
             bounds=[
-                (0, None),
                 (0, None),
                 (0, None),
                 (0, None),
@@ -1116,21 +1112,18 @@ class AbstractStern1994BackilluminatedCCDMaterial(
         (
             thickness_oxide,
             thickness_implant,
-            roughness_oxide,
             roughness_substrate,
             cce_backsurface,
         ) = fit.x
 
         thickness_oxide = thickness_oxide << unit_thickness_oxide
         thickness_implant = thickness_implant << unit_thickness_implant
-        roughness_oxide = roughness_oxide << unit_roughness
         roughness_substrate = roughness_substrate << unit_roughness
         cce_backsurface = cce_backsurface << unit_cce_backsurface
 
         return dict(
             thickness_oxide=thickness_oxide,
             thickness_implant=thickness_implant,
-            roughness_oxide=roughness_oxide,
             roughness_substrate=roughness_substrate,
             cce_backsurface=cce_backsurface,
         )
@@ -1145,7 +1138,7 @@ class AbstractStern1994BackilluminatedCCDMaterial(
 
     @property
     def roughness_oxide(self):
-        return self._quantum_efficiency_fit["roughness_oxide"]
+        return 0 * u.nm
 
     @property
     def roughness_substrate(self):
