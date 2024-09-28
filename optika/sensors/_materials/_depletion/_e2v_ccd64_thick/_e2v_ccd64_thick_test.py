@@ -7,7 +7,7 @@ from .._depletion_test import AbstractTestAbstractJanesickDepletionModel
     argnames="a",
     argvalues=[
         optika.sensors.E2VCCD64ThickDepletionModel(),
-    ]
+    ],
 )
 class TestE2VCCD64ThickDepletionModel(
     AbstractTestAbstractJanesickDepletionModel,
