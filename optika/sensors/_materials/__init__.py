@@ -24,7 +24,7 @@ from ._materials import (
 )
 from ._tektronix_tk512cb import TektronixTK512CBMaterial
 from ._e2v_ccd97 import E2VCCD97Material
-from ._e2v_ccd_aia import E2VCCDAIAMaterial
+from ._e2v_ccd203 import E2VCCD203Material
 
 __all__ = [
     "charge_diffusion",
@@ -47,5 +47,5 @@ __all__ = [
     "AbstractStern1994BackilluminatedCCDMaterial",
     "TektronixTK512CBMaterial",
     "E2VCCD97Material",
-    "E2VCCDAIAMaterial",
+    "E2VCCD203Material",
 ]

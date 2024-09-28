@@ -6,10 +6,10 @@ from .._materials_test import AbstractTestAbstractStern1994BackilluminatedCCDMat
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
-        optika.sensors.E2VCCDAIAMaterial(),
+        optika.sensors.E2VCCD203Material(),
     ],
 )
-class TestE2VCCD9AIAMaterial(
+class TestE2VCCD203Material(
     AbstractTestAbstractStern1994BackilluminatedCCDMaterial,
 ):
     pass

@@ -24,7 +24,7 @@ from ._materials import (
     AbstractStern1994BackilluminatedCCDMaterial,
     TektronixTK512CBMaterial,
     E2VCCD97Material,
-    E2VCCDAIAMaterial,
+    E2VCCD203Material,
 )
 from ._sensors import (
     AbstractImagingSensor,
@@ -53,7 +53,7 @@ __all__ = [
     "AbstractStern1994BackilluminatedCCDMaterial",
     "TektronixTK512CBMaterial",
     "E2VCCD97Material",
-    "E2VCCDAIAMaterial",
+    "E2VCCD203Material",
     "AbstractImagingSensor",
     "ImagingSensor",
     "AbstractCCD",
