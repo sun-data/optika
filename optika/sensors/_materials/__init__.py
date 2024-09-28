@@ -2,6 +2,11 @@ from ._diffusion import (
     charge_diffusion,
     mean_charge_capture,
 )
+from ._depletion import (
+    AbstractDepletionModel,
+    AbstractJanesickDepletionModel,
+    E2VCCD64ThickDepletionModel,
+)
 from ._materials import (
     energy_bandgap,
     energy_electron_hole,
@@ -32,6 +37,9 @@ __all__ = [
     "quantum_efficiency_effective",
     "probability_measurement",
     "electrons_measured",
+    "AbstractDepletionModel",
+    "AbstractJanesickDepletionModel",
+    "E2VCCD64ThickDepletionModel",
     "AbstractImagingSensorMaterial",
     "IdealImagingSensorMaterial",
     "AbstractCCDMaterial",
