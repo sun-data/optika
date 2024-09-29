@@ -95,12 +95,6 @@ class E2VCCD203Material(
 
         material_ccd_aia.cce_backsurface
 
-    The roughness of the oxide layer found by the fit is
-
-    .. jupyter-execute::
-
-        material_ccd_aia.roughness_oxide
-
     And the roughness of the substrate found by the fit is
 
     .. jupyter-execute::
