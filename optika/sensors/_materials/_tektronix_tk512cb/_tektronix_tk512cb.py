@@ -92,12 +92,6 @@ class TektronixTK512CBMaterial(
 
         material_ccd.cce_backsurface
 
-    The roughness of the oxide layer found by the fit is
-
-    .. jupyter-execute::
-
-        material_ccd.roughness_oxide
-
     And the roughness of the substrate found by the fit is
 
     .. jupyter-execute::
