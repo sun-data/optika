@@ -81,7 +81,6 @@ class TestPolynomial1dRulingSpacing(
             x1=na.Cartesian3dVectorArray(0, 1, 2) * u.mm,
             x2=na.Cartesian3dVectorArray(1, 2, 3) * u.mm,
             wavelength=500 * u.nm,
-            diffraction_order=1,
         ),
     ],
 )
