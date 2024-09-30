@@ -171,7 +171,7 @@ class HolographicRulingSpacing(
 
         # Initialize the holographic ruling spacing
         # representation
-        spacing=optika.rulings.HolographicRulingSpacing(
+        rulings = optika.rulings.HolographicRulingSpacing(
             x1=x1,
             x2=x2,
             wavelength=wavelength,
@@ -179,7 +179,7 @@ class HolographicRulingSpacing(
 
         # Evaluate the ruling spacing where
         # the rays strike the surface
-        d = rulings.spacing(position, normal)
+        d = rulings(position, normal)
 
         # Compute the new direction of some diffracted
         # rays
