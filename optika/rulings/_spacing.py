@@ -1,4 +1,5 @@
 import dataclasses
+import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -132,8 +133,111 @@ class Polynomial1dRulingSpacing(
 class HolographicRulingSpacing(
     AbstractRulingSpacing,
 ):
-    """
+    r"""
     Rulings created by interfering two beams.
+
+    Examples
+    --------
+
+    Create some holographic rulings from two source points,
+    launch rays from the first source point and confirm they are refocused
+    onto the second source point.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        # Define the origins of the two recording beams
+        x1 = na.Cartesian3dVectorArray(5, 0, -10) * u.mm
+        x2 = na.Cartesian3dVectorArray(10, 0, -10) * u.mm
+
+        # Define the wavelength of the recording beams
+        wavelength = 500 * u.nm
+
+        # Define the surface normal
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        # Define input rays emanating from the origin
+        # of the first recording beam
+        position = na.Cartesian3dVectorArray(
+            x=na.linspace(-5, +5, axis="x", num=5) * u.mm,
+            y=0 * u.mm,
+            z=0 * u.mm,
+        )
+        direction_input = position - x1
+
+        # Initialize the holographic ruling spacing
+        # representation
+        spacing=optika.rulings.HolographicRulingSpacing(
+            x1=x1,
+            x2=x2,
+            wavelength=wavelength,
+        )
+
+        # Evaluate the ruling spacing where
+        # the rays strike the surface
+        d = rulings.spacing(position, normal)
+
+        # Compute the new direction of some diffracted
+        # rays
+        direction_output = optika.materials.snells_law(
+            wavelength=wavelength,
+            direction=direction_input.normalized,
+            index_refraction=1,
+            index_refraction_new=1,
+            normal=normal,
+            is_mirror=True,
+            diffraction_order=1,
+            spacing_rulings=d.length,
+            normal_rulings=d.normalized,
+        )
+        direction_output = direction_output * 20 * u.mm
+
+        # Plot the results
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots()
+            na.plt.plot(
+                na.stack([x1, position], axis="t"),
+                components=("z", "x"),
+                axis="t",
+                color="tab:blue",
+            )
+            na.plt.plot(
+                na.stack([position, position + direction_output], axis="t"),
+                components=("z", "x"),
+                axis="t",
+                color="tab:orange",
+            )
+            ax.axvline(0)
+            ax.scatter(x1.z, x1.x)
+            ax.scatter(x2.z, x2.x)
+
+    Notes
+    -----
+
+    From :cite:t:`Welford1975`, the ruling spacing is given by
+
+    .. math::
+
+        \mathbf{d} = \frac{\lambda}{a} \mathbf{q} \times \mathbf{n}
+
+    where :math:`\lambda` is the wavelength of the recording beams,
+    :math:`\mathbf{n}` is a unit vector perpendicular to the surface,
+
+    .. math::
+
+        a \mathbf{q} = \mathbf{n} \times (\pm \mathbf{r}_1 \mp \mathbf{r}_2),
+
+    :math:`\mathbf{r}_1` is a unit vector in the direction of the first
+    recording beam,
+    and :math:`\mathbf{r}_2` is a unit vector in the direction of the second
+    recording beam.
+    If rays are diverging from the origin of the recording beams,
+    the top branch is used, otherwise the bottom branch is used.
     """
 
     x1: na.AbstractCartesian3dVectorArray
@@ -151,18 +255,13 @@ class HolographicRulingSpacing(
     The wavelength of the recording beams.
     """
 
-    diffraction_order: int | na.AbstractScalar
-    """
-    The diffraction order of the recording beams.
-    """
-
     is_diverging_1: bool | na.AbstractScalar = True
     """
     A boolean flag indicating if rays are diverging from the origin of the
     first beam.
     """
 
-    is_diverging_2: bool | na.AbstractScalar = True
+    is_diverging_2: bool | na.AbstractScalar = False
     """
     A boolean flag indicating if rays are diverging from the origin of the
     second beam.
@@ -191,17 +290,28 @@ class HolographicRulingSpacing(
         x1 = self.x1
         x2 = self.x2
         wavelength = self.wavelength
-        m = self.diffraction_order
+        d1 = self.is_diverging_1
+        d2 = self.is_diverging_2
+        n = normal
 
-        r1 = x1 - position
-        r2 = x2 - position
+        d1 = (2 * d1 - 1)
+        d2 = (2 * d2 - 1)
 
-        r1 = r1.normalized
-        r2 = r2.normalized
+        r1 = position - x1
+        r2 = position - x2
 
-        x = (r2 - r1) * m / wavelength
+        r1 = d1 * r1.normalized
+        r2 = d2 * r2.normalized
 
-        result = normal.cross(x)
-        result = (1 / result.length) * normal.cross(result).normalized
+        dr = r1 - r2
+
+        aq = n.cross(dr)
+
+        a = aq.length
+        q = aq / a
+
+        spacing = wavelength / a
+
+        result = spacing * q.cross(n)
 
         return result
