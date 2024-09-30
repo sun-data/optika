@@ -294,8 +294,8 @@ class HolographicRulingSpacing(
         d2 = self.is_diverging_2
         n = normal
 
-        d1 = (2 * d1 - 1)
-        d2 = (2 * d2 - 1)
+        d1 = 2 * d1 - 1
+        d2 = 2 * d2 - 1
 
         r1 = position - x1
         r2 = position - x2
