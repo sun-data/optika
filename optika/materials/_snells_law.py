@@ -334,7 +334,11 @@ def snells_law(
     if np.any(m != 0):
         d = spacing_rulings
         g = normal_rulings
-        a = a - np.sign(-a @ normal) * (m * wavelength_new * g) / (n1 * d)
+        a = np.where(
+            condition=np.isfinite(d),
+            x=a - np.sign(-a @ normal) * (m * wavelength_new * g) / (n1 * d),
+            y=a,
+        )
 
     c = -a @ normal
 

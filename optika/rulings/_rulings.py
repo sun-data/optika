@@ -294,7 +294,7 @@ class SinusoidalRulings(
         light, and :math:`\theta` is the angle of incidence inside the medium.
         """
 
-        normal_rulings = self.spacing_(rays.position).normalized
+        normal_rulings = self.spacing_(rays.position, normal).normalized
 
         parallel_rulings = normal.cross(normal_rulings).normalized
 
@@ -441,7 +441,7 @@ class SquareRulings(
         light, and :math:`\theta` is the angle of incidence inside the medium.
         """
 
-        normal_rulings = self.spacing_(rays.position).normalized
+        normal_rulings = self.spacing_(rays.position, normal).normalized
 
         parallel_rulings = normal.cross(normal_rulings).normalized
 
@@ -594,7 +594,7 @@ class SawtoothRulings(
         light, and :math:`\theta` is the angle of incidence inside the medium.
         """
 
-        normal_rulings = self.spacing_(rays.position).normalized
+        normal_rulings = self.spacing_(rays.position, normal).normalized
 
         parallel_rulings = normal.cross(normal_rulings).normalized
 
@@ -741,7 +741,7 @@ class TriangularRulings(
         light, and :math:`\theta` is the angle of incidence inside the medium.
         """
 
-        normal_rulings = self.spacing_(rays.position).normalized
+        normal_rulings = self.spacing_(rays.position, normal).normalized
 
         parallel_rulings = normal.cross(normal_rulings).normalized
 
@@ -901,7 +901,7 @@ class RectangularRulings(
         light, and :math:`\theta` is the angle of incidence inside the medium.
         """
 
-        normal_rulings = self.spacing_(rays.position).normalized
+        normal_rulings = self.spacing_(rays.position, normal).normalized
 
         parallel_rulings = normal.cross(normal_rulings).normalized
 

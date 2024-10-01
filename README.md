@@ -20,7 +20,7 @@ pip install optika
 ## Features
 - Sequential raytrace modeling
 - Spherical, conical and toroidal surface sag profiles
-- Ruled surfaces, constant and variable line spacing
+- Ruled surfaces, constant, variable, and holographic line spacing
 - Circular, rectangular, and polygonal apertures
 - multilayer reflectivity and transmissivity
 - n-dimensional configurations of the optical system using [named-arrays](https://github.com/sun-data/named-arrays)
