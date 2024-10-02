@@ -104,11 +104,10 @@ def charge_diffusion(
 
     .. math::
 
-        x_{ff} = x_s - x_p - x_d
+        x_{ff} = x_s - x_d
 
     is the thickness of the field-free region of the sensor,
-    :math:`x_s` is the total thickness of the light-sensitive layer,
-    :math:`x_p` is the thickness of the partial-charge collection region,
+    :math:`x_s` is the total thickness of the light-sensitive region,
     and :math:`x_d` is the thickness of the depletion region.
 
     The `average` standard deviation of the charge diffusion kernel is then
@@ -122,28 +121,27 @@ def charge_diffusion(
                                             {\int_0^{x_s} e^{-\alpha x} dx} \\
 
     where :math:`\alpha` is the absorption coefficient of the light-sensitive layer.
-    This integral is not solvable analytically, but it can be reduced to quadrature as
+
+    This integral is not solvable in terms of elementary functions,
+    but it can be reduced to quadrature as
 
     .. math::
 
-        \overline{\sigma}_\text{cd} = -\frac{i e^{-a x_{ff}}}{1 - e^{\alpha x_s}} \sqrt{\frac{x_{ff}}{\alpha}}
-                                        \left[ -\sqrt{\pi} + \Gamma \left( \frac{3}{2}, -\alpha x_{ff} \right)
-                                        + \Gamma \left( \frac{3}{2}, \alpha (x_{ff} - x_s) \right) \right]
+        \overline{\sigma}_\text{cd} = frac{x_{ff} - \sqrt{x_ff / \alpha} D(\sqrt{\alpha x_{ff}})}
+                                          {1 - \exp (\alpha x_s)}
 
-    where :math:`i` is the imaginary unit,
-    and :math:`\Gamma(s, x)` is the upper
-    `incomplete gamma function <https://en.wikipedia.org/wiki/Incomplete_gamma_function>`_.
+    where :math:`D(x)` is `Dawson's integral <https://en.wikipedia.org/wiki/Dawson_function>`_,
+    which is implemented in Scipy as :func:`scipy.special.dawsn`.
     """
     s = thickness_substrate
 
-    f = s - thickness_implant - thickness_depletion
+    f = s - thickness_depletion
 
     a = absorption
 
-    exp_as = np.exp(a * s)
-
     dawson = scipy.special.dawsn(np.sqrt(a * f))
-    result = exp_as * (f - np.sqrt(f / a) * dawson) / (exp_as - 1)
+
+    result = (f - np.sqrt(f / a) * dawson) / (1 - np.exp(-a * s))
 
     return result
 
