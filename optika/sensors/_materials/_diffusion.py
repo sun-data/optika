@@ -140,8 +140,8 @@ def charge_diffusion(
 
     a = absorption
 
-    g1 = scipy.special.gammainc(3/2, -a * f)
-    g2 = scipy.special.gammainc(3/2, a * (-f + s))
+    g1 = scipy.special.gammainc(3 / 2, -a * f)
+    g2 = scipy.special.gammainc(3 / 2, a * (-f + s))
 
     f1 = -1j * np.exp(-a * f) / (1 - np.exp(-a * s))
     f2 = np.sqrt(f / a)
