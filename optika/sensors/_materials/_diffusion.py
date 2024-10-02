@@ -97,7 +97,10 @@ def charge_diffusion(
 
     .. math::
 
-        \sigma_\text{cd}(x) = x_{ff} \sqrt{1 - \frac{x}{x_{ff}}}
+        \sigma_\text{cd}(x) = \begin{cases}
+            x_{ff} \sqrt{1 - \frac{x}{x_{ff}}}, & 0 < x < x_{ff} \\
+            0, & x_{ff} < x < x_s
+        \end{cases}
 
     where :math:`x` is the distance from the back surface at which the photon
     is absorbed,
@@ -115,10 +118,10 @@ def charge_diffusion(
 
     .. math::
 
-        \overline{\sigma}_\text{cd} &= \dfrac{\int_0^{x_s} \sigma_\text{cd}(x) e^{-\alpha x} dx}
+        \overline{\sigma}_\text{cd} &= \dfrac{\int_0^{x_{ff}} \sigma_\text{cd}(x) e^{-\alpha x} dx}
                                             {\int_0^{x_s} e^{-\alpha x} dx} \\
-                                    &= \dfrac{\int_0^{x_s} x_{ff} \sqrt{1 - \frac{x}{x_{ff}}} e^{-\alpha x} dx}
-                                            {\int_0^{x_s} e^{-\alpha x} dx} \\
+                                    &= \dfrac{\int_0^{x_{ff}} x_{ff} \sqrt{1 - \frac{x}{x_{ff}}} e^{-\alpha x} dx}
+                                            {\int_0^{x_s} e^{-\alpha x} dx},
 
     where :math:`\alpha` is the absorption coefficient of the light-sensitive layer.
 
@@ -127,7 +130,7 @@ def charge_diffusion(
 
     .. math::
 
-        \overline{\sigma}_\text{cd} = frac{x_{ff} - \sqrt{x_ff / \alpha} D(\sqrt{\alpha x_{ff}})}
+        \overline{\sigma}_\text{cd} = \frac{x_{ff} - \sqrt{x_{ff} / \alpha} D(\sqrt{\alpha x_{ff}})}
                                           {1 - \exp (\alpha x_s)}
 
     where :math:`D(x)` is `Dawson's integral <https://en.wikipedia.org/wiki/Dawson_function>`_,
