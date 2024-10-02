@@ -107,6 +107,7 @@ codeautolink_warn_on_failed_resolve = True
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
+    'scipy': ('https://docs.scipy.org/doc/scipy/', None),
     'matplotlib': ('https://matplotlib.org/stable', None),
     'astropy': ('https://docs.astropy.org/en/stable/', None),
     'named_arrays': ('https://named-arrays.readthedocs.io/en/stable/', None)
