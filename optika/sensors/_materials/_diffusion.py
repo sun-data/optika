@@ -98,8 +98,8 @@ def charge_diffusion(
     .. math::
 
         \sigma_\text{cd}(x) = \begin{cases}
-            x_{ff} \sqrt{1 - \frac{x}{x_{ff}}}, \quad 0 < &x < x_{ff} \\
-            0,  x_{ff} < &x < x_s
+            x_{ff} \sqrt{1 - \frac{x}{x_{ff}}}, & 0 < x < x_{ff} \\
+            0, & x_{ff} < x < x_s
         \end{cases}
 
     where :math:`x` is the distance from the back surface at which the photon
