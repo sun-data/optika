@@ -98,8 +98,8 @@ def charge_diffusion(
     .. math::
 
         \sigma_\text{cd}(x) = \begin{cases}
-            x_{ff} \sqrt{1 - \frac{x}{x_{ff}}}, & 0 < x < x_{ff} \\
-            0, & x_{ff} < x < x_s
+            x_{ff} \sqrt{1 - \frac{x}{x_{ff}}}, \quad 0 < &x < x_{ff} \\
+            0,  x_{ff} < &x < x_s
         \end{cases}
 
     where :math:`x` is the distance from the back surface at which the photon
@@ -119,7 +119,7 @@ def charge_diffusion(
     .. math::
 
         \overline{\sigma}_\text{cd} &= \dfrac{\displaystyle \int_0^{x_{ff}} \sigma_\text{cd}(x) e^{-\alpha x} dx}
-                                            {\displaystyle \int_0^{x_s} e^{-\alpha x} dx} \\
+                                            {\displaystyle \int_0^{x_s} e^{-\alpha x} dx} \\[1mm]
                                     &= \dfrac{\displaystyle \int_0^{x_{ff}} x_{ff} \sqrt{1 - \frac{x}{x_{ff}}} e^{-\alpha x} dx}
                                             {\displaystyle \int_0^{x_s} e^{-\alpha x} dx},
 
