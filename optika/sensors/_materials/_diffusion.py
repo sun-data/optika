@@ -97,7 +97,7 @@ def charge_diffusion(
 
     .. math::
 
-        \sigma_\text{cd}(x) = x_{ff} \left( 1 - \frac{x}{x_{ff}} \right)^{1/2}
+        \sigma_\text{cd}(x) = x_{ff} \sqrt{1 - \frac{x}{x_{ff}}}
 
     where :math:`x` is the distance from the back surface at which the photon
     is absorbed,
@@ -118,11 +118,21 @@ def charge_diffusion(
 
         \overline{\sigma}_\text{cd} &= \dfrac{\int_0^{x_s} \sigma_\text{cd}(x) e^{-\alpha x} dx}
                                             {\int_0^{x_s} e^{-\alpha x} dx} \\
-                                    &= \dfrac{e^{-\alpha x_s} \left[ (\alpha x_{ff} - 1) e^{-\alpha x_s} + \alpha (x_s - x_{ff}) + 1 \right]}
-                                             {\alpha (1 - e^{-\alpha x_s})} \\
-                                    &= \frac{x_s}{1 - e^{\alpha x_s}} - \frac{1}{\alpha} + x_{ff},
+                                    &= \dfrac{\int_0^{x_s} x_{ff} \sqrt{1 - \frac{x}{x_{ff}}} e^{-\alpha x} dx}
+                                            {\int_0^{x_s} e^{-\alpha x} dx} \\
 
     where :math:`\alpha` is the absorption coefficient of the light-sensitive layer.
+    This integral is not solvable analytically, but it can be reduced to quadrature as
+
+    .. math::
+
+        \overline{\sigma}_\text{cd} = -\frac{i e^{-a x_{ff}}}{1 - e^{\alpha x_s}} \sqrt{\frac{x_{ff}}{\alpha}}
+                                        \left[ -\sqrt{\pi} + \Gamma \left( \frac{3}{2}, -\alpha x_{ff} \right)
+                                        + \Gamma \left( \frac{3}{2}, \alpha (x_{ff} - x_s) \right) \right]
+
+    where :math:`i` is the imaginary unit,
+    and :math:`\Gamma(s, x)` is the upper
+    `incomplete gamma function <https://en.wikipedia.org/wiki/Incomplete_gamma_function>`_.
     """
     s = thickness_substrate
 
@@ -130,7 +140,14 @@ def charge_diffusion(
 
     a = absorption
 
-    result = s / (1 - np.exp(a * s)) - 1 / a + f
+    g1 = scipy.special.gammainc(3/2, -a * f)
+    g2 = scipy.special.gammainc(3/2, a * (-f + s))
+
+    f1 = -1j * np.exp(-a * f) / (1 - np.exp(-a * s))
+    f2 = np.sqrt(f / a)
+    f3 = -np.sqrt(np.pi) + g1 + g2
+
+    result = f1 * f2 * f3
 
     return result
 
