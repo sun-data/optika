@@ -130,11 +130,11 @@ def charge_diffusion(
 
     .. math::
 
-        \overline{\sigma}_\text{cd} = \dfrac{x_{ff} - \sqrt{\frac{x_{ff}}{\alpha}} D(\sqrt{\alpha x_{ff}})}
-                                          {1 - \exp (\alpha x_s)}
+        \overline{\sigma}_\text{cd} = \dfrac{x_{ff} - \sqrt{x_{ff} / \alpha} \, D(\sqrt{\alpha x_{ff}})}
+                                          {1 - e^{-\alpha x_s}}
 
     where :math:`D(x)` is `Dawson's integral <https://en.wikipedia.org/wiki/Dawson_function>`_,
-    which is implemented in Scipy as :func:`scipy.special.dawsn`.
+    which is implemented in Scipy as :obj:`scipy.special.dawsn`.
     """
     s = thickness_substrate
 
