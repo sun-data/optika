@@ -119,7 +119,8 @@ def charge_diffusion(
         \overline{\sigma}_\text{cd} &= \dfrac{\int_0^{x_s} \sigma_\text{cd}(x) e^{-\alpha x} dx}
                                             {\int_0^{x_s} e^{-\alpha x} dx} \\
                                     &= \dfrac{e^{-\alpha x_s} \left[ (\alpha x_{ff} - 1) e^{-\alpha x_s} + \alpha (x_s - x_{ff}) + 1 \right]}
-                                             {\alpha (1 - e^{-\alpha x_s})},
+                                             {\alpha (1 - e^{-\alpha x_s})} \\
+                                    &= \frac{x_s}{1 - e^{\alpha x_s}} - \frac{1}{\alpha} + x_{ff},
 
     where :math:`\alpha` is the absorption coefficient of the light-sensitive layer.
     """
@@ -128,12 +129,8 @@ def charge_diffusion(
     f = s - thickness_implant - thickness_depletion
 
     a = absorption
-    b = np.exp(-a * s)
 
-    numerator = b * ((a * f - 1) * b + a * (s - f) + 1)
-    denominator = a * (1 - b)
-
-    result = numerator / denominator
+    result = s / (1 - np.exp(a * s)) - 1 / a + f
 
     return result
 
