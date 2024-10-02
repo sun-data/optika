@@ -92,43 +92,50 @@ def charge_diffusion(
     Notes
     -----
 
-    The standard deviation of the charge diffusion is given by
+    The standard deviation of the charge diffusion kernel is given by
     :cite:t:`Janesick2001` as
 
     .. math::
 
-        \sigma_d = x_{ff} \left( 1 - \frac{L_A}{x_{ff}} \right)^{1/2}
+        \sigma_\text{cd}(x) = x_{ff} \left( 1 - \frac{x}{x_{ff}} \right)^{1/2}
 
-    where
-
-    .. math::
-
-        L_A &= \frac{\int_0^{x_s} x e^{-\alpha x} dx}{\int_0^{x_s} dx} \\
-            &= \frac{1 - (\alpha x_s + 1) e^{-\alpha x_s}}{\alpha^2 x_s}
-
-    is the average distance from the back surface at which to photon is absorbed,
-    :math:`\alpha` is the absorption coefficient of the light-sensitive layer,
-    :math:`x_s` is the total thickness of the light-sensitive layer,
+    where :math:`x` is the distance from the back surface at which the photon
+    is absorbed,
 
     .. math::
 
         x_{ff} = x_s - x_p - x_d
 
     is the thickness of the field-free region of the sensor,
+    :math:`x_s` is the total thickness of the light-sensitive layer,
     :math:`x_p` is the thickness of the partial-charge collection region,
     and :math:`x_d` is the thickness of the depletion region.
-    """
-    d = thickness_substrate
 
-    x_ff = d - thickness_implant - thickness_depletion
+    The `average` standard deviation of the charge diffusion kernel is then
+    the weighted average,
+
+    .. math::
+
+        \overline{\sigma}_\text{cd} &= \dfrac{\int_0^{x_s} \sigma_\text{cd}(x) e^{-\alpha x} dx}
+                                            {\int_0^{x_s} e^{-\alpha x} dx} \\
+                                    &= \dfrac{e^{-\alpha x_s} \left[ (\alpha x_{ff} - 1) e^{-\alpha x_s} + \alpha (x_s - x_{ff}) + 1 \right]}
+                                             {\alpha (1 - e^{-\alpha x_s})},
+
+    where :math:`\alpha` is the absorption coefficient of the light-sensitive layer.
+    """
+    s = thickness_substrate
+
+    f = s - thickness_implant - thickness_depletion
 
     a = absorption
+    b = np.exp(-a * s)
 
-    depth_avg = (1 - (a * d + 1) * np.exp(-a * d)) / (np.square(a) * d)
+    numerator = b * ((a * f - 1) * b + a * (s - f) + 1)
+    denominator = a * (1 - b)
 
-    result = x_ff * np.sqrt(1 - depth_avg / x_ff)
+    result = numerator / denominator
 
-    return np.nan_to_num(result)
+    return result
 
 
 def mean_charge_capture(
