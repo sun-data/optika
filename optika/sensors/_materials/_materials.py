@@ -780,8 +780,6 @@ class AbstractImagingSensorMaterial(
         ----------
         rays
             The rays incident on the sensor surface.
-            The :attr:`optika.rays.RayVectorArray.intensity` field should
-            be in units of electrons.
         normal
             The vector perpendicular to the surface of the sensor.
         """
@@ -925,8 +923,6 @@ class AbstractBackilluminatedCCDMaterial(
         ----------
         rays
             The rays incident on the sensor surface.
-            The :attr:`optika.rays.RayVectorArray.intensity` field should
-            be in units of electrons.
         normal
             The vector perpendicular to the surface of the sensor.
         """
