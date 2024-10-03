@@ -747,9 +747,9 @@ class AbstractImagingSensorMaterial(
 
     def electrons_measured(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
+        rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractScalar:
+    ) -> optika.rays.RayVectorArray:
         """
         Given a set of incident rays, compute the number of electrons
         measured by the sensor using :func:`electrons_measured`.
@@ -776,16 +776,21 @@ class IdealImagingSensorMaterial(
 
     def electrons_measured(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
+        rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractScalar:
+    ) -> optika.rays.RayVectorArray:
+
         intensity = rays.intensity
         if not intensity.unit.is_equivalent(u.photon):
             h = astropy.constants.h
             c = astropy.constants.c
             intensity = intensity / (h * c / rays.wavelength) * u.photon
         electrons = intensity * u.electron / u.photon
-        return electrons.to(u.electron)
+        electrons = electrons.to(u.electron)
+
+        result = dataclasses.replace(rays, intensity=electrons)
+
+        return result
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -1014,9 +1019,9 @@ class AbstractBackilluminatedCCDMaterial(
 
     def electrons_measured(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
+        rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractScalar:
+    ) -> optika.rays.RayVectorArray:
 
         intensity = rays.intensity
         if not intensity.unit.is_equivalent(u.photon):
@@ -1026,12 +1031,16 @@ class AbstractBackilluminatedCCDMaterial(
         absorbance = self.absorbance(rays, normal).average
         iqy = self.quantum_yield_ideal(rays.wavelength)
         cce = self.charge_collection_efficiency(rays, normal)
-        return electrons_measured(
+        electrons = electrons_measured(
             photons=intensity,
             absorbance=absorbance,
             iqy=iqy,
             cce=cce,
         )
+
+        result = dataclasses.replace(rays, intensity=electrons)
+
+        return result
 
     def efficiency(
         self,
