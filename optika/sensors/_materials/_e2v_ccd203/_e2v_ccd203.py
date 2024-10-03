@@ -2,6 +2,7 @@ import pathlib
 import numpy as np
 import astropy.units as u
 import named_arrays as na
+from .._depletion import E2VCCD64ThickDepletionModel
 from .._materials import AbstractStern1994BackilluminatedCCDMaterial
 
 __all__ = [
@@ -16,6 +17,9 @@ class E2VCCD203Material(
     A model of the light-sensitive material of the custom e2v CCD sensors
     on board the Atmospheric Imaging Assembly :cite:p:`Lemen2012` from
     :cite:t:`Boerner2012`
+
+    This model uses the :class:`optika.sensors.E2VCCD64ThickDepletionModel`
+    to represent the depletion region.
 
     Examples
     --------
@@ -32,19 +36,19 @@ class E2VCCD203Material(
         import optika
 
         # Create a new instance of the e2v CCD97 light-sensitive material
-        material_ccd_aia = optika.sensors.E2VCCD203Material()
+        material = optika.sensors.E2VCCD203Material()
 
         # Store the wavelengths at which the QE was measured
-        wavelength_measured = material_ccd_aia.quantum_efficiency_measured.inputs
+        wavelength_measured = material.quantum_efficiency_measured.inputs
 
         # Store the QE measurements
-        qe_measured = material_ccd_aia.quantum_efficiency_measured.outputs
+        qe_measured = material.quantum_efficiency_measured.outputs
 
         # Define a grid of wavelengths with which to evaluate the fitted QE
         wavelength_fit = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
         # Evaluate the fitted QE using the given wavelengths
-        qe_fit = material_ccd_aia.quantum_efficiency_effective(
+        qe_fit = material.quantum_efficiency_effective(
             rays=optika.rays.RayVectorArray(
                 wavelength=wavelength_fit,
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
@@ -74,32 +78,32 @@ class E2VCCD203Material(
 
     .. jupyter-execute::
 
-        material_ccd_aia.thickness_oxide
+        material.thickness_oxide
 
     The thickness of the implant layer found by the fit is
 
     .. jupyter-execute::
 
-        material_ccd_aia.thickness_implant
+        material.thickness_implant
 
     The thickness of the substrate is
 
     .. jupyter-execute::
 
-        material_ccd_aia.thickness_substrate
+        material.thickness_substrate
 
     The differential charge collection efficiency at the backsurface
     found by the fit is
 
     .. jupyter-execute::
 
-        material_ccd_aia.cce_backsurface
+        material.cce_backsurface
 
     And the roughness of the substrate found by the fit is
 
     .. jupyter-execute::
 
-        material_ccd_aia.roughness_substrate
+        material.roughness_substrate
     """
 
     @property
@@ -131,6 +135,10 @@ class E2VCCD203Material(
     @property
     def thickness_substrate(self) -> u.Quantity:
         return 16 * u.um
+
+    @property
+    def depletion(self) -> E2VCCD64ThickDepletionModel:
+        return E2VCCD64ThickDepletionModel()
 
     @property
     def shape(self) -> dict[str, int]:

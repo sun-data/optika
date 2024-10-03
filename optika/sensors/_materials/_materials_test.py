@@ -253,6 +253,32 @@ class AbstractTestAbstractImagingSensorMaterial(
         assert isinstance(result, optika.rays.RayVectorArray)
         assert np.all(result.intensity >= 0 * u.electron)
 
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                intensity=10 * u.electron,
+                wavelength=100 * u.AA,
+                position=na.Cartesian3dVectorArray() * u.mm,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_charge_diffusion(
+            self,
+            a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+            rays: optika.rays.RayVectorArray,
+            normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.charge_diffusion(rays, normal)
+        assert isinstance(result, optika.rays.RayVectorArray)
+
 
 @pytest.mark.parametrize(
     argnames="a",
@@ -302,6 +328,38 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     ):
         result = a.cce_backsurface
         assert result >= 0
+
+    def test_depletion(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+    ):
+        result = a.depletion
+        assert isinstance(result, optika.sensors.AbstractDepletionModel)
+
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                wavelength=100 * u.AA,
+                position=na.Cartesian3dVectorArray() * u.mm,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_width_charge_diffusion(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        rays: optika.rays.AbstractRayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.width_charge_diffusion(rays, normal)
+        assert np.all(result >= 0 * u.um)
 
     @pytest.mark.parametrize(
         argnames="wavelength",

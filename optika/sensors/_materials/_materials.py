@@ -7,6 +7,7 @@ import astropy.units as u
 import astropy.constants
 import named_arrays as na
 import optika
+from ._depletion import AbstractDepletionModel
 
 __all__ = [
     "energy_bandgap",
@@ -745,6 +746,7 @@ class AbstractImagingSensorMaterial(
     An interface representing the light-sensitive material of an imaging sensor.
     """
 
+    @abc.abstractmethod
     def electrons_measured(
         self,
         rays: optika.rays.RayVectorArray,
@@ -764,6 +766,26 @@ class AbstractImagingSensorMaterial(
             The vector perpendicular to the surface of the sensor.
         """
 
+    @abc.abstractmethod
+    def charge_diffusion(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> optika.rays.RayVectorArray:
+        """
+        Given a set of incident rays, compute how much the position of each ray
+        is perturbed due to charge diffusion within the sensor.
+
+        Parameters
+        ----------
+        rays
+            The rays incident on the sensor surface.
+            The :attr:`optika.rays.RayVectorArray.intensity` field should
+            be in units of electrons.
+        normal
+            The vector perpendicular to the surface of the sensor.
+        """
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class IdealImagingSensorMaterial(
@@ -771,7 +793,8 @@ class IdealImagingSensorMaterial(
     AbstractImagingSensorMaterial,
 ):
     """
-    An idealized sensor material with a quantum efficiency of 1.
+    An idealized sensor material with a quantum efficiency of unity
+    and no charge diffusion.
     """
 
     def electrons_measured(
@@ -791,6 +814,13 @@ class IdealImagingSensorMaterial(
         result = dataclasses.replace(rays, intensity=electrons)
 
         return result
+
+    def charge_diffusion(
+            self,
+            rays: optika.rays.RayVectorArray,
+            normal: na.AbstractCartesian3dVectorArray,
+    ) -> optika.rays.RayVectorArray:
+        return rays
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -874,6 +904,83 @@ class AbstractBackilluminatedCCDMaterial(
         """
         The charge collection efficiency on the backsurface of the CCD sensor.
         """
+
+    @property
+    @abc.abstractmethod
+    def depletion(self) -> AbstractDepletionModel:
+        """
+        A model of the sensor's depletion region.
+        """
+
+    def width_charge_diffusion(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        The standard deviation of the charge diffusion kernel for this sensor.
+        Calculated using :func:`optika.sensors.charge_diffusion`.
+
+        Parameters
+        ----------
+        rays
+            The rays incident on the sensor surface.
+            The :attr:`optika.rays.RayVectorArray.intensity` field should
+            be in units of electrons.
+        normal
+            The vector perpendicular to the surface of the sensor.
+
+        Examples
+        --------
+
+        Plot the width of the charge diffusion kernel for this sensor.
+
+        .. jupyter-execute::
+
+            # Define a wavelength grid
+            wavelength = na.geomspace(1, 10000, axis="wavelength", num=1001) * u.AA
+
+            # Compute a corresponding energy grid
+            energy = wavelength.to(u.eV, equivalencies=u.spectral())
+
+            # Compute the width of the charge diffusion kernel
+            # for each wavelength.1
+            width = material.width_charge_diffusion(
+                rays=optika.rays.RayVectorArray(
+                    wavelength=wavelength,
+                    direction=na.Cartesian3dVectorArray(0, 0, 1),
+                ),
+                normal=na.Cartesian3dVectorArray(0, 0, -1),
+            )
+
+            # Plot the results as a function of wavelength
+            # energy.
+            with astropy.visualization.quantity_support():
+                fig, ax = plt.subplots()
+                ax2 = ax.twiny()
+                ax2.invert_xaxis()
+                na.plt.plot(
+                    wavelength,
+                    width,
+                    ax=ax,
+                )
+                na.plt.plot(
+                    energy,
+                    width,
+                    ax=ax2,
+                    linestyle="None",
+                )
+                ax.set_xscale("log")
+                ax2.set_xscale("log")
+                ax.set_xlabel(f"wavelength ({ax.get_xlabel()})")
+                ax2.set_xlabel(f"energy ({ax2.get_xlabel()})")
+                ax.set_ylabel(f"width ({ax.get_ylabel()})")
+        """
+        return optika.sensors.charge_diffusion(
+            self._chemical.absorption(rays.wavelength),
+            thickness_substrate=self.thickness_substrate,
+            thickness_depletion=self.depletion.thickness,
+        )
 
     def quantum_yield_ideal(
         self,
@@ -1041,6 +1148,27 @@ class AbstractBackilluminatedCCDMaterial(
         result = dataclasses.replace(rays, intensity=electrons)
 
         return result
+
+    def charge_diffusion(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> optika.rays.RayVectorArray:
+
+        width = self.width_charge_diffusion(rays, normal)
+
+        position = dataclasses.replace(
+            rays.position,
+            x=na.random.normal(rays.position.x, width),
+            y=na.random.normal(rays.position.y, width),
+        )
+
+        rays = dataclasses.replace(
+            rays,
+            position=position,
+        )
+
+        return rays
 
     def efficiency(
         self,
