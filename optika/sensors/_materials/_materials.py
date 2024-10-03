@@ -816,9 +816,9 @@ class IdealImagingSensorMaterial(
         return result
 
     def charge_diffusion(
-            self,
-            rays: optika.rays.RayVectorArray,
-            normal: na.AbstractCartesian3dVectorArray,
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ) -> optika.rays.RayVectorArray:
         return rays
 

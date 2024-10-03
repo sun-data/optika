@@ -271,10 +271,10 @@ class AbstractTestAbstractImagingSensorMaterial(
         ],
     )
     def test_charge_diffusion(
-            self,
-            a: optika.sensors.AbstractBackilluminatedCCDMaterial,
-            rays: optika.rays.RayVectorArray,
-            normal: na.AbstractCartesian3dVectorArray,
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ):
         result = a.charge_diffusion(rays, normal)
         assert isinstance(result, optika.rays.RayVectorArray)
