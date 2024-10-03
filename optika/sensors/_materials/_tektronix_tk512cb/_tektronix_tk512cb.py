@@ -101,6 +101,35 @@ class TektronixTK512CBMaterial(
     .. jupyter-execute::
 
         material.roughness_substrate
+
+    |
+
+    Plot the width of the charge diffusion kernel for this sensor as a function
+    of wavelength.
+
+    .. jupyter-execute::
+
+        # Compute the width of the charge diffusion kernel
+        # for each wavelength.
+        width = material.width_charge_diffusion(
+            rays=optika.rays.RayVectorArray(
+                wavelength=wavelength_fit,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+        )
+
+        # Plot the results
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots()
+            na.plt.plot(
+                wavelength_fit,
+                width,
+                ax=ax,
+            )
+            ax.set_xscale("log")
+            ax.set_xlabel(f"wavelength ({ax.get_xlabel()})")
+            ax.set_ylabel(f"width ({ax.get_ylabel()})")
     """
 
     @property
