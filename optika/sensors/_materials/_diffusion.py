@@ -58,7 +58,6 @@ def charge_diffusion(
         # Compute the charge diffusion
         width_diffusion = optika.sensors.charge_diffusion(
             absorption=absorption,
-            thickness_implant=40 * u.nm,
             thickness_substrate=14 * u.um,
             thickness_depletion=2.4 * u.um,
         )
