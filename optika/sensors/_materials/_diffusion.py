@@ -92,43 +92,61 @@ def charge_diffusion(
     Notes
     -----
 
-    The standard deviation of the charge diffusion is given by
+    The standard deviation of the charge diffusion kernel is given by
     :cite:t:`Janesick2001` as
 
     .. math::
 
-        \sigma_d = x_{ff} \left( 1 - \frac{L_A}{x_{ff}} \right)^{1/2}
+        \sigma_\text{cd}(x) = \begin{cases}
+            x_{ff} \sqrt{1 - \frac{x}{x_{ff}}}, & 0 < x < x_{ff} \\
+            0, & x_{ff} < x < x_s
+        \end{cases}
 
-    where
-
-    .. math::
-
-        L_A &= \frac{\int_0^{x_s} x e^{-\alpha x} dx}{\int_0^{x_s} dx} \\
-            &= \frac{1 - (\alpha x_s + 1) e^{-\alpha x_s}}{\alpha^2 x_s}
-
-    is the average distance from the back surface at which to photon is absorbed,
-    :math:`\alpha` is the absorption coefficient of the light-sensitive layer,
-    :math:`x_s` is the total thickness of the light-sensitive layer,
+    where :math:`x` is the distance from the back surface at which the photon
+    is absorbed,
 
     .. math::
 
-        x_{ff} = x_s - x_p - x_d
+        x_{ff} = x_s - x_d
 
     is the thickness of the field-free region of the sensor,
-    :math:`x_p` is the thickness of the partial-charge collection region,
+    :math:`x_s` is the total thickness of the light-sensitive region,
     and :math:`x_d` is the thickness of the depletion region.
-    """
-    d = thickness_substrate
 
-    x_ff = d - thickness_implant - thickness_depletion
+    The `average` standard deviation of the charge diffusion kernel is then
+    the weighted average,
+
+    .. math::
+
+        \overline{\sigma}_\text{cd} &= \dfrac{\displaystyle \int_0^{x_{ff}} \sigma_\text{cd}(x) e^{-\alpha x} dx}
+                                            {\displaystyle \int_0^{x_s} e^{-\alpha x} dx} \\[1mm]
+                                    &= \dfrac{\displaystyle \int_0^{x_{ff}} x_{ff} \sqrt{1 - \frac{x}{x_{ff}}} e^{-\alpha x} dx}
+                                            {\displaystyle \int_0^{x_s} e^{-\alpha x} dx},
+
+    where :math:`\alpha` is the absorption coefficient of the light-sensitive layer.
+
+    This integral is not solvable in terms of elementary functions,
+    but it can be reduced to quadrature as
+
+    .. math::
+
+        \overline{\sigma}_\text{cd} = \dfrac{x_{ff} - \sqrt{x_{ff} / \alpha} \, D(\sqrt{\alpha x_{ff}})}
+                                          {1 - e^{-\alpha x_s}}
+
+    where :math:`D(x)` is `Dawson's integral <https://en.wikipedia.org/wiki/Dawson_function>`_,
+    which is implemented in Scipy as :obj:`scipy.special.dawsn`.
+    """
+    s = thickness_substrate
+
+    f = s - thickness_depletion
 
     a = absorption
 
-    depth_avg = (1 - (a * d + 1) * np.exp(-a * d)) / (np.square(a) * d)
+    dawson = scipy.special.dawsn(np.sqrt(a * f))
 
-    result = x_ff * np.sqrt(1 - depth_avg / x_ff)
+    result = (f - np.sqrt(f / a) * dawson) / (1 - np.exp(-a * s))
 
-    return np.nan_to_num(result)
+    return result
 
 
 def mean_charge_capture(
