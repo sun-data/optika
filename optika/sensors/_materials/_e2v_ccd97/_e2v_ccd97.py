@@ -2,6 +2,7 @@ import pathlib
 import numpy as np
 import astropy.units as u
 import named_arrays as na
+from .._depletion import E2VCCD64ThickDepletionModel
 from .._materials import AbstractStern1994BackilluminatedCCDMaterial
 
 __all__ = [
@@ -19,6 +20,9 @@ class E2VCCD97Material(
     This is a measurement of e2v's "enhanced" process, which has a narrower
     partial charge collection region than e2v's "standard" process.
 
+    This model uses the :class:`optika.sensors.E2VCCD64ThickDepletionModel`
+    to represent the depletion region.
+
     Examples
     --------
 
@@ -34,19 +38,19 @@ class E2VCCD97Material(
         import optika
 
         # Create a new instance of the e2v CCD97 light-sensitive material
-        material_ccd97 = optika.sensors.E2VCCD97Material()
+        material = optika.sensors.E2VCCD97Material()
 
         # Store the wavelengths at which the QE was measured
-        wavelength_measured = material_ccd97.quantum_efficiency_measured.inputs
+        wavelength_measured = material.quantum_efficiency_measured.inputs
 
         # Store the QE measurements
-        qe_measured = material_ccd97.quantum_efficiency_measured.outputs
+        qe_measured = material.quantum_efficiency_measured.outputs
 
         # Define a grid of wavelengths with which to evaluate the fitted QE
         wavelength_fit = na.geomspace(5, 10000, axis="wavelength", num=1001) * u.AA
 
         # Evaluate the fitted QE using the given wavelengths
-        qe_fit = material_ccd97.quantum_efficiency_effective(
+        qe_fit = material.quantum_efficiency_effective(
             rays=optika.rays.RayVectorArray(
                 wavelength=wavelength_fit,
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
@@ -76,32 +80,32 @@ class E2VCCD97Material(
 
     .. jupyter-execute::
 
-        material_ccd97.thickness_oxide
+        material.thickness_oxide
 
     The thickness of the implant layer found by the fit is
 
     .. jupyter-execute::
 
-        material_ccd97.thickness_implant
+        material.thickness_implant
 
     The thickness of the substrate is
 
     .. jupyter-execute::
 
-        material_ccd97.thickness_substrate
+        material.thickness_substrate
 
     The differential charge collection efficiency at the backsurface
     found by the fit is
 
     .. jupyter-execute::
 
-        material_ccd97.cce_backsurface
+        material.cce_backsurface
 
     And the roughness of the substrate found by the fit is
 
     .. jupyter-execute::
 
-        material_ccd97.roughness_substrate
+        material.roughness_substrate
 
     |
 
@@ -146,6 +150,35 @@ class E2VCCD97Material(
             ax.set_xlabel(f"wavelength ({wavelength_fit.unit:latex_inline})")
             ax.set_ylabel("quantum efficiency")
             ax.legend()
+
+    |
+
+    Plot the width of the charge diffusion kernel for this sensor as a function
+    of wavelength.
+
+    .. jupyter-execute::
+
+        # Compute the width of the charge diffusion kernel
+        # for each wavelength.
+        width = material.width_charge_diffusion(
+            rays=optika.rays.RayVectorArray(
+                wavelength=wavelength_fit,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+        )
+
+        # Plot the results
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots()
+            na.plt.plot(
+                wavelength_fit,
+                width,
+                ax=ax,
+            )
+            ax.set_xscale("log")
+            ax.set_xlabel(f"wavelength ({ax.get_xlabel()})")
+            ax.set_ylabel(f"width ({ax.get_ylabel()})")
     """
 
     @property
@@ -181,6 +214,10 @@ class E2VCCD97Material(
     @property
     def thickness_substrate(self) -> u.Quantity:
         return 14 * u.um
+
+    @property
+    def depletion(self) -> E2VCCD64ThickDepletionModel:
+        return E2VCCD64ThickDepletionModel()
 
     @property
     def shape(self) -> dict[str, int]:

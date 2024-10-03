@@ -124,9 +124,16 @@ class AbstractImagingSensor(
             intensity=rays.intensity * timedelta,
         )
 
+        normal = self.sag.normal(rays.position)
+
         rays = self.material.electrons_measured(
             rays=rays,
-            normal=self.sag.normal(rays.position),
+            normal=normal,
+        )
+
+        rays = self.material.charge_diffusion(
+            rays=rays,
+            normal=normal,
         )
 
         hist = na.histogram2d(
