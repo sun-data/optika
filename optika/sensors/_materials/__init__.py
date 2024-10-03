@@ -6,6 +6,7 @@ from ._depletion import (
     AbstractDepletionModel,
     AbstractJanesickDepletionModel,
     E2VCCD64ThickDepletionModel,
+    E2VCCD64ThinDepletionModel,
 )
 from ._materials import (
     energy_bandgap,
@@ -40,6 +41,7 @@ __all__ = [
     "AbstractDepletionModel",
     "AbstractJanesickDepletionModel",
     "E2VCCD64ThickDepletionModel",
+    "E2VCCD64ThinDepletionModel",
     "AbstractImagingSensorMaterial",
     "IdealImagingSensorMaterial",
     "AbstractCCDMaterial",
