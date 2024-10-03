@@ -100,10 +100,6 @@ class E2VCCD64ThickDepletionModel(
         return 15 * u.um
 
     @property
-    def thickness_implant(self) -> u.Quantity:
-        return 100 * u.nm
-
-    @property
     def width_pixel(self) -> u.Quantity:
         return 16 * u.um
 

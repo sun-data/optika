@@ -55,14 +55,6 @@ class AbstractJanesickDepletionModel(
 
     @property
     @abc.abstractmethod
-    def thickness_implant(self):
-        """
-        The thickness of the partial-charge collection region of the imaging
-        sensor.
-        """
-
-    @property
-    @abc.abstractmethod
     def width_pixel(self) -> u.Quantity:
         """The size of a pixel."""
 
@@ -82,7 +74,6 @@ class AbstractJanesickDepletionModel(
         return optika.sensors.mean_charge_capture(
             width_diffusion=optika.sensors.charge_diffusion(
                 absorption=self.chemical_substrate.absorption(wavelength),
-                thickness_implant=self.thickness_implant,
                 thickness_substrate=self.thickness_substrate,
                 thickness_depletion=self.thickness,
             ),
@@ -101,7 +92,6 @@ class AbstractJanesickDepletionModel(
     def thickness(self) -> u.Quantity:
 
         thickness_substrate = self.thickness_substrate
-        thickness_implant = self.thickness_implant
         width_pixel = self.width_pixel
 
         mcc_measured = self.mean_charge_capture_measured
@@ -114,7 +104,6 @@ class AbstractJanesickDepletionModel(
 
             width_diffusion = optika.sensors.charge_diffusion(
                 absorption=absorption,
-                thickness_implant=thickness_implant,
                 thickness_substrate=thickness_substrate,
                 thickness_depletion=thickness_depletion * unit,
             )

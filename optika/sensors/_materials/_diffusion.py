@@ -11,7 +11,6 @@ __all__ = [
 
 def charge_diffusion(
     absorption: u.Quantity | na.AbstractScalar,
-    thickness_implant: u.Quantity | na.AbstractScalar,
     thickness_substrate: u.Quantity | na.AbstractScalar,
     thickness_depletion: u.Quantity | na.AbstractScalar,
 ) -> na.AbstractScalar:
@@ -24,9 +23,6 @@ def charge_diffusion(
     absorption
         The absorption coefficient of the light-sensitive layer for the
         incident photon.
-    thickness_implant
-        The thickness of the partial-charge collection region of the imaging
-        sensor.
     thickness_substrate
         The thickness of the light-sensitive region of the imaging sensor.
     thickness_depletion
