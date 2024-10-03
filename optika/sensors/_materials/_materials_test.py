@@ -246,11 +246,12 @@ class AbstractTestAbstractImagingSensorMaterial(
     def test_electrons_measured(
         self,
         a: optika.sensors.AbstractBackilluminatedCCDMaterial,
-        rays: optika.rays.AbstractRayVectorArray,
+        rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
         result = a.electrons_measured(rays, normal)
-        assert np.all(result >= 0 * u.electron)
+        assert isinstance(result, optika.rays.RayVectorArray)
+        assert np.all(result.intensity >= 0 * u.electron)
 
 
 @pytest.mark.parametrize(

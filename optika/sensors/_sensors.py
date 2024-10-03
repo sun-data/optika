@@ -124,7 +124,7 @@ class AbstractImagingSensor(
             intensity=rays.intensity * timedelta,
         )
 
-        electrons = self.material.electrons_measured(
+        rays = self.material.electrons_measured(
             rays=rays,
             normal=self.sag.normal(rays.position),
         )
@@ -139,7 +139,7 @@ class AbstractImagingSensor(
             axis=axis,
             min=self.aperture.bound_lower.xy,
             max=self.aperture.bound_upper.xy,
-            weights=electrons * where,
+            weights=rays.intensity * where,
         )
 
         return na.FunctionArray(
