@@ -36,13 +36,6 @@ class AbstractTestAbstractJanesickDepletionModel(
         result = a.thickness_substrate
         assert np.all(result > 0 * u.um)
 
-    def test_thickness_implant(
-        self,
-        a: optika.sensors.AbstractJanesickDepletionModel,
-    ):
-        result = a.thickness_implant
-        assert np.all(result > 0 * u.um)
-
     def test_width_pixel(
         self,
         a: optika.sensors.AbstractJanesickDepletionModel,
