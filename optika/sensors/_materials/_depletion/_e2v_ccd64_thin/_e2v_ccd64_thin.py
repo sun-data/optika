@@ -18,7 +18,7 @@ class E2VCCD64ThinDepletionModel(
     """
     A model of the depletion region of a "thin" (20 :math:`\Omega`-cm)
     e2v CCD64 imaging sensor, which uses charge diffusion measurements from
-    :cite:t:`Stern2004` to estimate the thinness of the depletion region.
+    :cite:t:`Stern2004` to estimate the thickness of the depletion region.
 
     Examples
     --------
@@ -97,7 +97,7 @@ class E2VCCD64ThinDepletionModel(
 
     @property
     def thickness_substrate(self) -> u.Quantity:
-        return 15 * u.um
+        return 8 * u.um
 
     @property
     def thickness_implant(self) -> u.Quantity:
