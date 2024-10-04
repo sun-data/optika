@@ -131,7 +131,7 @@ def charge_diffusion(
     numerator = f * (a * f + np.exp(-a * f) - 1)
     denominator = a * (1 - np.exp(-a * s))
 
-    result = np.sqrt(numerator / denominator)
+    result = np.sqrt(numerator / denominator).to(u.um)
 
     return result
 
