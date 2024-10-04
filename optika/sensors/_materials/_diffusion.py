@@ -108,28 +108,19 @@ def charge_diffusion(
     :math:`x_s` is the total thickness of the light-sensitive region,
     and :math:`x_d` is the thickness of the depletion region.
 
-    The `average` standard deviation of the charge diffusion kernel is then
+    The `average` variance of the charge diffusion kernel is then
     the weighted average,
 
     .. math::
 
-        \overline{\sigma}_\text{cd} &= \dfrac{\displaystyle \int_0^{x_s} \sigma_\text{cd}(x) e^{-\alpha x} dx}
-                                            {\displaystyle \int_0^{x_s} e^{-\alpha x} dx} \\[1mm]
-                                    &= \dfrac{\displaystyle \int_0^{x_{ff}} x_{ff} \sqrt{1 - \frac{x}{x_{ff}}} e^{-\alpha x} dx}
-                                            {\displaystyle \int_0^{x_s} e^{-\alpha x} dx},
+        \overline{\sigma}_\text{cd}^2 &= \dfrac{\displaystyle \int_0^{x_s} \left( \sigma_\text{cd}(x) \right)^2 e^{-\alpha x} dx}
+                                               {\displaystyle \int_0^{x_s} e^{-\alpha x} dx} \\[1mm]
+                                      &= \dfrac{\displaystyle \int_0^{x_{ff}} x_{ff}^2 \left( 1 - \frac{x}{x_{ff}} \right) e^{-\alpha x} dx}
+                                               {\displaystyle \int_0^{x_s} e^{-\alpha x} dx} \\[1mm]
+                                      &= \dfrac{x_{ff} \left( \alpha x_{ff} + e^{-\alpha x_{ff}} - 1 \right)}
+                                               {\alpha \left( 1 - e^{-\alpha x_s} \right)}
 
     where :math:`\alpha` is the absorption coefficient of the light-sensitive layer.
-
-    This integral is not solvable in terms of elementary functions,
-    but it can be reduced to quadrature as
-
-    .. math::
-
-        \overline{\sigma}_\text{cd} = \dfrac{x_{ff} - \sqrt{x_{ff} / \alpha} \, D(\sqrt{\alpha x_{ff}})}
-                                          {1 - e^{-\alpha x_s}}
-
-    where :math:`D(x)` is `Dawson's integral <https://en.wikipedia.org/wiki/Dawson_function>`_,
-    which is implemented in Scipy as :obj:`scipy.special.dawsn`.
     """
     s = thickness_substrate
 
@@ -137,9 +128,10 @@ def charge_diffusion(
 
     a = absorption
 
-    dawson = scipy.special.dawsn(np.sqrt(a * f))
+    numerator = f * (a * f + np.exp(-a * f) - 1)
+    denominator = a * (1 - np.exp(-a * s))
 
-    result = (f - np.sqrt(f / a) * dawson) / (1 - np.exp(-a * s))
+    result = np.sqrt(numerator / denominator)
 
     return result
 
