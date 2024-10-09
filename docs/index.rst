@@ -85,6 +85,15 @@ An in-depth description of the interfaces in this package.
 
     optika
 
+Tutorials
+=========
+
+Jupyter notebook examples on how to use :mod:`optika.
+
+.. toctree::
+
+    tutorials/herschelian
+
 
 References
 ==========
