@@ -670,7 +670,7 @@ def electrons_measured(
         (ratio of the variance to the mean) of the Fano noise for this
         sensor material.
         Defaults to 0.1, the standard estimate of Fano noise in silicon
-        :cite:p:`Janesick2001.
+        :cite:p:`Janesick2001`.
         Must be in units of electrons per photon.
 
     Examples
@@ -858,7 +858,7 @@ class AbstractCCDMaterial(
         sensor material.
         This parameter has some variation in the literature,
         this implementation uses the value given by :cite:t:`Rodrigues2021`,
-        which was measured using :math:`^{55}`Fe X-rays.
+        which was measured using :math:`{}^{55}`Fe X-rays.
         """
         return 0.119 * u.electron / u.photon
 
