@@ -46,8 +46,6 @@ Features
   * Quantum efficiency
   * Charge diffusion
 
-Some of the features :mod:`optika` is a work in progress, and many features
-
 Missing Features
 ----------------
 
