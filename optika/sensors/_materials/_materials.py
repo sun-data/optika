@@ -643,6 +643,7 @@ def electrons_measured(
     absorbance: float | na.AbstractScalar = 1,
     iqy: u.Quantity | na.AbstractScalar = 1 * u.electron / u.photon,
     cce: float | na.AbstractScalar = 1,
+    fano_noise: u.Quantity | na.AbstractScalar = 0.1 * u.electron / u.photon,
 ) -> na.AbstractScalar:
     r"""
     Calculate the actual number of electrons measured for a given number of
@@ -664,6 +665,13 @@ def electrons_measured(
     cce
         The charge collection efficiency of the detector computed using
         :func:`charge_collection_efficiency`.
+    fano_noise
+        The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
+        (ratio of the variance to the mean) of the Fano noise for this
+        sensor material.
+        Defaults to 0.1, the standard estimate of Fano noise in silicon
+        :cite:p:`Janesick2001.
+        Must be in units of electrons per photon.
 
     Examples
     --------
@@ -723,14 +731,15 @@ def electrons_measured(
             ),
         )
         img = na.plt.pcolormesh(C=hist, ax=ax)
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})")
-        ax.set_ylabel(f"electrons measured ({electrons.unit:latex_inline})")
+        ax.set_xscale("log");
+        ax.set_yscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel(f"electrons measured ({electrons.unit:latex_inline})");
     """
     photons_absorbed_expected = absorbance * photons.to(u.ph)
     photons_absorbed = na.random.poisson(photons_absorbed_expected)
-    electrons = iqy * photons_absorbed
+    electrons_expected = iqy * photons_absorbed
+    electrons = na.random.poisson(electrons_expected / fano_noise) * fano_noise
     e_fractional, e_integral = np.modf(electrons / u.electron)
     e_random = na.random.uniform(0, 1, electrons.shape) < e_fractional
     electrons_total = e_integral + e_random
@@ -840,6 +849,18 @@ class AbstractCCDMaterial(
     @functools.cached_property
     def _chemical_oxide(self) -> optika.chemicals.Chemical:
         return optika.chemicals.Chemical("SiO2_llnl_cxro_rodriguez")
+
+    @property
+    def fano_noise(self) -> u.Quantity:
+        """
+        The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
+        (ratio of the variance to the mean) of the Fano noise for this
+        sensor material.
+        This parameter has some variation in the literature,
+        this implementation uses the value given by :cite:t`Rodrigues2021`,
+        which was measured using :math:`^{55}`Fe X-rays.
+        """
+        return 0.119 * u.electron / u.photon
 
     def index_refraction(
         self,
@@ -1093,6 +1114,7 @@ class AbstractBackilluminatedCCDMaterial(
             absorbance=absorbance,
             iqy=iqy,
             cce=cce,
+            fano_noise=self.fano_noise,
         )
 
         result = dataclasses.replace(rays, intensity=electrons)
