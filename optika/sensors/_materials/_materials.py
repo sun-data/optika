@@ -856,9 +856,9 @@ class AbstractCCDMaterial(
         The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
         (ratio of the variance to the mean) of the Fano noise for this
         sensor material.
+
         This parameter has some variation in the literature,
-        this implementation uses the value given by :cite:t:`Rodrigues2021`,
-        which was measured using :math:`{}^{55}`Fe X-rays.
+        this implementation uses the value given by :cite:t:`Rodrigues2021`.
         """
         return 0.119 * u.electron / u.photon
 
