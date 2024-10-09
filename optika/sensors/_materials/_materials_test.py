@@ -297,7 +297,7 @@ class AbstractTestAbstractCCDMaterial(
 ):
     def test_fano_noise(self, a: optika.sensors.AbstractCCDMaterial):
         result = a.fano_noise
-        assert np.all(result > 0 * u.electrons / u.photon)
+        assert np.all(result > 0 * u.electron / u.photon)
 
 
 class AbstractTestAbstractBackilluminatedCCDMaterial(
