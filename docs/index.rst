@@ -49,10 +49,14 @@ Features
 Missing Features
 ----------------
 
-* **Polarization**: Different polarization states are not propagated through the
+* **Polarization**. Different polarization states are not propagated through the
   system.
-* **Physical Optics**: Only geometric optics is supported right now, but adding
+* **Physical Optics**. Only geometric optics is supported right now, but adding
   a Fourier optics propagator is a longstanding goal of the project.
+* **Glass Optical Constants**. :mod:`optika` has a wide array of optical
+  constants from sources such as :cite:t:`Palik1997,Henke1993`,
+  but it does not yet have a database for different types of glass like Zemax
+  does.
 
 Differences from Zemax
 ----------------------
