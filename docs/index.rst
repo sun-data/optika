@@ -72,6 +72,16 @@ Differences from Zemax
   designs.
 
 
+Tutorials
+=========
+
+Jupyter notebook examples on how to use :mod:`optika`.
+
+.. toctree::
+    :maxdepth: 1
+
+    tutorials/herschelian
+
 
 API Reference
 =============
@@ -84,16 +94,6 @@ An in-depth description of the interfaces in this package.
     :recursive:
 
     optika
-
-Tutorials
-=========
-
-Jupyter notebook examples on how to use :mod:`optika`.
-
-.. toctree::
-    :maxdepth: 1
-
-    tutorials/herschelian
 
 
 References
