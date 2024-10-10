@@ -91,6 +91,7 @@ Tutorials
 Jupyter notebook examples on how to use :mod:`optika.
 
 .. toctree::
+    :maxdepth: 1
 
     tutorials/herschelian
 
