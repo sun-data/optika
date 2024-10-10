@@ -88,7 +88,7 @@ An in-depth description of the interfaces in this package.
 Tutorials
 =========
 
-Jupyter notebook examples on how to use :mod:`optika.
+Jupyter notebook examples on how to use :mod:`optika`.
 
 .. toctree::
     :maxdepth: 1
