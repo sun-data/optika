@@ -723,7 +723,15 @@ class AbstractSequentialSystem(
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
         )
-        return raytrace[{axis: ~0}]
+        rayfunction = raytrace[{axis: ~0}]
+        rays = rayfunction.outputs
+
+        if self.sensor.transformation is not None:
+            rays = self.sensor.transformation.inverse(rays)
+
+        rayfunction.outputs = rays
+
+        return rayfunction
 
     @functools.cached_property
     def rayfunction_default(self) -> optika.rays.RayFunctionArray:
