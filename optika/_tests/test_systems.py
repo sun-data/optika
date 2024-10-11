@@ -257,6 +257,7 @@ _sensor = optika.sensors.ImagingSensor(
     axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
     timedelta_exposure=1 * u.s,
     num_pixel=na.Cartesian2dVectorArray(128, 128),
+    transformation=na.transformations.Cartesian3dTranslation(z=1 * u.mm),
     is_field_stop=True,
 )
 

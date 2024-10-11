@@ -100,7 +100,7 @@ class AbstractImagingSensor(
         Parameters
         ----------
         rays
-            A set of incident rays in global coordinates to measure.
+            A set of incident rays in local coordinates to measure.
         timedelta
             The exposure time of the measurement.
             If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
@@ -113,9 +113,6 @@ class AbstractImagingSensor(
         """
         if timedelta is None:
             timedelta = self.timedelta_exposure
-
-        if self.transformation is not None:
-            rays = self.transformation.inverse(rays)
 
         where = where & rays.unvignetted
 
