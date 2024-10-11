@@ -58,7 +58,7 @@ def accumulate_rays(
     if isinstance(propagators, AbstractRayPropagator):
         propagators = [propagators]
 
-    result = [rays]
+    result = []
     for propagator in propagators:
         rays = propagator.propagate_rays(rays)
         result.append(rays)
