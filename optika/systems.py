@@ -603,8 +603,8 @@ class AbstractSequentialSystem(
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
-        rays, trace those rays through the system and return the result,
-        including all intermediate rays.
+        rays, trace those rays through the system and return the result in
+        global coordinates, including all intermediate rays.
 
         Parameters
         ----------
@@ -634,7 +634,8 @@ class AbstractSequentialSystem(
 
         See Also
         --------
-        rayfunction : Similar to `raytrace` except it only returns the rays at the last surface.
+        rayfunction : Similar to `raytrace` except it only returns the rays at
+            the last surface in local coordinates.
         """
 
         if axis is None:
@@ -683,7 +684,7 @@ class AbstractSequentialSystem(
         """
         Given the wavelength, field position, and pupil position of some input
         rays, trace those rays through the system and return the resulting
-        rays at the last surface.
+        rays in local coordinates at the last surface.
 
         Parameters
         ----------
@@ -710,7 +711,8 @@ class AbstractSequentialSystem(
 
         See Also
         --------
-        raytrace : Similar to `rayfunction` except it computes all the intermediate rays.
+        raytrace : Similar to `rayfunction` except it computes all the
+            intermediate rays, and it returns results in global coordinates.
         """
 
         axis = "_dummy"
@@ -736,8 +738,12 @@ class AbstractSequentialSystem(
     @functools.cached_property
     def rayfunction_default(self) -> optika.rays.RayFunctionArray:
         """
-        Computes the rays at the last surface in the system as a function of
-        input wavelength and position using :attr:`grid_input`.
+        Computes the rays in local coordinates at the last surface in the system
+        as a function of input wavelength and position using :attr:`grid_input`.
+
+        This property is cached to increase performance.
+        If :attr:`grid_input` is updated, the cache must be cleared with
+        ``del system.rayfunction_default`` before calling property.
         """
         return self.rayfunction()
 
