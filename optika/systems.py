@@ -68,7 +68,7 @@ class AbstractSequentialSystem(
 
     @property
     @abc.abstractmethod
-    def object(self) -> None | optika.surfaces.AbstractSurface:
+    def object(self) -> optika.surfaces.AbstractSurface:
         """
         The external object being imaged or illuminated by this system.
 
@@ -77,21 +77,21 @@ class AbstractSequentialSystem(
 
     @property
     def object_is_at_infinity(self) -> bool:
-        obj = self.object
-        if obj is not None:
-            aperture_obj = obj.aperture
-            if aperture_obj is not None:
-                unit_obj = na.unit_normalized(aperture_obj.bound_lower)
-                if unit_obj.is_equivalent(u.mm):
-                    result = False
-                elif unit_obj.is_equivalent(u.dimensionless_unscaled):
-                    result = True
-                else:  # pragma: nocover
-                    raise ValueError(
-                        f"Unrecognized unit for object aperture, {unit_obj}"
-                    )
-            else:
+        """
+        A boolean flag indicating if the object is at infinity.
+
+        If :attr:`object` doesn't have an aperture,
+        it is assumed that the object is at infinity.
+        """
+        aperture_obj = self.object.aperture
+        if aperture_obj is not None:
+            unit_obj = na.unit_normalized(aperture_obj.bound_lower)
+            if unit_obj.is_equivalent(u.mm):
                 result = False
+            elif unit_obj.is_equivalent(u.dimensionless_unscaled):
+                result = True
+            else:  # pragma: nocover
+                raise ValueError(f"Unrecognized unit for object aperture, {unit_obj}")
         else:
             result = True
         return result
@@ -1338,7 +1338,7 @@ class SequentialSystem(
     """
     The external object being imaged or illuminated by this system.
 
-    If :obj:`None`, the external object is assumed to be at infinity.
+    If :obj:`None`, the object is assumed to be an empty surface at the origin.
     """
 
     sensor: optika.sensors.AbstractImagingSensor = None
@@ -1378,6 +1378,10 @@ class SequentialSystem(
     """
     Additional keyword arguments used by default in :meth:`plot`.
     """
+
+    def __post_init__(self):
+        if self.object is None:
+            self.object = optika.surfaces.Surface()
 
     @property
     def shape(self) -> dict[str, int]:
