@@ -91,9 +91,7 @@ class AbstractSequentialSystem(
             elif unit_obj.is_equivalent(u.dimensionless_unscaled):
                 result = True
             else:  # pragma: nocover
-                raise ValueError(
-                    f"Unrecognized unit for object aperture, {unit_obj}"
-                )
+                raise ValueError(f"Unrecognized unit for object aperture, {unit_obj}")
         else:
             result = True
         return result
