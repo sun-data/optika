@@ -80,7 +80,7 @@ Jupyter notebook examples on how to use :mod:`optika`.
 .. toctree::
     :maxdepth: 1
 
-    tutorials/herschelian
+    tutorials/prime_focus
 
 
 API Reference
