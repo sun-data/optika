@@ -17,6 +17,7 @@ __all__ = [
     "AbstractAperture",
     "CircularAperture",
     "CircularSectorAperture",
+    "EllipticalAperture",
     "AbstractPolygonalAperture",
     "PolygonalAperture",
     "AbstractRegularPolygonalAperture",
