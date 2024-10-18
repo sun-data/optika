@@ -479,6 +479,150 @@ class CircularSectorAperture(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
+class EllipticalAperture(
+    AbstractAperture,
+):
+    """
+    An elliptical aperture or obscuration
+
+    Examples
+    --------
+
+    Plot a single elliptical aperture
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        aperture = optika.apertures.EllipticalAperture(
+            na.Cartesian2dVectorArray(100, 50) * u.mm,
+        )
+
+        with astropy.visualization.quantity_support():
+            plt.figure()
+            plt.gca().set_aspect("equal")
+            aperture.plot(components=("x", "y"), color="black")
+    """
+
+    radius: na.AbstractCartesian2dVectorArray = 0 * u.mm
+    """the semi major/minor axes of the elliptical aperture."""
+
+    samples_wire: int = 101
+    """default number of samples used for :meth:`wire`"""
+
+    active: bool | na.AbstractScalar = True
+    """flag controlling whether the aperture can clip rays during a raytrace"""
+
+    inverted: bool | na.AbstractScalar = False
+    """
+    flag controlling whether the interior or the exterior of the aperture
+    allows light to pass through.
+    If :obj:`True`, the interior of the aperture allows light to pass
+    through.
+    If :obj:`False`, the exterior of the aperture allows light to pass
+    through.
+    """
+
+    transformation: None | na.transformations.AbstractTransformation = None
+    """
+    the coordinate transformation between the global coordinate system
+    and this object's local coordinate system
+    """
+
+    kwargs_plot: None | dict = None
+    """
+    Extra keyword arguments that will be used in the call to
+    :func:`named_arrays.plt.plot` within the :meth:`plot` method.
+    """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius),
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
+
+    def __call__(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+
+        radius = self.radius
+        active = self.active
+        inverted = self.inverted
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
+
+        shape = na.shape_broadcasted(radius, active, inverted, position)
+
+        radius = na.broadcast_to(radius, shape)
+        active = na.broadcast_to(active, shape)
+        inverted = na.broadcast_to(inverted, shape)
+        position = na.broadcast_to(position, shape)
+
+        mask = np.square(position.x / radius.x) + np.square(position.y / radius.y) <= 1
+
+        mask[inverted] = ~mask[inverted]
+        mask[~active] = True
+
+        return mask
+
+    @property
+    def bound_lower(self) -> na.Cartesian3dVectorArray:
+        unit = na.unit(self.radius)
+        result = na.Cartesian3dVectorArray()
+        if unit is not None:
+            result = result * unit
+        if self.transformation is not None:
+            result = self.transformation(result)
+        result.x = result.x - self.radius.x
+        result.y = result.y - self.radius.y
+        return result
+
+    @property
+    def bound_upper(self) -> na.Cartesian3dVectorArray:
+        unit = na.unit(self.radius)
+        result = na.Cartesian3dVectorArray()
+        if unit is not None:
+            result = result * unit
+        if self.transformation is not None:
+            result = self.transformation(result)
+        result.x = result.x + self.radius.x
+        result.y = result.y + self.radius.y
+        return result
+
+    @property
+    def vertices(self) -> None:
+        return None
+
+    def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
+        if num is None:
+            num = self.samples_wire
+        az = na.linspace(
+            start=0 * u.deg,
+            stop=360 * u.deg,
+            axis="wire",
+            num=num,
+        )
+        unit_radius = na.unit(self.radius)
+        result = na.Cartesian3dVectorArray(
+            x=self.radius.x * np.cos(az),
+            y=self.radius.y * np.sin(az),
+            z=0 * unit_radius if unit_radius is not None else 0,
+        )
+        if self.transformation is not None:
+            result = self.transformation(result)
+        return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractPolygonalAperture(
     AbstractAperture,
 ):
