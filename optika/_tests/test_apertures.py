@@ -185,6 +185,32 @@ class AbstractTestAbstractPolygonalAperture(
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
+        optika.apertures.EllipticalAperture(
+            radius=radius,
+            samples_wire=21,
+            active=active,
+            inverted=inverted,
+            transformation=transformation,
+            kwargs_plot=kwargs_plot,
+        )
+        for radius in [na.Cartesian2dVectorArray(50, 100) * u.mm]
+        for active in active_parameterization
+        for inverted in inverted_parameterization
+        for transformation in transform_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+    ],
+)
+class TestEllipticalAperture(
+    AbstractTestAbstractAperture,
+):
+    def test_radius(self, a: optika.apertures.EllipticalAperture):
+        assert isinstance(a.radius, na.AbstractCartesian2dVectorArray)
+        assert np.all(a.radius >= 0)
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
         optika.apertures.PolygonalAperture(
             vertices=na.Cartesian3dVectorArray(
                 x=na.ScalarArray([-1, 1, 1, -1] * u.mm, axes="vertex"),
