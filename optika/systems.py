@@ -407,7 +407,7 @@ class AbstractSequentialSystem(
         if obj.transformation is not None:
             rays = obj.transformation.inverse(rays)
 
-        where = rays.direction @ obj.sag.normal(rays.position) != -1
+        where = rays.direction @ obj.sag.normal(rays.position) > 0
         result.outputs.direction[where] = -result.outputs.direction[where]
 
         if self.transformation is not None:
