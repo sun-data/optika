@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "astropy",
-    "named-arrays==0.14.1",
+    "named-arrays==0.14.2",
     "svglib",
     "rlPyCairo",
 ]
