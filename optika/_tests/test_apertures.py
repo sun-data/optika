@@ -52,7 +52,6 @@ class AbstractTestAbstractAperture(
 
         result = a(position)
         assert np.issubdtype(na.get_dtype(result), bool)
-        # assert set(na.shape(position)).issubset(na.shape(result))
         assert np.any(result)
 
     @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
