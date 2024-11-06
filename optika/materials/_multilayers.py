@@ -883,9 +883,13 @@ class MultilayerFilm(
 
     @property
     def shape(self) -> dict[str, int]:
-        return na.broadcast_shapes(
-            *[optika.shape(layer) for layer in self.layers],
-        )
+        try:
+            shape_layer = na.broadcast_shapes(
+                *[optika.shape(layer) for layer in self.layers],
+            )
+        except TypeError:
+            shape_layer = optika.shape(self.layers)
+        return shape_layer
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -1099,7 +1103,13 @@ class MultilayerMirror(
 
     @property
     def shape(self) -> dict[str, int]:
+        try:
+            shape_layer = na.broadcast_shapes(
+                *[optika.shape(layer) for layer in self.layers],
+            )
+        except TypeError:
+            shape_layer = optika.shape(self.layers)
         return na.broadcast_shapes(
-            *[optika.shape(layer) for layer in self.layers],
+            shape_layer,
             optika.shape(self.substrate),
         )
