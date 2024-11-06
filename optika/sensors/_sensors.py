@@ -116,9 +116,11 @@ class AbstractImagingSensor(
 
         where = where & rays.unvignetted
 
+        sgn = np.sign(rays.intensity)
+
         rays = dataclasses.replace(
             rays,
-            intensity=rays.intensity * timedelta,
+            intensity=np.abs(rays.intensity) * timedelta,
         )
 
         normal = self.sag.normal(rays.position)
@@ -126,6 +128,11 @@ class AbstractImagingSensor(
         rays = self.material.electrons_measured(
             rays=rays,
             normal=normal,
+        )
+
+        rays = dataclasses.replace(
+            rays,
+            intensity=sgn * rays.intensity,
         )
 
         rays = self.material.charge_diffusion(
@@ -151,7 +158,7 @@ class AbstractImagingSensor(
                 wavelength=np.mean(rays.wavelength, axis=axis),
                 position=hist.inputs,
             ),
-            outputs=hist.outputs,
+            outputs=np.maximum(hist.outputs, 0),
         )
 
 
