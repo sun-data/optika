@@ -748,12 +748,6 @@ class AbstractSequentialSystem(
         return self.rayfunction()
 
     @classmethod
-    def _avg_left_right(cls, a: na.AbstractArray, axis: str) -> na.AbstractArray:
-        a_left = a[{axis: slice(None, ~0)}]
-        a_right = a[{axis: slice(1, None)}]
-        return (a_left + a_right) / 2
-
-    @classmethod
     def _lerp(
         cls,
         i: float | na.AbstractScalar,
@@ -828,21 +822,6 @@ class AbstractSequentialSystem(
         axis_pupil
             The two logical axes corresponding to changing pupil positions.
             These axes should only be present in the `pupil` parameter.
-        area_wavelength
-            An optional parameter specifying the width of each wavelength cell.
-            If :obj:`None` (the default), the `wavelength` parameter is assumed
-            to be specified on cell vertices, otherwise the `wavelength` parameter
-            is assumed to be specified on cell centers.
-        area_field
-            An optional parameter specifying the area of each field position.
-            If :obj:`None` (the default), the `field` parameter is assumed
-            to be specified on cell vertices, otherwise the `field` parameter
-            is assumed to be specified on cell centers.
-        area_pupil
-            An optional parameter specifying the area of each pupil position.
-            If :obj:`None` (the default), the `pupil` parameter is assumed
-            to be specified on cell vertices, otherwise the `pupil` parameter
-            is assumed to be specified on cell centers.
         normalized_field
             A boolean flag indicating if the `field` parameter is in normalized
             units.
@@ -921,11 +900,13 @@ class AbstractSequentialSystem(
             area_field = field.volume_cell(axis_field)
             area_pupil = optika.direction(pupil).solid_angle_cell(axis_pupil)
 
-        area_field = self._avg_left_right(area_field, axis_wavelength)
+        area_field = area_field.cell_centers(
+            axis=axis_wavelength,
+        )
 
-        area_pupil = self._avg_left_right(area_pupil, axis_wavelength)
-        area_pupil = self._avg_left_right(area_pupil, axis_field_x)
-        area_pupil = self._avg_left_right(area_pupil, axis_field_y)
+        area_pupil = area_pupil.cell_centers(
+            axis=(axis_wavelength, axis_field_x, axis_field_y),
+        )
 
         axis = (axis_wavelength,) + axis_field + axis_pupil
         shape_centers = {ax: shape[ax] - 1 if ax in axis else shape[ax] for ax in shape}
