@@ -330,6 +330,15 @@ class AbstractTestAbstractMultilayerFilm(
                 ],
             ),
         ),
+        optika.materials.MultilayerFilm(
+            layers=optika.materials.PeriodicLayerSequence(
+                [
+                    optika.materials.Layer("Al2O3", thickness=5 * u.nm),
+                    optika.materials.Layer("Al", thickness=100 * u.nm),
+                ],
+                num_periods=2,
+            ),
+        ),
     ],
 )
 class TestMultilayerFilm(
@@ -353,6 +362,17 @@ class AbstractTestAbstractMultilayerMirror(
                 optika.materials.Layer("Al", thickness=100 * u.nm),
                 optika.materials.Layer("Al2O3", thickness=5 * u.nm),
             ],
+            substrate=optika.materials.Layer("SiO2", thickness=10 * u.mm),
+        ),
+        optika.materials.MultilayerMirror(
+            layers=optika.materials.PeriodicLayerSequence(
+                [
+                    optika.materials.Layer("Al2O3", thickness=5 * u.nm),
+                    optika.materials.Layer("Al", thickness=100 * u.nm),
+                    optika.materials.Layer("Al2O3", thickness=5 * u.nm),
+                ],
+                num_periods=2,
+            ),
             substrate=optika.materials.Layer("SiO2", thickness=10 * u.mm),
         ),
     ],
