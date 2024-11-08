@@ -1024,7 +1024,7 @@ class AbstractSequentialSystem(
         if axis_field is None:
             axis_field = set(field.shape) - set(shape)
             axis_field = tuple(axis_field - {axis_wavelength})
-            if len(axis_field) != 2:
+            if len(axis_field) != 2:  # pragma: nocover
                 raise ValueError(
                     "if `axis_field` is `None`, "
                     "the two field axes must be unambiguous, "
@@ -1034,7 +1034,7 @@ class AbstractSequentialSystem(
         if axis_pupil is None:
             axis_pupil = set(pupil.shape) - set(shape)
             axis_pupil = tuple(axis_pupil - {axis_wavelength} - set(axis_field))
-            if len(axis_pupil) != 2:
+            if len(axis_pupil) != 2:  # pragma: nocover
                 raise ValueError(
                     "if `axis_pupil` is `None`, "
                     "the two pupil axes must be unambiguous, "
