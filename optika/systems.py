@@ -968,9 +968,11 @@ class AbstractSequentialSystem(
         scene
             The spectral radiance of the scene as a function of wavelength
             and field position.
+            The inputs must be cell vertices.
         pupil
             An optional grid of pupil positions to use when simulating the
             optical system.
+            Must be evaluated on cell vertices.
             If :obj:`None`, ``self.grid_input.pupil`` is used.
         axis_wavelength
             The logical axis corresponding to changing wavelength coordinate.
