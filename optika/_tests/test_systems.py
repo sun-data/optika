@@ -39,12 +39,12 @@ class AbstractTestAbstractSystem(
             )
         ],
     )
-    def test__call__(
+    def test_image(
         self,
         a: optika.systems.AbstractSystem,
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
     ):
-        result = a(scene)
+        result = a.image(scene)
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert isinstance(result.outputs, na.AbstractScalar)
