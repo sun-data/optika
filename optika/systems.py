@@ -1017,7 +1017,7 @@ class AbstractSequentialSystem(
                     f"the wavelength axis must be unambiguous, "
                     f"got {axis_wavelength} as possibilities."
                 )
-            axis_wavelength, = axis_wavelength
+            (axis_wavelength,) = axis_wavelength
 
         if axis_field is None:
             axis_field = set(field.shape) - set(shape)
