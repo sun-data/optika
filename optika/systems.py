@@ -747,35 +747,6 @@ class AbstractSequentialSystem(
         """
         return self.rayfunction()
 
-    @classmethod
-    def _lerp(
-        cls,
-        i: float | na.AbstractScalar,
-        a0: float | na.AbstractScalar,
-        a1: float | na.AbstractScalar,
-    ) -> na.AbstractScalar:
-        return a0 * (1 - i) + a1 * i
-
-    @classmethod
-    def _nlerp(
-        cls,
-        i: dict[str, na.AbstractScalar],
-        a: na.AbstractArray,
-    ) -> na.AbstractArray:
-
-        axis = next(iter(i))
-
-        i_new = {ax: i[ax] for ax in i if ax != axis}
-
-        a0 = a[{axis: slice(None, ~0)}]
-        a1 = a[{axis: slice(1, None)}]
-
-        if i_new:
-            a0 = cls._nlerp(i_new, a0)
-            a1 = cls._nlerp(i_new, a1)
-
-        return cls._lerp(i[axis], a0, a1)
-
     def _rayfunction_from_vertices(
         self,
         radiance: na.AbstractScalar,
@@ -799,18 +770,15 @@ class AbstractSequentialSystem(
         ----------
         radiance
             The <spectral radiance https://en.wikipedia.org/wiki/Spectral_radiance>_
-            of each field position.
-            This will be converted into a flux before being passed into
+            of each cell.
+            This will be converted into an energy flux before being passed into
             :meth:`rayfunction`.
         wavelength
-            The vertices of the wavelength grid, unless `area_wavelength` is
-            specified.
+            The vertices of the wavelength grid.
         field
-            The vertices of the field grid (in either normalized or physical units),
-            unless `area_field` is specified.
+            The vertices of the field grid (in either normalized or physical units).
         pupil
-            The vertices of the pupil grid (in either normalized or physical units),
-            unless `area_pupil` is specified.
+            The vertices of the pupil grid (in either normalized or physical units).
         axis_wavelength
             The logical axis corresponding to changing wavelength.
             This axis should only be present in the `wavelength` and `pupil`
@@ -879,9 +847,6 @@ class AbstractSequentialSystem(
                 f"{axis_pupil=} must not intersect {shape_wavelength=} or {shape_field=}"
             )
 
-        axis_field_x, axis_field_y = axis_field
-        axis_pupil_x, axis_pupil_y = axis_pupil
-
         area_wavelength = wavelength.volume_cell(axis_wavelength)
 
         shape_field = na.broadcast_shapes(
@@ -908,36 +873,14 @@ class AbstractSequentialSystem(
         )
 
         area_pupil = area_pupil.cell_centers(
-            axis=(axis_wavelength, axis_field_x, axis_field_y),
+            axis=(axis_wavelength,) + axis_field,
         )
 
         axis = (axis_wavelength,) + axis_field + axis_pupil
-        shape_centers = {ax: shape[ax] - 1 if ax in axis else shape[ax] for ax in shape}
 
-        wavelength = self._nlerp(
-            i={axis_wavelength: na.random.uniform(0, 1, shape_random=shape_centers)},
-            a=wavelength,
-        )
-
-        field = self._nlerp(
-            i={
-                axis_wavelength: na.random.uniform(0, 1, shape_random=shape_centers),
-                axis_field_x: na.random.uniform(0, 1, shape_random=shape_centers),
-                axis_field_y: na.random.uniform(0, 1, shape_random=shape_centers),
-            },
-            a=field,
-        )
-
-        pupil = self._nlerp(
-            i={
-                axis_wavelength: na.random.uniform(0, 1, shape_random=shape_centers),
-                axis_field_x: na.random.uniform(0, 1, shape_random=shape_centers),
-                axis_field_y: na.random.uniform(0, 1, shape_random=shape_centers),
-                axis_pupil_x: na.random.uniform(0, 1, shape_random=shape_centers),
-                axis_pupil_y: na.random.uniform(0, 1, shape_random=shape_centers),
-            },
-            a=pupil,
-        )
+        wavelength = wavelength.broadcast_to(shape).cell_centers(axis, random=True)
+        field = field.broadcast_to(shape).cell_centers(axis, random=True)
+        pupil = pupil.broadcast_to(shape).cell_centers(axis, random=True)
 
         flux = radiance * area_wavelength * area_field * area_pupil
 
@@ -970,9 +913,8 @@ class AbstractSequentialSystem(
             and field position.
             The inputs must be cell vertices.
         pupil
-            An optional grid of pupil positions to use when simulating the
-            optical system.
-            Must be evaluated on cell vertices.
+            The vertices of the pupil grid in either normalized or physical
+            coordinates.
             If :obj:`None`, ``self.grid_input.pupil`` is used.
         axis_wavelength
             The logical axis corresponding to changing wavelength coordinate.
