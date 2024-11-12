@@ -43,6 +43,24 @@ class AbstractObjectVectorArray(
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
     ) -> na.AbstractScalar:
+        r"""
+        Compute the 5-dimensional area of each grid cell in units of wavelength
+        :math:`\times` area :math:`\times` solid angle.
+
+        This method does not work in general.
+        It only works for the special case where the wavelength grid
+        is not dependent on the field or pupil position,
+        and the field grid does not depend on the pupil position.
+
+        Parameters
+        ----------
+        axis_wavelength
+            The logical axis corresponding to changing wavelength.
+        axis_field
+            The two logical axes corresponding to changing field position.
+        axis_pupil
+            the two logical axes corresponding to changing pupil position.
+        """
 
         wavelength = self.wavelength
         field = self.field
