@@ -810,79 +810,24 @@ class AbstractSequentialSystem(
             normalized_pupil=normalized_pupil,
         )
 
+        shape = na.broadcast_shapes(self.shape, grid.shape)
+
         wavelength = grid.wavelength
         field = grid.field
         pupil = grid.pupil
 
-        shape_self = self.shape
-        shape_wavelength = wavelength.shape
-        shape_field = field.shape
-        shape_pupil = pupil.shape
-
-        shape = na.broadcast_shapes(
-            shape_self,
-            shape_wavelength,
-            shape_field,
-            shape_pupil,
-        )
-
-        if axis_wavelength not in shape_wavelength:
-            raise ValueError(  # pragma: nocover
-                f"{axis_wavelength=} must be in {shape_wavelength=}",
-            )
-        if not set(axis_field).issubset(shape_field):
-            raise ValueError(  # pragma: nocover
-                f"{axis_field=} must be a subset of {shape_field=}",
-            )
-        if set(axis_field).intersection(shape_wavelength):
-            raise ValueError(  # pragma: nocover
-                f"{axis_field=} must not intersect {shape_wavelength=}"
-            )
-        if not set(axis_pupil).issubset(shape_pupil):
-            raise ValueError(  # pragma: nocover
-                f"{axis_pupil=} must be a subset of {shape_pupil=}",
-            )
-        if set(axis_pupil).intersection(shape_wavelength | shape_field):
-            raise ValueError(  # pragma: nocover
-                f"{axis_pupil=} must not intersect {shape_wavelength=} or {shape_field=}"
-            )
-
-        area_wavelength = wavelength.volume_cell(axis_wavelength)
-
-        shape_field = na.broadcast_shapes(
-            shape_wavelength,
-            shape_field,
-        )
-        field = field.broadcast_to(shape_field)
-
-        shape_pupil = na.broadcast_shapes(shape_wavelength, shape_field, shape_pupil)
-        pupil = pupil.broadcast_to(shape_pupil)
-
-        if self.object_is_at_infinity:
-            area_field = optika.direction(field).solid_angle_cell(axis_field)
-            area_pupil = pupil.volume_cell(axis_pupil)
-        else:
-            area_field = field.volume_cell(axis_field)
-            area_pupil = optika.direction(pupil).solid_angle_cell(axis_pupil)
-
-        area_field = np.abs(area_field)
-        area_pupil = np.abs(area_pupil)
-
-        area_field = area_field.cell_centers(
-            axis=axis_wavelength,
-        )
-
-        area_pupil = area_pupil.cell_centers(
-            axis=(axis_wavelength,) + axis_field,
-        )
-
         axis = (axis_wavelength,) + axis_field + axis_pupil
-
         wavelength = wavelength.broadcast_to(shape).cell_centers(axis, random=True)
         field = field.broadcast_to(shape).cell_centers(axis, random=True)
         pupil = pupil.broadcast_to(shape).cell_centers(axis, random=True)
 
-        flux = radiance * area_wavelength * area_field * area_pupil
+        area = grid.cell_area(
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+        )
+
+        flux = radiance * area
 
         return self.rayfunction(
             intensity=flux,
