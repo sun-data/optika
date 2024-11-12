@@ -811,15 +811,9 @@ class AbstractSequentialSystem(
         )
 
         shape = na.broadcast_shapes(self.shape, grid.shape)
-
-        wavelength = grid.wavelength
-        field = grid.field
-        pupil = grid.pupil
-
-        axis = (axis_wavelength,) + axis_field + axis_pupil
-        wavelength = wavelength.broadcast_to(shape).cell_centers(axis, random=True)
-        field = field.broadcast_to(shape).cell_centers(axis, random=True)
-        pupil = pupil.broadcast_to(shape).cell_centers(axis, random=True)
+        grid_centered = grid.broadcast_to(shape).cell_centers(
+            axis=(axis_wavelength,) + axis_field + axis_pupil
+        )
 
         area = grid.cell_area(
             axis_wavelength=axis_wavelength,
@@ -831,9 +825,9 @@ class AbstractSequentialSystem(
 
         return self.rayfunction(
             intensity=flux,
-            wavelength=wavelength,
-            field=field,
-            pupil=pupil,
+            wavelength=grid_centered.wavelength,
+            field=grid_centered.field,
+            pupil=grid_centered.pupil,
             normalized_field=False,
             normalized_pupil=False,
         )
