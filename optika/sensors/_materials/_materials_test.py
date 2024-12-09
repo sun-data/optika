@@ -245,13 +245,54 @@ class AbstractTestAbstractImagingSensorMaterial(
     )
     def test_electrons_measured(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.AbstractImagingSensorMaterial,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
         result = a.electrons_measured(rays, normal)
         assert isinstance(result, optika.rays.RayVectorArray)
         assert np.all(result.intensity >= 0 * u.electron)
+
+    @pytest.mark.parametrize(
+        argnames="electrons",
+        argvalues=[
+            100 * u.electron,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, 1),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_photons_incident(
+        self,
+        a: optika.sensors.AbstractImagingSensorMaterial,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.photons_incident(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+            normal=normal,
+        )
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert result.unit.is_equivalent(u.photon)
 
     @pytest.mark.parametrize(
         argnames="rays",
@@ -272,7 +313,7 @@ class AbstractTestAbstractImagingSensorMaterial(
     )
     def test_charge_diffusion(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.AbstractImagingSensorMaterial,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
