@@ -776,6 +776,31 @@ class AbstractImagingSensorMaterial(
         """
 
     @abc.abstractmethod
+    def photons_incident(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Given the number of electrons measured by the sensor,
+        and a grid of wavelengths, compute the expected number of
+        photons incident on the sensor.
+
+        Parameters
+        ----------
+        electrons
+            The number of electrons measured by the sensor.
+        wavelength
+            An assumed grid of wavelengths for the incident photons.
+        direction
+            An assumed propagation direction for the incident photons.
+        normal
+            The vector perpendicular to the surface of the sensor.
+        """
+
+    @abc.abstractmethod
     def charge_diffusion(
         self,
         rays: optika.rays.RayVectorArray,
@@ -821,6 +846,15 @@ class IdealImagingSensorMaterial(
         result = dataclasses.replace(rays, intensity=electrons)
 
         return result
+
+    def photons_incident(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        return electrons * u.photon / u.electron
 
     def charge_diffusion(
         self,
@@ -1120,6 +1154,39 @@ class AbstractBackilluminatedCCDMaterial(
         result = dataclasses.replace(rays, intensity=electrons)
 
         return result
+
+    def photons_incident(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Compute the expected number of incident photons for a given number
+        of electrons.
+
+        Parameters
+        ----------
+        electrons
+            The energy collected by the sensor in units of electrons.
+        wavelength
+            The assumed wavelength of the incident photons.
+        direction
+            The assumed direction of the incident photons.
+        normal
+            The vector perpendicular to the surface of the sensor.
+        """
+
+        qe = self.quantum_efficiency(
+            rays=optika.rays.RayVectorArray(
+                wavelength=wavelength,
+                direction=direction,
+            ),
+            normal=normal,
+        )
+
+        return electrons / qe
 
     def charge_diffusion(
         self,
