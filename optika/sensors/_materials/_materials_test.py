@@ -275,7 +275,7 @@ class AbstractTestAbstractImagingSensorMaterial(
         argnames="normal",
         argvalues=[
             na.Cartesian3dVectorArray(0, 0, -1),
-        ]
+        ],
     )
     def test_photons_incident(
         self,
