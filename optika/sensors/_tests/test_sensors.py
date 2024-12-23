@@ -24,6 +24,7 @@ class AbstractTestAbstractImagingSensor(
         argvalues=[
             optika.rays.RayVectorArray(
                 intensity=100 * u.photon / u.s,
+                wavelength=500 * u.nm,
                 position=na.Cartesian3dVectorArray() * u.mm,
             ),
             optika.rays.RayVectorArray(
@@ -37,12 +38,19 @@ class AbstractTestAbstractImagingSensor(
             ),
         ],
     )
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            na.linspace(500, 600, axis="wavelength", num=11) * u.nm,
+        ],
+    )
     def test_readout(
         self,
         a: optika.sensors.AbstractImagingSensor,
         rays: optika.rays.RayVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
     ):
-        result = a.readout(rays)
+        result = a.readout(rays, wavelength)
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert isinstance(result.outputs, na.AbstractScalar)

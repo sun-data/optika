@@ -85,6 +85,7 @@ class AbstractImagingSensor(
     def readout(
         self,
         rays: optika.rays.RayVectorArray,
+        wavelength: na.AbstractScalar,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         axis: None | str | Sequence[str] = None,
         where: bool | na.AbstractScalar = True,
@@ -101,6 +102,8 @@ class AbstractImagingSensor(
         ----------
         rays
             A set of incident rays in local coordinates to measure.
+        wavelength
+            The edges of the wavelength bins to sample.
         timedelta
             The exposure time of the measurement.
             If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
@@ -140,25 +143,24 @@ class AbstractImagingSensor(
             normal=normal,
         )
 
-        hist = na.histogram2d(
-            x=na.as_named_array(rays.position.x),
-            y=rays.position.y,
-            bins={
-                self.axis_pixel.x: self.num_pixel.x,
-                self.axis_pixel.y: self.num_pixel.y,
-            },
-            axis=axis,
-            min=self.aperture.bound_lower.xy,
-            max=self.aperture.bound_upper.xy,
-            weights=rays.intensity * where,
+        bins = na.SpectralPositionalVectorArray(
+            wavelength=wavelength,
+            position=na.Cartesian2dVectorLinearSpace(
+                start=self.aperture.bound_lower.xy,
+                stop=self.aperture.bound_upper.xy,
+                axis=self.axis_pixel,
+                num=self.num_pixel + 1,
+            ),
         )
 
-        return na.FunctionArray(
-            inputs=na.SpectralPositionalVectorArray(
-                wavelength=np.mean(rays.wavelength, axis=axis),
-                position=hist.inputs,
+        return na.histogram(
+            a=na.SpectralPositionalVectorArray(
+                wavelength=rays.wavelength,
+                position=rays.position.xy,
             ),
-            outputs=np.maximum(hist.outputs, 0),
+            bins=bins,
+            axis=axis,
+            weights=rays.intensity * where,
         )
 
 
