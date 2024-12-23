@@ -163,14 +163,6 @@ class AbstractImagingSensor(
             weights=rays.intensity * where,
         )
 
-        return na.FunctionArray(
-            inputs=na.SpectralPositionalVectorArray(
-                wavelength=np.mean(rays.wavelength, axis=axis),
-                position=hist.inputs,
-            ),
-            outputs=np.maximum(hist.outputs, 0),
-        )
-
 
 @dataclasses.dataclass(eq=False, repr=False)
 class ImagingSensor(
