@@ -150,7 +150,7 @@ class AbstractImagingSensor(
                 stop=self.aperture.bound_upper.xy,
                 axis=self.axis_pixel,
                 num=self.num_pixel + 1,
-            )
+            ),
         )
 
         return na.histogram(
