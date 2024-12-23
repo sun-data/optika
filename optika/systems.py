@@ -812,7 +812,8 @@ class AbstractSequentialSystem(
 
         shape = na.broadcast_shapes(self.shape, grid.shape)
         grid_centered = grid.broadcast_to(shape).cell_centers(
-            axis=(axis_wavelength,) + axis_field + axis_pupil
+            axis=(axis_wavelength,) + axis_field + axis_pupil,
+            random=True,
         )
 
         area = grid.cell_area(
@@ -835,6 +836,7 @@ class AbstractSequentialSystem(
     def image(
         self,
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        wavelength: None | na.AbstractScalar = None,
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
@@ -851,6 +853,9 @@ class AbstractSequentialSystem(
             The spectral radiance of the scene as a function of wavelength
             and field position.
             The inputs must be cell vertices.
+        wavelength
+            The vertices of the final wavelength grid on the image plane.
+            If :obj:`None` (the default), ``scene.inputs.wavelength`` is used.
         pupil
             The vertices of the pupil grid in either normalized or physical
             coordinates.
@@ -863,7 +868,7 @@ class AbstractSequentialSystem(
         axis_field
             The two logical axes corresponding to changing field coordinate.
             If :obj:`None`,
-            ``set(scene.inputs.field.shape) - set(self.shape) - {axis_wavelength}``,
+            ``set(scene.inputs.position.shape) - set(self.shape) - {axis_wavelength}``,
             should have exactly two elements.
         axis_pupil
             The two logical axes corresponding to changing pupil coordinate.
@@ -879,8 +884,11 @@ class AbstractSequentialSystem(
 
         scene = scene.explicit
 
-        wavelength = scene.inputs.wavelength
+        wavelength_scene = scene.inputs.wavelength
         field = scene.inputs.position
+
+        if wavelength is None:
+            wavelength = wavelength_scene
 
         if pupil is None:
             pupil = self.grid_input.pupil
@@ -892,7 +900,7 @@ class AbstractSequentialSystem(
         normalized_pupil = unit_pupil.is_equivalent(u.dimensionless_unscaled)
 
         if axis_wavelength is None:
-            axis_wavelength = set(wavelength.shape) - set(shape)
+            axis_wavelength = set(wavelength_scene.shape) - set(shape)
             axis_wavelength = tuple(axis_wavelength)
             if len(axis_wavelength) != 1:  # pragma: nocover
                 raise ValueError(
@@ -924,7 +932,7 @@ class AbstractSequentialSystem(
 
         rayfunction = self._rayfunction_from_vertices(
             radiance=scene.outputs,
-            wavelength=wavelength,
+            wavelength=wavelength_scene,
             field=field,
             pupil=pupil,
             axis_wavelength=axis_wavelength,
@@ -936,7 +944,8 @@ class AbstractSequentialSystem(
 
         return self.sensor.readout(
             rays=rayfunction.outputs,
-            axis=axis_field + axis_pupil,
+            wavelength=wavelength,
+            axis=(axis_wavelength,) + axis_field + axis_pupil,
         )
 
     def plot(
