@@ -741,9 +741,11 @@ def electrons_measured(
     photons_absorbed_expected = absorbance * photons.to(u.ph)
     photons_absorbed = na.random.poisson(photons_absorbed_expected)
     electrons_expected = iqy * photons_absorbed
-    electrons = na.random.poisson(electrons_expected / fano_noise) * fano_noise
+    d = (2 / 12) * (u.electron / u.photon) ** 2
+    f = fano_noise + d * (photons_absorbed - 1 * u.photon) / electrons_expected
+    electrons = na.random.poisson(electrons_expected / f) * f
     e_fractional, e_integral = np.modf(electrons / u.electron)
-    e_random = na.random.uniform(0, 1, electrons.shape) < e_fractional
+    e_random = na.random.binomial(1, e_fractional)
     electrons_total = e_integral + e_random
     result = na.random.binomial(electrons_total.astype(int), cce)
     return result * u.electron
