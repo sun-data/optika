@@ -16,8 +16,7 @@ classifiers = [
 dependencies = [
     "astropy!=6.1.5",
     "named-arrays==0.17.0",
-    "svglib",
-    "rlPyCairo",
+    "pymupdf",
 ]
 dynamic = ["version"]
 

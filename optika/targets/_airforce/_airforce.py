@@ -1,7 +1,6 @@
 import pathlib
 import matplotlib.pyplot as plt
-from svglib import svglib
-from reportlab.graphics import renderPM
+import pymupdf
 import named_arrays as na
 
 __all__ = [
@@ -50,23 +49,20 @@ def airforce(
     """
     path = pathlib.Path(__file__).parent / "USAF-1951.svg"
 
+    doc = pymupdf.open(path)
+
+    page = doc[0]
+
+    zoom_x = num_x / page.rect.width
+    zoom_y = num_y / page.rect.height
+
+    mat = pymupdf.Matrix(zoom_x, zoom_y)
+
+    pix = page.get_pixmap(matrix=mat)
+
     fn = "tmp.png"
-    drawing = svglib.svg2rlg(path)
+    pix.save(fn)
 
-    dpi = 100
-
-    width = num_x / dpi
-    height = num_y / dpi
-
-    scale_x = width / (drawing.width / 72)
-    scale_y = height / (drawing.height / 72)
-
-    drawing.scale(scale_x, scale_y)
-
-    drawing.width = width * 72
-    drawing.height = height * 72
-
-    renderPM.drawToFile(drawing, fn, fmt="PNG", dpi=dpi)
     img = plt.imread(fn)
 
     img = img.astype(float)[::-1].sum(~0)
