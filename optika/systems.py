@@ -1216,7 +1216,7 @@ class SequentialSystem(
                 ax=ax[0],
             )
             mappable_image = na.plt.pcolormesh(
-                image.inputs.position.mean("wavelength"),
+                image.inputs.position,
                 C=image.outputs.value.sum("wavelength"),
                 ax=ax[1],
             )
