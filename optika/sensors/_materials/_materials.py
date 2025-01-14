@@ -180,7 +180,7 @@ def absorbance(
     if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
         chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
 
-    return optika.materials.layer_absorbance(
+    result = optika.materials.layer_absorbance(
         index=1,
         wavelength=wavelength,
         direction=direction,
@@ -202,6 +202,8 @@ def absorbance(
             ),
         ],
     )
+
+    return np.real(result)
 
 
 def charge_collection_efficiency(
