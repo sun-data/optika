@@ -41,6 +41,7 @@ _thickness_implant = 2317 * u.AA
 _cce_backsurface = 0.21
 _fano_noise = 0.1 * u.electron / u.photon
 
+
 def quantum_yield_ideal(
     wavelength: u.Quantity | na.AbstractScalar,
 ) -> na.AbstractScalar:
@@ -812,7 +813,7 @@ def electrons_measured(
     photons_absorbed_complete = photons_absorbed - photons_absorbed_partial
 
     mean_p = n0 + (1 - n0) / (aW) + (n0 - 1) / (np.exp(aW) - 1)
-    var_p = (1 / 4) * np.square(n0 - 1) * (4 / np.square(aW) - 1 / np.square(np.sinh(aW / 2)))
+    var_p = np.square(n0 - 1) * (4 / np.square(aW) - 1 / np.square(np.sinh(aW / 2))) / 4
 
     mean_n = iqy
     var_n = f * mean_n
