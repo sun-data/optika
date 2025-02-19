@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "astropy!=6.1.5",
-    "named-arrays==0.18.2",
+    "named-arrays==0.20.0",
     "pymupdf",
 ]
 dynamic = ["version"]
