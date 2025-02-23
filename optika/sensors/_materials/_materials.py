@@ -1348,18 +1348,42 @@ class AbstractBackilluminatedCCDMaterial(
     ) -> optika.rays.RayVectorArray:
 
         intensity = rays.intensity
+        wavelength = rays.wavelength
+
+        electrons = electrons_measured(
+            photons_absorbed=intensity,
+            absorption=self._chemical.absorption(wavelength),
+            iqy=self.quantum_yield_ideal(wavelength),
+            thickness_implant=self.thickness_implant,
+            cce_backsurface=self.cce_backsurface,
+            fano_noise=self.fano_noise,
+        )
+
+        result = dataclasses.replace(rays, intensity=electrons)
+
+        return result
+
+    def signal(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> optika.rays.RayVectorArray:
+
+        intensity = rays.intensity
+        wavelength = rays.wavelength
+
         if not intensity.unit.is_equivalent(u.photon):
             h = astropy.constants.h
             c = astropy.constants.c
-            intensity = intensity / (h * c / rays.wavelength) * u.photon
-        absorbance = self.absorbance(rays, normal).average
-        iqy = self.quantum_yield_ideal(rays.wavelength)
-        cce = self.charge_collection_efficiency(rays, normal)
-        electrons = electrons_measured(
-            photons=intensity,
-            absorbance=absorbance,
-            iqy=iqy,
-            cce=cce,
+            intensity = intensity / (h * c / wavelength) * u.photon
+
+        electrons = signal(
+            photons_expected=intensity,
+            absorption=self._chemical.absorption(wavelength),
+            absorbance=self.absorbance(rays, normal).average,
+            iqy=self.quantum_yield_ideal(wavelength),
+            thickness_implant=self.thickness_implant,
+            cce_backsurface=self.cce_backsurface,
             fano_noise=self.fano_noise,
         )
 
