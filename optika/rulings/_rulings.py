@@ -593,8 +593,13 @@ class SawtoothRulings(
         grating, :math:`\lambda` is the free-space wavelength of the incident
         light, and :math:`\theta` is the angle of incidence inside the medium.
         """
+        i = self.diffraction_order
+        d = self.depth
 
-        normal_rulings = self.spacing_(rays.position, normal).normalized
+        spacing = self.spacing_(rays.position, normal)
+
+        L = spacing.length
+        normal_rulings = spacing.normalized
 
         parallel_rulings = normal.cross(normal_rulings).normalized
 
@@ -603,11 +608,12 @@ class SawtoothRulings(
 
         wavelength = rays.wavelength
         cos_theta = -direction @ normal
-        amplitude = np.pi / 2
-        d = self.depth / amplitude
-        i = self.diffraction_order
+        sin_theta = np.sin(np.arccos(cos_theta))
+        sin_beta = i * wavelength / L - sin_theta
+        cos_beta = np.cos(np.arcsin(sin_beta))
+        n1 = (1 / cos_theta + 1 / cos_beta) / np.pi
 
-        gamma = np.pi * d / (wavelength * cos_theta)
+        gamma = np.pi * d * n1 / (wavelength * cos_theta)
 
         result = np.square(np.sin(np.pi * gamma * u.rad) / (np.pi * (gamma + i)))
 
