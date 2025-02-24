@@ -606,14 +606,30 @@ class SawtoothRulings(
         direction = rays.direction
         direction = direction - direction @ parallel_rulings
 
+        amplitude = np.pi / 2
         wavelength = rays.wavelength
-        cos_theta = -direction @ normal
-        sin_theta = np.sin(np.arccos(cos_theta))
-        sin_beta = i * wavelength / L - sin_theta
-        cos_beta = np.cos(np.arcsin(sin_beta))
-        n1 = (1 / cos_theta + 1 / cos_beta) / np.pi
+        cos_alpha = -direction @ normal
+        # alpha = np.arccos(cos_alpha)
+        # print(f"{alpha.to(u.deg)=}")
+        # sin_theta = np.sin(alpha)
+        # sin_beta = i * wavelength / L - sin_theta
+        # beta = np.arcsin(sin_beta)
+        # print(f"{beta.to(u.deg)=}")
+        # cos_beta = np.cos(beta)
+        # n1 = (1 + cos_beta) / (np.pi)
+        n1 = 1 / amplitude
+
+        cos_theta = optika.materials.snells_law_scalar(
+            cos_incidence=cos_alpha,
+            index_refraction=rays.index_refraction,
+            index_refraction_new=rays.index_refraction + n1,
+        )
+        # cos_theta = cos_alpha
+
+        print(f"{cos_theta=}")
 
         gamma = np.pi * d * n1 / (wavelength * cos_theta)
+        print(f"{gamma=}")
 
         result = np.square(np.sin(np.pi * gamma * u.rad) / (np.pi * (gamma + i)))
 
