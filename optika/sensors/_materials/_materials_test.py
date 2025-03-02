@@ -194,7 +194,7 @@ def test_(
 
 
 @pytest.mark.parametrize(
-    argnames="photons",
+    argnames="photons_expected",
     argvalues=[100 * u.photon],
 )
 @pytest.mark.parametrize(
@@ -206,20 +206,20 @@ def test_(
     argvalues=[1.61 * u.electron / u.photon],
 )
 @pytest.mark.parametrize(
-    argnames="cce",
-    argvalues=[0.9],
+    argnames="absorption",
+    argvalues=[1 / u.um],
 )
-def test_electrons_measured(
-    photons: u.Quantity | na.AbstractScalar,
+def test_signal(
+    photons_expected: u.Quantity | na.AbstractScalar,
     absorbance: float | na.AbstractScalar,
     iqy: u.Quantity | na.AbstractScalar,
-    cce: float | na.AbstractScalar,
+    absorption: float | na.AbstractScalar,
 ):
-    result = optika.sensors.electrons_measured(
-        photons=photons,
+    result = optika.sensors.signal(
+        photons_expected=photons_expected,
         absorbance=absorbance,
+        absorption=absorption,
         iqy=iqy,
-        cce=cce,
     )
     assert np.all(result >= 0 * u.electron)
 
@@ -243,13 +243,13 @@ class AbstractTestAbstractImagingSensorMaterial(
             na.Cartesian3dVectorArray(0, 0, -1),
         ],
     )
-    def test_electrons_measured(
+    def test_signal(
         self,
         a: optika.sensors.AbstractImagingSensorMaterial,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
-        result = a.electrons_measured(rays, normal)
+        result = a.signal(rays, normal)
         assert isinstance(result, optika.rays.RayVectorArray)
         assert np.all(result.intensity >= 0 * u.electron)
 

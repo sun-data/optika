@@ -812,7 +812,7 @@ def electrons_measured(
     )
     photons_absorbed_complete = photons_absorbed - photons_absorbed_partial
 
-    mean_p = n0 + (1 - n0) / (aW) + (n0 - 1) / (np.exp(aW) - 1)
+    mean_p = n0 + (1 - n0) / (aW) + (1 - n0) / (1 - np.exp(aW))
     var_p = np.square(n0 - 1) * (4 / np.square(aW) - 1 / np.square(np.sinh(aW / 2))) / 4
 
     mean_n = iqy
@@ -830,7 +830,7 @@ def electrons_measured(
 
     electrons_partial = _discrete_gamma(
         mean=mean_partial,
-        vmr=vmr_partial,
+        vmr=np.maximum(vmr_partial - 1 / (6 * mean_partial) * u.electron**2, f * u.ph),
         shape_random=shape,
     )
     electrons_complete = _discrete_gamma(
@@ -968,14 +968,14 @@ class AbstractImagingSensorMaterial(
     """
 
     @abc.abstractmethod
-    def electrons_measured(
+    def signal(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> optika.rays.RayVectorArray:
         """
         Given a set of incident rays, compute the number of electrons
-        measured by the sensor using :func:`electrons_measured`.
+        measured by the sensor using :func:`signal`.
 
         Parameters
         ----------
@@ -1041,7 +1041,7 @@ class IdealImagingSensorMaterial(
     and no charge diffusion.
     """
 
-    def electrons_measured(
+    def signal(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
