@@ -534,10 +534,10 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
         ],
     )
     def test_electrons_measured(
-            self,
-            a: optika.sensors.AbstractBackilluminatedCCDMaterial,
-            rays: optika.rays.RayVectorArray,
-            normal: na.AbstractCartesian3dVectorArray,
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
     ):
         result = a.electrons_measured(rays, normal)
         assert isinstance(result, optika.rays.RayVectorArray)
