@@ -128,7 +128,7 @@ class AbstractImagingSensor(
 
         normal = self.sag.normal(rays.position)
 
-        rays = self.material.electrons_measured(
+        rays = self.material.signal(
             rays=rays,
             normal=normal,
         )
