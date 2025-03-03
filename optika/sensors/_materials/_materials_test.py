@@ -517,6 +517,32 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
         assert np.all(result >= 0)
         assert np.all(result <= 1)
 
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=[
+            optika.rays.RayVectorArray(
+                intensity=100 * u.photon,
+                wavelength=100 * u.AA,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_electrons_measured(
+            self,
+            a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+            rays: optika.rays.RayVectorArray,
+            normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.electrons_measured(rays, normal)
+        assert isinstance(result, optika.rays.RayVectorArray)
+        assert np.all(result.intensity >= 0 * u.electron)
+
 
 class AbstractTestAbstractStern1994BackilluminatedCCDMaterial(
     AbstractTestAbstractBackilluminatedCCDMaterial,
