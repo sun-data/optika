@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "astropy!=6.1.5",
-    "named-arrays==0.18.2",
+    "named-arrays==0.20.0",
     "pymupdf",
 ]
 dynamic = ["version"]
@@ -28,6 +28,7 @@ doc = [
     "pytest",
     "matplotlib",
     "graphviz",
+    "Sphinx<8.2",
     "sphinx-autodoc-typehints",
     "sphinxcontrib-bibtex",
     "pydata-sphinx-theme",

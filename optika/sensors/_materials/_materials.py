@@ -18,6 +18,7 @@ __all__ = [
     "quantum_efficiency_effective",
     "probability_measurement",
     "electrons_measured",
+    "signal",
     "AbstractImagingSensorMaterial",
     "IdealImagingSensorMaterial",
     "AbstractCCDMaterial",
@@ -33,6 +34,12 @@ energy_electron_hole = 3.65 * u.eV
 the high-energy limit of the energy required to create an electron-hole pair
 in silicon at room temperature
 """
+
+_thickness_oxide = 50 * u.AA
+_thickness_substrate = 7 * u.um
+_thickness_implant = 2317 * u.AA
+_cce_backsurface = 0.21
+_fano_noise = 0.1 * u.electron / u.photon
 
 
 def quantum_yield_ideal(
@@ -105,8 +112,8 @@ def absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
     n: float | na.AbstractScalar = 1,
-    thickness_oxide: u.Quantity | na.AbstractScalar = 50 * u.AA,
-    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
+    thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -208,8 +215,8 @@ def absorbance(
 
 def charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
-    thickness_implant: u.Quantity | na.AbstractScalar = 2317 * u.AA,
-    cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
+    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     cos_incidence: float | na.AbstractScalar = 1,
 ) -> na.AbstractScalar:
     r"""
@@ -347,10 +354,10 @@ def quantum_efficiency_effective(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: None | na.AbstractCartesian3dVectorArray = None,
     n: float | na.AbstractScalar = 1,
-    thickness_oxide: u.Quantity | na.AbstractScalar = 50 * u.AA,
-    thickness_implant: u.Quantity | na.AbstractScalar = 2317 * u.AA,
-    thickness_substrate: u.Quantity | na.AbstractScalar = 7 * u.um,
-    cce_backsurface: u.Quantity | na.AbstractScalar = 0.21,
+    thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
+    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -640,33 +647,68 @@ def probability_measurement(
     return p_m
 
 
+def _discrete_gamma(
+    mean: float | na.ScalarArray,
+    vmr: float | na.ScalarArray,
+    shape_random: None | dict[str, int] = None,
+) -> na.ScalarArray:
+
+    x = na.random.gamma(
+        shape=mean / vmr,
+        scale=vmr,
+        shape_random=shape_random,
+    )
+
+    unit_x = x.unit
+    if unit_x is not None:
+        x = x.value
+
+    x_frac, x_int = np.modf(x)
+    x_frac = na.random.binomial(
+        n=1,
+        p=x_frac,
+        shape_random=shape_random,
+    )
+    x = x_int + x_frac
+
+    if unit_x is not None:
+        x = x << unit_x
+
+    return x
+
+
 def electrons_measured(
-    photons: u.Quantity | na.AbstractScalar,
-    absorbance: float | na.AbstractScalar = 1,
+    photons_absorbed: u.Quantity | na.AbstractScalar,
+    absorption: u.Quantity | na.AbstractScalar,
     iqy: u.Quantity | na.AbstractScalar = 1 * u.electron / u.photon,
-    cce: float | na.AbstractScalar = 1,
-    fano_noise: u.Quantity | na.AbstractScalar = 0.1 * u.electron / u.photon,
+    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
+    fano_noise: u.Quantity | na.AbstractScalar = _fano_noise,
 ) -> na.AbstractScalar:
     r"""
-    Calculate the actual number of electrons measured for a given number of
-    photons by drawing samples from a random distribution.
+    A random sample from the approximate distribution of measured electrons
+    given the number of photons absorbed by the light-sensitive layer of the
+    sensor.
 
-    This function uses both a Poisson distribution to compute the actual number
-    of photons absorbed by the detector and a binomial distribution to compute
-    the number of electrons measured by the detector.
+    This function accounts for both Fano noise and recombination noise due to
+    partial-charge collection.
 
     Parameters
     ----------
-    photons
-        The `expected` number of photons incident on the detector surface.
-    absorbance
-        The fraction of incident energy absorbed by the light-sensitive layer
-        of the detector computed using the average of :func:`absorbance`.
+    photons_absorbed
+        The number of photons absorbed by the light-sensitive layer of the sensor.
+    absorption
+        The absorption coefficient of the light-sensitive material for the
+        wavelength of interest.
     iqy
         The ideal quantum yield of the sensor in electrons per photon.
-    cce
-        The charge collection efficiency of the detector computed using
-        :func:`charge_collection_efficiency`.
+    thickness_implant
+        The thickness of the implant layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
     fano_noise
         The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
         (ratio of the variance to the mean) of the Fano noise for this
@@ -678,7 +720,178 @@ def electrons_measured(
     Examples
     --------
 
-    Plot a 2D histogram of the number of electrons measured by the sensor
+    Plot the energy spectrum of 100 6 keV photons emitted from an Fe-55
+    radioactive source.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        # Define the number of experiments to perform
+        num_experiments = 100000
+
+        # Define the expected number of photons
+        # for each experiment
+        photons_absorbed = na.broadcast_to(
+            array=100* u.photon,
+            shape=dict(experiment=num_experiments)
+        ).astype(int)
+
+        # Define the wavelength at which to sample the distribution
+        wavelength = 5.9 * u.keV
+        wavelength = wavelength.to(u.AA, equivalencies=u.spectral())
+
+        # Compute the absorption coefficient of silicon at this wavelength
+        absorption=optika.chemicals.Chemical("Si").absorption(wavelength)
+
+        # Compute the ideal quantum yield of silicon for each wavelength
+        iqy = optika.sensors.quantum_yield_ideal(wavelength)
+
+        # Compute the actual number of electrons measured for each experiment
+        electrons = optika.sensors.electrons_measured(
+            photons_absorbed=photons_absorbed,
+            absorption=absorption,
+            iqy=iqy,
+        )
+
+        # Define the histogram bins
+        step = 10
+        bins = na.arange(
+            electrons.value.min()-step/2,
+            electrons.value.max()+step/2,
+            step=step,
+            axis="bin",
+        ) * electrons.unit
+
+        # Compute a histogram of resulting energy spectrum
+        hist = na.histogram(
+            electrons,
+            bins=bins,
+            axis="experiment",
+        )
+
+        # Plot the histogram
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots()
+            line = na.plt.stairs(
+              hist.inputs,
+              hist.outputs,
+              ax=ax,
+            )
+    """
+    shape = na.shape_broadcasted(
+        photons_absorbed,
+        absorption,
+        absorbance,
+        iqy,
+        thickness_implant,
+        cce_backsurface,
+        fano_noise,
+    )
+
+    electrons_expected = iqy * photons_absorbed
+    d = (2 / 12) * (u.electron / u.photon) ** 2
+    f = fano_noise + d * (photons_absorbed - 1 * u.photon) / electrons_expected
+    f = np.nan_to_num(f, neginf=fano_noise)
+
+    a = absorption
+    W = thickness_implant
+    n0 = cce_backsurface
+    aW = (a * W).to(u.dimensionless_unscaled).value
+
+    fraction_complete = np.exp(-aW)
+    fraction_partial = 1 - fraction_complete
+    photons_absorbed_partial = na.random.binomial(
+        n=photons_absorbed,
+        p=fraction_partial,
+        shape_random=shape,
+    )
+    photons_absorbed_complete = photons_absorbed - photons_absorbed_partial
+
+    mean_p = n0 + (1 - n0) / (aW) + (1 - n0) / (1 - np.exp(aW))
+    var_p = np.square(n0 - 1) * (4 / np.square(aW) - 1 / np.square(np.sinh(aW / 2))) / 4
+
+    mean_n = iqy
+    var_n = f * mean_n
+
+    mean_p2 = np.square(mean_p)
+    mean_n2 = np.square(mean_n)
+    mean_i = mean_n * mean_p
+    var_exp = (var_n * var_p) + (var_n * mean_p2) + (var_p * mean_n2)
+    exp_var = mean_n * (mean_p - (var_p + mean_p2)) * u.electron / u.photon
+    var_i = var_exp + exp_var
+
+    mean_partial = photons_absorbed_partial * mean_i
+    vmr_partial = var_i / mean_i * u.photon
+
+    electrons_partial = _discrete_gamma(
+        mean=mean_partial,
+        vmr=np.maximum(vmr_partial - 1 / (6 * mean_partial) * u.electron**2, f * u.ph),
+        shape_random=shape,
+    )
+    electrons_complete = _discrete_gamma(
+        mean=photons_absorbed_complete * iqy,
+        vmr=f * u.photon,
+        shape_random=shape,
+    )
+    result = electrons_complete + electrons_partial
+
+    return result
+
+
+def signal(
+    photons_expected: u.Quantity | na.AbstractScalar,
+    absorption: u.Quantity | na.AbstractScalar,
+    absorbance: float | na.AbstractScalar = 1,
+    iqy: u.Quantity | na.AbstractScalar = 1 * u.electron / u.photon,
+    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
+    fano_noise: u.Quantity | na.AbstractScalar = _fano_noise,
+) -> na.AbstractScalar:
+    r"""
+    A random sample from the approximate distribution of measured electrons
+    given the expected number of photons incident on the front surface of
+    the sensor.
+
+    This function adds shot noise to the expected number of photons,
+    and then adds Fano noise and recombination noise using
+    :func:`electrons_measured`.
+
+    Parameters
+    ----------
+    photons_expected
+        The `expected` number of photons incident on the detector surface.
+    absorption
+        The absorption coefficient of the light-sensitive material for the
+        wavelength of interest.
+    absorbance
+        The fraction of incident energy absorbed by the light-sensitive layer
+        of the detector computed using the average of :func:`absorbance`.
+    iqy
+        The ideal quantum yield of the sensor in electrons per photon.
+    thickness_implant
+        The thickness of the implant layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    fano_noise
+        The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
+        (ratio of the variance to the mean) of the Fano noise for this
+        sensor material.
+        Defaults to 0.1, the standard estimate of Fano noise in silicon
+        :cite:p:`Janesick2001`.
+        Must be in units of electrons per photon.
+
+    Examples
+    --------
+
+    Plot the variance-to-mean ratio of the number of electrons measured by the sensor
     as a function of wavelength.
 
     .. jupyter-execute::
@@ -689,7 +902,7 @@ def electrons_measured(
         import optika
 
         # Define the number of experiments to perform
-        num_experiments = 100
+        num_experiments = 1000
 
         # Define the expected number of photons
         # for each experiment
@@ -701,6 +914,9 @@ def electrons_measured(
         # Define a grid of wavelengths
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
+        # Compute the absorption coefficient of silicon at this wavelength
+        absorption=optika.chemicals.Chemical("Si").absorption(wavelength)
+
         # Compute the fraction of light absorbed by the light-sensitive
         # region of the detector
         absorbance = optika.sensors.absorbance(wavelength).average
@@ -708,47 +924,39 @@ def electrons_measured(
         # Compute the ideal quantum yield of silicon for each wavelength
         iqy = optika.sensors.quantum_yield_ideal(wavelength)
 
-        # Compute the average fraction of charge collected for each wavelength
-        cce = optika.sensors.charge_collection_efficiency(
-            absorption=optika.chemicals.Chemical("Si").absorption(wavelength),
-        )
-
         # Compute the actual number of electrons measured for each experiment
-        electrons = optika.sensors.electrons_measured(
-            photons=photons_expected,
+        electrons = optika.sensors.signal(
+            photons_expected=photons_expected,
+            absorption=absorption,
             absorbance=absorbance,
             iqy=iqy,
-            cce=cce,
         )
 
-        # Plot the result as a histogram
-        # with astropy.visualization.quantity_support():
+        # Plot the variance-to-mean ratio of the result
+        # as a function of wavelength.
         fig, ax = plt.subplots(constrained_layout=True)
-        hist = na.histogram2d(
-            x=wavelength,
-            y=electrons,
-            bins=na.Cartesian2dVectorArray(
-                x=na.geomspace(10, 10000, axis="wavelength", num=101) * u.AA,
-                y=na.geomspace(1 * u.electron, electrons.max(), axis="electron", num=101)
-            ),
-        )
-        img = na.plt.pcolormesh(C=hist, ax=ax)
+        na.plt.plot(
+            wavelength,
+            electrons.vmr("experiment"),
+            ax=ax,
+        );
         ax.set_xscale("log");
         ax.set_yscale("log");
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
-        ax.set_ylabel(f"electrons measured ({electrons.unit:latex_inline})");
+        ax.set_ylabel(f"variance-to-mean ratio ({electrons.unit:latex_inline})");
     """
-    photons_absorbed_expected = absorbance * photons.to(u.ph)
-    photons_absorbed = na.random.poisson(photons_absorbed_expected)
-    electrons_expected = iqy * photons_absorbed
-    d = (2 / 12) * (u.electron / u.photon) ** 2
-    f = fano_noise + d * (photons_absorbed - 1 * u.photon) / electrons_expected
-    electrons = na.random.poisson(electrons_expected / f) * f
-    e_fractional, e_integral = np.modf(electrons / u.electron)
-    e_random = na.random.binomial(1, e_fractional)
-    electrons_total = e_integral + e_random
-    result = na.random.binomial(electrons_total.astype(int), cce)
-    return result * u.electron
+
+    photons_absorbed_expected = absorbance * photons_expected.to(u.ph)
+    photons_absorbed = na.random.poisson(photons_absorbed_expected).astype(int)
+
+    return electrons_measured(
+        photons_absorbed=photons_absorbed,
+        absorption=absorption,
+        iqy=iqy,
+        thickness_implant=thickness_implant,
+        cce_backsurface=cce_backsurface,
+        fano_noise=fano_noise,
+    )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -760,14 +968,14 @@ class AbstractImagingSensorMaterial(
     """
 
     @abc.abstractmethod
-    def electrons_measured(
+    def signal(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> optika.rays.RayVectorArray:
         """
         Given a set of incident rays, compute the number of electrons
-        measured by the sensor using :func:`electrons_measured`.
+        measured by the sensor using :func:`signal`.
 
         Parameters
         ----------
@@ -833,7 +1041,7 @@ class IdealImagingSensorMaterial(
     and no charge diffusion.
     """
 
-    def electrons_measured(
+    def signal(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
@@ -1140,18 +1348,42 @@ class AbstractBackilluminatedCCDMaterial(
     ) -> optika.rays.RayVectorArray:
 
         intensity = rays.intensity
+        wavelength = rays.wavelength
+
+        electrons = electrons_measured(
+            photons_absorbed=intensity,
+            absorption=self._chemical.absorption(wavelength),
+            iqy=self.quantum_yield_ideal(wavelength),
+            thickness_implant=self.thickness_implant,
+            cce_backsurface=self.cce_backsurface,
+            fano_noise=self.fano_noise,
+        )
+
+        result = dataclasses.replace(rays, intensity=electrons)
+
+        return result
+
+    def signal(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> optika.rays.RayVectorArray:
+
+        intensity = rays.intensity
+        wavelength = rays.wavelength
+
         if not intensity.unit.is_equivalent(u.photon):
             h = astropy.constants.h
             c = astropy.constants.c
-            intensity = intensity / (h * c / rays.wavelength) * u.photon
-        absorbance = self.absorbance(rays, normal).average
-        iqy = self.quantum_yield_ideal(rays.wavelength)
-        cce = self.charge_collection_efficiency(rays, normal)
-        electrons = electrons_measured(
-            photons=intensity,
-            absorbance=absorbance,
-            iqy=iqy,
-            cce=cce,
+            intensity = intensity / (h * c / wavelength) * u.photon
+
+        electrons = signal(
+            photons_expected=intensity,
+            absorption=self._chemical.absorption(wavelength),
+            absorbance=self.absorbance(rays, normal).average,
+            iqy=self.quantum_yield_ideal(wavelength),
+            thickness_implant=self.thickness_implant,
+            cce_backsurface=self.cce_backsurface,
             fano_noise=self.fano_noise,
         )
 
