@@ -135,7 +135,7 @@ def fano_factor(
         x=energy,
         xp=_energy,
         fp=_fano_factor,
-        right=fano_he
+        right=fano_he,
     )
 
     return fano_factor
