@@ -9,9 +9,10 @@ from ._depletion import (
     E2VCCD64ThinDepletionModel,
 )
 from ._materials import (
+    quantum_yield_ideal,
+    fano_factor,
     energy_bandgap,
     energy_electron_hole,
-    quantum_yield_ideal,
     absorbance,
     charge_collection_efficiency,
     quantum_efficiency_effective,
@@ -29,11 +30,12 @@ from ._e2v_ccd97 import E2VCCD97Material
 from ._e2v_ccd203 import E2VCCD203Material
 
 __all__ = [
+    "quantum_yield_ideal",
+    "fano_factor",
     "charge_diffusion",
     "mean_charge_capture",
     "energy_bandgap",
     "energy_electron_hole",
-    "quantum_yield_ideal",
     "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
