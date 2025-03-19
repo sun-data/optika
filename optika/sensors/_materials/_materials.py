@@ -7,12 +7,14 @@ import astropy.units as u
 import astropy.constants
 import named_arrays as na
 import optika
+from ._ramanathan_2020 import quantum_yield_ideal, fano_factor
 from ._depletion import AbstractDepletionModel
 
 __all__ = [
+    "quantum_yield_ideal",
+    "fano_factor",
     "energy_bandgap",
     "energy_electron_hole",
-    "quantum_yield_ideal",
     "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
@@ -40,72 +42,6 @@ _thickness_substrate = 7 * u.um
 _thickness_implant = 2317 * u.AA
 _cce_backsurface = 0.21
 _fano_noise = 0.1 * u.electron / u.photon
-
-
-def quantum_yield_ideal(
-    wavelength: u.Quantity | na.AbstractScalar,
-) -> na.AbstractScalar:
-    r"""
-    Calculate the ideal quantum yield of a silicon detector for a given
-    wavelength.
-
-    Parameters
-    ----------
-    wavelength
-        the wavelength of the incident photons
-
-    Notes
-    -----
-    The quantum yield is the number of electron-hole pairs produced per photon.
-    This is also known in the literature as the pair-production energy.
-
-    The ideal quantum yield is given in :cite:t:`Janesick2001` as:
-
-    .. math::
-
-        \text{QY}(\epsilon) = \begin{cases}
-            0, & 0 \leq \epsilon < E_\text{g}\\
-            1, &  E_\text{g} \leq \epsilon < E_\text{e-h} \\
-            \epsilon / E_\text{e-h}, & E_\text{e-h} \leq \epsilon < \infty,
-        \end{cases},
-
-    where :math:`\epsilon` is the energy of the incident photon,
-    :math:`E_\text{g} = 1.12\;\text{eV}` is the bandgap energy of silicon,
-    and :math:`E_\text{e-h} = 3.65\;\text{eV}` is the energy required to
-    generate 1 electron-hole pair in silicon at room temperature.
-
-    Examples
-    --------
-
-    Plot the quantum yield vs wavelength
-
-    .. jupyter-execute::
-
-        import matplotlib.pyplot as plt
-        import astropy.units as u
-        import named_arrays as na
-        import optika
-
-        # Define an array of wavelengths
-        wavelength = na.geomspace(100, 100000, axis="wavelength", num=101) << u.AA
-
-        # Compute the quantum yield
-        qy = optika.sensors.quantum_yield_ideal(wavelength)
-
-        # Plot the quantum yield vs wavelength
-        fig, ax = plt.subplots()
-        na.plt.plot(wavelength, qy, ax=ax);
-        ax.set_xscale("log");
-        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
-        ax.set_ylabel(f"quantum yield ({qy.unit:latex_inline})");
-    """
-    energy = wavelength.to(u.eV, equivalencies=u.spectral())
-
-    result = energy / energy_electron_hole
-    result = np.where(energy > energy_electron_hole, result, 1)
-    result = np.where(energy > energy_bandgap, result, 0)
-
-    return result * u.electron / u.photon
 
 
 def absorbance(
