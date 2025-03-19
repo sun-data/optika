@@ -71,6 +71,42 @@ def quantum_yield_ideal(
     wavelength: u.Quantity | na.ScalarArray,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
 ) -> na.ScalarArray:
+    r"""
+    Calculate the ideal quantum yield of a silicon detector for a given
+    wavelength and temperature using the model given in :cite:t:`Ramanathan2020`.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the incident photons.
+    temperature
+        The temperature of the silicon detector.
+
+    Examples
+    --------
+
+    Plot the ideal quantum yield vs wavelength
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define an array of wavelengths
+        wavelength = na.geomspace(100, 100000, axis="wavelength", num=101) << u.AA
+
+        # Compute the quantum yield
+        iqy = optika.sensors.quantum_yield_ideal(wavelength)
+
+        # Plot the quantum yield vs wavelength
+        fig, ax = plt.subplots()
+        na.plt.plot(wavelength, iqy, ax=ax);
+        ax.set_xscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel(f"quantum yield ({iqy.unit:latex_inline})");
+    """
 
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
 
@@ -110,6 +146,42 @@ def fano_factor(
     wavelength: u.Quantity | na.ScalarArray,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
 ) -> na.ScalarArray:
+    r"""
+    Calculate the Fano factor of a silicon detector for a given
+    wavelength and temperature using the model given in :cite:t:`Ramanathan2020`.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the incident photons.
+    temperature
+        The temperature of the silicon detector.
+
+    Examples
+    --------
+
+    Plot the Fano factor vs wavelength
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define an array of wavelengths
+        wavelength = na.geomspace(100, 100000, axis="wavelength", num=101) << u.AA
+
+        # Compute the Fano factor
+        f = optika.sensors.fano_factor(wavelength)
+
+        # Plot the Fano factor vs wavelength
+        fig, ax = plt.subplots()
+        na.plt.plot(wavelength, f, ax=ax);
+        ax.set_xscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel(f"Fano factor ({f.unit:latex_inline})");
+    """
 
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
 
