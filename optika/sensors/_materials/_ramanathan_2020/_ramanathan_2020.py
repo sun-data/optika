@@ -30,8 +30,10 @@ def _probability_of_n_pairs_from_file(
     )
 
 
-def _probability_of_n_pairs_ramanathan(
-) -> na.FunctionArray[na.CartesianNdVectorArray, na.ScalarArray]:
+def _probability_of_n_pairs_ramanathan() -> na.FunctionArray[
+    na.CartesianNdVectorArray,
+    na.ScalarArray,
+]:
 
     directory = pathlib.Path(__file__).parent
     pn_000K = _probability_of_n_pairs_from_file(directory / "p0K.dat")
