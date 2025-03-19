@@ -4,7 +4,6 @@ import astropy.units as u
 import named_arrays as na
 
 __all__ = [
-    "probability_of_n_pairs",
     "quantum_yield_ideal",
     "fano_factor",
 ]
@@ -12,71 +11,59 @@ __all__ = [
 
 def _probability_of_n_pairs_from_file(
     path: pathlib.Path,
-) -> na.FunctionArray[na.ScalarArray, na.ScalarArray]:
+) -> na.FunctionArray[na.CartesianNdVectorArray, na.ScalarArray]:
 
     a = np.loadtxt(path)
     a = na.ScalarArray(a, axes=("wavelength", "num_electron"))
     energy = a[dict(num_electron=0)] << u.eV
     pn = a[dict(num_electron=slice(1, None))]
+    n = na.arange(1, pn.shape["num_electron"] + 1, axis="num_electron")
 
     return na.FunctionArray(
-        inputs=energy,
+        inputs=na.CartesianNdVectorArray(
+            components=dict(
+                n=n,
+                energy=energy,
+            ),
+        ),
         outputs=pn,
     )
 
 
-directory = pathlib.Path(__file__).parent
-pn_000K = _probability_of_n_pairs_from_file(directory / "p0K.dat")
-pn_100K = _probability_of_n_pairs_from_file(directory / "p100K.dat")
-pn_300K = _probability_of_n_pairs_from_file(directory / "p300K.dat")
+def _probability_of_n_pairs_ramanathan(
+) -> na.FunctionArray[na.CartesianNdVectorArray, na.ScalarArray]:
 
+    directory = pathlib.Path(__file__).parent
+    pn_000K = _probability_of_n_pairs_from_file(directory / "p0K.dat")
+    pn_100K = _probability_of_n_pairs_from_file(directory / "p100K.dat")
+    pn_300K = _probability_of_n_pairs_from_file(directory / "p300K.dat")
 
-def _probability_of_n_pairs_temperature_only(
-    temperature: u.Quantity | na.ScalarArray,
-) -> na.FunctionArray[na.ScalarArray, na.ScalarArray]:
-
-    pn = na.stack(
-        arrays=[pn_000K, pn_100K, pn_300K],
+    probability = na.stack(
+        arrays=[
+            pn_000K.outputs,
+            pn_100K.outputs,
+            pn_300K.outputs,
+        ],
         axis="temperature",
     )
 
-    if np.all(pn.inputs[dict(temperature=0)] == pn.inputs):
-        pn.inputs = pn.inputs[dict(temperature=0)]
-    else:
-        raise ValueError("inputs don't match along temperature axis")
+    n = pn_000K.inputs.components["n"]
+    energy = pn_000K.inputs.components["energy"]
 
-    _temperature = na.ScalarArray(
+    temperature = na.ScalarArray(
         ndarray=[0, 100, 300] * u.K,
         axes="temperature",
     )
 
-    pn.outputs = na.interp(
-        x=temperature,
-        xp=_temperature,
-        fp=pn.outputs,
-    )
-
-    return pn
-
-
-def probability_of_n_pairs(
-    wavelength: u.Quantity | na.ScalarArray,
-    temperature: u.Quantity | na.ScalarArray,
-) -> na.FunctionArray[na.ScalarArray, na.ScalarArray]:
-
-    pn = _probability_of_n_pairs_temperature_only(temperature)
-
-    n = na.arange(1, pn.shape["num_electron"] + 1, axis="num_electron")
-
-    energy = wavelength.to(u.eV, equivalencies=u.spectral())
-
     return na.FunctionArray(
-        inputs=n,
-        outputs=na.interp(
-            x=energy,
-            xp=pn.inputs,
-            fp=pn.outputs,
+        inputs=na.CartesianNdVectorArray(
+            components=dict(
+                energy=energy,
+                temperature=temperature,
+                n=n,
+            )
         ),
+        outputs=probability,
     )
 
 
@@ -87,13 +74,14 @@ def quantum_yield_ideal(
 
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
 
-    pn = _probability_of_n_pairs_temperature_only(temperature)
+    pn = _probability_of_n_pairs_ramanathan()
 
-    n = na.arange(1, pn.shape["num_electron"] + 1, axis="num_electron")
+    _n = pn.inputs.components["n"]
+    _energy = pn.inputs.components["energy"]
+    _temperature = pn.inputs.components["temperature"]
+    _probability = pn.outputs
 
-    _energy = pn.inputs
-
-    _iqy = (n * pn.outputs).sum("num_electron")
+    _iqy = (_n * _probability).sum("num_electron")
 
     _energy_pair = _energy / _iqy
 
@@ -106,9 +94,16 @@ def quantum_yield_ideal(
         fp=_energy_pair,
         right=energy_pair_he.value,
     )
+
+    energy_pair = na.interp(
+        x=temperature,
+        xp=_temperature,
+        fp=energy_pair,
+    )
+
     iqy = energy / energy_pair
 
-    return iqy
+    return iqy * u.electron / u.photon
 
 
 def fano_factor(
@@ -118,16 +113,17 @@ def fano_factor(
 
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
 
-    pn = _probability_of_n_pairs_temperature_only(temperature)
+    pn = _probability_of_n_pairs_ramanathan()
 
-    n = na.arange(1, pn.shape["num_electron"] + 1, axis="num_electron")
+    _n = pn.inputs.components["n"]
+    _energy = pn.inputs.components["energy"]
+    _temperature = pn.inputs.components["temperature"]
+    _probability = pn.outputs
 
-    _energy = pn.inputs
+    _iqy = (_n * _probability).sum("num_electron")
 
-    _iqy = (n * pn.outputs).sum("num_electron")
-
-    v = (np.square(n) * pn.outputs).sum("num_electron")
-    _fano_factor = (v - np.square(_iqy)) / _iqy
+    _v = (np.square(_n) * _probability).sum("num_electron")
+    _fano_factor = (_v - np.square(_iqy)) / _iqy
 
     fano_he = np.nanmedian(_fano_factor, axis="wavelength")
 
@@ -138,4 +134,10 @@ def fano_factor(
         right=fano_he,
     )
 
-    return fano_factor
+    fano_factor = na.interp(
+        x=temperature,
+        xp=_temperature,
+        fp=fano_factor,
+    )
+
+    return fano_factor * u.electron / u.photon
