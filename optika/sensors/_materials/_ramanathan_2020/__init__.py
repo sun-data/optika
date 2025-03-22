@@ -1,9 +1,11 @@
 from ._ramanathan_2020 import (
     quantum_yield_ideal,
     fano_factor,
+    electrons_measured_exact,
 )
 
 __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
+    "electrons_measured_exact",
 ]

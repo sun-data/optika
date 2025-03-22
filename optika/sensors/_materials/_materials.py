@@ -7,12 +7,17 @@ import astropy.units as u
 import astropy.constants
 import named_arrays as na
 import optika
-from ._ramanathan_2020 import quantum_yield_ideal, fano_factor
+from ._ramanathan_2020 import (
+    quantum_yield_ideal,
+    fano_factor,
+    electrons_measured_exact,
+)
 from ._depletion import AbstractDepletionModel
 
 __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
+    "electrons_measured_exact",
     "energy_bandgap",
     "energy_electron_hole",
     "absorbance",

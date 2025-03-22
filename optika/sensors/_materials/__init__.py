@@ -11,6 +11,7 @@ from ._depletion import (
 from ._materials import (
     quantum_yield_ideal,
     fano_factor,
+    electrons_measured_exact,
     energy_bandgap,
     energy_electron_hole,
     absorbance,
@@ -32,6 +33,7 @@ from ._e2v_ccd203 import E2VCCD203Material
 __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
+    "electrons_measured_exact",
     "charge_diffusion",
     "mean_charge_capture",
     "energy_bandgap",

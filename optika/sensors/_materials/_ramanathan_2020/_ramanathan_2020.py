@@ -1,11 +1,13 @@
 import pathlib
 import numpy as np
+import numba
 import astropy.units as u
 import named_arrays as na
 
 __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
+    "electrons_measured_exact",
 ]
 
 
@@ -215,3 +217,224 @@ def fano_factor(
     )
 
     return fano_factor * u.electron / u.photon
+
+
+def probability_of_n_pairs(
+    wavelength: u.Quantity | na.ScalarArray,
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+) -> na.FunctionArray[na.ScalarArray, na.ScalarArray]:
+    r"""
+    Calculate the PMF of the number of electron-hole pairs generated in a
+    silicon detector for a given wavelength and temperature using the model
+    given in :cite:t:`Ramanathan2020`.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the incident photons.
+    temperature
+        The temperature of the silicon detector.
+    """
+
+    energy = wavelength.to(u.eV, equivalencies=u.spectral())
+
+    pn = _probability_of_n_pairs_ramanathan()
+
+    _n = pn.inputs.components["n"]
+    _energy = pn.inputs.components["energy"]
+    _temperature = pn.inputs.components["temperature"]
+    _probability = pn.outputs
+
+    probability = na.interp(
+        x=energy,
+        xp=_energy,
+        fp=_probability,
+    )
+
+    probability = na.interp(
+        x=temperature,
+        xp=_temperature,
+        fp=probability,
+    )
+
+    result = na.FunctionArray(
+        inputs=_n,
+        outputs=probability,
+    )
+
+    return result
+
+
+def electrons_measured_exact(
+    photons_absorbed: u.Quantity | na.AbstractScalar,
+    wavelength: u.Quantity | na.ScalarArray,
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    shape_random: None | dict[str, int] = None
+) -> na.AbstractScalar:
+    r"""
+    A random sample from the approximate distribution of measured electrons
+    given the number of photons absorbed by the light-sensitive layer of the
+    sensor.
+
+    This function accounts for both Fano noise and recombination noise due to
+    partial-charge collection.
+
+    Parameters
+    ----------
+    photons_absorbed
+        The number of photons absorbed by the light-sensitive layer of the sensor.
+    wavelength
+        The vacuum wavelength of the absorbed photons.
+    absorption
+        The absorption coefficient of silicon at the given wavelength.
+    thickness_implant
+        The thickness of the implant layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    temperature
+        The temperature of the silicon detector.
+        Default is room temperature.
+    shape_random
+        Additional shape used to specify the number of samples to draw.
+    """
+
+    shape = na.broadcast_shapes(
+        na.shape(photons_absorbed),
+        na.shape(wavelength),
+        na.shape(absorption),
+        na.shape(thickness_implant),
+        na.shape(cce_backsurface),
+        na.shape(temperature),
+        shape_random,
+    )
+
+    photons_absorbed = na.broadcast_to(photons_absorbed, shape)
+    absorption = na.broadcast_to(absorption, shape)
+    thickness_implant = na.broadcast_to(thickness_implant, shape)
+    cce_backsurface = na.broadcast_to(cce_backsurface, shape)
+
+    pmf_pair = probability_of_n_pairs(wavelength, temperature)
+    p_n = pmf_pair.outputs
+    n = pmf_pair.inputs
+
+    shape_n = na.broadcast_shapes(n.shape, shape)
+
+    p_n = p_n.broadcast_to(shape_n)
+    n = n.broadcast_to(shape_n)
+
+    result = _electrons_measured_quantity(
+        photons_absorbed=photons_absorbed.ndarray,
+        absorption=absorption.ndarray,
+        thickness_implant=thickness_implant.ndarray,
+        cce_backsurface=cce_backsurface.ndarray,
+        p_n=p_n.ndarray,
+        n=n.ndarray,
+    )
+
+    return na.ScalarArray(
+        ndarray=result,
+        axes=tuple(shape),
+    )
+
+
+def _electrons_measured_quantity(
+    photons_absorbed: u.Quantity,
+    absorption: u.Quantity,
+    thickness_implant: u.Quantity,
+    cce_backsurface: u.Quantity,
+    p_n: np.ndarray,
+    n: np.ndarray,
+) -> u.Quantity:
+
+    shape = np.broadcast_shapes(
+        photons_absorbed.shape,
+        absorption.shape,
+        thickness_implant.shape,
+        cce_backsurface.shape,
+    )
+
+    unit_length = u.mm
+
+    photons_absorbed = photons_absorbed.to_value(u.photon)
+    absorption = absorption.to_value(1 / unit_length)
+    thickness_implant = thickness_implant.to_value(unit_length)
+    cce_backsurface = cce_backsurface.to_value(u.dimensionless_unscaled)
+
+    result = _electrons_measured_numba(
+        photons_absorbed=photons_absorbed.reshape(-1),
+        absorption=absorption.reshape(-1),
+        thickness_implant=thickness_implant.reshape(-1),
+        cce_backsurface=cce_backsurface.reshape(-1),
+        p_n=p_n.reshape(p_n.shape[0], -1),
+        n=n.reshape(n.shape[0], -1),
+    )
+
+    result = result.reshape(shape)
+
+    result = result << u.electron
+
+    return result
+
+
+@numba.njit()
+def _electrons_measured_numba(
+    photons_absorbed: np.ndarray,
+    absorption: np.ndarray,
+    thickness_implant: np.ndarray,
+    cce_backsurface: np.ndarray,
+    p_n: np.ndarray,
+    n: np.ndarray,
+) -> np.ndarray:
+
+    num_n, num_i = np.broadcast_shapes(
+        photons_absorbed.shape,
+        absorption.shape,
+        thickness_implant.shape,
+        cce_backsurface.shape,
+        p_n.shape,
+        n.shape,
+    )
+
+    result = np.empty(num_i)
+
+    for i in numba.prange(num_i):
+
+        num_photon = int(photons_absorbed[i])
+        a = absorption[i]
+        W = thickness_implant[i]
+        h_0 = cce_backsurface[i]
+        cmf_i = np.cumsum(p_n[..., i])
+        n_i = n[..., i]
+
+        d = 1 / a
+
+        x_i = np.random.uniform(0, 1, size=num_photon)
+        k_i = np.searchsorted(cmf_i, x_i)
+
+        num_electron_i = 0
+
+        for j in numba.prange(num_photon):
+
+            y_ij = np.random.uniform(0, 1)
+            z_ij = -d * np.log(1 - y_ij)
+
+            if z_ij < W:
+                h_ij = h_0 + (1 - h_0) * z_ij / W
+            else:
+                h_ij = 1
+
+            q_ij = n_i[k_i[j]]
+
+            m_ij = np.random.binomial(n=q_ij, p=h_ij)
+
+            num_electron_i = num_electron_i + m_ij
+
+        result[i] = num_electron_i
+
+    return result

@@ -10,6 +10,7 @@ from ._materials import (
     energy_electron_hole,
     quantum_yield_ideal,
     fano_factor,
+    electrons_measured_exact,
     absorbance,
     charge_collection_efficiency,
     quantum_efficiency_effective,
