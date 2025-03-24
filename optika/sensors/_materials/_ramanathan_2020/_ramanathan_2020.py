@@ -1,4 +1,6 @@
 import pathlib
+import math
+import random
 import numpy as np
 import numba
 import astropy.units as u
@@ -319,11 +321,14 @@ def electrons_measured_exact(
     thickness_implant = na.broadcast_to(thickness_implant, shape)
     cce_backsurface = na.broadcast_to(cce_backsurface, shape)
 
+    if not isinstance(cce_backsurface, u.Quantity):
+        cce_backsurface = cce_backsurface << u.dimensionless_unscaled
+
     pmf_pair = probability_of_n_pairs(wavelength, temperature)
     p_n = pmf_pair.outputs
     n = pmf_pair.inputs
 
-    shape_n = na.broadcast_shapes(n.shape, shape)
+    shape_n = na.broadcast_shapes(shape, n.shape)
 
     p_n = p_n.broadcast_to(shape_n)
     n = n.broadcast_to(shape_n)
@@ -371,8 +376,8 @@ def _electrons_measured_quantity(
         absorption=absorption.reshape(-1),
         thickness_implant=thickness_implant.reshape(-1),
         cce_backsurface=cce_backsurface.reshape(-1),
-        p_n=p_n.reshape(p_n.shape[0], -1),
-        n=n.reshape(n.shape[0], -1),
+        p_n=p_n.reshape(-1, p_n.shape[~0]),
+        n=n.reshape(-1, n.shape[~0]),
     )
 
     result = result.reshape(shape)
@@ -382,7 +387,7 @@ def _electrons_measured_quantity(
     return result
 
 
-@numba.njit()
+@numba.njit(fastmath=True, parallel=True)
 def _electrons_measured_numba(
     photons_absorbed: np.ndarray,
     absorption: np.ndarray,
@@ -392,14 +397,7 @@ def _electrons_measured_numba(
     n: np.ndarray,
 ) -> np.ndarray:
 
-    num_n, num_i = np.broadcast_shapes(
-        photons_absorbed.shape,
-        absorption.shape,
-        thickness_implant.shape,
-        cce_backsurface.shape,
-        p_n.shape,
-        n.shape,
-    )
+    num_i, num_n = p_n.shape
 
     result = np.empty(num_i)
 
@@ -409,27 +407,30 @@ def _electrons_measured_numba(
         a = absorption[i]
         W = thickness_implant[i]
         h_0 = cce_backsurface[i]
-        cmf_i = np.cumsum(p_n[..., i])
-        n_i = n[..., i]
+        cmf_i = np.cumsum(p_n[i])
+        n_i = n[i]
 
         d = 1 / a
-
-        x_i = np.random.uniform(0, 1, size=num_photon)
-        k_i = np.searchsorted(cmf_i, x_i)
 
         num_electron_i = 0
 
         for j in numba.prange(num_photon):
 
-            y_ij = np.random.uniform(0, 1)
-            z_ij = -d * np.log(1 - y_ij)
+            x_ij = random.uniform(0, 1)
+
+            for k_ij in range(num_n):
+                if cmf_i[k_ij] > x_ij:
+                    break
+
+            q_ij = n_i[k_ij]
+
+            y_ij = random.uniform(0, 1)
+            z_ij = -d * math.log(1 - y_ij)
 
             if z_ij < W:
                 h_ij = h_0 + (1 - h_0) * z_ij / W
             else:
                 h_ij = 1
-
-            q_ij = n_i[k_i[j]]
 
             m_ij = np.random.binomial(n=q_ij, p=h_ij)
 
