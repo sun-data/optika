@@ -274,7 +274,7 @@ def electrons_measured_exact(
     thickness_implant: u.Quantity | na.AbstractScalar,
     cce_backsurface: u.Quantity | na.AbstractScalar,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
-    shape_random: None | dict[str, int] = None
+    shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
     A random sample from the approximate distribution of measured electrons
