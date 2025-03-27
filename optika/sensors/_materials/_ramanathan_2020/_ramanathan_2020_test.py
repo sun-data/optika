@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 import astropy.units as u
 import named_arrays as na
+import optika
 from . import _ramanathan_2020
 
 _wavelength = [
@@ -44,3 +45,60 @@ def test_fano_factor(
 
     assert np.all(result >= 0 * u.electron / u.photon)
     assert result.shape == na.shape_broadcasted(wavelength, temperature)
+
+
+@pytest.mark.parametrize(
+    argnames="photons_absorbed",
+    argvalues=[
+        100 * u.photon,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="wavelength,absorption",
+    argvalues=[
+        (w, optika.chemicals.Chemical("Si").absorption(w.to(u.AA, equivalencies=u.spectral())))
+        for w in _wavelength
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_implant",
+    argvalues=[
+        2000 * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="cce_backsurface",
+    argvalues=[
+        0.5,
+    ]
+)
+@pytest.mark.parametrize("temperature", _temperture)
+def test_electrons_measured_exact(
+    photons_absorbed: u.Quantity | na.AbstractScalar,
+    wavelength: u.Quantity | na.ScalarArray,
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.ScalarArray,
+):
+    result = _ramanathan_2020.electrons_measured_exact(
+        photons_absorbed=photons_absorbed,
+        wavelength=wavelength,
+        absorption=absorption,
+        thickness_implant=thickness_implant,
+        cce_backsurface=cce_backsurface,
+        temperature=temperature,
+    )
+
+    assert np.all(result >= 0 * u.electron)
+
+    shape = na.shape_broadcasted(
+        photons_absorbed,
+        wavelength,
+        absorption,
+        thickness_implant,
+        cce_backsurface,
+        temperature,
+    )
+
+    assert result.shape == shape

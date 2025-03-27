@@ -304,7 +304,76 @@ def electrons_measured_exact(
         Default is room temperature.
     shape_random
         Additional shape used to specify the number of samples to draw.
+
+    Examples
+    --------
+
+    Plot the energy spectrum of 100 6 keV photons emitted from an Fe-55
+    radioactive source.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        # Define the number of experiments to perform
+        num_experiments = 100000
+
+        # Define the expected number of photons
+        # for each experiment
+        photons_absorbed = na.broadcast_to(
+            array=100* u.photon,
+            shape=dict(experiment=num_experiments)
+        ).astype(int)
+
+        # Define the wavelength at which to sample the distribution
+        wavelength = 5.9 * u.keV
+        wavelength = wavelength.to(u.AA, equivalencies=u.spectral())
+
+        # Compute the absorption coefficient of silicon at this wavelength
+        absorption=optika.chemicals.Chemical("Si").absorption(wavelength)
+
+        # Compute the ideal quantum yield of silicon for each wavelength
+        iqy = optika.sensors.quantum_yield_ideal(wavelength)
+
+        # Compute the actual number of electrons measured for each experiment
+        electrons = optika.sensors.electrons_measured_exact(
+            photons_absorbed=photons_absorbed,
+            absorption=absorption,
+            iqy=iqy,
+        )
+
+        # Define the histogram bins
+        step = 10
+        bins = na.arange(
+            electrons.value.min()-step/2,
+            electrons.value.max()+step/2,
+            step=step,
+            axis="bin",
+        ) * electrons.unit
+
+        # Compute a histogram of resulting energy spectrum
+        hist = na.histogram(
+            electrons,
+            bins=bins,
+            axis="experiment",
+        )
+
+        # Plot the histogram
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots()
+            line = na.plt.stairs(
+              hist.inputs,
+              hist.outputs,
+              ax=ax,
+            )
     """
+
+    if shape_random is None:
+        shape_random = dict()
 
     shape = na.broadcast_shapes(
         na.shape(photons_absorbed),
@@ -333,13 +402,24 @@ def electrons_measured_exact(
     p_n = p_n.broadcast_to(shape_n)
     n = n.broadcast_to(shape_n)
 
+    energy_inf = 1 * u.keV
+    energy_pair_inf = energy_inf / quantum_yield_ideal(energy_inf, temperature).value
+    fano_inf = fano_factor(energy_inf, temperature)
+
+    wavelength = na.broadcast_to(wavelength, shape)
+    energy_pair_inf = energy_pair_inf.broadcast_to(shape)
+    fano_inf = fano_inf.broadcast_to(shape)
+
     result = _electrons_measured_quantity(
         photons_absorbed=photons_absorbed.ndarray,
+        wavelength=wavelength.ndarray,
         absorption=absorption.ndarray,
         thickness_implant=thickness_implant.ndarray,
         cce_backsurface=cce_backsurface.ndarray,
         p_n=p_n.ndarray,
         n=n.ndarray,
+        energy_pair_inf=energy_pair_inf.ndarray,
+        fano_inf=fano_inf.ndarray,
     )
 
     return na.ScalarArray(
@@ -350,11 +430,14 @@ def electrons_measured_exact(
 
 def _electrons_measured_quantity(
     photons_absorbed: u.Quantity,
+    wavelength: u.Quantity,
     absorption: u.Quantity,
     thickness_implant: u.Quantity,
     cce_backsurface: u.Quantity,
     p_n: np.ndarray,
     n: np.ndarray,
+    energy_pair_inf: u.Quantity,
+    fano_inf: u.Quantity,
 ) -> u.Quantity:
 
     shape = np.broadcast_shapes(
@@ -367,17 +450,23 @@ def _electrons_measured_quantity(
     unit_length = u.mm
 
     photons_absorbed = photons_absorbed.to_value(u.photon)
+    energy = wavelength.to(u.eV, equivalencies=u.spectral())
     absorption = absorption.to_value(1 / unit_length)
     thickness_implant = thickness_implant.to_value(unit_length)
     cce_backsurface = cce_backsurface.to_value(u.dimensionless_unscaled)
+    energy_pair_inf = energy_pair_inf.to_value(u.eV)
+    fano_inf = fano_inf.to_value(u.electron / u.photon)
 
     result = _electrons_measured_numba(
         photons_absorbed=photons_absorbed.reshape(-1),
+        energy=energy.reshape(-1),
         absorption=absorption.reshape(-1),
         thickness_implant=thickness_implant.reshape(-1),
         cce_backsurface=cce_backsurface.reshape(-1),
         p_n=p_n.reshape(-1, p_n.shape[~0]),
         n=n.reshape(-1, n.shape[~0]),
+        energy_pair_inf=energy_pair_inf.reshape(-1),
+        fano_inf=fano_inf.reshape(-1),
     )
 
     result = result.reshape(shape)
@@ -390,11 +479,14 @@ def _electrons_measured_quantity(
 @numba.njit(fastmath=True, parallel=True)
 def _electrons_measured_numba(
     photons_absorbed: np.ndarray,
+    energy: np.ndarray,
     absorption: np.ndarray,
     thickness_implant: np.ndarray,
     cce_backsurface: np.ndarray,
     p_n: np.ndarray,
     n: np.ndarray,
+    energy_pair_inf: np.ndarray,
+    fano_inf: np.ndarray,
 ) -> np.ndarray:
 
     num_i, num_n = p_n.shape
@@ -404,25 +496,42 @@ def _electrons_measured_numba(
     for i in numba.prange(num_i):
 
         num_photon = int(photons_absorbed[i])
+        energy_i = energy[i]
         a = absorption[i]
         W = thickness_implant[i]
         h_0 = cce_backsurface[i]
         cmf_i = np.cumsum(p_n[i])
         n_i = n[i]
+        energy_pair_inf_i = energy_pair_inf[i]
+        fano_inf_i = fano_inf[i]
 
         d = 1 / a
 
         num_electron_i = 0
 
-        for j in numba.prange(num_photon):
+        mean_inf = energy_i / energy_pair_inf_i
+        std_inf = math.sqrt(fano_inf_i * mean_inf)
 
-            x_ij = random.uniform(0, 1)
+        low_energy = energy_i <= 50
 
-            for k_ij in range(num_n):
-                if cmf_i[k_ij] > x_ij:
-                    break
+        for j in range(num_photon):
 
-            q_ij = n_i[k_ij]
+            if low_energy:
+
+                x_ij = random.uniform(0, 1)
+
+                for k_ij in range(num_n):
+                    if cmf_i[k_ij] > x_ij:
+                        break
+
+                n_ij = n_i[k_ij]
+
+            else:
+                n_ij = random.normalvariate(
+                    mu=mean_inf,
+                    sigma=std_inf
+                )
+                n_ij = round(n_ij)
 
             y_ij = random.uniform(0, 1)
             z_ij = -d * math.log(1 - y_ij)
@@ -432,7 +541,7 @@ def _electrons_measured_numba(
             else:
                 h_ij = 1
 
-            m_ij = np.random.binomial(n=q_ij, p=h_ij)
+            m_ij = np.random.binomial(n=n_ij, p=h_ij)
 
             num_electron_i = num_electron_i + m_ij
 
