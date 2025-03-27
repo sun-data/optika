@@ -487,7 +487,7 @@ def _electrons_measured_numba(
     n: np.ndarray,
     energy_pair_inf: np.ndarray,
     fano_inf: np.ndarray,
-) -> np.ndarray:
+) -> np.ndarray:  # pragma: nocover
 
     num_i, num_n = p_n.shape
 
