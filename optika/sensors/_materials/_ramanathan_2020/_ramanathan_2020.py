@@ -324,10 +324,7 @@ def electrons_measured_exact(
 
         # Define the expected number of photons
         # for each experiment
-        photons_absorbed = na.broadcast_to(
-            array=100* u.photon,
-            shape=dict(experiment=num_experiments)
-        ).astype(int)
+        photons_absorbed = 100 * u.photon
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
@@ -336,14 +333,14 @@ def electrons_measured_exact(
         # Compute the absorption coefficient of silicon at this wavelength
         absorption=optika.chemicals.Chemical("Si").absorption(wavelength)
 
-        # Compute the ideal quantum yield of silicon for each wavelength
-        iqy = optika.sensors.quantum_yield_ideal(wavelength)
-
         # Compute the actual number of electrons measured for each experiment
         electrons = optika.sensors.electrons_measured_exact(
             photons_absorbed=photons_absorbed,
+            wavelength=wavelength,
             absorption=absorption,
-            iqy=iqy,
+            thickness_implant=200 * u.nm,
+            cce_backsurface=0.5,
+            shape_random=dict(experiment=num_experiments),
         )
 
         # Define the histogram bins
