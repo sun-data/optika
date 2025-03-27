@@ -56,7 +56,12 @@ def test_fano_factor(
 @pytest.mark.parametrize(
     argnames="wavelength,absorption",
     argvalues=[
-        (w, optika.chemicals.Chemical("Si").absorption(w.to(u.AA, equivalencies=u.spectral())))
+        (
+            w,
+            optika.chemicals.Chemical("Si").absorption(
+                w.to(u.AA, equivalencies=u.spectral())
+            ),
+        )
         for w in _wavelength
     ],
 )
@@ -70,7 +75,7 @@ def test_fano_factor(
     argnames="cce_backsurface",
     argvalues=[
         0.5,
-    ]
+    ],
 )
 @pytest.mark.parametrize("temperature", _temperture)
 def test_electrons_measured_exact(
