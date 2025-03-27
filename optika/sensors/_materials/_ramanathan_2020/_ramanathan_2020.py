@@ -529,7 +529,7 @@ def _electrons_measured_numba(
             else:
                 n_ij = random.normalvariate(
                     mu=mean_inf,
-                    sigma=std_inf
+                    sigma=std_inf,
                 )
                 n_ij = round(n_ij)
 
