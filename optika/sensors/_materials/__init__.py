@@ -11,7 +11,6 @@ from ._depletion import (
 from ._materials import (
     quantum_yield_ideal,
     fano_factor,
-    electrons_measured_exact,
     energy_bandgap,
     energy_electron_hole,
     absorbance,
@@ -19,6 +18,7 @@ from ._materials import (
     quantum_efficiency_effective,
     probability_measurement,
     electrons_measured,
+    electrons_measured_approx,
     signal,
     AbstractImagingSensorMaterial,
     IdealImagingSensorMaterial,
@@ -33,7 +33,6 @@ from ._e2v_ccd203 import E2VCCD203Material
 __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
-    "electrons_measured_exact",
     "charge_diffusion",
     "mean_charge_capture",
     "energy_bandgap",
@@ -43,6 +42,7 @@ __all__ = [
     "quantum_efficiency_effective",
     "probability_measurement",
     "electrons_measured",
+    "electrons_measured_approx",
     "signal",
     "AbstractDepletionModel",
     "AbstractJanesickDepletionModel",

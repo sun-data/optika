@@ -7,17 +7,17 @@ import astropy.units as u
 import astropy.constants
 import named_arrays as na
 import optika
+from . import stern_1994
 from ._ramanathan_2020 import (
     quantum_yield_ideal,
     fano_factor,
-    electrons_measured_exact,
+    electrons_measured,
 )
 from ._depletion import AbstractDepletionModel
 
 __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
-    "electrons_measured_exact",
     "energy_bandgap",
     "energy_electron_hole",
     "absorbance",
@@ -25,6 +25,7 @@ __all__ = [
     "quantum_efficiency_effective",
     "probability_measurement",
     "electrons_measured",
+    "electrons_measured_approx",
     "signal",
     "AbstractImagingSensorMaterial",
     "IdealImagingSensorMaterial",
@@ -42,19 +43,13 @@ the high-energy limit of the energy required to create an electron-hole pair
 in silicon at room temperature
 """
 
-_thickness_oxide = 50 * u.AA
-_thickness_substrate = 7 * u.um
-_thickness_implant = 2317 * u.AA
-_cce_backsurface = 0.21
-_fano_noise = 0.1 * u.electron / u.photon
-
 
 def absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
     n: float | na.AbstractScalar = 1,
-    thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
-    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_oxide: u.Quantity | na.AbstractScalar = stern_1994.thickness_oxide,
+    thickness_substrate: u.Quantity | na.AbstractScalar = stern_1994.thickness_substrate,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -156,8 +151,8 @@ def absorbance(
 
 def charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
-    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
+    thickness_implant: u.Quantity | na.AbstractScalar = stern_1994.thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = stern_1994.cce_backsurface,
     cos_incidence: float | na.AbstractScalar = 1,
 ) -> na.AbstractScalar:
     r"""
@@ -295,10 +290,10 @@ def quantum_efficiency_effective(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: None | na.AbstractCartesian3dVectorArray = None,
     n: float | na.AbstractScalar = 1,
-    thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
-    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
-    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
+    thickness_oxide: u.Quantity | na.AbstractScalar = stern_1994.thickness_oxide,
+    thickness_implant: u.Quantity | na.AbstractScalar = stern_1994.thickness_implant,
+    thickness_substrate: u.Quantity | na.AbstractScalar = stern_1994.thickness_substrate,
+    cce_backsurface: u.Quantity | na.AbstractScalar = stern_1994.cce_backsurface,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -618,16 +613,19 @@ def _discrete_gamma(
     return x
 
 
-def electrons_measured(
+def electrons_measured_approx(
     photons_absorbed: u.Quantity | na.AbstractScalar,
-    absorption: u.Quantity | na.AbstractScalar,
-    iqy: u.Quantity | na.AbstractScalar = 1 * u.electron / u.photon,
-    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
-    fano_noise: u.Quantity | na.AbstractScalar = _fano_noise,
+    wavelength: u.Quantity | na.ScalarArray,
+    absorption: None | u.Quantity | na.AbstractScalar = None,
+    thickness_implant: u.Quantity | na.AbstractScalar = stern_1994.thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = stern_1994.cce_backsurface,
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    iqy: None | u.Quantity | na.AbstractScalar = None,
+    fano_factor: None | u.Quantity | na.AbstractScalar = None,
+    shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
-    A random sample from the approximate distribution of measured electrons
+    A random sample from an approximate distribution of measured electrons
     given the number of photons absorbed by the light-sensitive layer of the
     sensor.
 
@@ -638,11 +636,11 @@ def electrons_measured(
     ----------
     photons_absorbed
         The number of photons absorbed by the light-sensitive layer of the sensor.
+    wavelength
+        The vacuum wavelength of the absorbed photons.
     absorption
         The absorption coefficient of the light-sensitive material for the
         wavelength of interest.
-    iqy
-        The ideal quantum yield of the sensor in electrons per photon.
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
@@ -650,19 +648,26 @@ def electrons_measured(
         The differential charge collection efficiency on the back surface
         of the sensor.
         Default is the value given in :cite:t:`Stern1994`.
-    fano_noise
+    temperature
+        The temperature of the light-sensitive silicon layer.
+    iqy
+        The ideal quantum yield of the sensor in electrons per photon.
+        If :obj:`None` (the default), the result of :func:`ideal_quantum_yield`
+        is used.
+    fano_factor
         The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
         (ratio of the variance to the mean) of the Fano noise for this
-        sensor material.
-        Defaults to 0.1, the standard estimate of Fano noise in silicon
-        :cite:p:`Janesick2001`.
-        Must be in units of electrons per photon.
+        sensor material in units of electrons per photon.
+        If :obj:`None` (the default), the result of :func:`fano_factor`
+        is used.
+    shape_random
+        Additional shape used to specify the number of samples to draw.
 
     Examples
     --------
 
     Plot the energy spectrum of 100 6 keV photons emitted from an Fe-55
-    radioactive source.
+    radioactive source and compare it to the exact spectrum
 
     .. jupyter-execute::
 
@@ -677,26 +682,16 @@ def electrons_measured(
 
         # Define the expected number of photons
         # for each experiment
-        photons_absorbed = na.broadcast_to(
-            array=100* u.photon,
-            shape=dict(experiment=num_experiments)
-        ).astype(int)
+        photons_absorbed = 100 * u.photon
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
         wavelength = wavelength.to(u.AA, equivalencies=u.spectral())
 
-        # Compute the absorption coefficient of silicon at this wavelength
-        absorption=optika.chemicals.Chemical("Si").absorption(wavelength)
-
-        # Compute the ideal quantum yield of silicon for each wavelength
-        iqy = optika.sensors.quantum_yield_ideal(wavelength)
-
         # Compute the actual number of electrons measured for each experiment
-        electrons = optika.sensors.electrons_measured(
+        electrons_exact = optika.sensors.electrons_measured(
             photons_absorbed=photons_absorbed,
-            absorption=absorption,
-            iqy=iqy,
+            wavelength=wavelength,
         )
 
         # Define the histogram bins
@@ -724,6 +719,10 @@ def electrons_measured(
               ax=ax,
             )
     """
+
+    if absorption is None:
+        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+
     shape = na.shape_broadcasted(
         photons_absorbed,
         absorption,
@@ -731,13 +730,10 @@ def electrons_measured(
         iqy,
         thickness_implant,
         cce_backsurface,
-        fano_noise,
+        fano_factor,
     )
 
-    electrons_expected = iqy * photons_absorbed
-    d = (2 / 12) * (u.electron / u.photon) ** 2
-    f = fano_noise + d * (photons_absorbed - 1 * u.photon) / electrons_expected
-    f = np.nan_to_num(f, neginf=fano_noise)
+    f = fano_factor
 
     a = absorption
     W = thickness_implant
@@ -784,14 +780,18 @@ def electrons_measured(
     return result
 
 
+_absorbance = absorbance
+
+
 def signal(
     photons_expected: u.Quantity | na.AbstractScalar,
-    absorption: u.Quantity | na.AbstractScalar,
-    absorbance: float | na.AbstractScalar = 1,
-    iqy: u.Quantity | na.AbstractScalar = 1 * u.electron / u.photon,
-    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
-    fano_noise: u.Quantity | na.AbstractScalar = _fano_noise,
+    wavelength: u.Quantity | na.ScalarArray,
+    absorbance: None | float | na.AbstractScalar = None,
+    absorption: None | u.Quantity | na.AbstractScalar = None,
+    thickness_implant: u.Quantity | na.AbstractScalar = stern_1994.thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = stern_1994.cce_backsurface,
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
     A random sample from the approximate distribution of measured electrons
@@ -806,14 +806,18 @@ def signal(
     ----------
     photons_expected
         The `expected` number of photons incident on the detector surface.
-    absorption
-        The absorption coefficient of the light-sensitive material for the
-        wavelength of interest.
+    wavelength
+        The vacuum wavelength of the absorbed photons.
     absorbance
         The fraction of incident energy absorbed by the light-sensitive layer
         of the detector computed using the average of :func:`absorbance`.
-    iqy
-        The ideal quantum yield of the sensor in electrons per photon.
+        If :obj:`None` (the default), the result of :func:`absorbance`
+        called with default values will be used.
+    absorption
+        The absorption coefficient of the light-sensitive material for the
+        wavelength of interest.
+        If :obj:`None` (the default), the result of
+        :meth:`optika.chemicals.Chemical.absorption` for silicon will be used.
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
@@ -821,13 +825,10 @@ def signal(
         The differential charge collection efficiency on the back surface
         of the sensor.
         Default is the value given in :cite:t:`Stern1994`.
-    fano_noise
-        The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
-        (ratio of the variance to the mean) of the Fano noise for this
-        sensor material.
-        Defaults to 0.1, the standard estimate of Fano noise in silicon
-        :cite:p:`Janesick2001`.
-        Must be in units of electrons per photon.
+    temperature
+        The temperature of the light-sensitive silicon layer.
+    shape_random
+        Additional shape used to specify the number of samples to draw.
 
     Examples
     --------
@@ -887,16 +888,26 @@ def signal(
         ax.set_ylabel(f"variance-to-mean ratio ({electrons.unit:latex_inline})");
     """
 
+    if absorbance is None:
+        absorbance = _absorbance(wavelength).average
+
+    if absorption is None:
+        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+
     photons_absorbed_expected = absorbance * photons_expected.to(u.ph)
-    photons_absorbed = na.random.poisson(photons_absorbed_expected).astype(int)
+    photons_absorbed = na.random.poisson(
+        lam=photons_absorbed_expected,
+        shape_random=shape_random,
+    )
 
     return electrons_measured(
         photons_absorbed=photons_absorbed,
+        wavelength=wavelength,
         absorption=absorption,
-        iqy=iqy,
         thickness_implant=thickness_implant,
         cce_backsurface=cce_backsurface,
-        fano_noise=fano_noise,
+        temperature=temperature,
+        shape_random=shape_random,
     )
 
 
@@ -1024,6 +1035,7 @@ class AbstractCCDMaterial(
     """
     An interface representing the light-sensitive material of a CCD sensor.
     """
+    temperature: u.Quantity | na.AbstractScalar = 300 * u.K
 
     @property
     def transformation(self) -> None:
@@ -1037,17 +1049,38 @@ class AbstractCCDMaterial(
     def _chemical_oxide(self) -> optika.chemicals.Chemical:
         return optika.chemicals.Chemical("SiO2_llnl_cxro_rodriguez")
 
-    @property
-    def fano_noise(self) -> u.Quantity:
+    def quantum_yield_ideal(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> u.Quantity | na.AbstractScalar:
+        """
+        Compute the ideal quantum yield of this CCD sensor material using
+        :func:`optika.sensors.quantum_yield_ideal`.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light
+        """
+        return quantum_yield_ideal(wavelength)
+
+    def fano_factor(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> na.ScalarArray:
         """
         The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
         (ratio of the variance to the mean) of the Fano noise for this
         sensor material.
 
-        This parameter has some variation in the literature,
-        this implementation uses the value given by :cite:t:`Rodrigues2021`.
+        The method uses the equivalent function, :func:`optika.sensors.fano_factor,
+        along with the :attr:`temperature` attribute to compute the Fano factor
+        for this material
         """
-        return 0.119 * u.electron / u.photon
+        return fano_factor(
+            wavelength=wavelength,
+            temperature=self.temperature,
+        )
 
     def index_refraction(
         self,
@@ -1139,21 +1172,6 @@ class AbstractBackilluminatedCCDMaterial(
             thickness_substrate=self.thickness_substrate,
             thickness_depletion=self.depletion.thickness,
         )
-
-    def quantum_yield_ideal(
-        self,
-        wavelength: u.Quantity | na.AbstractScalar,
-    ) -> u.Quantity | na.AbstractScalar:
-        """
-        Compute the ideal quantum yield of this CCD sensor material using
-        :func:`optika.sensors.quantum_yield_ideal`.
-
-        Parameters
-        ----------
-        wavelength
-            The wavelength of the incident light
-        """
-        return quantum_yield_ideal(wavelength)
 
     def absorbance(
         self,
@@ -1293,11 +1311,11 @@ class AbstractBackilluminatedCCDMaterial(
 
         electrons = electrons_measured(
             photons_absorbed=intensity,
+            wavelength=wavelength,
             absorption=self._chemical.absorption(wavelength),
-            iqy=self.quantum_yield_ideal(wavelength),
             thickness_implant=self.thickness_implant,
             cce_backsurface=self.cce_backsurface,
-            fano_noise=self.fano_noise,
+            temperature=self.temperature,
         )
 
         result = dataclasses.replace(rays, intensity=electrons)
@@ -1320,12 +1338,12 @@ class AbstractBackilluminatedCCDMaterial(
 
         electrons = signal(
             photons_expected=intensity,
-            absorption=self._chemical.absorption(wavelength),
+            wavelength=wavelength,
             absorbance=self.absorbance(rays, normal).average,
-            iqy=self.quantum_yield_ideal(wavelength),
+            absorption=self._chemical.absorption(wavelength),
             thickness_implant=self.thickness_implant,
             cce_backsurface=self.cce_backsurface,
-            fano_noise=self.fano_noise,
+            temperature=self.temperature,
         )
 
         result = dataclasses.replace(rays, intensity=electrons)

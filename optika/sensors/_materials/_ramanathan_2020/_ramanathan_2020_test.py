@@ -78,7 +78,7 @@ def test_fano_factor(
     ],
 )
 @pytest.mark.parametrize("temperature", _temperture)
-def test_electrons_measured_exact(
+def test_electrons_measured(
     photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: u.Quantity | na.AbstractScalar,
@@ -86,7 +86,7 @@ def test_electrons_measured_exact(
     cce_backsurface: u.Quantity | na.AbstractScalar,
     temperature: u.Quantity | na.ScalarArray,
 ):
-    result = _ramanathan_2020.electrons_measured_exact(
+    result = _ramanathan_2020.electrons_measured(
         photons_absorbed=photons_absorbed,
         wavelength=wavelength,
         absorption=absorption,

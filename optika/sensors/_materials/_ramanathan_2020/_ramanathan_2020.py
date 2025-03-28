@@ -9,7 +9,7 @@ import named_arrays as na
 __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
-    "electrons_measured_exact",
+    "electrons_measured",
 ]
 
 
@@ -267,7 +267,7 @@ def probability_of_n_pairs(
     return result
 
 
-def electrons_measured_exact(
+def electrons_measured(
     photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: u.Quantity | na.AbstractScalar,
@@ -293,12 +293,10 @@ def electrons_measured_exact(
     absorption
         The absorption coefficient of silicon at the given wavelength.
     thickness_implant
-        The thickness of the implant layer.
-        Default is the value given in :cite:t:`Stern1994`.
+        The thickness of the implant layer, where partial-charge collection occurs.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
-        Default is the value given in :cite:t:`Stern1994`.
     temperature
         The temperature of the silicon detector.
         Default is room temperature.
@@ -334,7 +332,7 @@ def electrons_measured_exact(
         absorption=optika.chemicals.Chemical("Si").absorption(wavelength)
 
         # Compute the actual number of electrons measured for each experiment
-        electrons = optika.sensors.electrons_measured_exact(
+        electrons = optika.sensors.electrons_measured(
             photons_absorbed=photons_absorbed,
             wavelength=wavelength,
             absorption=absorption,
