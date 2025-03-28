@@ -275,7 +275,7 @@ def probability_of_n_pairs(
 def electrons_measured(
     photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
-    absorption: None | u.Quantity | na.AbstractScalar,
+    absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
