@@ -600,6 +600,12 @@ def _discrete_gamma(
         shape_random=shape_random,
     )
 
+    x = np.where(
+        condition=vmr != 0,
+        x=x,
+        y=mean,
+    )
+
     unit_x = x.unit
     if unit_x is not None:
         x = x.value
@@ -616,6 +622,9 @@ def _discrete_gamma(
         x = x << unit_x
 
     return x
+
+
+_fano_factor = fano_factor
 
 
 def electrons_measured_approx(
@@ -750,6 +759,12 @@ def electrons_measured_approx(
 
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+
+    if iqy is None:
+        iqy = quantum_yield_ideal(wavelength, temperature)
+
+    if fano_factor is None:
+        fano_factor = _fano_factor(wavelength, temperature)
 
     shape = na.shape_broadcasted(
         photons_absorbed,

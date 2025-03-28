@@ -179,6 +179,60 @@ def test_(
 
 
 @pytest.mark.parametrize(
+    argnames="photons_absorbed",
+    argvalues=[
+        (100 * u.photon).astype(int),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        100 * u.nm,
+        na.geomspace(1, 10000, axis="wavelength", num=5) * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_implant",
+    argvalues=[
+        2000 * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="cce_backsurface",
+    argvalues=[
+        0.5,
+    ],
+)
+@pytest.mark.parametrize("temperature", [300 * u.K])
+def test_electrons_measured_approx(
+    photons_absorbed: u.Quantity | na.AbstractScalar,
+    wavelength: u.Quantity | na.ScalarArray,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.ScalarArray,
+):
+    result = optika.sensors.electrons_measured_approx(
+        photons_absorbed=photons_absorbed,
+        wavelength=wavelength,
+        thickness_implant=thickness_implant,
+        cce_backsurface=cce_backsurface,
+        temperature=temperature,
+    )
+
+    assert np.all(result >= 0 * u.electron)
+
+    shape = na.shape_broadcasted(
+        photons_absorbed,
+        wavelength,
+        thickness_implant,
+        cce_backsurface,
+        temperature,
+    )
+
+    assert result.shape == shape
+
+
+@pytest.mark.parametrize(
     argnames="photons_expected",
     argvalues=[
         100 * u.photon,
