@@ -7,7 +7,7 @@ import astropy.units as u
 import astropy.constants
 import named_arrays as na
 import optika
-from . import stern_1994
+from . import stern_1994 as stern
 from ._ramanathan_2020 import (
     quantum_yield_ideal,
     fano_factor,
@@ -48,8 +48,8 @@ def absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
     n: float | na.AbstractScalar = 1,
-    thickness_oxide: u.Quantity | na.AbstractScalar = stern_1994.thickness_oxide,
-    thickness_substrate: u.Quantity | na.AbstractScalar = stern_1994.thickness_substrate,
+    thickness_oxide: u.Quantity | na.AbstractScalar = stern.thickness_oxide,
+    thickness_substrate: u.Quantity | na.AbstractScalar = stern.thickness_substrate,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -151,8 +151,8 @@ def absorbance(
 
 def charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
-    thickness_implant: u.Quantity | na.AbstractScalar = stern_1994.thickness_implant,
-    cce_backsurface: u.Quantity | na.AbstractScalar = stern_1994.cce_backsurface,
+    thickness_implant: u.Quantity | na.AbstractScalar = stern.thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = stern.cce_backsurface,
     cos_incidence: float | na.AbstractScalar = 1,
 ) -> na.AbstractScalar:
     r"""
@@ -290,10 +290,10 @@ def quantum_efficiency_effective(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: None | na.AbstractCartesian3dVectorArray = None,
     n: float | na.AbstractScalar = 1,
-    thickness_oxide: u.Quantity | na.AbstractScalar = stern_1994.thickness_oxide,
-    thickness_implant: u.Quantity | na.AbstractScalar = stern_1994.thickness_implant,
-    thickness_substrate: u.Quantity | na.AbstractScalar = stern_1994.thickness_substrate,
-    cce_backsurface: u.Quantity | na.AbstractScalar = stern_1994.cce_backsurface,
+    thickness_oxide: u.Quantity | na.AbstractScalar = stern.thickness_oxide,
+    thickness_implant: u.Quantity | na.AbstractScalar = stern.thickness_implant,
+    thickness_substrate: u.Quantity | na.AbstractScalar = stern.thickness_substrate,
+    cce_backsurface: u.Quantity | na.AbstractScalar = stern.cce_backsurface,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -617,8 +617,8 @@ def electrons_measured_approx(
     photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
-    thickness_implant: u.Quantity | na.AbstractScalar = stern_1994.thickness_implant,
-    cce_backsurface: u.Quantity | na.AbstractScalar = stern_1994.cce_backsurface,
+    thickness_implant: u.Quantity | na.AbstractScalar = stern.thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = stern.cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     iqy: None | u.Quantity | na.AbstractScalar = None,
     fano_factor: None | u.Quantity | na.AbstractScalar = None,
@@ -788,8 +788,8 @@ def signal(
     wavelength: u.Quantity | na.ScalarArray,
     absorbance: None | float | na.AbstractScalar = None,
     absorption: None | u.Quantity | na.AbstractScalar = None,
-    thickness_implant: u.Quantity | na.AbstractScalar = stern_1994.thickness_implant,
-    cce_backsurface: u.Quantity | na.AbstractScalar = stern_1994.cce_backsurface,
+    thickness_implant: u.Quantity | na.AbstractScalar = stern.thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = stern.cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
@@ -1035,6 +1035,7 @@ class AbstractCCDMaterial(
     """
     An interface representing the light-sensitive material of a CCD sensor.
     """
+
     temperature: u.Quantity | na.AbstractScalar = 300 * u.K
 
     @property
