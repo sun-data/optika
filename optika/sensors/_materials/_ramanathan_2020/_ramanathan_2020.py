@@ -5,10 +5,9 @@ import numpy as np
 import numba
 import astropy.units as u
 import named_arrays as na
+import optika
 from .._stern_1994 import (
-    _thickness_oxide,
     _thickness_implant,
-    _thickness_substrate,
     _cce_backsurface,
 )
 
@@ -276,7 +275,7 @@ def probability_of_n_pairs(
 def electrons_measured(
     photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
-    absorption: u.Quantity | na.AbstractScalar,
+    absorption: None | u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
@@ -334,16 +333,10 @@ def electrons_measured(
         wavelength = 5.9 * u.keV
         wavelength = wavelength.to(u.AA, equivalencies=u.spectral())
 
-        # Compute the absorption coefficient of silicon at this wavelength
-        absorption=optika.chemicals.Chemical("Si").absorption(wavelength)
-
         # Compute the actual number of electrons measured for each experiment
         electrons = optika.sensors.electrons_measured(
             photons_absorbed=photons_absorbed,
             wavelength=wavelength,
-            absorption=absorption,
-            thickness_implant=200 * u.nm,
-            cce_backsurface=0.5,
             shape_random=dict(experiment=num_experiments),
         )
 
@@ -372,6 +365,9 @@ def electrons_measured(
               ax=ax,
             )
     """
+
+    if absorption is None:
+        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
     if shape_random is None:
         shape_random = dict()

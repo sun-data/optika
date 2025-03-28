@@ -697,6 +697,14 @@ def electrons_measured_approx(
         electrons_exact = optika.sensors.electrons_measured(
             photons_absorbed=photons_absorbed,
             wavelength=wavelength,
+            shape_random=dict(experiment=num_experiments),
+        )
+
+        # Compute the approximate number of electrons measured for each experiment
+        electrons_approx = optika.sensors.electrons_measured_approx(
+            photons_absorbed=photons_absorbed,
+            wavelength=wavelength,
+            shape_random=dict(experiment=num_experiments),
         )
 
         # Define the histogram bins
@@ -708,9 +716,16 @@ def electrons_measured_approx(
             axis="bin",
         ) * electrons.unit
 
-        # Compute a histogram of resulting energy spectrum
-        hist = na.histogram(
-            electrons,
+        # Compute a histogram of exact energy spectrum
+        hist_exact = na.histogram(
+            electrons_exact,
+            bins=bins,
+            axis="experiment",
+        )
+
+        # Compute a histogram of approximate energy spectrum
+        hist_approx = na.histogram(
+            electrons_approx,
             bins=bins,
             axis="experiment",
         )
@@ -718,11 +733,19 @@ def electrons_measured_approx(
         # Plot the histogram
         with astropy.visualization.quantity_support():
             fig, ax = plt.subplots()
-            line = na.plt.stairs(
-              hist.inputs,
-              hist.outputs,
-              ax=ax,
-            )
+            na.plt.stairs(
+                hist_exact.inputs,
+                hist_exact.outputs,
+                ax=ax,
+                label="exact",
+            );
+            na.plt.stairs(
+                hist_approx.inputs,
+                hist_approx.outputs,
+                ax=ax,
+                label="approx",
+            );
+            ax.legend();
     """
 
     if absorption is None:
