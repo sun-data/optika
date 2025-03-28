@@ -8,6 +8,7 @@ from ._depletion import (
     E2VCCD64ThickDepletionModel,
     E2VCCD64ThinDepletionModel,
 )
+from . import stern_1994
 from ._materials import (
     quantum_yield_ideal,
     fano_factor,
