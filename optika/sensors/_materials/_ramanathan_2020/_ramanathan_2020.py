@@ -5,6 +5,12 @@ import numpy as np
 import numba
 import astropy.units as u
 import named_arrays as na
+from .._stern_1994 import (
+    _thickness_oxide,
+    _thickness_implant,
+    _thickness_substrate,
+    _cce_backsurface,
+)
 
 __all__ = [
     "quantum_yield_ideal",
@@ -271,8 +277,8 @@ def electrons_measured(
     photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: u.Quantity | na.AbstractScalar,
-    thickness_implant: u.Quantity | na.AbstractScalar,
-    cce_backsurface: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
