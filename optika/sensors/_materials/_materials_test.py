@@ -333,7 +333,7 @@ class AbstractTestAbstractCCDMaterial(
         argnames="wavelength",
         argvalues=[
             3 * u.eV,
-            na.geomspace(1, 10000, axis="wavelength", num=5) * u.AA
+            na.geomspace(1, 10000, axis="wavelength", num=5) * u.AA,
         ],
     )
     def test_fano_factor(
