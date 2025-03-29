@@ -723,7 +723,7 @@ def electrons_measured_approx(
             electrons.value.max()+step/2,
             step=step,
             axis="bin",
-        ) * electrons.unit
+        ) * u.electron
 
         # Compute a histogram of exact energy spectrum
         hist_exact = na.histogram(

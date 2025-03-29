@@ -347,7 +347,7 @@ def electrons_measured(
             electrons.value.max()+step/2,
             step=step,
             axis="bin",
-        ) * electrons.unit
+        ) * u.electron
 
         # Compute a histogram of resulting energy spectrum
         hist = na.histogram(
