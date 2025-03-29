@@ -891,30 +891,15 @@ def signal(
 
         # Define the expected number of photons
         # for each experiment
-        photons_expected = na.broadcast_to(
-            array=100 * u.photon,
-            shape=dict(experiment=num_experiments)
-        )
+        photons_expected = 100 * u.photon
 
         # Define a grid of wavelengths
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
-        # Compute the absorption coefficient of silicon at this wavelength
-        absorption=optika.chemicals.Chemical("Si").absorption(wavelength)
-
-        # Compute the fraction of light absorbed by the light-sensitive
-        # region of the detector
-        absorbance = optika.sensors.absorbance(wavelength).average
-
-        # Compute the ideal quantum yield of silicon for each wavelength
-        iqy = optika.sensors.quantum_yield_ideal(wavelength)
-
         # Compute the actual number of electrons measured for each experiment
         electrons = optika.sensors.signal(
             photons_expected=photons_expected,
-            absorption=absorption,
-            absorbance=absorbance,
-            iqy=iqy,
+            wavelength=wavelength,
         )
 
         # Plot the variance-to-mean ratio of the result
