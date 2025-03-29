@@ -719,8 +719,8 @@ def electrons_measured_approx(
         # Define the histogram bins
         step = 10
         bins = na.arange(
-            electrons.value.min()-step/2,
-            electrons.value.max()+step/2,
+            electrons_exact.value.min()-step/2,
+            electrons_exact.value.max()+step/2,
             step=step,
             axis="bin",
         ) * u.electron
