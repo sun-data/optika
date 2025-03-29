@@ -900,6 +900,7 @@ def signal(
         electrons = optika.sensors.signal(
             photons_expected=photons_expected,
             wavelength=wavelength,
+            shape_random=dict(experiment=num_experiments),
         )
 
         # Plot the variance-to-mean ratio of the result
