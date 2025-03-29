@@ -775,6 +775,7 @@ def electrons_measured_approx(
         cce_backsurface,
         fano_factor,
     )
+    shape = na.broadcast_shapes(shape, shape_random)
 
     f = fano_factor
 
