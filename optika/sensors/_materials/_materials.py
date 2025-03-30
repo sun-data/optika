@@ -766,6 +766,9 @@ def electrons_measured_approx(
     if fano_factor is None:
         fano_factor = _fano_factor(wavelength, temperature)
 
+    if shape_random is None:
+        shape_random = dict()
+
     shape = na.shape_broadcasted(
         photons_absorbed,
         absorption,
