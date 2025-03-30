@@ -106,7 +106,7 @@ def quantum_yield_ideal(
         import optika
 
         # Define an array of wavelengths
-        wavelength = na.geomspace(100, 100000, axis="wavelength", num=101) << u.AA
+        wavelength = na.geomspace(100, 100000, axis="wavelength", num=1001) << u.AA
 
         # Compute the quantum yield
         iqy = optika.sensors.quantum_yield_ideal(wavelength)
@@ -181,7 +181,7 @@ def fano_factor(
         import optika
 
         # Define an array of wavelengths
-        wavelength = na.geomspace(100, 100000, axis="wavelength", num=101) << u.AA
+        wavelength = na.geomspace(100, 100000, axis="wavelength", num=1001) << u.AA
 
         # Compute the Fano factor
         f = optika.sensors.fano_factor(wavelength)
