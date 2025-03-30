@@ -666,7 +666,7 @@ def electrons_measured_approx(
         The temperature of the light-sensitive silicon layer.
     iqy
         The ideal quantum yield of the sensor in electrons per photon.
-        If :obj:`None` (the default), the result of :func:`ideal_quantum_yield`
+        If :obj:`None` (the default), the result of :func:`quantum_yield_ideal`
         is used.
     fano_factor
         The `Fano factor <https://en.wikipedia.org/wiki/Fano_factor>`_
