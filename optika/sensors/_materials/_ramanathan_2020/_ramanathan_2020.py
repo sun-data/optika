@@ -327,7 +327,7 @@ def electrons_measured(
 
         # Define the expected number of photons
         # for each experiment
-        photons_absorbed = 100 * u.photon
+        photons_absorbed = (100 * u.photon).astype(int)
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
