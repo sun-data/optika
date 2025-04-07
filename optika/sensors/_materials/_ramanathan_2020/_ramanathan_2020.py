@@ -364,7 +364,7 @@ def fano_factor(
         x=energy,
         xp=_energy,
         fp=_fano_factor,
-        right=_fano_factor_inf,
+        right=_fano_factor_inf.value,
     )
 
     fano_factor = na.interp(
