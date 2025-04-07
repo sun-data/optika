@@ -1,5 +1,6 @@
 from ._ramanathan_2020 import (
     energy_bandgap,
+    energy_pair,
     energy_pair_inf,
     quantum_yield_ideal,
     fano_factor,
@@ -8,6 +9,7 @@ from ._ramanathan_2020 import (
 
 __all__ = [
     "energy_bandgap",
+    "energy_pair",
     "energy_pair_inf",
     "quantum_yield_ideal",
     "fano_factor",

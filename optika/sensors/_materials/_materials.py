@@ -15,6 +15,7 @@ from ._stern_1994 import (
 )
 from ._ramanathan_2020 import (
     energy_bandgap,
+    energy_pair,
     energy_pair_inf,
     quantum_yield_ideal,
     fano_factor,
@@ -26,6 +27,7 @@ __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
     "energy_bandgap",
+    "energy_pair",
     "energy_pair_inf",
     "energy_electron_hole",
     "absorbance",

@@ -13,6 +13,7 @@ from .._stern_1994 import (
 
 __all__ = [
     "energy_bandgap",
+    "energy_pair",
     "energy_pair_inf",
     "quantum_yield_ideal",
     "fano_factor",
@@ -140,6 +141,78 @@ def energy_bandgap(
     return energy_gap_0 - a * np.square(T) / (T + b)
 
 
+def energy_pair(
+    wavelength: u.Quantity | na.ScalarArray,
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+) -> na.ScalarArray:
+    """
+    Calculate the average pair-production energy in silicon given by
+    :cite:t:`Ramanathan2020`.
+
+    Parameters
+    ----------
+     wavelength
+        The vacuum wavelength of the incident photons.
+    temperature
+        The temperature of the silicon.
+
+    Examples
+    --------
+
+    Compute the pair-production energy as a function of incident photon energy.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        energy = na.geomspace(1, 100, axis="energy", num=1001) * u.eV
+        energy_pair = optika.sensors.energy_pair(energy)
+
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots()
+            na.plt.plot(
+                energy,
+                energy_pair,
+            )
+            ax.set_xscale("log")
+            ax.set_xlabel(f"incident photon energy ({ax.get_xlabel()})")
+            ax.set_ylabel(f"pair-production energy ({ax.get_ylabel()})")
+    """
+    energy = wavelength.to(u.eV, equivalencies=u.spectral())
+
+    pn = _probability_of_n_pairs_ramanathan()
+
+    _n = pn.inputs.components["n"]
+    _energy = pn.inputs.components["energy"]
+    _temperature = pn.inputs.components["temperature"]
+    _probability = pn.outputs
+
+    _iqy = (_n * _probability).sum("num_electron")
+
+    _energy_pair = _energy / _iqy
+
+    _energy_pair_inf = energy_pair_inf(_temperature)
+
+    energy_pair = na.interp(
+        x=energy,
+        xp=_energy,
+        fp=_energy_pair,
+        right=_energy_pair_inf.value,
+    )
+
+    energy_pair = na.interp(
+        x=temperature,
+        xp=_temperature,
+        fp=energy_pair,
+    )
+
+    return energy_pair
+
+
 def energy_pair_inf(
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
 ) -> na.ScalarArray:
@@ -219,31 +292,9 @@ def quantum_yield_ideal(
 
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
 
-    pn = _probability_of_n_pairs_ramanathan()
-
-    _n = pn.inputs.components["n"]
-    _energy = pn.inputs.components["energy"]
-    _temperature = pn.inputs.components["temperature"]
-    _probability = pn.outputs
-
-    _iqy = (_n * _probability).sum("num_electron")
-
-    _energy_pair = _energy / _iqy
-
-    slice_he = dict(wavelength=slice(-100, None))
-    energy_pair_he = _energy_pair[slice_he].mean("wavelength")
-
-    energy_pair = na.interp(
-        x=energy,
-        xp=_energy,
-        fp=_energy_pair,
-        right=energy_pair_he.value,
-    )
-
-    energy_pair = na.interp(
-        x=temperature,
-        xp=_temperature,
-        fp=energy_pair,
+    energy_pair(
+        wavelength=wavelength,
+        temperature=temperature,
     )
 
     iqy = energy / energy_pair

@@ -29,6 +29,21 @@ def test_energy_bandgap(
     assert result.shape == temperature.shape
 
 
+@pytest.mark.parametrize("wavelength", _wavelength)
+@pytest.mark.parametrize("temperature", _temperture)
+def test_energy_pair(
+    wavelength: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.AbstractScalar,
+):
+    result = _ramanathan_2020.energy_pair(
+        wavelength=wavelength,
+        temperature=temperature,
+    )
+
+    assert np.all(result >= 0 * u.eV)
+    assert result.shape == na.shape_broadcasted(wavelength, temperature)
+
+
 @pytest.mark.parametrize("temperature", _temperture)
 def test_energy_pair_inf(
     temperature: u.Quantity | na.AbstractScalar,
