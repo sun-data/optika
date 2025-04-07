@@ -292,12 +292,12 @@ def quantum_yield_ideal(
 
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
 
-    energy_pair(
+    W = energy_pair(
         wavelength=wavelength,
         temperature=temperature,
     )
 
-    iqy = energy / energy_pair
+    iqy = energy / W
 
     return iqy * u.electron / u.photon
 
