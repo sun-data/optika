@@ -14,6 +14,7 @@ from ._stern_1994 import (
     _cce_backsurface,
 )
 from ._ramanathan_2020 import (
+    energy_bandgap,
     quantum_yield_ideal,
     fano_factor,
     electrons_measured,
@@ -38,9 +39,6 @@ __all__ = [
     "AbstractBackilluminatedCCDMaterial",
     "AbstractStern1994BackilluminatedCCDMaterial",
 ]
-
-energy_bandgap = 1.12 * u.eV
-"""the bandgap energy of silicon"""
 
 energy_electron_hole = 3.65 * u.eV
 """

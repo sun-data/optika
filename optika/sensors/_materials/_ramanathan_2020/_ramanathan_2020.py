@@ -12,6 +12,7 @@ from .._stern_1994 import (
 )
 
 __all__ = [
+    "energy_bandgap",
     "quantum_yield_ideal",
     "fano_factor",
     "electrons_measured",
@@ -76,6 +77,66 @@ def _probability_of_n_pairs_ramanathan() -> na.FunctionArray[
         ),
         outputs=probability,
     )
+
+
+def energy_bandgap(
+    temperature: u.Quantity | na.ScalarArray,
+) -> na.ScalarArray:
+    """
+    Bandgap energy in silicon given by :cite:t:`Ramanathan2020`.
+
+    Parameters
+    ----------
+    temperature
+        The temperature of the silicon.
+
+    Examples
+    --------
+
+    Reproduce Figure 2 of :cite:t:`Ramanathan2020`, and plot the bandgap
+    energy as a function of temperature.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        T = na.linspace(0, 350, axis="temperature", num=101) * u.K
+        energy_gap = optika.sensors.energy_bandgap(T)
+
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots()
+            na.plt.plot(
+                T,
+                energy_gap
+            )
+            ax.set_xlabel(f"temperature ({ax.get_xlabel()})")
+            ax.set_ylabel(f"bandgap energy ({ax.get_ylabel()})")
+
+    Notes
+    -----
+
+    :cite:t:`Ramanathan2020` gives the bandgap energy as
+
+    .. math::
+
+        E_g(T) = E_g(0) - \frac{a T^2}{T + b}
+
+    where :math:`T` is the temperature of the silicon,
+    :math:`E_g(0) = 1.192 \, \text{eV}`,
+    :math:`a = 4.9 \times 10^-4 \, \text{eV / K}`,
+    and :math:`b = 655 \, \text{K}`.
+
+    """
+    T = temperature
+    energy_gap_0 = 1.1692 * u.eV
+    a = 4.9e-4 * u.eV / u.K
+    b = 655 * u.K
+
+    return energy_gap_0 - a * np.square(T) / (T + b)
 
 
 def quantum_yield_ideal(
@@ -282,7 +343,7 @@ def electrons_measured(
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
-    A random sample from the approximate distribution of measured electrons
+    A random sample from the distribution of measured electrons
     given the number of photons absorbed by the light-sensitive layer of the
     sensor.
 
