@@ -143,7 +143,7 @@ def energy_bandgap(
 def energy_pair_avg(
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
 ) -> na.ScalarArray:
-    """
+    r"""
     The mean electron-hole pair production energy in silicon
     given by :cite:t:`Ramanathan2020`.
 
