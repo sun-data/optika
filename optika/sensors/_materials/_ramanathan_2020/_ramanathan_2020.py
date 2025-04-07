@@ -13,6 +13,7 @@ from .._stern_1994 import (
 
 __all__ = [
     "energy_bandgap",
+    "energy_pair_avg",
     "quantum_yield_ideal",
     "fano_factor",
     "electrons_measured",
@@ -137,6 +138,42 @@ def energy_bandgap(
     b = 655 * u.K
 
     return energy_gap_0 - a * np.square(T) / (T + b)
+
+
+def energy_pair_avg(
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+) -> na.ScalarArray:
+    """
+    The mean electron-hole pair production energy in silicon
+    given by :cite:t:`Ramanathan2020`.
+
+    Parameters
+    ----------
+    temperature
+        The temperature of the silicon.
+
+    Notes
+    -----
+
+    :cite:t:`Ramanathan2020` gives the mean pair production energy as
+
+    .. math::
+
+        \epsilon_{eh} = 1.7 E_g + 0.084 A + 1.3,
+
+    where :math:`E_g` is the bandgap energy of silicon calculated using
+    :func:`energy_bandgap` and
+    :math:`A = 5.2 \, \text{eV}^2`.
+
+    """
+
+    A = 5.2 * u.eV ** 2
+
+    E_g = energy_bandgap(temperature)
+
+    result = 1.7 * E_g + 0.084 * A / u.eV + 1.3 * u.eV
+
+    return result
 
 
 def quantum_yield_ideal(
