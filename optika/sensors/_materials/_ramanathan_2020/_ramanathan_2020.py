@@ -13,7 +13,7 @@ from .._stern_1994 import (
 
 __all__ = [
     "energy_bandgap",
-    "energy_pair_avg",
+    "energy_pair_inf",
     "quantum_yield_ideal",
     "fano_factor",
     "electrons_measured",
@@ -140,11 +140,11 @@ def energy_bandgap(
     return energy_gap_0 - a * np.square(T) / (T + b)
 
 
-def energy_pair_avg(
+def energy_pair_inf(
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
 ) -> na.ScalarArray:
     r"""
-    The mean electron-hole pair production energy in silicon
+    The asymptotic electron-hole pair production energy in silicon
     given by :cite:t:`Ramanathan2020`.
 
     Parameters

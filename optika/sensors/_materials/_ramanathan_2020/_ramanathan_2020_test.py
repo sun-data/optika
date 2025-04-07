@@ -30,10 +30,10 @@ def test_energy_bandgap(
 
 
 @pytest.mark.parametrize("temperature", _temperture)
-def test_energy_pair_avg(
+def test_energy_pair_inf(
     temperature: u.Quantity | na.AbstractScalar,
 ):
-    result = _ramanathan_2020.energy_pair_avg(
+    result = _ramanathan_2020.energy_pair_inf(
         temperature=temperature,
     )
 

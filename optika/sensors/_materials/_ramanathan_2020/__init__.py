@@ -1,6 +1,6 @@
 from ._ramanathan_2020 import (
     energy_bandgap,
-    energy_pair_avg,
+    energy_pair_inf,
     quantum_yield_ideal,
     fano_factor,
     electrons_measured,
@@ -8,7 +8,7 @@ from ._ramanathan_2020 import (
 
 __all__ = [
     "energy_bandgap",
-    "energy_pair_avg",
+    "energy_pair_inf",
     "quantum_yield_ideal",
     "fano_factor",
     "electrons_measured",
