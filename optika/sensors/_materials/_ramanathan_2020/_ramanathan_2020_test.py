@@ -86,6 +86,18 @@ def test_fano_factor(
     assert result.shape == na.shape_broadcasted(wavelength, temperature)
 
 
+@pytest.mark.parametrize("temperature", _temperture)
+def test_fano_factor_inf(
+    temperature: u.Quantity | na.AbstractScalar,
+):
+    result = _ramanathan_2020.fano_factor_inf(
+        temperature=temperature,
+    )
+
+    assert np.all(result >= 0 * u.electron / u.photon)
+    assert result.shape == temperature.shape
+
+
 @pytest.mark.parametrize(
     argnames="photons_absorbed",
     argvalues=[

@@ -19,17 +19,18 @@ from ._ramanathan_2020 import (
     energy_pair_inf,
     quantum_yield_ideal,
     fano_factor,
+    fano_factor_inf,
     electrons_measured,
 )
 from ._depletion import AbstractDepletionModel
 
 __all__ = [
-    "quantum_yield_ideal",
-    "fano_factor",
     "energy_bandgap",
     "energy_pair",
     "energy_pair_inf",
-    "energy_electron_hole",
+    "quantum_yield_ideal",
+    "fano_factor",
+    "fano_factor_inf",
     "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
@@ -43,12 +44,6 @@ __all__ = [
     "AbstractBackilluminatedCCDMaterial",
     "AbstractStern1994BackilluminatedCCDMaterial",
 ]
-
-energy_electron_hole = 3.65 * u.eV
-"""
-the high-energy limit of the energy required to create an electron-hole pair
-in silicon at room temperature
-"""
 
 
 def absorbance(

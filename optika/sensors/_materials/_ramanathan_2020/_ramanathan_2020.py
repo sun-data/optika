@@ -17,6 +17,7 @@ __all__ = [
     "energy_pair_inf",
     "quantum_yield_ideal",
     "fano_factor",
+    "fano_factor_inf",
     "electrons_measured",
 ]
 
@@ -357,13 +358,13 @@ def fano_factor(
     _v = (np.square(_n) * _probability).sum("num_electron")
     _fano_factor = (_v - np.square(_iqy)) / _iqy
 
-    fano_he = np.nanmedian(_fano_factor, axis="wavelength")
+    _fano_factor_inf = fano_factor_inf(_temperature)
 
     fano_factor = na.interp(
         x=energy,
         xp=_energy,
         fp=_fano_factor,
-        right=fano_he,
+        right=_fano_factor_inf,
     )
 
     fano_factor = na.interp(
@@ -373,6 +374,42 @@ def fano_factor(
     )
 
     return fano_factor * u.electron / u.photon
+
+
+def fano_factor_inf(
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+) -> na.ScalarArray:
+    r"""
+    The asymptotic Fano factor in silicon given by :cite:t:`Ramanathan2020`.
+
+    Parameters
+    ----------
+    temperature
+        The temperature of the silicon.
+
+    Notes
+    -----
+
+    :cite:t:`Ramanathan2020` gives the mean Fano factor as
+
+    .. math::
+
+        \epsilon_{eh} = -0.028 E_g + 0.0015 A + 0.14,
+
+    where :math:`E_g` is the bandgap energy of silicon calculated using
+    :func:`energy_bandgap` and
+    :math:`A = 5.2 \, \text{eV}^2`.
+    """
+
+    A = 5.2 * u.eV**2
+
+    E_g = energy_bandgap(temperature)
+
+    result = -0.028 * E_g + 0.0015 * A / u.eV + 0.14 * u.eV
+
+    result = result * u.electron / u.photon / u.eV
+
+    return result
 
 
 def probability_of_n_pairs(
