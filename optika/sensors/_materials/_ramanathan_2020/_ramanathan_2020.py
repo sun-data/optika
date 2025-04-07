@@ -167,7 +167,7 @@ def energy_pair_avg(
 
     """
 
-    A = 5.2 * u.eV ** 2
+    A = 5.2 * u.eV**2
 
     E_g = energy_bandgap(temperature)
 
