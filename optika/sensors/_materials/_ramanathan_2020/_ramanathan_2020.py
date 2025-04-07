@@ -82,7 +82,7 @@ def _probability_of_n_pairs_ramanathan() -> na.FunctionArray[
 def energy_bandgap(
     temperature: u.Quantity | na.ScalarArray,
 ) -> na.ScalarArray:
-    """
+    r"""
     Bandgap energy in silicon given by :cite:t:`Ramanathan2020`.
 
     Parameters
