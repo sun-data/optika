@@ -1,3 +1,4 @@
+from typing import Literal
 import abc
 import functools
 import dataclasses
@@ -835,6 +836,7 @@ def signal(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    method: Literal['exact', 'approx'] = "exact",
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
@@ -871,6 +873,10 @@ def signal(
         Default is the value given in :cite:t:`Stern1994`.
     temperature
         The temperature of the light-sensitive silicon layer.
+    method
+        The method used to generate random samples of measured electrons.
+        The exact method is more accurate for low numbers of photons,
+        but suffers from poor performance for high numbers of photons.
     shape_random
         Additional shape used to specify the number of samples to draw.
 
@@ -928,9 +934,9 @@ def signal(
     photons_absorbed = na.random.poisson(
         lam=photons_absorbed_expected,
         shape_random=shape_random,
-    )
+    ).astype(int)
 
-    return electrons_measured(
+    kwargs = dict(
         photons_absorbed=photons_absorbed,
         wavelength=wavelength,
         absorption=absorption,
@@ -939,6 +945,13 @@ def signal(
         temperature=temperature,
         shape_random=shape_random,
     )
+
+    if method == "exact":
+        return electrons_measured(**kwargs)
+    elif method == "approx":
+        return electrons_measured_approx(**kwargs)
+    else:  # pragma: nocover
+        raise ValueError(f"Unrecognized method: {method}")
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -1093,7 +1106,10 @@ class AbstractCCDMaterial(
         wavelength
             The wavelength of the incident light
         """
-        return quantum_yield_ideal(wavelength)
+        return quantum_yield_ideal(
+            wavelength=wavelength,
+            temperature=self.temperature,
+        )
 
     def fano_factor(
         self,
