@@ -174,6 +174,7 @@ class AbstractChemical(
             The wavelength of light in vacuum for which to compute the
             absorption coefficient.
         """
+        wavelength = wavelength.to(u.AA, equivalencies=u.spectral())
         return 4 * np.pi * self.wavenumber(wavelength) / wavelength
 
 
