@@ -250,7 +250,7 @@ def test_electrons_measured_approx(
     argvalues=[
         "exact",
         "approx",
-    ]
+    ],
 )
 def test_signal(
     photons_expected: u.Quantity | na.AbstractScalar,
