@@ -7,21 +7,6 @@ from optika.materials._tests.test_materials import AbstractTestAbstractMaterial
 
 
 @pytest.mark.parametrize(
-    argnames="wavelength,result_expected",
-    argvalues=[
-        (1.0 * u.eV, 0 * u.electron / u.photon),
-        (2.0 * u.eV, 1 * u.electron / u.photon),
-        (2 * optika.sensors.energy_electron_hole, 2 * u.electron / u.photon),
-    ],
-)
-def test_quantum_yield_ideal(
-    wavelength: u.Quantity | na.AbstractScalar, result_expected: na.AbstractScalar
-):
-    result = optika.sensors.quantum_yield_ideal(wavelength)
-    assert np.all(result == result_expected)
-
-
-@pytest.mark.parametrize(
     argnames="wavelength",
     argvalues=[
         304 * u.AA,
@@ -194,32 +179,88 @@ def test_(
 
 
 @pytest.mark.parametrize(
+    argnames="photons_absorbed",
+    argvalues=[
+        (100 * u.photon).astype(int),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        100 * u.nm,
+        na.geomspace(1, 10000, axis="wavelength", num=5) * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_implant",
+    argvalues=[
+        2000 * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="cce_backsurface",
+    argvalues=[
+        0.5,
+    ],
+)
+@pytest.mark.parametrize("temperature", [300 * u.K])
+def test_electrons_measured_approx(
+    photons_absorbed: u.Quantity | na.AbstractScalar,
+    wavelength: u.Quantity | na.ScalarArray,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.ScalarArray,
+):
+    result = optika.sensors.electrons_measured_approx(
+        photons_absorbed=photons_absorbed,
+        wavelength=wavelength,
+        thickness_implant=thickness_implant,
+        cce_backsurface=cce_backsurface,
+        temperature=temperature,
+    )
+
+    assert np.all(result >= 0 * u.electron)
+
+    shape = na.shape_broadcasted(
+        photons_absorbed,
+        wavelength,
+        thickness_implant,
+        cce_backsurface,
+        temperature,
+    )
+
+    assert result.shape == shape
+
+
+@pytest.mark.parametrize(
     argnames="photons_expected",
-    argvalues=[100 * u.photon],
+    argvalues=[
+        100 * u.photon,
+    ],
 )
 @pytest.mark.parametrize(
-    argnames="absorbance",
-    argvalues=[0.75],
+    argnames="wavelength",
+    argvalues=[
+        1000 * u.AA,
+        na.geomspace(1, 10000, axis="wavelength", num=9) * u.AA,
+    ],
 )
 @pytest.mark.parametrize(
-    argnames="iqy",
-    argvalues=[1.61 * u.electron / u.photon],
-)
-@pytest.mark.parametrize(
-    argnames="absorption",
-    argvalues=[1 / u.um],
+    argnames="method",
+    argvalues=[
+        "exact",
+        "approx",
+    ],
 )
 def test_signal(
     photons_expected: u.Quantity | na.AbstractScalar,
-    absorbance: float | na.AbstractScalar,
-    iqy: u.Quantity | na.AbstractScalar,
-    absorption: float | na.AbstractScalar,
+    wavelength: u.Quantity | na.AbstractScalar,
+    method: str,
 ):
     result = optika.sensors.signal(
         photons_expected=photons_expected,
-        absorbance=absorbance,
-        absorption=absorption,
-        iqy=iqy,
+        wavelength=wavelength,
+        method=method,
     )
     assert np.all(result >= 0 * u.electron)
 
@@ -336,9 +377,35 @@ class TestIdealImagingSensorMaterial(
 class AbstractTestAbstractCCDMaterial(
     AbstractTestAbstractImagingSensorMaterial,
 ):
-    def test_fano_noise(self, a: optika.sensors.AbstractCCDMaterial):
-        result = a.fano_noise
-        assert np.all(result > 0 * u.electron / u.photon)
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            500 * u.nm,
+        ],
+    )
+    def test_quantum_yield_ideal(
+        self,
+        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        result = a.quantum_yield_ideal(wavelength)
+        assert result >= 0
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            3 * u.eV,
+            na.geomspace(1, 10000, axis="wavelength", num=5) * u.AA,
+        ],
+    )
+    def test_fano_factor(
+        self,
+        a: optika.sensors.AbstractCCDMaterial,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        result = a.fano_factor(wavelength)
+        assert np.all(result >= 0 * u.electron / u.photon)
 
 
 class AbstractTestAbstractBackilluminatedCCDMaterial(
@@ -403,20 +470,6 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     ):
         result = a.width_charge_diffusion(rays, normal)
         assert np.all(result >= 0 * u.um)
-
-    @pytest.mark.parametrize(
-        argnames="wavelength",
-        argvalues=[
-            500 * u.nm,
-        ],
-    )
-    def test_quantum_yield_ideal(
-        self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
-        wavelength: u.Quantity | na.AbstractScalar,
-    ):
-        result = a.quantum_yield_ideal(wavelength)
-        assert result >= 0
 
     @pytest.mark.parametrize(
         argnames="rays",
