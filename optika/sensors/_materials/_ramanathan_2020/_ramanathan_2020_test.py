@@ -109,9 +109,7 @@ def test_fano_factor_inf(
     argvalues=[
         (
             w,
-            optika.chemicals.Chemical("Si").absorption(
-                w.to(u.AA, equivalencies=u.spectral())
-            ),
+            None,
         )
         for w in _wavelength
     ],

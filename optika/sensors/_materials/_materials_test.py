@@ -245,13 +245,22 @@ def test_electrons_measured_approx(
         na.geomspace(1, 10000, axis="wavelength", num=9) * u.AA,
     ],
 )
+@pytest.mark.parametrize(
+    argnames="method",
+    argvalues=[
+        "exact",
+        "approx",
+    ]
+)
 def test_signal(
     photons_expected: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.AbstractScalar,
+    method: str,
 ):
     result = optika.sensors.signal(
         photons_expected=photons_expected,
         wavelength=wavelength,
+        method=method,
     )
     assert np.all(result >= 0 * u.electron)
 
