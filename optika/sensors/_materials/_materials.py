@@ -836,7 +836,7 @@ def signal(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
-    method: Literal['exact', 'approx'] = "exact",
+    method: Literal["exact", "approx"] = "exact",
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
