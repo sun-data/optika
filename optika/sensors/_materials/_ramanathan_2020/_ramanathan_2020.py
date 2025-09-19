@@ -439,14 +439,14 @@ def probability_of_n_pairs(
     _probability = pn.outputs
 
     probability = na.interp(
-        x=energy,
-        xp=_energy,
+        x=temperature,
+        xp=_temperature,
         fp=_probability,
     )
 
     probability = na.interp(
-        x=temperature,
-        xp=_temperature,
+        x=energy,
+        xp=_energy,
         fp=probability,
     )
 
