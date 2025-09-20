@@ -126,28 +126,43 @@ def absorbance(
     if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
         chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
 
-    result = optika.materials.layer_absorbance(
-        index=1,
+    layer_oxide = optika.materials.Layer(
+        chemical=chemical_oxide,
+        thickness=thickness_oxide,
+        interface=optika.materials.profiles.ErfInterfaceProfile(
+            width=roughness_oxide,
+        ),
+    )
+
+    layer_substrate = optika.materials.Layer(
+        chemical=chemical_substrate,
+        thickness=thickness_substrate,
+        interface=optika.materials.profiles.ErfInterfaceProfile(
+            width=roughness_substrate,
+        ),
+    )
+
+    _, transmissivity_oxide = optika.materials.multilayer_efficiency(
         wavelength=wavelength,
         direction=direction,
         n=n,
         layers=[
-            optika.materials.Layer(
-                chemical=chemical_oxide,
-                thickness=thickness_oxide,
-                interface=optika.materials.profiles.ErfInterfaceProfile(
-                    width=roughness_oxide,
-                ),
-            ),
-            optika.materials.Layer(
-                chemical=chemical_substrate,
-                thickness=thickness_substrate,
-                interface=optika.materials.profiles.ErfInterfaceProfile(
-                    width=roughness_substrate,
-                ),
-            ),
+            layer_oxide,
+        ],
+        substrate=layer_substrate,
+    )
+
+    _, transmissivity_total = optika.materials.multilayer_efficiency(
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        layers=[
+            layer_oxide,
+            layer_substrate,
         ],
     )
+
+    result = transmissivity_oxide - transmissivity_total
 
     return np.real(result)
 
