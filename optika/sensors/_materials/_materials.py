@@ -836,7 +836,7 @@ def signal(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
-    method: Literal["exact", "approx"] = "exact",
+    method: Literal["exact", "approx", "expected"] = "exact",
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
@@ -875,8 +875,12 @@ def signal(
         The temperature of the light-sensitive silicon layer.
     method
         The method used to generate random samples of measured electrons.
-        The exact method is more accurate for low numbers of photons,
-        but suffers from poor performance for high numbers of photons.
+        The `exact` method simulates every photon so it is accurate for low
+        photon counts but slow for high photon counts.
+        The `approx` method is much faster, but is only accurate if the number
+        of photons is high.
+        The `expected` method does not add any noise to the signal and just
+        returns the expected number of electrons.
     shape_random
         Additional shape used to specify the number of samples to draw.
 
@@ -930,6 +934,18 @@ def signal(
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
+    if method == "expected":
+        iqy = quantum_yield_ideal(
+            wavelength=wavelength,
+            temperature=temperature,
+        )
+        cce = charge_collection_efficiency(
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            cce_backsurface=cce_backsurface,
+        )
+        return iqy * absorbance * cce * photons_expected.to(u.ph)
+
     photons_absorbed_expected = absorbance * photons_expected.to(u.ph)
     photons_absorbed = na.random.poisson(
         lam=photons_absorbed_expected,
@@ -967,6 +983,7 @@ class AbstractImagingSensorMaterial(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        noise: bool = True,
     ) -> optika.rays.RayVectorArray:
         """
         Given a set of incident rays, compute the number of electrons
@@ -980,6 +997,8 @@ class AbstractImagingSensorMaterial(
             either be in units of photons or energy.
         normal
             The vector perpendicular to the surface of the sensor.
+        noise
+            Whether to add noise to the result.
         """
 
     @abc.abstractmethod
@@ -1032,14 +1051,15 @@ class IdealImagingSensorMaterial(
     AbstractImagingSensorMaterial,
 ):
     """
-    An idealized sensor material with a quantum efficiency of unity
-    and no charge diffusion.
+    An idealized sensor material with a quantum efficiency of unity,
+    no charge diffusion, and no noise model.
     """
 
     def signal(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        noise: bool = False,
     ) -> optika.rays.RayVectorArray:
 
         intensity = rays.intensity
@@ -1047,6 +1067,10 @@ class IdealImagingSensorMaterial(
             h = astropy.constants.h
             c = astropy.constants.c
             intensity = intensity / (h * c / rays.wavelength) * u.photon
+
+        if noise:
+            intensity = na.random.poisson(intensity).astype(int)
+
         electrons = intensity * u.electron / u.photon
         electrons = electrons.to(u.electron)
 
@@ -1373,6 +1397,7 @@ class AbstractBackilluminatedCCDMaterial(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        noise: bool = True,
     ) -> optika.rays.RayVectorArray:
 
         intensity = rays.intensity
@@ -1383,6 +1408,11 @@ class AbstractBackilluminatedCCDMaterial(
             c = astropy.constants.c
             intensity = intensity / (h * c / wavelength) * u.photon
 
+        if noise:
+            method = "exact"
+        else:
+            method = "expected"
+
         electrons = signal(
             photons_expected=intensity,
             wavelength=wavelength,
@@ -1391,6 +1421,7 @@ class AbstractBackilluminatedCCDMaterial(
             thickness_implant=self.thickness_implant,
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
+            method=method,
         )
 
         result = dataclasses.replace(rays, intensity=electrons)

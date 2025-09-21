@@ -89,6 +89,7 @@ class AbstractImagingSensor(
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         axis: None | str | Sequence[str] = None,
         where: bool | na.AbstractScalar = True,
+        noise: bool = True,
     ) -> na.FunctionArray[
         na.SpectralPositionalVectorArray,
         na.AbstractScalar,
@@ -113,6 +114,8 @@ class AbstractImagingSensor(
         where
             A boolean mask used to indicate which photons should be considered
             when calculating the signal measured by the sensor.
+        noise
+            Whether to add noise to the result
         """
         if timedelta is None:
             timedelta = self.timedelta_exposure
@@ -131,6 +134,7 @@ class AbstractImagingSensor(
         rays = self.material.signal(
             rays=rays,
             normal=normal,
+            noise=noise,
         )
 
         rays = dataclasses.replace(
