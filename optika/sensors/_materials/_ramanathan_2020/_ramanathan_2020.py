@@ -196,19 +196,19 @@ def energy_pair(
 
     _energy_pair = _energy / _iqy
 
-    _energy_pair_inf = energy_pair_inf(_temperature)
-
-    energy_pair = na.interp(
-        x=energy,
-        xp=_energy,
-        fp=_energy_pair,
-        right=_energy_pair_inf.value,
-    )
+    _energy_pair_inf = energy_pair_inf(temperature)
 
     energy_pair = na.interp(
         x=temperature,
         xp=_temperature,
+        fp=_energy_pair,
+    )
+
+    energy_pair = na.interp(
+        x=energy,
+        xp=_energy,
         fp=energy_pair,
+        right=_energy_pair_inf.value,
     )
 
     return energy_pair
