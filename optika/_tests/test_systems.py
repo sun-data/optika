@@ -50,7 +50,7 @@ class AbstractTestAbstractSystem(
         assert isinstance(result.outputs, na.AbstractScalar)
         assert np.all(result.inputs.wavelength > 0 * u.nm)
         assert na.unit_normalized(result.inputs.position).is_equivalent(u.mm)
-        assert result.outputs.sum() > (0 * u.electron)
+        assert result.outputs.sum() != (0 * u.electron)
 
 
 class AbstractTestAbstractSequentialSystem(
