@@ -152,15 +152,11 @@ def absorbance(
         substrate=layer_substrate,
     )
 
-    _, transmissivity_total = optika.materials.multilayer_efficiency(
-        wavelength=wavelength,
-        direction=direction,
-        n=n,
-        layers=[
-            layer_oxide,
-            layer_substrate,
-        ],
-    )
+    absorption = chemical_substrate.absorption(wavelength)
+
+    decay = np.exp(-absorption * thickness_substrate)
+
+    transmissivity_total = transmissivity_oxide * decay
 
     result = transmissivity_oxide - transmissivity_total
 
