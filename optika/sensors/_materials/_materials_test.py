@@ -284,13 +284,18 @@ class AbstractTestAbstractImagingSensorMaterial(
             na.Cartesian3dVectorArray(0, 0, -1),
         ],
     )
+    @pytest.mark.parametrize(
+        argnames="noise",
+        argvalues=[True, False],
+    )
     def test_signal(
         self,
         a: optika.sensors.AbstractImagingSensorMaterial,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        noise: bool,
     ):
-        result = a.signal(rays, normal)
+        result = a.signal(rays, normal, noise=noise)
         assert isinstance(result, optika.rays.RayVectorArray)
         assert np.all(result.intensity >= 0 * u.electron)
 

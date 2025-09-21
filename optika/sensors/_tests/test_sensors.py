@@ -44,16 +44,11 @@ class AbstractTestAbstractImagingSensor(
             na.linspace(500, 600, axis="wavelength", num=11) * u.nm,
         ],
     )
-    @pytest.mark.parametrize(
-        argnames="noise",
-        argvalues=[True, False],
-    )
     def test_readout(
         self,
         a: optika.sensors.AbstractImagingSensor,
         rays: optika.rays.RayVectorArray,
         wavelength: u.Quantity | na.AbstractScalar,
-        noise: bool,
     ):
         result = a.readout(rays, wavelength, noise=noise)
         assert isinstance(result, na.FunctionArray)
