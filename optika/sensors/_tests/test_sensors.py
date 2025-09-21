@@ -50,7 +50,7 @@ class AbstractTestAbstractImagingSensor(
         rays: optika.rays.RayVectorArray,
         wavelength: u.Quantity | na.AbstractScalar,
     ):
-        result = a.readout(rays, wavelength, noise=noise)
+        result = a.readout(rays, wavelength)
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert isinstance(result.outputs, na.AbstractScalar)
