@@ -841,6 +841,7 @@ class AbstractSequentialSystem(
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         axis_pupil: None | tuple[str, str] = None,
+        noise: bool = True,
         **kwargs,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -875,6 +876,8 @@ class AbstractSequentialSystem(
             If :obj:`None`,
             ``set(pupil.shape) - set(self.shape) - {axis_wavelength,} - set(axis_field)``,
             should have exactly two elements.
+        noise
+            Whether to add noise to the result.
         kwargs
             Additional keyword arguments used by subclass implementations
             of this method.
@@ -946,6 +949,7 @@ class AbstractSequentialSystem(
             rays=rayfunction.outputs,
             wavelength=wavelength,
             axis=(axis_wavelength,) + axis_field + axis_pupil,
+            noise=noise,
         )
 
     def plot(
