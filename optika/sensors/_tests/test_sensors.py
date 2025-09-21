@@ -46,7 +46,7 @@ class AbstractTestAbstractImagingSensor(
     )
     @pytest.mark.parametrize(
         argnames="noise",
-        argvalues=[True, False]
+        argvalues=[True, False],
     )
     def test_readout(
         self,
