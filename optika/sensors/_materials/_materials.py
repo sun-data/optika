@@ -1069,7 +1069,7 @@ class IdealImagingSensorMaterial(
             intensity = intensity / (h * c / rays.wavelength) * u.photon
 
         if noise:
-            intensity = na.random.poisson(intensity).astype(int)
+            intensity = na.random.poisson(intensity.to(u.ph)).astype(int)
 
         electrons = intensity * u.electron / u.photon
         electrons = electrons.to(u.electron)
