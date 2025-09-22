@@ -28,10 +28,11 @@ pip install optika
 
 ## Example Gallery
 
-An [example](https://optika.readthedocs.io/en/latest/_autosummary/optika.systems.SequentialSystem.html#optika.systems.SequentialSystem)
-of how to raytrace a Newtonian telescope using Optika:
+[Simulate a Newtonian telescope](https://optika.readthedocs.io/en/latest/_autosummary/optika.systems.SequentialSystem.html#optika.systems.SequentialSystem)
+using `optika`
 
 ![Newtonian telescope example](https://optika.readthedocs.io/en/latest/_images/optika.systems.SequentialSystem_0_0.png)
+![image simulation](https://optika.readthedocs.io/en/latest/_images/optika.systems.SequentialSystem_1_0.png)
 
 Compute the [reflectivity of a multilayer mirror](https://optika.readthedocs.io/en/latest/_autosummary/optika.materials.multilayer_efficiency.html#optika.materials.multilayer_efficiency)
 by specifying the materials and thicknesses of the layers.
