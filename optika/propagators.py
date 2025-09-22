@@ -1,3 +1,5 @@
+"""Simulate light propagating through an optical system."""
+
 from __future__ import annotations
 from typing import Sequence
 import abc
@@ -72,13 +74,15 @@ def accumulate_rays(
 class AbstractPropagator(
     abc.ABC,
 ):
-    pass
+    """An interface for an object which can propagate information."""
 
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRayPropagator(
     AbstractPropagator,
 ):
+    """An interface for an object that can interact with light rays."""
+
     @abc.abstractmethod
     def propagate_rays(
         self,
@@ -99,4 +103,4 @@ class AbstractRayPropagator(
 class AbstractLightPropagator(
     AbstractRayPropagator,
 ):
-    pass
+    """An interface for an object which can interact with light."""
