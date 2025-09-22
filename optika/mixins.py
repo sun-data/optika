@@ -126,7 +126,6 @@ class Printable:
 class Plottable(abc.ABC):
     """A mixin class with a :meth`plot` method."""
 
-
     @property
     @abc.abstractmethod
     def kwargs_plot(self) -> None | dict:
