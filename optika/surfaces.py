@@ -44,56 +44,56 @@ class AbstractSurface(
     Generic[SagT, MaterialT, ApertureT, ApertureMechanicalT, RulingsT],
 ):
     """
-    Interface for a single optical surface.
+    Interface describing a single optical interface.
     """
 
     @property
     @abc.abstractmethod
     def name(self) -> str:
         """
-        human-readable name of the surface
+        The human-readable name of this surface.
         """
 
     @property
     @abc.abstractmethod
     def sag(self) -> SagT:
         """
-        the sag profile of the surface
+        The sag profile of this surface.
         """
 
     @property
     @abc.abstractmethod
     def material(self) -> MaterialT:
         """
-        optical material type of the surface
+        The optical material type of this surface.
         """
 
     @property
     @abc.abstractmethod
     def aperture(self) -> ApertureT:
         """
-        region of the surface which allows light to propagate
+        The region of this surface which allows light to propagate.
         """
 
     @property
     @abc.abstractmethod
     def aperture_mechanical(self) -> ApertureMechanicalT:
         """
-        shape of the physical substrate containing the optical surface
+        The shape of the physical substrate containing this optical surface.
         """
 
     @property
     @abc.abstractmethod
     def rulings(self) -> RulingsT:
         """
-        the ruling density of the surface
+        The optional ruling profile of this surface.
         """
 
     @property
     @abc.abstractmethod
     def is_field_stop(self) -> bool:
         """
-        flag controlling whether this surface should act as the field stop
+        A flag controlling whether this surface should act as the field stop
         for the system
         """
 
@@ -101,7 +101,7 @@ class AbstractSurface(
     @abc.abstractmethod
     def is_pupil_stop(self) -> bool:
         """
-        flag controlling whether this surface should act as the pupil stop
+        A flag controlling whether this surface should act as the pupil stop
         for the system
         """
 
@@ -314,15 +314,34 @@ class Surface(
     """
 
     name: None | str = None
+    """The human-readable name of the surface."""
+
     sag: SagT = None
+    """The sag profile of this surface."""
+
     material: MaterialT = None
+    """The optical material type of this surface."""
+
     aperture: ApertureT = None
+    """The region of this surface which allows light to propagate."""
+
     aperture_mechanical: ApertureMechanicalT = None
+    """The shape of the physical substrate containing this optical surface."""
+
     rulings: RulingsT = None
+    """The optional ruling profile of this surface."""
+
     is_field_stop: bool = False
+    """Whether this surface is the field stop of an optical system."""
+
     is_pupil_stop: bool = False
+    """Whether this surface is the pupil stop of an optical system."""
+
     transformation: None | na.transformations.AbstractTransformation = None
+    """The transformation between system coordinates and this surface."""
+
     kwargs_plot: None | dict = None
+    """Additional keyword arguments to pass to the :meth:`plot` function."""
 
     def __post_init__(self):
         if self.sag is None:
