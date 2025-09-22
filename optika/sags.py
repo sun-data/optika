@@ -138,10 +138,6 @@ class NoSag(
             optika.shape(self.parameters_microroughness),
         )
 
-    @property
-    def transformation(self) -> None:
-        return None
-
     def __call__(
         self,
         position: na.AbstractCartesian3dVectorArray,
