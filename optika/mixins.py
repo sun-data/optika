@@ -24,7 +24,7 @@ __all__ = [
 
 @dataclasses.dataclass(repr=False)
 class Shaped(abc.ABC):
-    """A class with an array shape."""
+    """An object with an array shape."""
 
     @property
     @abc.abstractmethod
@@ -36,7 +36,7 @@ class Shaped(abc.ABC):
 
 @dataclasses.dataclass(repr=False)
 class Printable:
-    """A mixin class for better printing."""
+    """An object that can be printed."""
 
     @classmethod
     def _val_to_string(
@@ -124,7 +124,7 @@ class Printable:
 
 @dataclasses.dataclass(eq=False, repr=False)
 class Plottable(abc.ABC):
-    """A mixin class with a :meth:`plot` method."""
+    """An object that can be plotted."""
 
     @property
     @abc.abstractmethod
