@@ -16,11 +16,13 @@ PupilT = TypeVar("PupilT", bound=na.AbstractCartesian2dVectorArray)
 class AbstractPupilVectorArray(
     na.AbstractCartesianVectorArray,
 ):
+    """An interface describing a pupil position."""
+
     @property
     @abc.abstractmethod
     def pupil(self) -> na.AbstractCartesian2dVectorArray:
         """
-        the position of a point in the pupil
+        A point on the pupil.
         """
 
     @property
@@ -46,7 +48,10 @@ class PupilVectorArray(
     na.AbstractExplicitCartesianVectorArray,
     Generic[PupilT],
 ):
+    """A vector describing a pupil position."""
+
     pupil: PupilT = 0
+    """A point on the pupil."""
 
     @classmethod
     def from_scalar(

@@ -1,3 +1,5 @@
+"""Mixin classes used throughout this package."""
+
 from __future__ import annotations
 from typing import Any
 import abc
@@ -22,6 +24,7 @@ __all__ = [
 
 @dataclasses.dataclass(repr=False)
 class Shaped(abc.ABC):
+    """A class with an array shape."""
 
     @property
     @abc.abstractmethod
@@ -33,6 +36,8 @@ class Shaped(abc.ABC):
 
 @dataclasses.dataclass(repr=False)
 class Printable:
+    """A mixin class for better printing."""
+
     @classmethod
     def _val_to_string(
         cls,
@@ -119,6 +124,9 @@ class Printable:
 
 @dataclasses.dataclass(eq=False, repr=False)
 class Plottable(abc.ABC):
+    """A mixin class with a :meth`plot` method."""
+
+
     @property
     @abc.abstractmethod
     def kwargs_plot(self) -> None | dict:
@@ -155,6 +163,8 @@ class Plottable(abc.ABC):
 
 @dataclasses.dataclass(eq=False, repr=False)
 class Transformable(abc.ABC):
+    """An object that can be transformed in 3D coordinates."""
+
     @property
     @abc.abstractmethod
     def transformation(self) -> None | na.transformations.AbstractTransformation:
@@ -169,6 +179,8 @@ class Transformable(abc.ABC):
 class Translatable(
     Transformable,
 ):
+    """An object that can be translated in 3D coordinates."""
+
     @property
     @abc.abstractmethod
     def translation(self) -> u.Quantity | na.AbstractScalar | na.AbstractVectorArray:
@@ -184,6 +196,8 @@ class Translatable(
 class Pitchable(
     Transformable,
 ):
+    """An object that can be pitched."""
+
     @property
     @abc.abstractmethod
     def pitch(self) -> u.Quantity | na.ScalarLike:
@@ -200,6 +214,8 @@ class Pitchable(
 class Yawable(
     Transformable,
 ):
+    """An object that can be yawed."""
+
     @property
     @abc.abstractmethod
     def yaw(self) -> u.Quantity | na.ScalarLike:
@@ -216,6 +232,8 @@ class Yawable(
 class Rollable(
     Transformable,
 ):
+    """An object that can be rolled."""
+
     @property
     @abc.abstractmethod
     def roll(self) -> u.Quantity | na.ScalarLike:

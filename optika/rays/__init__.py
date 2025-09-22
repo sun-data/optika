@@ -1,3 +1,5 @@
+"""A representation of light rays propagating through an optical system."""
+
 from ._ray_vectors import (
     AbstractRayVectorArray,
     RayVectorArray,
