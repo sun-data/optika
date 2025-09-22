@@ -20,8 +20,8 @@ os.environ['PYTHONPATH'] = ';'.join((package_path, os.environ.get('PYTHONPATH', 
 # -- Project information -----------------------------------------------------
 
 project = 'optika'
-copyright = '2024, Roy T. Smart, Charles C. Kankelborg'
-author = 'Roy T. Smart, Charles C. Kankelborg'
+copyright = '2025, Roy T. Smart and Charles C. Kankelborg'
+author = 'Roy T. Smart and Charles C. Kankelborg'
 
 # -- General configuration ---------------------------------------------------
 
