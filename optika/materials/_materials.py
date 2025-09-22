@@ -21,6 +21,8 @@ class AbstractMaterial(
     optika.mixins.Transformable,
     optika.mixins.Shaped,
 ):
+    """An interface describing a generalized optical material."""
+
     @abc.abstractmethod
     def index_refraction(
         self,
@@ -78,6 +80,8 @@ class AbstractMaterial(
 class Vacuum(
     AbstractMaterial,
 ):
+    """Empty space, the default material."""
+
     @property
     def shape(self) -> dict[str, int]:
         return dict()
@@ -114,6 +118,7 @@ class Vacuum(
 class AbstractMirror(
     AbstractMaterial,
 ):
+    """An interface describing a generalized reflective mirror."""
 
     @property
     @abc.abstractmethod
@@ -154,6 +159,8 @@ class AbstractMirror(
 class Mirror(
     AbstractMirror,
 ):
+    """A perfect mirror material."""
+
     substrate: None | Layer = None
     """A layer representing the substrate supporting the reflective surface."""
 
