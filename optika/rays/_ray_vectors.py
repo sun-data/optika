@@ -24,6 +24,8 @@ UnvignettedT = TypeVar("UnvignettedT", bound=na.ScalarLike)
 class AbstractRayVectorArray(
     na.AbstractSpectralPositionalVectorArray,
 ):
+    """An interface describing an ensemble of lights rays."""
+
     @property
     @abc.abstractmethod
     def direction(self) -> na.AbstractCartesian3dVectorArray:
@@ -36,7 +38,7 @@ class AbstractRayVectorArray(
     @abc.abstractmethod
     def intensity(self) -> na.AbstractScalar:
         """
-        the radiometric contribution of the ray
+        The radiometric contribution of the light ray.
         """
 
     @property
@@ -178,10 +180,26 @@ class RayVectorArray(
         UnvignettedT,
     ],
 ):
+    """
+    An ensemble of light rays propagating through an optical system.
+    """
+
     direction: DirectionT = 0
+    """
+    The propagation direction of the light.
+    
+    Expressed in terms of
+    `direction cosines <https://en.wikipedia.org/wiki/Direction_cosine>`_.
+    """
+
     intensity: IntensityT = 1
+    """The radiometric contribution of the light ray."""
+
     attenuation: AttenuationT = 0 / u.mm
+    """The attenuation coefficient of the current medium."""
+
     index_refraction: IndexRefractionT = 1
+    """The index of refraction of then current medium."""
 
     unvignetted: na.AbstractScalar = True
     """

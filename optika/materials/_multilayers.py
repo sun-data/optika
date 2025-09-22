@@ -772,6 +772,8 @@ def layer_absorbance(
 class AbstractMultilayerMaterial(
     AbstractMaterial,
 ):
+    """A generalized multilayer material."""
+
     @property
     @abc.abstractmethod
     def layers(self) -> AbstractLayer | Sequence[AbstractLayer]:
@@ -828,6 +830,8 @@ class AbstractMultilayerMaterial(
 class AbstractMultilayerFilm(
     AbstractMultilayerMaterial,
 ):
+    """An interface describing a thin-film multilayer material."""
+
     @property
     def is_mirror(self) -> bool:
         return False
@@ -878,6 +882,8 @@ class AbstractMultilayerFilm(
 class MultilayerFilm(
     AbstractMultilayerFilm,
 ):
+    """A thin-film multilayer material."""
+
     layers: None | AbstractLayer | Sequence[AbstractLayer] = None
     """A sequence of layers representing the multilayer stack."""
 
@@ -897,6 +903,7 @@ class AbstractMultilayerMirror(
     AbstractMultilayerMaterial,
     AbstractMirror,
 ):
+    """A generalized multilayer mirror coating."""
 
     def efficiency(
         self,

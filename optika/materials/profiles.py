@@ -1,3 +1,5 @@
+"""Roughness profiles between different layers in a multilayer stack."""
+
 import abc
 import dataclasses
 import numpy as np

@@ -20,6 +20,8 @@ class AbstractSceneVectorArray(
     AbstractFieldVectorArray,
     na.AbstractSpectralVectorArray,
 ):
+    """An interface describing a field position and wavelength."""
+
     @property
     def type_abstract(self) -> type[AbstractSceneVectorArray]:
         return AbstractSceneVectorArray
@@ -39,6 +41,8 @@ class SceneVectorArray(
     FieldVectorArray[FieldT],
     na.SpectralVectorArray[WavelengthT],
 ):
+    """A vector describing a field position and wavelength."""
+
     @classmethod
     def from_scalar(
         cls,

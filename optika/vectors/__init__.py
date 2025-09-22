@@ -1,3 +1,5 @@
+"""Vector types used throughout this package."""
+
 from ._vectors_polarization import (
     AbstractPolarizationVectorArray,
     PolarizationVectorArray,

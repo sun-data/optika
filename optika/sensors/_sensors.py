@@ -236,4 +236,4 @@ class ImagingSensor(
 class AbstractCCD(
     AbstractImagingSensor[MaterialT],
 ):
-    pass
+    """An arbitrary CCD material."""

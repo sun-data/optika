@@ -25,6 +25,8 @@ class AbstractObjectVectorArray(
     AbstractPupilVectorArray,
     AbstractSceneVectorArray,
 ):
+    """An interface describing a field position, pupil position, and wavelength."""
+
     @property
     def type_abstract(self) -> type[AbstractObjectVectorArray]:
         return AbstractObjectVectorArray
@@ -136,6 +138,8 @@ class ObjectVectorArray(
     SceneVectorArray,
     AbstractObjectVectorArray,
 ):
+    """A vector describing a field position, pupil position, and wavelength."""
+
     @classmethod
     def from_scalar(
         cls,

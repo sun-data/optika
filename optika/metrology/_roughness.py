@@ -1,41 +1,25 @@
-import abc
 import dataclasses
 import astropy.units as u
 import named_arrays as na
 import optika
 
 __all__ = [
-    "AbstractRoughnessParameters",
     "RoughnessParameters",
 ]
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class AbstractRoughnessParameters(
+class RoughnessParameters(
     optika.mixins.Printable,
     optika.mixins.Shaped,
 ):
-    """collection of parameters used to compute the roughness of an optical surface"""
+    """The parameters needed to compute the roughness of an optical surface."""
 
-    @property
-    @abc.abstractmethod
-    def period_min(self) -> na.ScalarLike:
-        """
-        minimum period to consider when calculating roughness
-        """
-
-    @property
-    @abc.abstractmethod
-    def period_max(self) -> na.ScalarLike:
-        """maximum period to consider when calculating roughness"""
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class RoughnessParameters(
-    AbstractRoughnessParameters,
-):
     period_min: na.ScalarLike = 0 * u.mm
+    """The minimum period to consider when calculating roughness."""
+
     period_max: na.ScalarLike = 0 * u.mm
+    """The maximum period to consider when calculating roughness."""
 
     @property
     def shape(self) -> dict[str, int]:

@@ -1,13 +1,11 @@
 """
-A collection of tools for simulating measuring and tolerancing of optical surfaces.
+Simulate the measurement and tolerancing of optical surfaces.
 """
 
-from ._slope_error import AbstractSlopeErrorParameters, SlopeErrorParameters
-from ._roughness import AbstractRoughnessParameters, RoughnessParameters
+from ._slope_error import SlopeErrorParameters
+from ._roughness import RoughnessParameters
 
 __all__ = [
-    "AbstractSlopeErrorParameters",
     "SlopeErrorParameters",
-    "AbstractRoughnessParameters",
     "RoughnessParameters",
 ]

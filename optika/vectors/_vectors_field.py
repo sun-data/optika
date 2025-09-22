@@ -16,11 +16,13 @@ FieldT = TypeVar("FieldT", bound=na.AbstractCartesian2dVectorArray)
 class AbstractFieldVectorArray(
     na.AbstractCartesianVectorArray,
 ):
+    """An interface describing a field point."""
+
     @property
     @abc.abstractmethod
     def field(self) -> na.AbstractCartesian2dVectorArray:
         """
-        the position of a point in the field of view
+        The position of a point in the field of view.
         """
 
     @property
@@ -46,7 +48,10 @@ class FieldVectorArray(
     na.AbstractExplicitCartesianVectorArray,
     Generic[FieldT],
 ):
+    """A vector describing a field point."""
+
     field: FieldT = 0
+    """The position of a point in the field of view."""
 
     @classmethod
     def from_scalar(

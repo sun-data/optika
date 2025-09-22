@@ -1,3 +1,5 @@
+"""Simulate light propagating through an optical system."""
+
 from __future__ import annotations
 from typing import Sequence
 import abc
@@ -6,8 +8,11 @@ import named_arrays as na
 import optika
 
 __all__ = [
+    "propagate_rays",
+    "accumulate_rays",
     "AbstractPropagator",
     "AbstractRayPropagator",
+    "AbstractLightPropagator",
 ]
 
 
@@ -17,7 +22,7 @@ def propagate_rays(
 ) -> optika.rays.RayVectorArray:
     """
     Iterate through a sequence of ray propagators, calling
-    :meth:`optika.propagators.AbstractRayPropagator.propagate_rays` on the given
+    :meth:`~optika.propagators.AbstractRayPropagator.propagate_rays` on the given
     set of input rays.
 
     Parameters
@@ -43,7 +48,7 @@ def accumulate_rays(
 ) -> optika.rays.RayVectorArray:
     """
     Iterate through a sequence of ray propagators, calling
-    :meth:`optika.propagators.AbstractRayPropagator.propagate_rays` on the given
+    :meth:`~optika.propagators.AbstractRayPropagator.propagate_rays` on the given
     set of input rays, and store the resulting the rays at every propagator.
 
     Parameters
@@ -72,13 +77,15 @@ def accumulate_rays(
 class AbstractPropagator(
     abc.ABC,
 ):
-    pass
+    """An interface for an object which can propagate information."""
 
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRayPropagator(
     AbstractPropagator,
 ):
+    """An interface for an object that can interact with light rays."""
+
     @abc.abstractmethod
     def propagate_rays(
         self,
@@ -99,4 +106,4 @@ class AbstractRayPropagator(
 class AbstractLightPropagator(
     AbstractRayPropagator,
 ):
-    pass
+    """An interface for an object which can interact with light."""

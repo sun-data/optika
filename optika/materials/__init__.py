@@ -1,6 +1,5 @@
 """
-A subpackage for simulating the interaction of light with transparent
-or reflective materials.
+Simulate the interaction of light with transparent or reflective materials.
 """
 
 from ._snells_law import (
