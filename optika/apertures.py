@@ -79,6 +79,16 @@ class AbstractAperture(
         """
 
     def clip_rays(self, rays: optika.rays.RayVectorArray):
+        """
+        Given a set of input rays,
+        update the :attr:`~optika.rays.RayVectorArray.unvignetted` to be
+        :obj:`False` if the ray is blocked by the aperture.
+
+        Parameters
+        ----------
+        rays
+            The input rays to clip.
+        """
         unit = na.unit_normalized(self.bound_lower)
         if unit.is_equivalent(u.mm):
             mask = self(rays.position)
