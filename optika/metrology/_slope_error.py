@@ -1,42 +1,25 @@
-import abc
 import dataclasses
 import astropy.units as u
 import named_arrays as na
 import optika
 
 __all__ = [
-    "AbstractSlopeErrorParameters",
     "SlopeErrorParameters",
 ]
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class AbstractSlopeErrorParameters(
+class SlopeErrorParameters(
     optika.mixins.Printable,
     optika.mixins.Shaped,
 ):
-    """collection of parameters used to compute the slope error"""
+    """The parameters needed to compute the slope error."""
 
-    @property
-    @abc.abstractmethod
-    def step_size(self) -> na.ScalarLike:
-        """the horizontal distance to use when measuring the slope"""
-
-    @property
-    @abc.abstractmethod
-    def kernel_size(self) -> na.ScalarLike:
-        """
-        size of the boxcar kernel that is convolved with the wavefront error
-        before measuring the slope
-        """
-
-
-@dataclasses.dataclass(eq=False, repr=False)
-class SlopeErrorParameters(
-    AbstractSlopeErrorParameters,
-):
     step_size: na.ScalarLike = 0 * u.mm
+    """The horizontal distance to use when measuring the slope"""
+
     kernel_size: na.ScalarLike = 0 * u.mm
+    """The size of the boxcar kernel that is convolved with the wavefront error."""
 
     @property
     def shape(self) -> dict[str, int]:
