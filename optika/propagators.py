@@ -8,8 +8,11 @@ import named_arrays as na
 import optika
 
 __all__ = [
+    "propagate_rays",
+    "accumulate_rays",
     "AbstractPropagator",
     "AbstractRayPropagator",
+    "AbstractLightPropagator",
 ]
 
 
