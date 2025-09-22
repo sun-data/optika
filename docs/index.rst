@@ -24,7 +24,7 @@ This makes specifying :math:`n`-dimensional configurations in :mod:`optika`
 easier since the user doesn't have to manually insert singleton dimensions
 to broadcast orthogonal configuration changes against each other.
 Furthermore, :mod:`named_arrays` provides an implementation of a 3D vector,
-:class:`named_arrays.Cartesian3dVectorArray`, which is convenient to use since
+:class:`~named_arrays.Cartesian3dVectorArray`, which is convenient to use since
 many of the inputs and outputs of :mod:`optika` can be represented as 3D vectors.
 
 Features
@@ -55,7 +55,7 @@ Limitations
 * **Physical Optics**. Only geometric optics is supported right now, but adding
   a Fourier optics propagator is a longstanding goal of the project.
 * **Glass Optical Constants**. :mod:`optika` has a wide array of optical
-  constants from sources such as :cite:t:`Palik1997,Henke1993`,
+  constants from sources such as :cite:t:`Palik1997` and :cite:t:`Henke1993`,
   but it does not yet have a database for different types of glass like Zemax
   does.
 
