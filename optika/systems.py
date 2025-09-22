@@ -1248,7 +1248,7 @@ class SequentialSystem(
 
     surfaces: Sequence[optika.surfaces.AbstractSurface] = dataclasses.MISSING
     """
-    a sequence of surfaces representing this optical system.
+    A sequence of surfaces representing this optical system.
 
     At least one of these surfaces needs to be marked as the pupil surface,
     and if the object surface is not marked as the field stop, one of these
