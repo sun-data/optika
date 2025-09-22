@@ -22,7 +22,7 @@ def propagate_rays(
 ) -> optika.rays.RayVectorArray:
     """
     Iterate through a sequence of ray propagators, calling
-    :meth:`optika.propagators.AbstractRayPropagator.propagate_rays` on the given
+    :meth:`~optika.propagators.AbstractRayPropagator.propagate_rays` on the given
     set of input rays.
 
     Parameters
@@ -48,7 +48,7 @@ def accumulate_rays(
 ) -> optika.rays.RayVectorArray:
     """
     Iterate through a sequence of ray propagators, calling
-    :meth:`optika.propagators.AbstractRayPropagator.propagate_rays` on the given
+    :meth:`~optika.propagators.AbstractRayPropagator.propagate_rays` on the given
     set of input rays, and store the resulting the rays at every propagator.
 
     Parameters
