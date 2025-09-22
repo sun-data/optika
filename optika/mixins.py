@@ -124,7 +124,7 @@ class Printable:
 
 @dataclasses.dataclass(eq=False, repr=False)
 class Plottable(abc.ABC):
-    """A mixin class with a :meth`plot` method."""
+    """A mixin class with a :meth:`plot` method."""
 
     @property
     @abc.abstractmethod
