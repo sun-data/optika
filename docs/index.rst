@@ -44,10 +44,11 @@ Features
 * CCD/CMOS sensor simulation
 
   * Quantum efficiency
+  * Noise simulation
   * Charge diffusion
 
-Missing Features
-----------------
+Limitations
+-----------
 
 * **Polarization**. Different polarization states are not propagated through the
   system.
