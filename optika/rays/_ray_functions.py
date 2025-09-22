@@ -14,6 +14,8 @@ __all__ = [
 class AbstractRayFunctionArray(
     na.AbstractFunctionArray,
 ):
+    """An interface describing a function which maps input rays to output rays."""
+
     @property
     def type_explicit(self) -> type[RayFunctionArray]:
         return RayFunctionArray
@@ -27,4 +29,4 @@ class RayFunctionArray(
         RayVectorArray,
     ],
 ):
-    pass
+    """A discrete function which maps input rays to output rays."""
