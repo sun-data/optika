@@ -1,3 +1,9 @@
+"""
+Optical interfaces used to focus light.
+
+The building block of an optical system.
+"""
+
 from typing import TypeVar, Generic
 import abc
 import dataclasses
