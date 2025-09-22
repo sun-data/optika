@@ -1,5 +1,5 @@
 """
-A collection of apertures that can be applied to optical surfaces to block light.
+Apertures that can be used by optical surfaces to block a portion of the beam.
 """
 
 import abc
@@ -35,31 +35,34 @@ class AbstractAperture(
     optika.mixins.Transformable,
     optika.mixins.Shaped,
 ):
-    @property
-    @abc.abstractmethod
-    def samples_wire(self):
-        """
-        default number of samples used for :meth:`wire`
-        """
+    """
+    An interface describing a generalized aperture.
+    """
 
-    @property
-    @abc.abstractmethod
-    def active(self):
-        """
-        flag controlling whether the aperture can clip rays during a raytrace
-        """
+    samples_wire: int = dataclasses.field(default=101, kw_only=True)
+    """The default number of samples used for :meth:`wire`."""
 
-    @property
-    @abc.abstractmethod
-    def inverted(self):
-        """
-        flag controlling whether the interior or the exterior of the aperture
-        allows light to pass through.
-        If :obj:`True`, the interior of the aperture allows light to pass
-        through.
-        If :obj:`False`, the exterior of the aperture allows light to pass
-        through.
-        """
+    active: bool | na.AbstractScalar = dataclasses.field(default=True, kw_only=True)
+    """Whether the aperture is active and can clip rays."""
+
+    inverted: bool | na.AbstractScalar = dataclasses.field(default=False, kw_only=True)
+    """
+    Whether this object is being used as an aperture or obscuration.
+    
+    If :obj:`True`, the interior of the aperture allows light to passthrough.
+    If :obj:`False`, the exterior of the aperture allows light to pass through.
+    """
+
+    transformation: None | na.transformations.AbstractTransformation = (
+        dataclasses.field(default=None, kw_only=True)
+    )
+    """The transformation between the local surface coordinates and the aperture."""
+
+    kwargs_plot: None | dict = dataclasses.field(default=None, kw_only=True)
+    """
+    Extra keyword arguments that will be used in the call to
+    :func:`named_arrays.plt.plot` within the :meth:`plot` method.
+    """
 
     @abc.abstractmethod
     def __call__(
@@ -217,13 +220,7 @@ class CircularAperture(
     """
 
     radius: u.Quantity | na.AbstractScalar = 0 * u.mm
-    """the radius of the aperture"""
-
-    samples_wire: int = 101
-    active: bool | na.AbstractScalar = True
-    inverted: bool | na.AbstractScalar = False
-    transformation: None | na.transformations.AbstractTransformation = None
-    kwargs_plot: None | dict = None
+    """The radius of the aperture."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -375,12 +372,6 @@ class CircularSectorAperture(
     counterclockwise from `angle_start`.
     """
 
-    samples_wire: int = 101
-    active: bool | na.AbstractScalar = True
-    inverted: bool | na.AbstractScalar = False
-    transformation: None | na.transformations.AbstractTransformation = None
-    kwargs_plot: None | dict = None
-
     @property
     def shape(self) -> dict[str, int]:
         return na.broadcast_shapes(
@@ -511,35 +502,7 @@ class EllipticalAperture(
     """
 
     radius: na.AbstractCartesian2dVectorArray = 0 * u.mm
-    """the semi major/minor axes of the elliptical aperture."""
-
-    samples_wire: int = 101
-    """default number of samples used for :meth:`wire`"""
-
-    active: bool | na.AbstractScalar = True
-    """flag controlling whether the aperture can clip rays during a raytrace"""
-
-    inverted: bool | na.AbstractScalar = False
-    """
-    flag controlling whether the interior or the exterior of the aperture
-    allows light to pass through.
-    If :obj:`True`, the interior of the aperture allows light to pass
-    through.
-    If :obj:`False`, the exterior of the aperture allows light to pass
-    through.
-    """
-
-    transformation: None | na.transformations.AbstractTransformation = None
-    """
-    the coordinate transformation between the global coordinate system
-    and this object's local coordinate system
-    """
-
-    kwargs_plot: None | dict = None
-    """
-    Extra keyword arguments that will be used in the call to
-    :func:`named_arrays.plt.plot` within the :meth:`plot` method.
-    """
+    """The semi major/minor axes of the elliptical aperture."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -628,7 +591,7 @@ class AbstractPolygonalAperture(
     AbstractAperture,
 ):
     """
-    Base class for any type of polygonal aperture
+    An interface describing a generalized polygonal aperture.
     """
 
     def __call__(
@@ -722,12 +685,10 @@ class AbstractPolygonalAperture(
 class PolygonalAperture(
     AbstractPolygonalAperture,
 ):
+    """A polygonal aperture or obstruction."""
+
     vertices: na.Cartesian3dVectorArray = 0 * u.mm
-    samples_wire: int = 101
-    active: bool | na.AbstractScalar = True
-    inverted: bool | na.AbstractScalar = False
-    transformation: None | na.transformations.AbstractTransformation = None
-    kwargs_plot: None | dict = None
+    """The vertices of the polygon."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -812,13 +773,7 @@ class RectangularAperture(
     """
 
     half_width: u.Quantity | na.AbstractScalar | na.Cartesian2dVectorArray = 0 * u.mm
-    """distance from the origin to a perpendicular edge"""
-
-    samples_wire: int = 101
-    active: bool | na.AbstractScalar = True
-    inverted: bool | na.AbstractScalar = False
-    transformation: None | na.transformations.AbstractTransformation = None
-    kwargs_plot: None | dict = None
+    """The distance from the origin to a perpendicular edge."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -881,18 +836,20 @@ class RectangularAperture(
 class AbstractRegularPolygonalAperture(
     AbstractPolygonalAperture,
 ):
+    """An interface describing a regular polygonal aperture."""
+
     @property
     @abc.abstractmethod
     def radius(self) -> na.ScalarLike:
         """
-        the radial distance from the origin to each vertex
+        The radial distance from the origin to each vertex.
         """
 
     @property
     @abc.abstractmethod
     def num_vertices(self) -> int:
         """
-        Number of vertices in this polygon
+        Number of vertices in this polygon.
         """
 
     @property
@@ -920,13 +877,13 @@ class AbstractRegularPolygonalAperture(
 class RegularPolygonalAperture(
     AbstractRegularPolygonalAperture,
 ):
+    """A regular polygonal aperture or obstruction."""
+
     radius: float | u.Quantity | na.AbstractScalar = 0 * u.mm
+    """The radial distance from the origin to each vertex."""
+
     num_vertices: int = 0
-    samples_wire: int = 101
-    active: bool | na.AbstractScalar = True
-    inverted: bool | na.AbstractScalar = False
-    transformation: None | na.transformations.AbstractTransformation = None
-    kwargs_plot: None | dict = None
+    """The number of vertices in this polygon."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -942,6 +899,8 @@ class RegularPolygonalAperture(
 class AbstractOctagonalAperture(
     AbstractRegularPolygonalAperture,
 ):
+    """An interface describing a octagon aperture."""
+
     @property
     def num_vertices(self) -> int:
         return 8
@@ -951,12 +910,10 @@ class AbstractOctagonalAperture(
 class OctagonalAperture(
     AbstractOctagonalAperture,
 ):
+    """A octagonal aperture or obstruction."""
+
     radius: float | u.Quantity | na.AbstractScalar = 0 * u.mm
-    samples_wire: int = 101
-    active: bool | na.AbstractScalar = True
-    inverted: bool | na.AbstractScalar = False
-    transformation: None | na.transformations.AbstractTransformation = None
-    kwargs_plot: None | dict = None
+    """The radial distance from the origin to each vertex."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -972,20 +929,22 @@ class OctagonalAperture(
 class AbstractIsoscelesTrapezoidalAperture(
     AbstractPolygonalAperture,
 ):
+    """A generalized isosceles-trapezoidal aperture."""
+
     @property
     @abc.abstractmethod
     def x_left(self) -> na.ScalarLike:
-        """:math:`x` coordinate of the left base of the trapezoid"""
+        """The :math:`x` coordinate of the left base of the trapezoid."""
 
     @property
     @abc.abstractmethod
     def x_right(self) -> na.ScalarLike:
-        """:math:`x` coordinate of the right base of the trapezoid"""
+        """The :math:`x` coordinate of the right base of the trapezoid."""
 
     @property
     @abc.abstractmethod
     def angle(self) -> na.ScalarLike:
-        """angle between the two legs of the trapezoid"""
+        """The angle between the two legs of the trapezoid."""
 
     @property
     def vertices(self) -> na.Cartesian3dVectorArray:
@@ -1020,6 +979,8 @@ class IsoscelesTrapezoidalAperture(
     AbstractIsoscelesTrapezoidalAperture,
 ):
     """
+    An isosceles-trapezoidal aperture or obstruction.
+
     This aperture is useful if you want to break a circular aperture up
     into different sectors.
 
@@ -1052,13 +1013,13 @@ class IsoscelesTrapezoidalAperture(
     """
 
     x_left: na.ScalarLike = 0 * u.mm
+    """The :math:`x` coordinate of the left base of the trapezoid."""
+
     x_right: na.ScalarLike = 0 * u.mm
+    """The :math:`x` coordinate of the right base of the trapezoid."""
+
     angle: na.ScalarLike = 0 * u.deg
-    samples_wire: int = 101
-    active: bool | na.AbstractScalar = True
-    inverted: bool | na.AbstractScalar = False
-    transformation: None | na.transformations.AbstractTransformation = None
-    kwargs_plot: None | dict = None
+    """The angle between the two legs of the trapezoid."""
 
     @property
     def shape(self) -> dict[str, int]:
