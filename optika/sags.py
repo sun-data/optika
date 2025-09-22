@@ -1,3 +1,5 @@
+"""The shape of an optical surface used to direct and focus light."""
+
 from typing import TypeVar, Generic
 import abc
 import dataclasses
@@ -42,23 +44,31 @@ class AbstractSag(
     optika.mixins.Shaped,
 ):
     """
-    Base class for all types of sag surfaces.
+    Base class for all types of sag profiles.
     """
 
-    @property
-    @abc.abstractmethod
-    def parameters_slope_error(self) -> None | optika.metrology.SlopeErrorParameters:
-        """collection of parameters to use when computing the slope error"""
+    transformation: None | na.transformations.AbstractTransformation = (
+        dataclasses.field(default=None, kw_only=True)
+    )
+    """
+    The transformation between the surface coordinate system and the sag
+    coordinate system.
+    """
 
-    @property
-    @abc.abstractmethod
-    def parameters_roughness(self) -> None | optika.metrology.RoughnessParameters:
-        """collection of parameters to use when computing the roughness"""
+    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = (
+        dataclasses.field(default=None, kw_only=True)
+    )
+    """The slope error parameters for this sag profile."""
 
-    @property
-    @abc.abstractmethod
-    def parameters_microroughness(self) -> None | optika.metrology.RoughnessParameters:
-        """collection of parameters to use when computing the microroughness"""
+    parameters_roughness: None | optika.metrology.RoughnessParameters = (
+        dataclasses.field(default=None, kw_only=True)
+    )
+    """The roughness parameters for this sag profile."""
+
+    parameters_microroughness: None | optika.metrology.RoughnessParameters = (
+        dataclasses.field(default=None, kw_only=True)
+    )
+    """The microroughness parameters for this sag profile."""
 
     @abc.abstractmethod
     def __call__(
@@ -118,9 +128,7 @@ class AbstractSag(
 class NoSag(
     AbstractSag,
 ):
-    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
-    parameters_roughness: None | optika.metrology.RoughnessParameters = None
-    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+    """A flat sag profile."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -160,7 +168,7 @@ class AbstractSphericalSag(
     @abc.abstractmethod
     def radius(self) -> RadiusT:
         """
-        radius of curvature of the sag surface
+        The radius of curvature of this sphere.
         """
 
     @property
@@ -222,10 +230,7 @@ class SphericalSag(
     """
 
     radius: RadiusT = np.inf * u.mm
-    transformation: None | na.transformations.AbstractTransformation = None
-    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
-    parameters_roughness: None | optika.metrology.RoughnessParameters = None
-    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+    """The radius of curvature of this sphere."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -338,22 +343,7 @@ class CylindricalSag(
     """
 
     radius: RadiusT = np.inf * u.mm
-    """The radius of the cylinder."""
-
-    transformation: None | na.transformations.AbstractTransformation = None
-    """
-    The transformation between the surface coordinate system and the sag
-    coordinate system.
-    """
-
-    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
-    """A set of parameters describing the slope error of the sag function."""
-
-    parameters_roughness: None | optika.metrology.RoughnessParameters = None
-    """A set of parameters describing the roughness of the sag function."""
-
-    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
-    """A set of parameters describing the microroughness of the sag function."""
+    """The radius of this cylinder."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -414,15 +404,17 @@ class AbstractConicSag(
     AbstractSag,
     Generic[RadiusT, ConicT],
 ):
+    """An interface describing a general conic surface of revolution."""
+
     @property
     @abc.abstractmethod
     def radius(self) -> RadiusT:
-        """the effective radius of the conic section"""
+        """The effective radius of this conic section."""
 
     @property
     @abc.abstractmethod
     def conic(self) -> ConicT:
-        """conic constant of the conic section"""
+        """The conic constant of this conic section."""
 
     def __call__(
         self,
@@ -536,12 +528,10 @@ class ConicSag(
     """
 
     radius: RadiusT = np.inf * u.mm
+    """The effective radius of this conic section."""
+
     conic: ConicT = 0 * u.dimensionless_unscaled
-    """the conic constant of the conic section"""
-    transformation: None | na.transformations.AbstractTransformation = None
-    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
-    parameters_roughness: None | optika.metrology.RoughnessParameters = None
-    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+    """The conic constant of this conic section."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -559,11 +549,10 @@ class ConicSag(
 class ParabolicSag(
     AbstractConicSag[RadiusT, int],
 ):
+    """A parabolic sag profile."""
+
     focal_length: FocalLengthT = np.inf * u.mm
-    transformation: None | na.transformations.AbstractTransformation = None
-    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
-    parameters_roughness: None | optika.metrology.RoughnessParameters = None
-    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+    """The focal length of this parabola."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -594,11 +583,10 @@ class ToroidalSag(
     """
 
     radius: RadiusT = np.inf * u.mm
+    """The minor radius of this toroidal surface."""
+
     radius_of_rotation: RadiusOfRotationT = 0 * u.mm
-    transformation: None | na.transformations.AbstractTransformation = None
-    parameters_slope_error: None | optika.metrology.SlopeErrorParameters = None
-    parameters_roughness: None | optika.metrology.RoughnessParameters = None
-    parameters_microroughness: None | optika.metrology.RoughnessParameters = None
+    """The major radius of this toroidal surface."""
 
     @property
     def shape(self) -> dict[str, int]:
