@@ -1,3 +1,5 @@
+"""Models of light-sensitive materials designed to be used by :class:`ImagingSensor`."""
+
 from . import depletion
 from ._materials import (
     AbstractSensorMaterial,

@@ -1105,6 +1105,7 @@ class AbstractSiliconSensorMaterial(
     """
 
     temperature: u.Quantity | na.AbstractScalar = 300 * u.K
+    """The temperature of this sensor."""
 
     @property
     def transformation(self) -> None:
@@ -1301,7 +1302,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
     ) -> na.AbstractScalar:
         """
         Compute the effective quantum efficiency of this CCD material using
-        :func:`optika.sensors.quantum_efficiency_effective`.
+        :func:`quantum_efficiency_effective`.
 
         Parameters
         ----------
@@ -1375,6 +1376,10 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> optika.rays.RayVectorArray:
+        """
+        Randomly sample the number of measured electrons given the number of
+        absorbed photons using :func:`electrons_measured`.
+        """
 
         intensity = rays.intensity
         wavelength = rays.wavelength
