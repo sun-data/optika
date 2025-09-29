@@ -59,7 +59,7 @@ def e2v_ccd97(
     This is a measurement of e2v's "enhanced" process, which has a narrower
     partial charge collection region than e2v's "standard" process.
 
-    This model uses the :class:`optika.sensors.E2VCCD64ThickDepletionModel`
+    This model uses :func:`~optika.sensors.materials.depletion.e2v_ccd64_thick`
     to represent the depletion region.
 
     Parameters

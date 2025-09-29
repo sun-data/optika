@@ -70,7 +70,7 @@ def tektronix_tk512cb(
     A model of the light-sensitive material of a Tektronix TK512CB sensor based on
     measurements by :cite:t:`Stern1994`.
 
-    This model uses the :class:`optika.sensors.E2VCCD64ThinDepletionModel`
+    This model uses :func:`~optika.sensors.materials.depletion.e2v_ccd64_thin`
     to represent the depletion region.
 
     Examples

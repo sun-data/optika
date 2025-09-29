@@ -57,7 +57,7 @@ def e2v_ccd203(
     on board the Atmospheric Imaging Assembly :cite:p:`Lemen2012` from
     :cite:t:`Boerner2012`
 
-    This model uses the :class:`optika.sensors.E2VCCD64ThickDepletionModel`
+    This model uses :func:`~optika.sensors.materials.depletion.e2v_ccd64_thick`
     to represent the depletion region.
 
     Examples
