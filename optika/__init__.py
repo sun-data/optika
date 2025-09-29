@@ -2,6 +2,7 @@
 A Python package for simulating and designing optical systems.
 """
 
+from ._caching import memory
 from . import mixins
 from ._util import shape, direction, angles
 from . import vectors

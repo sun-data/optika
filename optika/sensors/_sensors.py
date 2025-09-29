@@ -9,16 +9,15 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-from . import AbstractImagingSensorMaterial, IdealImagingSensorMaterial
+from .materials import AbstractSensorMaterial, IdealSensorMaterial
 
 __all__ = [
     "AbstractImagingSensor",
     "ImagingSensor",
-    "AbstractCCD",
 ]
 
 
-MaterialT = TypeVar("MaterialT", bound=AbstractImagingSensorMaterial)
+MaterialT = TypeVar("MaterialT", bound=AbstractSensorMaterial)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -195,7 +194,7 @@ class ImagingSensor(
     timedelta_exposure: u.Quantity | na.AbstractScalar = 0 * u.s
     """The exposure time of the sensor."""
 
-    material: AbstractImagingSensorMaterial = None
+    material: AbstractSensorMaterial = None
     """
     A model of the light-sensitive material composing this sensor.
     
@@ -220,7 +219,7 @@ class ImagingSensor(
 
     def __post_init__(self) -> None:
         if self.material is None:
-            self.material = IdealImagingSensorMaterial()
+            self.material = IdealSensorMaterial()
 
     @property
     def shape(self) -> dict[str, int]:
@@ -231,9 +230,3 @@ class ImagingSensor(
             optika.shape(self.timedelta_exposure),
             optika.shape(self.transformation),
         )
-
-
-class AbstractCCD(
-    AbstractImagingSensor[MaterialT],
-):
-    """An arbitrary CCD material."""

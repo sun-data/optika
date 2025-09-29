@@ -1,16 +1,71 @@
 import astropy.units as u
 import named_arrays as na
-from .._depletion import E2VCCD64ThinDepletionModel
-from .._materials import AbstractStern1994BackilluminatedCCDMaterial
+import optika
+from ..depletion import e2v_ccd64_thin
+from .._materials import BackIlluminatedSiliconSensorMaterial
 
 __all__ = [
-    "TektronixTK512CBMaterial",
+    "tektronix_tk512cb",
 ]
 
 
-class TektronixTK512CBMaterial(
-    AbstractStern1994BackilluminatedCCDMaterial,
-):
+@optika.memory.cache
+def _tektronix_tk512cb() -> BackIlluminatedSiliconSensorMaterial:
+    """Cached version of :func:`tektronix_tk512cb` which does not depend on temperature."""
+
+    wavelength = [
+        13.3,
+        23.6,
+        44.7,
+        67.6,
+        114.0,
+        135.5,
+        171.4,
+        256.0,
+        303.8,
+        461.0,
+        584.0,
+        736.0,
+        1215.5,
+        2537.0,
+        3650.0,
+        4050.0,
+    ] * u.AA
+
+    qe = [
+        0.91,
+        0.80,
+        0.48,
+        0.32,
+        0.42,
+        0.86,
+        0.82,
+        0.60,
+        0.58,
+        0.53,
+        0.30,
+        0.085,
+        0.055,
+        0.06,
+        0.09,
+        0.29,
+    ] * u.dimensionless_unscaled
+
+    qe = na.FunctionArray(
+        inputs=na.ScalarArray(wavelength, axes="wavelength"),
+        outputs=na.ScalarArray(qe, axes="wavelength"),
+    )
+
+    return BackIlluminatedSiliconSensorMaterial.fit_eqe(
+        thickness_substrate=7 * u.um,
+        depletion=e2v_ccd64_thin(),
+        eqe_measured=qe,
+    )
+
+
+def tektronix_tk512cb(
+    temperature: u.Quantity | na.AbstractScalar = 300 * u.K,
+) -> BackIlluminatedSiliconSensorMaterial:
     """
     A model of the light-sensitive material of a Tektronix TK512CB sensor based on
     measurements by :cite:t:`Stern1994`.
@@ -33,19 +88,19 @@ class TektronixTK512CBMaterial(
         import optika
 
         # Create a new instance of the e2v CCD97 light-sensitive material
-        material = optika.sensors.TektronixTK512CBMaterial()
+        material = optika.sensors.materials.tektronix_tk512cb()
 
         # Store the wavelengths at which the QE was measured
-        wavelength_measured = material.quantum_efficiency_measured.inputs
+        wavelength_measured = material.eqe_measured.inputs
 
         # Store the QE measurements
-        qe_measured = material.quantum_efficiency_measured.outputs
+        eqe_measured = material.eqe_measured.outputs
 
         # Define a grid of wavelengths with which to evaluate the fitted QE
         wavelength_fit = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
         # Evaluate the fitted QE using the given wavelengths
-        qe_fit = material.quantum_efficiency_effective(
+        eqe_fit = material.quantum_efficiency_effective(
             rays=optika.rays.RayVectorArray(
                 wavelength=wavelength_fit,
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
@@ -58,12 +113,12 @@ class TektronixTK512CBMaterial(
             fig, ax = plt.subplots(constrained_layout=True)
             na.plt.scatter(
                 wavelength_measured,
-                qe_measured,
+                eqe_measured,
                 label="measured",
             )
             na.plt.plot(
                 wavelength_fit,
-                qe_fit,
+                eqe_fit,
                 label="fit",
             )
             ax.set_xscale("log")
@@ -131,58 +186,6 @@ class TektronixTK512CBMaterial(
             ax.set_xlabel(f"wavelength ({ax.get_xlabel()})")
             ax.set_ylabel(f"width ({ax.get_ylabel()})")
     """
-
-    @property
-    def quantum_efficiency_measured(self) -> na.FunctionArray:
-        wavelength = [
-            13.3,
-            23.6,
-            44.7,
-            67.6,
-            114.0,
-            135.5,
-            171.4,
-            256.0,
-            303.8,
-            461.0,
-            584.0,
-            736.0,
-            1215.5,
-            2537.0,
-            3650.0,
-            4050.0,
-        ] * u.AA
-        qe = [
-            0.91,
-            0.80,
-            0.48,
-            0.32,
-            0.42,
-            0.86,
-            0.82,
-            0.60,
-            0.58,
-            0.53,
-            0.30,
-            0.085,
-            0.055,
-            0.06,
-            0.09,
-            0.29,
-        ] * u.dimensionless_unscaled
-        return na.FunctionArray(
-            inputs=na.ScalarArray(wavelength, axes="wavelength"),
-            outputs=na.ScalarArray(qe, axes="wavelength"),
-        )
-
-    @property
-    def thickness_substrate(self) -> u.Quantity:
-        return 7 * u.um
-
-    @property
-    def depletion(self) -> E2VCCD64ThinDepletionModel:
-        return E2VCCD64ThinDepletionModel()
-
-    @property
-    def shape(self) -> dict[str, int]:
-        return dict()
+    result = _tektronix_tk512cb()
+    result.temperature = temperature
+    return result

@@ -2,17 +2,56 @@ import pathlib
 import numpy as np
 import astropy.units as u
 import named_arrays as na
-from .._depletion import E2VCCD64ThickDepletionModel
-from .._materials import AbstractStern1994BackilluminatedCCDMaterial
+import optika
+from ..depletion import e2v_ccd64_thick
+from .._materials import BackIlluminatedSiliconSensorMaterial
 
 __all__ = [
-    "E2VCCD203Material",
+    "e2v_ccd203",
 ]
 
 
-class E2VCCD203Material(
-    AbstractStern1994BackilluminatedCCDMaterial,
-):
+@optika.memory.cache
+def _e2v_ccd203() -> BackIlluminatedSiliconSensorMaterial:
+    """Cached version of :func:`e2v_ccd203` which does not depend on temperature."""
+
+    directory = pathlib.Path(__file__).parent
+    (
+        wavelength_1,
+        qe_1,
+        wavelength_2,
+        qe_2,
+        wavelength_3,
+        qe_3,
+        wavelength_4,
+        qe_4,
+    ) = np.genfromtxt(
+        fname=directory / "e2v_ccd203_qe_boerner2012.csv",
+        skip_header=2,
+        delimiter=",",
+        unpack=True,
+    )
+
+    wavelength = (wavelength_1 + wavelength_2 + wavelength_3 + wavelength_4) / 4
+    wavelength = wavelength << u.AA
+
+    qe = (qe_1 + qe_2 + qe_3 + qe_4) / 4
+
+    qe = na.FunctionArray(
+        inputs=na.ScalarArray(wavelength, axes="wavelength"),
+        outputs=na.ScalarArray(qe, axes="wavelength"),
+    )
+
+    return BackIlluminatedSiliconSensorMaterial.fit_eqe(
+        thickness_substrate=16 * u.um,
+        depletion=e2v_ccd64_thick(),
+        eqe_measured=qe,
+    )
+
+
+def e2v_ccd203(
+    temperature: u.Quantity | na.AbstractScalar = 300 * u.K,
+) -> BackIlluminatedSiliconSensorMaterial:
     """
     A model of the light-sensitive material of the custom e2v CCD sensors
     on board the Atmospheric Imaging Assembly :cite:p:`Lemen2012` from
@@ -36,19 +75,19 @@ class E2VCCD203Material(
         import optika
 
         # Create a new instance of the e2v CCD97 light-sensitive material
-        material = optika.sensors.E2VCCD203Material()
+        material = optika.sensors.materials.e2v_ccd203()
 
         # Store the wavelengths at which the QE was measured
-        wavelength_measured = material.quantum_efficiency_measured.inputs
+        wavelength_measured = material.eqe_measured.inputs
 
         # Store the QE measurements
-        qe_measured = material.quantum_efficiency_measured.outputs
+        eqe_measured = material.eqe_measured.outputs
 
         # Define a grid of wavelengths with which to evaluate the fitted QE
         wavelength_fit = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
         # Evaluate the fitted QE using the given wavelengths
-        qe_fit = material.quantum_efficiency_effective(
+        eqe_fit = material.quantum_efficiency_effective(
             rays=optika.rays.RayVectorArray(
                 wavelength=wavelength_fit,
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
@@ -61,12 +100,12 @@ class E2VCCD203Material(
             fig, ax = plt.subplots(constrained_layout=True)
             na.plt.scatter(
                 wavelength_measured,
-                qe_measured,
+                eqe_measured,
                 label="measured",
             )
             na.plt.plot(
                 wavelength_fit,
-                qe_fit,
+                eqe_fit,
                 label="fit",
             )
             ax.set_xscale("log")
@@ -134,41 +173,6 @@ class E2VCCD203Material(
             ax.set_xlabel(f"wavelength ({ax.get_xlabel()})")
             ax.set_ylabel(f"width ({ax.get_ylabel()})")
     """
-
-    @property
-    def quantum_efficiency_measured(self) -> na.FunctionArray:
-        directory = pathlib.Path(__file__).parent
-        (
-            wavelength_1,
-            qe_1,
-            wavelength_2,
-            qe_2,
-            wavelength_3,
-            qe_3,
-            wavelength_4,
-            qe_4,
-        ) = np.genfromtxt(
-            fname=directory / "e2v_ccd203_qe_boerner2012.csv",
-            skip_header=2,
-            delimiter=",",
-            unpack=True,
-        )
-        wavelength = (wavelength_1 + wavelength_2 + wavelength_3 + wavelength_4) / 4
-        wavelength = wavelength << u.AA
-        qe = (qe_1 + qe_2 + qe_3 + qe_4) / 4
-        return na.FunctionArray(
-            inputs=na.ScalarArray(wavelength, axes="wavelength"),
-            outputs=na.ScalarArray(qe, axes="wavelength"),
-        )
-
-    @property
-    def thickness_substrate(self) -> u.Quantity:
-        return 16 * u.um
-
-    @property
-    def depletion(self) -> E2VCCD64ThickDepletionModel:
-        return E2VCCD64ThickDepletionModel()
-
-    @property
-    def shape(self) -> dict[str, int]:
-        return dict()
+    result = _e2v_ccd203()
+    result.temperature = temperature
+    return result

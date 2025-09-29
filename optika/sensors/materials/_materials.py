@@ -1,4 +1,5 @@
 from typing import Literal
+from typing_extensions import Self
 import abc
 import functools
 import dataclasses
@@ -23,7 +24,7 @@ from ._ramanathan_2020 import (
     fano_factor_inf,
     electrons_measured,
 )
-from ._depletion import AbstractDepletionModel
+from .depletion import AbstractDepletionModel
 
 __all__ = [
     "energy_bandgap",
@@ -39,11 +40,11 @@ __all__ = [
     "electrons_measured",
     "electrons_measured_approx",
     "signal",
-    "AbstractImagingSensorMaterial",
-    "IdealImagingSensorMaterial",
-    "AbstractCCDMaterial",
-    "AbstractBackilluminatedCCDMaterial",
-    "AbstractStern1994BackilluminatedCCDMaterial",
+    "AbstractSensorMaterial",
+    "IdealSensorMaterial",
+    "AbstractSiliconSensorMaterial",
+    "AbstractBackIlluminatedSiliconSensorMaterial",
+    "BackIlluminatedSiliconSensorMaterial",
 ]
 
 
@@ -971,7 +972,7 @@ def signal(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class AbstractImagingSensorMaterial(
+class AbstractSensorMaterial(
     optika.materials.AbstractMaterial,
 ):
     """
@@ -1046,13 +1047,13 @@ class AbstractImagingSensorMaterial(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class IdealImagingSensorMaterial(
+class IdealSensorMaterial(
     optika.materials.Vacuum,
-    AbstractImagingSensorMaterial,
+    AbstractSensorMaterial,
 ):
     """
     An idealized sensor material with a quantum efficiency of unity,
-    no charge diffusion, and no noise model.
+    no charge diffusion, and a noise model which consists of only shot noise.
     """
 
     def signal(
@@ -1096,11 +1097,11 @@ class IdealImagingSensorMaterial(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class AbstractCCDMaterial(
-    AbstractImagingSensorMaterial,
+class AbstractSiliconSensorMaterial(
+    AbstractSensorMaterial,
 ):
     """
-    An interface representing the light-sensitive material of a CCD sensor.
+    An interface representing the light-sensitive material of a silicon sensor.
     """
 
     temperature: u.Quantity | na.AbstractScalar = 300 * u.K
@@ -1171,32 +1172,30 @@ class AbstractCCDMaterial(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class AbstractBackilluminatedCCDMaterial(
-    AbstractCCDMaterial,
+class AbstractBackIlluminatedSiliconSensorMaterial(
+    AbstractSiliconSensorMaterial,
 ):
     """
     An interface representing the light-sensitive material of a backilluminated
-    CCD sensor.
+    silicon sensor.
     """
 
     @property
     @abc.abstractmethod
     def thickness_oxide(self) -> u.Quantity | na.AbstractScalar:
         """
-        The thickness of the oxide layer on the back surface of the CCD sensor.
+        The thickness of the oxide layer on the illuminated side of the sensor.
         """
 
     @property
     @abc.abstractmethod
     def thickness_implant(self) -> u.Quantity | na.AbstractScalar:
-        """
-        The thickness of the implant layer of the CCD sensor.
-        """
+        """The thickness of the ion implant layer."""
 
     @property
     @abc.abstractmethod
     def thickness_substrate(self) -> u.Quantity | na.AbstractScalar:
-        """the thickness of the entire CCD silicon substrate"""
+        """The thickness of the light-sensitive silicon substrate."""
 
     @property
     @abc.abstractmethod
@@ -1206,20 +1205,20 @@ class AbstractBackilluminatedCCDMaterial(
     @property
     @abc.abstractmethod
     def roughness_substrate(self):
-        """The RMS roughness of the substrate surface."""
+        """The RMS roughness of the silicon substrate surface."""
 
     @property
     @abc.abstractmethod
     def cce_backsurface(self) -> float | na.AbstractScalar:
         """
-        The charge collection efficiency on the backsurface of the CCD sensor.
+        The charge collection efficiency on the illuminated surface of the sensor.
         """
 
     @property
     @abc.abstractmethod
     def depletion(self) -> AbstractDepletionModel:
         """
-        A model of the sensor's depletion region.
+        A model of this sensor's depletion region.
         """
 
     def width_charge_diffusion(
@@ -1491,30 +1490,71 @@ class AbstractBackilluminatedCCDMaterial(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class AbstractStern1994BackilluminatedCCDMaterial(
-    AbstractBackilluminatedCCDMaterial,
+class BackIlluminatedSiliconSensorMaterial(
+    AbstractBackIlluminatedSiliconSensorMaterial,
 ):
     """
-    A CCD material that is uses the method of :cite:t:`Stern1994` to compute
-    the quantum efficiency.
+    A back-illuminated silicon sensor material which uses the method
+    described in :cite:t:`Stern1994` to compute the quantum efficiency.
     """
 
+    thickness_oxide: u.Quantity = 0 * u.nm
+    """The thickness of the oxide layer on the illuminated side of the sensor."""
+
+    thickness_implant: u.Quantity = 0 * u.nm
+    """The thickness of the ion implant layer."""
+
+    thickness_substrate: u.Quantity | na.AbstractScalar = 0 * u.um
+    """The thickness of the light-sensitive silicon substrate."""
+
+    roughness_oxide: u.Quantity = 0 * u.nm
+    """The RMS roughness of the oxide layer on the illuminated side of the sensor."""
+
+    roughness_substrate: u.Quantity = 0 * u.um
+    """The RMS roughness of the silicon substrate."""
+
+    cce_backsurface: u.Quantity = 0
+    """The charge-collection efficiency of the back surface of the sensor."""
+
+    depletion: None | AbstractDepletionModel = None
+    """A model of this sensor's depletion region."""
+
+    eqe_measured: None | na.FunctionArray = None
+    """An optional measurement of the effective quantum efficiency."""
+
     @property
-    @abc.abstractmethod
-    def quantum_efficiency_measured(self) -> na.FunctionArray:
-        """
-        The measured quantum efficiency that will be fit by the function
-        :func:`optika.sensors.quantum_efficiency_effective`.
-        """
+    def shape(self) -> dict[str, int]:
+        return dict()
 
-    @functools.cached_property
-    def _quantum_efficiency_fit(self) -> dict[str, float | u.Quantity]:
-        qe_measured = self.quantum_efficiency_measured
+    @classmethod
+    def fit_eqe(
+        cls,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        depletion: AbstractDepletionModel,
+        eqe_measured: na.FunctionArray,
+        temperature: u.Quantity | na.AbstractScalar = 300 * u.K,
+    ) -> Self:
+        """
+        Fit the parameters of this sensor to a given effective quantum efficiency.
 
+        Parameters
+        ---------
+        temperature
+            The temperature of the light-sensitive silicon substrate.
+        thickness_substrate
+            The thickness of the light-sensitive silicon substrate.
+        depletion
+            A model of this sensor's depletion region.
+        eqe_measured
+            The measured quantum efficiency that will be fit by the function
+            :func:`optika.sensors.quantum_efficiency_effective`.
+        """
         unit_thickness_oxide = u.AA
         unit_thickness_implant = u.AA
         unit_roughness = u.nm
         unit_cce_backsurface = u.dimensionless_unscaled
+
+        roughness_oxide = 0 * unit_roughness
 
         def eqe_rms_difference(x: tuple[float, float, float, float]):
             (
@@ -1524,17 +1564,17 @@ class AbstractStern1994BackilluminatedCCDMaterial(
                 cce_backsurface,
             ) = x
             qe_fit = quantum_efficiency_effective(
-                wavelength=qe_measured.inputs,
+                wavelength=eqe_measured.inputs,
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
-                thickness_substrate=self.thickness_substrate,
-                roughness_oxide=self.roughness_oxide,
+                thickness_substrate=thickness_substrate,
+                roughness_oxide=0 * unit_roughness,
                 roughness_substrate=roughness_substrate << unit_roughness,
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
             )
 
-            return np.sqrt(np.mean(np.square(qe_measured.outputs - qe_fit))).ndarray
+            return np.sqrt(np.mean(np.square(eqe_measured.outputs - qe_fit))).ndarray
 
         thickness_oxide_guess = 50 * u.AA
         thickness_implant_guess = 2317 * u.AA
@@ -1570,29 +1610,14 @@ class AbstractStern1994BackilluminatedCCDMaterial(
         roughness_substrate = roughness_substrate << unit_roughness
         cce_backsurface = cce_backsurface << unit_cce_backsurface
 
-        return dict(
+        return cls(
+            temperature=temperature,
             thickness_oxide=thickness_oxide,
             thickness_implant=thickness_implant,
+            thickness_substrate=thickness_substrate,
+            roughness_oxide=roughness_oxide,
             roughness_substrate=roughness_substrate,
             cce_backsurface=cce_backsurface,
+            depletion=depletion,
+            eqe_measured=eqe_measured,
         )
-
-    @property
-    def thickness_oxide(self) -> u.Quantity:
-        return self._quantum_efficiency_fit["thickness_oxide"]
-
-    @property
-    def thickness_implant(self) -> u.Quantity:
-        return self._quantum_efficiency_fit["thickness_implant"]
-
-    @property
-    def roughness_oxide(self):
-        return 0 * u.nm
-
-    @property
-    def roughness_substrate(self):
-        return self._quantum_efficiency_fit["roughness_substrate"]
-
-    @property
-    def cce_backsurface(self) -> float:
-        return self._quantum_efficiency_fit["cce_backsurface"]

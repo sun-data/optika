@@ -4,19 +4,17 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-from .._depletion import AbstractJanesickDepletionModel
+from .._depletion import JanesickDepletionModel
 
 __all__ = [
-    "E2VCCD64ThickDepletionModel",
+    "e2v_ccd64_thin",
 ]
 
 
-@dataclasses.dataclass(eq=False, repr=False)
-class E2VCCD64ThickDepletionModel(
-    AbstractJanesickDepletionModel,
-):
+@optika.memory.cache
+def e2v_ccd64_thin() -> JanesickDepletionModel:
     """
-    A model of the depletion region of a "thick" (100 :math:`\Omega`-cm)
+    A model of the depletion region of a "thin" (20 :math:`\Omega`-cm)
     e2v CCD64 imaging sensor, which uses charge diffusion measurements from
     :cite:t:`Stern2004` to estimate the thickness of the depletion region.
 
@@ -35,13 +33,13 @@ class E2VCCD64ThickDepletionModel(
         import optika
 
         # Create a new instance of the e2v CCD64 depletion region model
-        depletion = optika.sensors.E2VCCD64ThickDepletionModel()
+        depletion = optika.sensors.materials.depletion.e2v_ccd64_thin()
 
         # Store the wavelengths at which the MCC was measured
-        wavelength_measured = depletion.mean_charge_capture_measured.inputs
+        wavelength_measured = depletion.mcc_measured.inputs
 
         # Store the MCC measurements
-        mcc_measured = depletion.mean_charge_capture_measured.outputs
+        mcc_measured = depletion.mcc_measured.outputs
 
         # Define a grid of wavelengths with which to evaluate the fitted MCC
         wavelength_fit = na.geomspace(1, 10000, axis="wavelength", num=1001) * u.AA
@@ -87,35 +85,24 @@ class E2VCCD64ThickDepletionModel(
         depletion.thickness
     """
 
-    @property
-    def shape(self) -> dict[str, int]:
-        return dict()
+    directory = pathlib.Path(__file__).parent
 
-    @property
-    def chemical_substrate(self) -> optika.chemicals.Chemical:
-        return optika.chemicals.Chemical("Si")
+    energy, mcc = np.genfromtxt(
+        fname=directory / "_e2v_ccd64_thin_stern2004.csv",
+        delimiter=", ",
+        unpack=True,
+    )
+    energy = energy << u.keV
+    wavelength = energy.to(u.AA, equivalencies=u.spectral())
 
-    @property
-    def thickness_substrate(self) -> u.Quantity:
-        return 15 * u.um
+    mcc_measured = na.FunctionArray(
+        inputs=na.ScalarArray(wavelength, axes="wavelength"),
+        outputs=na.ScalarArray(mcc, axes="wavelength"),
+    )
 
-    @property
-    def width_pixel(self) -> u.Quantity:
-        return 16 * u.um
-
-    @property
-    def mean_charge_capture_measured(self) -> na.FunctionArray:
-        directory = pathlib.Path(__file__).parent
-
-        energy, mcc = np.genfromtxt(
-            fname=directory / "_e2v_ccd64_thick_stern2004.csv",
-            delimiter=", ",
-            unpack=True,
-        )
-        energy = energy << u.keV
-        wavelength = energy.to(u.AA, equivalencies=u.spectral())
-
-        return na.FunctionArray(
-            inputs=na.ScalarArray(wavelength, axes="wavelength"),
-            outputs=na.ScalarArray(mcc, axes="wavelength"),
-        )
+    return JanesickDepletionModel.fit_mcc(
+        thickness_substrate=8 * u.um,
+        chemical_substrate=optika.chemicals.Chemical("Si"),
+        width_pixel=16 * u.um,
+        mcc_measured=mcc_measured,
+    )

@@ -3,9 +3,11 @@ Image sensors used to measure the light intensity at the output of an optical
 system.
 """
 
-from ._materials import (
+from .materials._diffusion import (
     charge_diffusion,
     mean_charge_capture,
+)
+from .materials._materials import (
     energy_bandgap,
     energy_pair,
     energy_pair_inf,
@@ -19,23 +21,11 @@ from ._materials import (
     electrons_measured,
     electrons_measured_approx,
     signal,
-    AbstractDepletionModel,
-    AbstractJanesickDepletionModel,
-    E2VCCD64ThickDepletionModel,
-    E2VCCD64ThinDepletionModel,
-    AbstractImagingSensorMaterial,
-    IdealImagingSensorMaterial,
-    AbstractCCDMaterial,
-    AbstractBackilluminatedCCDMaterial,
-    AbstractStern1994BackilluminatedCCDMaterial,
-    TektronixTK512CBMaterial,
-    E2VCCD97Material,
-    E2VCCD203Material,
 )
+from . import materials
 from ._sensors import (
     AbstractImagingSensor,
     ImagingSensor,
-    AbstractCCD,
 )
 
 __all__ = [
@@ -54,19 +44,7 @@ __all__ = [
     "electrons_measured",
     "electrons_measured_approx",
     "signal",
-    "AbstractDepletionModel",
-    "AbstractJanesickDepletionModel",
-    "E2VCCD64ThickDepletionModel",
-    "E2VCCD64ThinDepletionModel",
-    "AbstractImagingSensorMaterial",
-    "IdealImagingSensorMaterial",
-    "AbstractCCDMaterial",
-    "AbstractBackilluminatedCCDMaterial",
-    "AbstractStern1994BackilluminatedCCDMaterial",
-    "TektronixTK512CBMaterial",
-    "E2VCCD97Material",
-    "E2VCCD203Material",
+    "materials",
     "AbstractImagingSensor",
     "ImagingSensor",
-    "AbstractCCD",
 ]
