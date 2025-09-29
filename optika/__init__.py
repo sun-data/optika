@@ -20,6 +20,7 @@ from . import sensors
 from . import systems
 
 __all__ = [
+    "memory",
     "mixins",
     "shape",
     "direction",

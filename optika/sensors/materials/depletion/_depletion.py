@@ -1,5 +1,4 @@
 import abc
-import functools
 import dataclasses
 import numpy as np
 import scipy.optimize
