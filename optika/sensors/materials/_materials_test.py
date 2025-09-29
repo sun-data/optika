@@ -611,7 +611,7 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
         optika.sensors.materials.tektronix_tk512cb(),
         optika.sensors.materials.e2v_ccd97(),
         optika.sensors.materials.e2v_ccd203(),
-    ]
+    ],
 )
 class TestBackIlluminatedSiliconSensorMaterial(
     AbstractTestAbstractBackIlluminatedSiliconSensorMaterial,

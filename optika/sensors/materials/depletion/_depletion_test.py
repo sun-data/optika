@@ -23,7 +23,7 @@ class AbstractTestAbstractDepletionModel(
     argvalues=[
         optika.sensors.materials.depletion.e2v_ccd64_thick(),
         optika.sensors.materials.depletion.e2v_ccd64_thin(),
-    ]
+    ],
 )
 class TestJanesickDepletionModel(
     AbstractTestAbstractDepletionModel,
