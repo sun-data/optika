@@ -12,6 +12,8 @@
 #
 import os
 import sys
+import inspect
+import joblib
 
 package_path = os.path.abspath('../')
 sys.path.insert(0, package_path)
@@ -115,3 +117,25 @@ intersphinx_mapping = {
     'astropy': ('https://docs.astropy.org/en/stable/', None),
     'named_arrays': ('https://named-arrays.readthedocs.io/en/stable/', None)
 }
+
+
+class MemorizedFunc(
+    joblib.memory.MemorizedFunc,
+):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        f = self.func
+        self.__code__ = f.__code__
+        self.__name__ = f.__name__
+        self.__doc__ = f.__doc__
+        self.__annotations__ = f.__annotations__
+        self.__defaults__ = f.__defaults__
+        self.__kwdefaults__ = f.__kwdefaults__
+
+
+joblib.memory.MemorizedFunc = MemorizedFunc
+
+f = inspect.isfunction
+inspect.isfunction = lambda x: f(x) or isinstance(x, joblib.memory.MemorizedFunc)
+
