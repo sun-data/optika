@@ -166,7 +166,7 @@ def test_quantum_efficiency_effective(
     argnames="cce",
     argvalues=[0.9],
 )
-def test_(
+def test_probability_measurement(
     iqy: u.Quantity | na.AbstractScalar,
     cce: float | na.AbstractScalar,
 ):
@@ -265,7 +265,7 @@ def test_signal(
     assert np.all(result >= 0 * u.electron)
 
 
-class AbstractTestAbstractImagingSensorMaterial(
+class AbstractTestAbstractSensorMaterial(
     AbstractTestAbstractMaterial,
 ):
     @pytest.mark.parametrize(
@@ -290,7 +290,7 @@ class AbstractTestAbstractImagingSensorMaterial(
     )
     def test_signal(
         self,
-        a: optika.sensors.AbstractImagingSensorMaterial,
+        a: optika.sensors.materials.AbstractSensorMaterial,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
         noise: bool,
@@ -325,7 +325,7 @@ class AbstractTestAbstractImagingSensorMaterial(
     )
     def test_photons_incident(
         self,
-        a: optika.sensors.AbstractImagingSensorMaterial,
+        a: optika.sensors.materials.AbstractSensorMaterial,
         electrons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
@@ -359,7 +359,7 @@ class AbstractTestAbstractImagingSensorMaterial(
     )
     def test_charge_diffusion(
         self,
-        a: optika.sensors.AbstractImagingSensorMaterial,
+        a: optika.sensors.materials.AbstractSensorMaterial,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
@@ -370,17 +370,17 @@ class AbstractTestAbstractImagingSensorMaterial(
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
-        optika.sensors.IdealImagingSensorMaterial(),
+        optika.sensors.materials.IdealSensorMaterial(),
     ],
 )
-class TestIdealImagingSensorMaterial(
-    AbstractTestAbstractImagingSensorMaterial,
+class TestIdealSensorMaterial(
+    AbstractTestAbstractSensorMaterial,
 ):
     pass
 
 
-class AbstractTestAbstractCCDMaterial(
-    AbstractTestAbstractImagingSensorMaterial,
+class AbstractTestAbstractSiliconSensorMaterial(
+    AbstractTestAbstractSensorMaterial,
 ):
 
     @pytest.mark.parametrize(
@@ -391,7 +391,7 @@ class AbstractTestAbstractCCDMaterial(
     )
     def test_quantum_yield_ideal(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractSiliconSensorMaterial,
         wavelength: u.Quantity | na.AbstractScalar,
     ):
         result = a.quantum_yield_ideal(wavelength)
@@ -406,50 +406,53 @@ class AbstractTestAbstractCCDMaterial(
     )
     def test_fano_factor(
         self,
-        a: optika.sensors.AbstractCCDMaterial,
+        a: optika.sensors.materials.AbstractSiliconSensorMaterial,
         wavelength: u.Quantity | na.AbstractScalar,
     ):
         result = a.fano_factor(wavelength)
         assert np.all(result >= 0 * u.electron / u.photon)
 
 
-class AbstractTestAbstractBackilluminatedCCDMaterial(
-    AbstractTestAbstractCCDMaterial,
+class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
+    AbstractTestAbstractSiliconSensorMaterial,
 ):
     def test_thickness_oxide(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
     ):
         result = a.thickness_oxide
         assert result >= 0 * u.mm
 
     def test_thickness_implant(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
     ):
         result = a.thickness_implant
         assert result >= 0 * u.mm
 
     def test_thickness_substrate(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
     ):
         result = a.thickness_substrate
         assert result >= 0 * u.mm
 
     def test_cce_backsurface(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
     ):
         result = a.cce_backsurface
         assert result >= 0
 
     def test_depletion(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
     ):
         result = a.depletion
-        assert isinstance(result, optika.sensors.AbstractDepletionModel)
+        assert isinstance(
+            result,
+            optika.sensors.materials.depletion.AbstractDepletionModel,
+        )
 
     @pytest.mark.parametrize(
         argnames="rays",
@@ -469,7 +472,7 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     )
     def test_width_charge_diffusion(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
@@ -493,7 +496,7 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     )
     def test_absorbance(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
@@ -518,7 +521,7 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     )
     def test_charge_collection_efficiency(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
@@ -543,7 +546,7 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     )
     def test_quantum_efficiency(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
@@ -567,7 +570,7 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     )
     def test_probability_measurement(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
@@ -593,7 +596,7 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
     )
     def test_electrons_measured(
         self,
-        a: optika.sensors.AbstractBackilluminatedCCDMaterial,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ):
@@ -602,14 +605,22 @@ class AbstractTestAbstractBackilluminatedCCDMaterial(
         assert np.all(result.intensity >= 0 * u.electron)
 
 
-class AbstractTestAbstractStern1994BackilluminatedCCDMaterial(
-    AbstractTestAbstractBackilluminatedCCDMaterial,
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.sensors.materials.tektronix_tk512cb(),
+        optika.sensors.materials.e2v_ccd97(),
+        optika.sensors.materials.e2v_ccd203(),
+    ],
+)
+class TestBackIlluminatedSiliconSensorMaterial(
+    AbstractTestAbstractBackIlluminatedSiliconSensorMaterial,
 ):
-    def test_quantum_efficiency_measured(
+    def test_eqe_measured(
         self,
-        a: optika.sensors.AbstractStern1994BackilluminatedCCDMaterial,
+        a: optika.sensors.materials.BackIlluminatedSiliconSensorMaterial,
     ):
-        result = a.quantum_efficiency_measured
+        result = a.eqe_measured
         assert isinstance(result, na.AbstractFunctionArray)
         assert np.all(result.outputs >= 0)
         assert np.all(result.outputs <= 1.1)

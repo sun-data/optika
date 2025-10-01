@@ -17,6 +17,7 @@ dependencies = [
     "astropy!=6.1.5",
     "named-arrays>=0.24.0",
     "pymupdf",
+    "joblib",
 ]
 dynamic = ["version"]
 

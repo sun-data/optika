@@ -2,17 +2,56 @@ import pathlib
 import numpy as np
 import astropy.units as u
 import named_arrays as na
-from .._depletion import E2VCCD64ThickDepletionModel
-from .._materials import AbstractStern1994BackilluminatedCCDMaterial
+import optika
+from ..depletion import e2v_ccd64_thick
+from .._materials import BackIlluminatedSiliconSensorMaterial
 
 __all__ = [
-    "E2VCCD97Material",
+    "e2v_ccd97",
 ]
 
 
-class E2VCCD97Material(
-    AbstractStern1994BackilluminatedCCDMaterial,
-):
+@optika.memory.cache
+def _e2v_ccd97() -> BackIlluminatedSiliconSensorMaterial:
+    """Cached version of :func:`e2v_ccd97` which does not depend on temperature."""
+
+    directory = pathlib.Path(__file__).parent
+
+    energy_moody, qe_moody = np.genfromtxt(
+        fname=directory / "e2v_ccd97_qe_moody2017.csv",
+        delimiter=", ",
+        unpack=True,
+    )
+    energy_moody = energy_moody << u.eV
+    wavelength_moody = energy_moody.to(u.AA, equivalencies=u.spectral())
+    qe_moody = qe_moody << u.percent
+
+    wavelength_heymes, qe_heymes = np.genfromtxt(
+        fname=directory / "e2v_ccd97_qe_heymes2020.csv",
+        delimiter=", ",
+        unpack=True,
+    )
+    wavelength_heymes = wavelength_heymes << u.nm
+    qe_heymes = qe_heymes << u.percent
+
+    wavelength = np.concatenate([wavelength_moody, wavelength_heymes])
+    qe = np.concatenate([qe_moody, qe_heymes]).to_value(u.dimensionless_unscaled)
+
+    qe = na.FunctionArray(
+        inputs=na.ScalarArray(wavelength, axes="wavelength"),
+        outputs=na.ScalarArray(qe, axes="wavelength"),
+    )
+
+    return BackIlluminatedSiliconSensorMaterial.fit_eqe(
+        thickness_substrate=14 * u.um,
+        depletion=e2v_ccd64_thick(),
+        eqe_measured=qe,
+    )
+
+
+def e2v_ccd97(
+    temperature: u.Quantity | na.AbstractScalar = 300 * u.K,
+) -> BackIlluminatedSiliconSensorMaterial:
     """
     A model of the light-sensitive material of an e2v CCD97 sensor based on
     measurements by :cite:t:`Moody2017` and :cite:t:`Heymes2020`.
@@ -20,13 +59,18 @@ class E2VCCD97Material(
     This is a measurement of e2v's "enhanced" process, which has a narrower
     partial charge collection region than e2v's "standard" process.
 
-    This model uses the :class:`optika.sensors.E2VCCD64ThickDepletionModel`
+    This model uses :func:`~optika.sensors.materials.depletion.e2v_ccd64_thick`
     to represent the depletion region.
+
+    Parameters
+    ----------
+    temperature
+        The temperature of the light-sensitive silicon substrate.
 
     Examples
     --------
 
-    Plot the measured E2VCCD97 quantum efficiency vs the fitted
+    Plot the measured e2v CCD97 quantum efficiency vs the fitted
     quantum efficiency calculated using the method of :cite:t:`Stern1994`.
 
     .. jupyter-execute::
@@ -38,19 +82,19 @@ class E2VCCD97Material(
         import optika
 
         # Create a new instance of the e2v CCD97 light-sensitive material
-        material = optika.sensors.E2VCCD97Material()
+        material = optika.sensors.materials.e2v_ccd97()
 
         # Store the wavelengths at which the QE was measured
-        wavelength_measured = material.quantum_efficiency_measured.inputs
+        wavelength_measured = material.eqe_measured.inputs
 
         # Store the QE measurements
-        qe_measured = material.quantum_efficiency_measured.outputs
+        eqe_measured = material.eqe_measured.outputs
 
         # Define a grid of wavelengths with which to evaluate the fitted QE
         wavelength_fit = na.geomspace(5, 10000, axis="wavelength", num=1001) * u.AA
 
         # Evaluate the fitted QE using the given wavelengths
-        qe_fit = material.quantum_efficiency_effective(
+        eqe_fit = material.quantum_efficiency_effective(
             rays=optika.rays.RayVectorArray(
                 wavelength=wavelength_fit,
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
@@ -63,12 +107,12 @@ class E2VCCD97Material(
             fig, ax = plt.subplots(constrained_layout=True)
             na.plt.scatter(
                 wavelength_measured,
-                qe_measured,
+                eqe_measured,
                 label="measured",
             )
             na.plt.plot(
                 wavelength_fit,
-                qe_fit,
+                eqe_fit,
                 label="fit",
             )
             ax.set_xscale("log")
@@ -110,13 +154,13 @@ class E2VCCD97Material(
     |
 
     Now plot the effective quantum efficiency of the fit to this data vs. the fit
-    to the data in :class:`optika.sensors.E2VCCD203Material`
+    to the data in :func:`optika.sensors.materials.e2v_ccd203`
 
     .. jupyter-execute::
 
-        material_ccd_aia = optika.sensors.E2VCCD203Material()
+        material_ccd_aia = optika.sensors.materials.e2v_ccd203()
 
-        qe_fit_aia = material_ccd_aia.quantum_efficiency_effective(
+        eqe_fit_aia = material_ccd_aia.quantum_efficiency_effective(
             rays=optika.rays.RayVectorArray(
                 wavelength=wavelength_fit,
                 direction=na.Cartesian3dVectorArray(0, 0, 1),
@@ -128,22 +172,22 @@ class E2VCCD97Material(
             fig, ax = plt.subplots(constrained_layout=True)
             na.plt.scatter(
                 wavelength_measured,
-                qe_measured,
+                eqe_measured,
                 label="Heymes 2020 measured",
             )
             na.plt.plot(
                 wavelength_fit,
-                qe_fit,
+                eqe_fit,
                 label="Heymes 2020 fit",
             )
             na.plt.scatter(
-                material_ccd_aia.quantum_efficiency_measured.inputs,
-                material_ccd_aia.quantum_efficiency_measured.outputs,
+                material_ccd_aia.eqe_measured.inputs,
+                material_ccd_aia.eqe_measured.outputs,
                 label="Boerner 2012 measured",
             )
             na.plt.plot(
                 wavelength_fit,
-                qe_fit_aia,
+                eqe_fit_aia,
                 label="Boerner 2012 fit",
             )
             ax.set_xscale("log")
@@ -180,45 +224,6 @@ class E2VCCD97Material(
             ax.set_xlabel(f"wavelength ({ax.get_xlabel()})")
             ax.set_ylabel(f"width ({ax.get_ylabel()})")
     """
-
-    @property
-    def quantum_efficiency_measured(self) -> na.FunctionArray:
-
-        directory = pathlib.Path(__file__).parent
-
-        energy_moody, qe_moody = np.genfromtxt(
-            fname=directory / "e2v_ccd97_qe_moody2017.csv",
-            delimiter=", ",
-            unpack=True,
-        )
-        energy_moody = energy_moody << u.eV
-        wavelength_moody = energy_moody.to(u.AA, equivalencies=u.spectral())
-        qe_moody = qe_moody << u.percent
-
-        wavelength_heymes, qe_heymes = np.genfromtxt(
-            fname=directory / "e2v_ccd97_qe_heymes2020.csv",
-            delimiter=", ",
-            unpack=True,
-        )
-        wavelength_heymes = wavelength_heymes << u.nm
-        qe_heymes = qe_heymes << u.percent
-
-        wavelength = np.concatenate([wavelength_moody, wavelength_heymes])
-        qe = np.concatenate([qe_moody, qe_heymes]).to_value(u.dimensionless_unscaled)
-
-        return na.FunctionArray(
-            inputs=na.ScalarArray(wavelength, axes="wavelength"),
-            outputs=na.ScalarArray(qe, axes="wavelength"),
-        )
-
-    @property
-    def thickness_substrate(self) -> u.Quantity:
-        return 14 * u.um
-
-    @property
-    def depletion(self) -> E2VCCD64ThickDepletionModel:
-        return E2VCCD64ThickDepletionModel()
-
-    @property
-    def shape(self) -> dict[str, int]:
-        return dict()
+    result = _e2v_ccd97()
+    result.temperature = temperature
+    return result
