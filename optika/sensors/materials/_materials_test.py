@@ -265,6 +265,22 @@ def test_signal(
     assert np.all(result >= 0 * u.electron)
 
 
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        1000 * u.AA,
+        na.geomspace(1, 10000, axis="wavelength", num=9) * u.AA,
+    ],
+)
+def test_vmr_signal(
+    wavelength: u.Quantity | na.AbstractScalar,
+):
+    result = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+    )
+    assert np.all(result >= 0 * u.electron)
+
+
 class AbstractTestAbstractSensorMaterial(
     AbstractTestAbstractMaterial,
 ):

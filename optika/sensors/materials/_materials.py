@@ -40,6 +40,7 @@ __all__ = [
     "electrons_measured",
     "electrons_measured_approx",
     "signal",
+    "vmr_signal",
     "AbstractSensorMaterial",
     "IdealSensorMaterial",
     "AbstractSiliconSensorMaterial",
@@ -969,6 +970,166 @@ def signal(
         return electrons_measured_approx(**kwargs)
     else:  # pragma: nocover
         raise ValueError(f"Unrecognized method: {method}")
+
+
+def vmr_signal(
+    wavelength: u.Quantity | na.ScalarArray,
+    absorption: None | u.Quantity | na.AbstractScalar = None,
+    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    shot: bool = True,
+    fano: bool = True,
+    pcc: bool = True,
+) -> na.ScalarArray:
+    r"""
+    Compute the variance-to-mean ratio (VMR) of the number of electrons measured by
+    the sensor using an analytic expression.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the absorbed photons.
+    absorption
+        The absorption coefficient of the light-sensitive material for the
+        wavelength of interest.
+        If :obj:`None` (the default), the result of
+        :meth:`optika.chemicals.Chemical.absorption` for silicon will be used.
+    thickness_implant
+        The thickness of the implant layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    temperature
+        The temperature of the light-sensitive silicon layer.
+    shot
+        Whether to include shot noise in the result.
+    fano
+        Whether to include the Fano noise in the result.
+    pcc
+        Whether to include noise due to partial charge collection in the result.
+
+    Examples
+    --------
+
+    Compute the VMR of the signal analytically and compare to a Monte Carlo approximation
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the number of experiments to perform
+        num_experiments = 1000
+
+        # Define the expected number of photons
+        # for each experiment
+        photons_expected = 100 * u.photon
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Compute the variance-to-mean ratio of the signal analytically
+        vmr_signal = optika.sensors.vmr_signal(wavelength)
+
+        # Compute the actual number of electrons measured for each experiment
+        signal = optika.sensors.signal(
+            photons_expected=photons_expected,
+            wavelength=wavelength,
+            shape_random=dict(experiment=num_experiments),
+        )
+
+        # Plot the variance-to-mean ratio of the result
+        # as a function of wavelength.
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.plot(
+            wavelength,
+            signal.vmr("experiment"),
+            ax=ax,
+            label="Monte Carlo",
+        );
+        na.plt.plot(
+            wavelength,
+            vmr_signal,
+            ax=ax,
+            label="analytic"
+        );
+        ax.set_xscale("log");
+        ax.set_yscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel(f"variance-to-mean ratio ({signal.unit:latex_inline})");
+        ax.legend();
+
+    Notes
+    -----
+    The VMR of the measured electrons is given by
+
+    .. math::
+
+        F(N_e'') = 1 - \overline{\eta} - F(\eta) + \overline{n} \, \overline{\eta} + \overline{\eta} \mathcal{F} + \overline{n} F(\eta) + \mathcal{F} F(\eta)
+
+    where :math:`N_e''` is the number of measured electrons,
+    :math:`\overline{\eta}` is the average charge-collection efficiency,
+    :math:`\overline{n}` is the average quantum yield,
+    and :math:`\mathcal{F}` is the Fano factor.
+    The VMR of the charge-collection efficiency (CCE) is
+
+    .. math::
+
+        F(\eta) = \frac{2 e^{-\alpha W}}{\overline{\eta}} \left( \frac{1 - \eta_0}{\alpha W} \right)^2 \bigl( \sinh(\alpha W) - \alpha W \bigr)
+
+    where :math:`\alpha` is the absorption coefficient,
+    :math:`W` is the thickness of the implant region,
+    and :math:`\eta_0` is the CCE at the back surface.
+    """
+
+    if absorption is None:
+        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+
+    n = quantum_yield_ideal(
+        wavelength=wavelength,
+        temperature=temperature,
+    )
+
+    cce = charge_collection_efficiency(
+        absorption=absorption,
+        thickness_implant=thickness_implant,
+        cce_backsurface=cce_backsurface,
+    )
+
+    F = fano_factor(wavelength)
+
+    result = 0
+
+    if shot:
+
+        F_shot = n * cce
+
+        result = result + F_shot
+
+    if fano:
+
+        F_fano = cce * F
+
+        result = result + F_fano
+
+    if pcc:
+
+        n0 = cce_backsurface
+        aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
+        F_cce = 2 * np.exp(-aW) * np.square((n0 - 1) / aW) * (np.sinh(aW) - aW) / cce
+
+        unit = u.electron / u.photon
+
+        F_pcc = 1 * unit - cce * unit - F_cce * unit + n * F_cce + F * F_cce
+
+        result = result + F_pcc
+
+    return result * u.photon
 
 
 @dataclasses.dataclass(eq=False, repr=False)
