@@ -301,8 +301,6 @@ class SphericalSag(
         return result / result.length
 
 
-
-
 @dataclasses.dataclass(eq=False, repr=False)
 class CylindricalSag(
     AbstractSag,
