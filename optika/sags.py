@@ -155,13 +155,9 @@ class NoSag(
         rays: optika.rays.AbstractRayVectorArray,
     ) -> optika.rays.AbstractRayVectorArray:
 
-        l0 = rays.position
+        d = -rays.position.z / rays.direction.z
 
-        l = rays.direction
-
-        d = -l0.z / l.z
-
-        position = l0 + l * d
+        position = rays.position + rays.direction * d
 
         return rays.replace(
             position=position,
@@ -303,6 +299,8 @@ class SphericalSag(
             z=-1 * u.dimensionless_unscaled,
         )
         return result / result.length
+
+
 
 
 @dataclasses.dataclass(eq=False, repr=False)
