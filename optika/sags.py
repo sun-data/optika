@@ -150,6 +150,23 @@ class NoSag(
     ) -> na.AbstractCartesian3dVectorArray:
         return na.Cartesian3dVectorArray(0, 0, -1)
 
+    def intercept(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> optika.rays.AbstractRayVectorArray:
+
+        l0 = rays.position
+
+        l = rays.direction
+
+        d = -l0.z / l.z
+
+        position = l0 + l * d
+
+        return rays.replace(
+            position=position,
+        )
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSphericalSag(
