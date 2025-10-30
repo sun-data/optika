@@ -21,6 +21,7 @@ from .materials._materials import (
     electrons_measured,
     electrons_measured_approx,
     signal,
+    vmr_signal,
 )
 from . import materials
 from ._sensors import (
@@ -44,6 +45,7 @@ __all__ = [
     "electrons_measured",
     "electrons_measured_approx",
     "signal",
+    "vmr_signal",
     "materials",
     "AbstractImagingSensor",
     "ImagingSensor",
