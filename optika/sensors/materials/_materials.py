@@ -1073,14 +1073,14 @@ def vmr_signal(
         F(N_e'') = 1 - \overline{\eta} - F(\eta) + \overline{n} \, \overline{\eta} + \overline{\eta} \mathcal{F} + \overline{n} F(\eta) + \mathcal{F} F(\eta)
 
     where :math:`N_e''` is the number of measured electrons,
-    :math:`\overline{\eta} is the average charge-collection efficiency,
+    :math:`\overline{\eta}` is the average charge-collection efficiency,
     :math:`\overline{n}` is the average quantum yield,
     and :math:`\mathcal{F}` is the Fano factor.
     The VMR of the charge-collection efficiency (CCE) is
 
     .. math::
 
-        F(\eta) = \frac{2 e^{-\alpha W}}{\E{\eta}} \left( \frac{1 - \eta_0}{\alpha W} \right)^2 \bigl( \sinh(\alpha W) - \alpha W \bigr)
+        F(\eta) = \frac{2 e^{-\alpha W}}{\overline{\eta}} \left( \frac{1 - \eta_0}{\alpha W} \right)^2 \bigl( \sinh(\alpha W) - \alpha W \bigr)
 
     where :math:`\alpha` is the absorption coefficient,
     :math:`W` is the thickness of the implant region,
