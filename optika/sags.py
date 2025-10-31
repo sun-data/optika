@@ -457,6 +457,53 @@ class CylindricalSag(
         )
         return result / result.length
 
+    def intercept(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> optika.rays.AbstractRayVectorArray:
+
+        if self.transformation is not None:
+            rays = self.transformation.inverse(rays)
+
+        r = self.radius
+
+        sgn = np.sign(r)
+
+        o = rays.position
+
+        n = rays.direction
+
+        b = na.Cartesian3dVectorArray(z=r)
+
+        b = b - o
+
+        a = na.Cartesian3dVectorArray(y=1)
+
+        n_cross_a = n.cross(a)
+        n_cross_a_squared = n_cross_a @ n_cross_a
+
+        negative_b = n_cross_a @ b.cross(a)
+        b_squared = n_cross_a_squared * np.square(r)
+        four_ac = np.square(b @ n_cross_a)
+        two_a = n_cross_a_squared
+
+        discriminant = b_squared - four_ac
+
+        d = np.where(
+            discriminant > 0,
+            (negative_b - sgn * np.sqrt(discriminant)) / two_a,
+            -o.z / n.z,
+        )
+
+        position = o + d * n
+
+        result = rays.replace(position=position)
+
+        if self.transformation is not None:
+            result = self.transformation(result)
+
+        return result
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractConicSag(
