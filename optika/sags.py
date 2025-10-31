@@ -164,13 +164,19 @@ class NoSag(
         rays: optika.rays.AbstractRayVectorArray,
     ) -> optika.rays.AbstractRayVectorArray:
 
+        if self.transformation is not None:
+            rays = self.transformation.inverse(rays)
+
         d = -rays.position.z / rays.direction.z
 
         position = rays.position + rays.direction * d
 
-        return rays.replace(
-            position=position,
-        )
+        result = rays.replace(position=position)
+
+        if self.transformation is not None:
+            result = self.transformation(result)
+
+        return result
 
 
 @dataclasses.dataclass(eq=False, repr=False)

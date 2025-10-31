@@ -55,8 +55,7 @@ class AbstractTestAbstractSag(
         ):
             result = a(position)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
-            if na.shape(result):
-                assert set(na.shape(position)).issubset(na.shape(result))
+            assert result.unit.is_equivalent(u.mm)
 
         def test_normal(
             self,
