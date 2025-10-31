@@ -142,7 +142,16 @@ class NoSag(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        return 0 * u.mm
+
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
+
+        result = position.replace(z=0 * u.mm)
+
+        if self.transformation is not None:
+            result = self.transformation(result)
+
+        return result.z
 
     def normal(
         self,
@@ -299,6 +308,39 @@ class SphericalSag(
             z=-1 * u.dimensionless_unscaled,
         )
         return result / result.length
+
+    def intercept(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> optika.rays.AbstractRayVectorArray:
+
+        if self.transformation is not None:
+            rays = self.transformation.inverse(rays)
+
+        r = self.radius
+
+        o = rays.position
+
+        u = rays.direction
+
+        c = na.Cartesian3dVectorArray(z=r)
+
+        o_c = o - c
+
+        u_o_c = u @ o_c
+
+        nabla = np.square(u_o_c) - (np.square(o_c.length) - np.square(r))
+
+        d = -u_o_c - np.sqrt(nabla)
+
+        position = o + d * u
+
+        result = rays.replace(position=position)
+
+        if self.transformation is not None:
+            result = self.transformation(result)
+
+        return result
 
 
 @dataclasses.dataclass(eq=False, repr=False)

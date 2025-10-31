@@ -108,6 +108,9 @@ class AbstractTestAbstractSag(
     argnames="a",
     argvalues=[
         optika.sags.NoSag(
+            transformation=na.transformations.Cartesian3dRotationX(20 * u.deg),
+        ),
+        optika.sags.NoSag(
             parameters_slope_error=optika.metrology.SlopeErrorParameters(
                 kernel_size=2 * u.mm,
                 step_size=4 * u.mm,
