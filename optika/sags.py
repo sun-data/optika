@@ -339,7 +339,7 @@ class SphericalSag(
 
         sgn = np.sign(r)
 
-        d = -u_o_c - sgn *  np.sqrt(nabla)
+        d = -u_o_c - sgn * np.sqrt(nabla)
 
         position = o + d * u
 
