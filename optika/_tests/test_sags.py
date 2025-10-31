@@ -55,8 +55,7 @@ class AbstractTestAbstractSag(
         ):
             result = a(position)
             assert isinstance(na.as_named_array(result), na.AbstractScalar)
-            if na.shape(result):
-                assert set(na.shape(position)).issubset(na.shape(result))
+            assert result.unit.is_equivalent(u.mm)
 
         def test_normal(
             self,
@@ -108,6 +107,9 @@ class AbstractTestAbstractSag(
     argnames="a",
     argvalues=[
         optika.sags.NoSag(
+            transformation=na.transformations.Cartesian3dRotationX(20 * u.deg),
+        ),
+        optika.sags.NoSag(
             parameters_slope_error=optika.metrology.SlopeErrorParameters(
                 kernel_size=2 * u.mm,
                 step_size=4 * u.mm,
@@ -120,7 +122,7 @@ class AbstractTestAbstractSag(
                 period_min=0.1 * u.mm,
                 period_max=2 * u.mm,
             ),
-        )
+        ),
     ],
 )
 class TestNoSag(
@@ -140,6 +142,7 @@ class AbstractTestAbstractSphericalSag(
 def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
     nominals = [
         100 * u.mm,
+        -100 * u.mm,
         na.ScalarLinearSpace(100, 1000, axis="radius", num=5) * u.mm,
     ]
     widths = [
