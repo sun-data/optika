@@ -492,7 +492,7 @@ class CylindricalSag(
         d = np.where(
             discriminant > 0,
             (negative_b - sgn * np.sqrt(discriminant)) / two_a,
-            -o.z / n.z
+            -o.z / n.z,
         )
 
         position = o + d * n
