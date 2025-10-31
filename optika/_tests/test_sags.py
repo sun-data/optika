@@ -142,6 +142,7 @@ class AbstractTestAbstractSphericalSag(
 def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
     nominals = [
         100 * u.mm,
+        -100 * u.mm,
         na.ScalarLinearSpace(100, 1000, axis="radius", num=5) * u.mm,
     ]
     widths = [
