@@ -122,7 +122,7 @@ class AbstractTestAbstractSag(
                 period_min=0.1 * u.mm,
                 period_max=2 * u.mm,
             ),
-        )
+        ),
     ],
 )
 class TestNoSag(
