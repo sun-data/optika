@@ -487,7 +487,13 @@ class CylindricalSag(
         four_ac = np.square(b @ n_cross_a)
         two_a = n_cross_a_squared
 
-        d = (negative_b - sgn * np.sqrt(b_squared - four_ac)) / two_a
+        discriminant = b_squared - four_ac
+
+        d = np.where(
+            discriminant > 0,
+            (negative_b - sgn * np.sqrt(discriminant)) / two_a,
+            -o.z / n.z
+        )
 
         position = o + d * n
 
