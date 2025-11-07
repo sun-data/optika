@@ -6,6 +6,7 @@ system.
 from .materials._diffusion import (
     charge_diffusion,
     mean_charge_capture,
+    vmr_diffusion,
     kernel_diffusion,
 )
 from .materials._materials import (
@@ -48,6 +49,7 @@ __all__ = [
     "electrons_measured_approx",
     "signal",
     "vmr_signal",
+    "vmr_diffusion",
     "materials",
     "AbstractImagingSensor",
     "ImagingSensor",

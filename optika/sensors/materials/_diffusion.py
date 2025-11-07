@@ -7,6 +7,7 @@ __all__ = [
     "charge_diffusion",
     "mean_charge_capture",
     "kernel_diffusion",
+    "vmr_diffusion",
 ]
 
 
@@ -416,3 +417,72 @@ def kernel_diffusion(
         inputs=na.Cartesian2dVectorArray(index_x, index_y),
         outputs=result,
     )
+
+
+def vmr_diffusion(
+    vmr_flat: u.Quantity | na.AbstractScalar,
+    mcc: u.Quantity | na.AbstractScalar,
+) -> na.AbstractScalar:
+    """
+    Compute the variance-to-mean (VMR) ratio of a flat-field image with a given
+    VMR and mean charge capture (MCC).
+
+    Parameters
+    ----------
+    vmr_flat
+        The variance-to-mean ratio of a flat-field image in the absence of
+        charge diffusion.
+        Intended to be computed with :func:`~optika.sensors.vmr_signal`.
+    mcc
+        The mean charge capture of the charge diffusion kernel calculated
+        using :func:`~optika.sensors.mean_charge_capture`.
+
+    Notes
+    -----
+
+    Given a flat-field image :math:`a(x, y)`,
+    we can represent the blurring due to charge diffusion as
+
+    .. math::
+
+        b(x, y) = \sum_i \sum_j k_ij a(x + i, y + j),
+
+    where :math:`i` and :math:`j` are the indices of the pixels
+    and :math:`k_ij` is the charge diffusion kernel.\
+    Since the `variance of a linear combination <https://en.wikipedia.org/wiki/Variance#Linear_combinations>`_ is
+
+    .. math::
+
+        \text{Var} \left( \sum_i a_i X_i \right) = \text{Var}(X_i) \sum_i a_i^2,
+
+    we can write the variance of the blurred image as
+
+    .. math::
+
+        \sigma_b^2 = \sigma_a \sum_i \sum_j k_ij^2.
+
+    Because our kernel is separable, :math:`k_ij = k_i k_j`,
+    we can simplify this to
+
+    .. math::
+
+        \sigma_b^2 = \sigma_a^2 \left( \sum k_i^2 \right)^2.
+
+    In our case,
+    the charge diffusion has approximately the same scale as a pixel,
+    so we approximate it using only a :math:`3 \times 3` kernel.
+    Given that our kernel is also symmetric and unitary,
+    we can write it in terms of only the MCC, :math:`m`,
+    so that the variance of the blurred image becomes
+
+    .. math::
+
+        \sigma_b^2 = \sigma_a \left[ \left( \frac{\sqrt{m} - 1}{2}\right)^2 + m + \left( \frac{\sqrt{m} - 1}{2}\right)^2 \right]^2,
+
+    which can be simplified to
+
+    .. math::
+
+        \sigma_b^2 = \frac{\sigma_a^2}{4} \left( 3 m - 2 \sqrt{m} + 1 \right).
+    """
+    return vmr_flat * np.square(3 * mcc - 2 * np.sqrt(mcc) + 1) / 4
