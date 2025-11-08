@@ -423,7 +423,7 @@ def vmr_diffusion(
     vmr_flat: u.Quantity | na.AbstractScalar,
     mcc: u.Quantity | na.AbstractScalar,
 ) -> na.AbstractScalar:
-    """
+    r"""
     Compute the variance-to-mean (VMR) ratio of a flat-field image with a given
     VMR and mean charge capture (MCC).
 
@@ -445,7 +445,7 @@ def vmr_diffusion(
 
     .. math::
 
-        b(x, y) = \sum_i \sum_j k_ij a(x + i, y + j),
+        b(x, y) = \sum_i \sum_j k_{ij} a(x + i, y + j),
 
     where :math:`i` and :math:`j` are the indices of the pixels
     and :math:`k_ij` is the charge diffusion kernel.\
@@ -461,7 +461,7 @@ def vmr_diffusion(
 
         \sigma_b^2 = \sigma_a \sum_i \sum_j k_ij^2.
 
-    Because our kernel is separable, :math:`k_ij = k_i k_j`,
+    Because our kernel is separable, :math:`k_{ij} = k_i k_j`,
     we can simplify this to
 
     .. math::
@@ -484,5 +484,12 @@ def vmr_diffusion(
     .. math::
 
         \sigma_b^2 = \frac{\sigma_a^2}{4} \left( 3 m - 2 \sqrt{m} + 1 \right).
+
+    The mean of the image is unchanged by the blurring operation,
+    since the kernel is unitary,
+    so the equation for the VMR is the same as it is for the variance,
+
+    .. math::
+        F_b = \frac{F_a^2}{4} \left( 3 m - 2 \sqrt{m} + 1 \right).
     """
     return vmr_flat * np.square(3 * mcc - 2 * np.sqrt(mcc) + 1) / 4
