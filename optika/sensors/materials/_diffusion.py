@@ -445,10 +445,10 @@ def vmr_diffusion(
 
     .. math::
 
-        b(x, y) = \sum_i \sum_j k_{ij} a(x + i, y + j),
+        b(x, y) = \sum_i \sum_j k_{ij} \, a(x + i, y + j),
 
     where :math:`i` and :math:`j` are the indices of the pixels
-    and :math:`k_ij` is the charge diffusion kernel.\
+    and :math:`k_{ij}` is the charge diffusion kernel.
     Since the `variance of a linear combination <https://en.wikipedia.org/wiki/Variance#Linear_combinations>`_ is
 
     .. math::
@@ -459,7 +459,7 @@ def vmr_diffusion(
 
     .. math::
 
-        \sigma_b^2 = \sigma_a \sum_i \sum_j k_ij^2.
+        \sigma_b^2 = \sigma_a^2 \sum_i \sum_j k_{ij}^2.
 
     Because our kernel is separable, :math:`k_{ij} = k_i k_j`,
     we can simplify this to
@@ -472,24 +472,24 @@ def vmr_diffusion(
     the charge diffusion has approximately the same scale as a pixel,
     so we approximate it using only a :math:`3 \times 3` kernel.
     Given that our kernel is also symmetric and unitary,
-    we can write it in terms of only the MCC, :math:`m`,
+    we can write it in terms of only the MCC, :math:`m^2`,
     so that the variance of the blurred image becomes
 
     .. math::
 
-        \sigma_b^2 = \sigma_a \left[ \left( \frac{\sqrt{m} - 1}{2}\right)^2 + m + \left( \frac{\sqrt{m} - 1}{2}\right)^2 \right]^2,
+        \sigma_b^2 = \sigma_a^2 \left[ \left( \frac{m - 1}{2}\right)^2 + m + \left( \frac{m - 1}{2}\right)^2 \right]^2,
 
     which can be simplified to
 
     .. math::
 
-        \sigma_b^2 = \frac{\sigma_a^2}{4} \left( 3 m - 2 \sqrt{m} + 1 \right).
+        \sigma_b^2 = \frac{\sigma_a^2}{4} \left( 3 m^2 - 2 m + 1 \right)^2.
 
-    The mean of the image is unchanged by the blurring operation,
-    since the kernel is unitary,
-    so the equation for the VMR is the same as it is for the variance,
+    Since the kernel is unitary,
+    the mean of the image is unchanged by the blurring operation
+    and the equation for the VMR is the same as it is for the variance,
 
     .. math::
-        F_b = \frac{F_a^2}{4} \left( 3 m - 2 \sqrt{m} + 1 \right).
+        F_b = \frac{F_a^2}{4} \left( 3 m^2 - 2 m + 1 \right)^2.
     """
     return vmr_flat * np.square(3 * mcc - 2 * np.sqrt(mcc) + 1) / 4
