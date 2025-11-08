@@ -336,9 +336,10 @@ def kernel_diffusion(
         import matplotlib.pyplot as plt
         import astropy.units as u
         import named_arrays as na
+        import optika
 
         # Define the wavelength to compute the charge diffusion kernel for.
-        wavelength = 1400 * u.AA
+        wavelength = 1403 * u.AA
 
         # Define the width of pixel
         width_pixel = 13 * u.um
@@ -354,7 +355,7 @@ def kernel_diffusion(
         width_diffusion = optika.sensors.charge_diffusion(
             absorption=absorption,
             thickness_substrate=14 * u.um,
-            thickness_depletion=2.4 * u.um,
+            thickness_depletion=8.7 * u.um,
         )
 
         # Compute the charge diffusion kernel.
@@ -367,7 +368,7 @@ def kernel_diffusion(
 
         # Plot the charge diffusion kernel.
         fig, ax = plt.subplots(
-            figsize=(2, 2),
+            figsize=(3, 3),
             constrained_layout=True,
         )
         na.plt.pcolormesh(
@@ -388,8 +389,8 @@ def kernel_diffusion(
         ax.set_xlabel("detector $x$ (pix)")
         ax.set_ylabel("detector $y$ (pix)")
         ax.set_aspect("equal")
-        ax.set_xticks([-1, 0, 1])
-        ax.set_yticks([-1, 0, 1])
+        ax.set_xticks([-1, 0, 1]);
+        ax.set_yticks([-1, 0, 1]);
     """
 
     index_x = na.linspace(-1, 1, axis=axis_x, num=3)
