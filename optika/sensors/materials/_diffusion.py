@@ -6,6 +6,7 @@ import named_arrays as na
 __all__ = [
     "charge_diffusion",
     "mean_charge_capture",
+    "kernel_diffusion",
 ]
 
 
@@ -52,7 +53,7 @@ def charge_diffusion(
         si = optika.chemicals.Chemical("Si")
 
         # Retrieve the absorption coefficient of silicon
-        # for the given wavelenghts.
+        # for the given wavelengths.
         absorption = si.absorption(wavelength)
 
         # Compute the charge diffusion
@@ -254,3 +255,162 @@ def mean_charge_capture(
     result = np.square(t1 + t2)
 
     return result.to(u.dimensionless_unscaled)
+
+
+def _kernel_1d(
+    width_diffusion: u.Quantity,
+    width_pixel: u.Quantity,
+    index_pixel: int | na.AbstractScalar,
+) -> na.AbstractScalar:
+    """
+    The charge diffusion kernel in 1 dimension.
+    Designed to be used in an outer product to make a 2D version.
+
+    Parameters
+    ----------
+    width_diffusion
+        The standard deviation of the charge diffusion kernel.
+    width_pixel
+        The physical size of the pixel.
+    index_pixel
+        The indices of the pixels to compute,
+        relative to the center of the kernel.
+    """
+
+    w = width_diffusion
+    d = width_pixel
+    n = index_pixel
+
+    x = d / w
+    x2 = np.square(x)
+
+    c = 1 / (x * np.sqrt(2 * np.pi))
+
+    def g(m: int | na.AbstractScalar) -> na.AbstractScalar:
+        return np.exp(-x2 * m / 2)
+
+    def e(m: int | na.AbstractScalar) -> na.AbstractScalar:
+        return m * scipy.special.erf(x * m / np.sqrt(2))
+
+    g1 = g(np.square(n - 1))
+    g2 = -2 * g(np.square(n))
+    g3 = g(np.square(n + 1))
+
+    e1 = e(n - 1) / 2
+    e2 = -e(n)
+    e3 = e(n + 1) / 2
+
+    result = c * (g1 + g2 + g3) + e1 + e2 + e3
+
+    return result
+
+
+def kernel_diffusion(
+    width_diffusion: u.Quantity,
+    width_pixel: u.Quantity,
+    axis_x: str,
+    axis_y: str,
+) -> na.FunctionArray[na.Cartesian2dVectorArray, na.ScalarArray]:
+    """
+    The charge diffusion kernel convolved with a pixel and then integrated
+    over the extent of each pixel.
+
+    Parameters
+    ----------
+    width_diffusion
+        The standard deviation of the charge diffusion kernel.
+    width_pixel
+        The width of a pixel.
+    axis_x
+        The name of the horizontal axis.
+    axis_y
+        The name of the vertical axis.
+
+    Examples
+    --------
+
+    Plot this diffusion kernel
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+
+        # Define the wavelength to compute the charge diffusion kernel for.
+        wavelength = 1400 * u.AA
+
+        # Define the width of pixel
+        width_pixel = 13 * u.um
+
+        # Load the optical properties of silicon
+        si = optika.chemicals.Chemical("Si")
+
+        # Retrieve the absorption coefficient of silicon
+        # for the given wavelengths.
+        absorption = si.absorption(wavelength)
+
+        # Compute the standard deviation of the charge diffusion kernel
+        width_diffusion = optika.sensors.charge_diffusion(
+            absorption=absorption,
+            thickness_substrate=14 * u.um,
+            thickness_depletion=2.4 * u.um,
+        )
+
+        # Compute the charge diffusion kernel.
+        kernel = optika.sensors.kernel_diffusion(
+            width_diffusion=width_diffusion,
+            width_pixel=width_pixel,
+            axis_x="x",
+            axis_y="y",
+        )
+
+        # Plot the charge diffusion kernel.
+        fig, ax = plt.subplots(
+            figsize=(2, 2),
+            constrained_layout=True,
+        )
+        na.plt.pcolormesh(
+            kernel.inputs.x,
+            kernel.inputs.y,
+            C=kernel.outputs,
+            facecolors="None",
+            edgecolors="black",
+        )
+        na.plt.text(
+            x=kernel.inputs.x,
+            y=kernel.inputs.y,
+            s=kernel.outputs.to_string_array(format_value="%.3f"),
+            color="black",
+            ha="center",
+            va="center",
+        )
+        ax.set_xlabel("detector $x$ (pix)")
+        ax.set_ylabel("detector $y$ (pix)")
+        ax.set_aspect("equal")
+        ax.set_xticks([-1, 0, 1])
+        ax.set_yticks([-1, 0, 1])
+    """
+
+    index_x = na.linspace(-1, 1, axis=axis_x, num=3)
+    index_y = na.linspace(-1, 1, axis=axis_y, num=3)
+
+    kx = _kernel_1d(
+        width_diffusion=width_diffusion,
+        width_pixel=width_pixel,
+        index_pixel=index_x,
+    )
+    ky = _kernel_1d(
+        width_diffusion=width_diffusion,
+        width_pixel=width_pixel,
+        index_pixel=index_y,
+    )
+
+    result = kx * ky
+
+    result = result / result.sum(axis=(axis_x, axis_y))
+
+    return na.FunctionArray(
+        inputs=na.Cartesian2dVectorArray(index_x, index_y),
+        outputs=result,
+    )
