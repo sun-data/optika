@@ -319,6 +319,7 @@ def kernel_diffusion(
     ----------
     width_diffusion
         The standard deviation of the charge diffusion kernel.
+        Often computed using :func:`~optika.sensors.charge_diffusion`.
     width_pixel
         The width of a pixel.
     axis_x
