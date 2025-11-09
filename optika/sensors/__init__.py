@@ -6,6 +6,7 @@ system.
 from .materials._diffusion import (
     charge_diffusion,
     mean_charge_capture,
+    kernel_diffusion,
 )
 from .materials._materials import (
     energy_bandgap,
@@ -32,6 +33,7 @@ from ._sensors import (
 __all__ = [
     "charge_diffusion",
     "mean_charge_capture",
+    "kernel_diffusion",
     "energy_bandgap",
     "energy_pair",
     "energy_pair_inf",

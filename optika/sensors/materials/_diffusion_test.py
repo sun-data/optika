@@ -60,3 +60,33 @@ def test_mean_charge_capture(
     )
     assert np.all(result > 0)
     assert np.all(result < 1)
+
+
+@pytest.mark.parametrize(
+    argnames="width_diffusion",
+    argvalues=[
+        10 * u.um,
+        na.linspace(1, 10, "width", 5) * u.um,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="width_pixel",
+    argvalues=[
+        15 * u.um,
+    ],
+)
+def test_kernel_diffusion(
+    width_diffusion: u.Quantity | na.AbstractScalar,
+    width_pixel: u.Quantity | na.AbstractScalar,
+):
+    result = optika.sensors.kernel_diffusion(
+        width_diffusion=width_diffusion,
+        width_pixel=width_pixel,
+        axis_x="x",
+        axis_y="y",
+    )
+
+    assert isinstance(result, na.FunctionArray)
+    assert isinstance(result.outputs, na.AbstractScalar)
+    assert isinstance(result.inputs, na.Cartesian2dVectorArray)
+    assert np.all(result.outputs.sum(("x", "y")) == 1)
