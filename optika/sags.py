@@ -337,7 +337,7 @@ class SphericalSag(
 
         nabla = np.square(u_o_c) - (np.square(o_c.length) - np.square(r))
 
-        sgn = np.sign(r)
+        sgn = np.sign(r * u.z)
 
         d = -u_o_c - sgn * np.sqrt(nabla)
 
@@ -467,8 +467,6 @@ class CylindricalSag(
 
         r = self.radius
 
-        sgn = np.sign(r)
-
         o = rays.position
 
         n = rays.direction
@@ -488,6 +486,8 @@ class CylindricalSag(
         two_a = n_cross_a_squared
 
         discriminant = b_squared - four_ac
+
+        sgn = np.sign(r * n.z)
 
         d = np.where(
             discriminant > 0,

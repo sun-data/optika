@@ -73,7 +73,7 @@ class AbstractTestAbstractSag(
             optika.rays.RayVectorArray(
                 wavelength=500 * u.nm,
                 position=na.Cartesian3dVectorArray(1, 2, 3) * u.mm,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
+                direction=na.Cartesian3dVectorArray(0, 0, -1),
             ),
             optika.rays.RayVectorArray(
                 wavelength=na.NormalUncertainScalarArray(500 * u.nm, width=5 * u.nm),
@@ -98,9 +98,11 @@ class AbstractTestAbstractSag(
             rays: optika.rays.AbstractRayVectorArray,
         ):
             result = a.intercept(rays)
+            result_expected = super(type(a), a).intercept(rays)
             assert isinstance(result, optika.rays.AbstractRayVectorArray)
             assert np.all(np.isfinite(result.position))
             assert np.allclose(a(result.position), result.position.z)
+            assert np.allclose(result, result_expected)
 
 
 @pytest.mark.parametrize(
