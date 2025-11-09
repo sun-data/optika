@@ -311,10 +311,13 @@ class AbstractSequentialSystem(
                 result.inputs.pupil = grid_last
 
             if na.unit(grid_first).is_equivalent(u.mm):
-                result.outputs.position = na.Cartesian3dVectorArray(
+                grid_first = na.Cartesian3dVectorArray(
                     x=grid_first.x,
                     y=grid_first.y,
-                    z=surface_first.sag(grid_first),
+                    z=0 * u.mm,
+                )
+                result.outputs.position = grid_first.replace(
+                    z=surface_first.sag(grid_first)
                 )
                 result.outputs.direction = na.Cartesian3dVectorArray(0, 0, 1)
                 component_variable = "direction"
@@ -743,7 +746,7 @@ class AbstractSequentialSystem(
 
         This property is cached to increase performance.
         If :attr:`grid_input` is updated, the cache must be cleared with
-        ``del system.rayfunction_default`` before calling property.
+        ``del system.rayfunction_default`` before calling this property.
         """
         return self.rayfunction()
 
