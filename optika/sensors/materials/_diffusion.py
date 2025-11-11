@@ -490,6 +490,6 @@ def vmr_diffusion(
     and the equation for the VMR is the same as it is for the variance,
 
     .. math::
-        F_b = \frac{F_a^2}{4} \left( 3 m^2 - 2 m + 1 \right)^2.
+        F_b = \frac{F_a}{4} \left( 3 m^2 - 2 m + 1 \right)^2.
     """
     return vmr_flat * np.square(3 * mcc - 2 * np.sqrt(mcc) + 1) / 4
