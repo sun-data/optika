@@ -92,8 +92,8 @@ class AbstractRayPropagator(
         rays: optika.rays.AbstractRayVectorArray,
     ) -> optika.rays.AbstractRayVectorArray:
         """
-        for the given input rays, calculate new rays based off of their
-        interation with this object
+        For the given input rays, calculate new rays based off of their
+        interation with this object.
 
         Parameters
         ----------

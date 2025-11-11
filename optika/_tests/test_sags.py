@@ -4,12 +4,14 @@ import astropy.units as u  # type: ignore[import]
 import named_arrays as na  # type: ignore[import]
 import optika
 from . import test_mixins
+from . import test_propagators
 
 
 class AbstractTestAbstractSag(
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
     test_mixins.AbstractTestShaped,
+    test_propagators.AbstractTestAbstractRayPropagator,
 ):
     def test_parameters_slope_error(self, a: optika.sags.AbstractSag):
         if a.parameters_slope_error is not None:
