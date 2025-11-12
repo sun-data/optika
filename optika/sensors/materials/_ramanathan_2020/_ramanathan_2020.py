@@ -348,7 +348,6 @@ def fano_factor(
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
     temperature = temperature.to(u.K, equivalencies=u.temperature())
 
-
     pn = _probability_of_n_pairs_ramanathan()
 
     _n = pn.inputs.components["n"]
