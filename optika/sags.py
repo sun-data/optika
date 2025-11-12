@@ -117,6 +117,7 @@ class AbstractSag(
         t_intercept = na.optimize.root_secant(
             function=func,
             guess=0 * u.mm,
+            min_step_size=1e-6 * u.mm,
         )
 
         result = rays.copy_shallow()
