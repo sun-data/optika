@@ -111,7 +111,7 @@ class AbstractRulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
-    ):
+    ) -> optika.rays.RayVectorArray:
 
         kappa = self.spacing_(
             position=rays.position,
@@ -120,7 +120,7 @@ class AbstractRulings(
 
         spacing = kappa.length
 
-        return incident_effective(
+        direction = incident_effective(
             wavelength=rays.wavelength,
             direction=rays.direction,
             index_refraction=rays.index_refraction,
@@ -129,6 +129,8 @@ class AbstractRulings(
             spacing_rulings=spacing,
             normal_rulings=kappa / spacing,
         )
+
+        return rays.replace(direction=direction)
 
     @abc.abstractmethod
     def efficiency(
