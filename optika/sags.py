@@ -42,6 +42,7 @@ class AbstractSag(
     optika.mixins.Printable,
     optika.mixins.Transformable,
     optika.mixins.Shaped,
+    optika.propagators.AbstractRayPropagator,
 ):
     """
     Base class for all types of sag profiles.
@@ -94,7 +95,7 @@ class AbstractSag(
     def intercept(
         self,
         rays: optika.rays.AbstractRayVectorArray,
-    ) -> optika.rays.AbstractRayVectorArray:
+    ) -> optika.rays.RayVectorArray:
         """
         A set of new rays with the same direction as the input rays,
         but with the :attr:`optika.rays.RayVectorArray.position` updated to
@@ -122,6 +123,21 @@ class AbstractSag(
 
         result = rays.copy_shallow()
         result.position = line(t_intercept)
+        return result
+
+    def propagate_rays(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> optika.rays.AbstractRayVectorArray:
+
+        result = self.intercept(rays)
+
+        displacement = result.position - rays.position
+
+        f = np.exp(-result.attenuation * displacement.length)
+
+        result.intensity = f * result.intensity
+
         return result
 
 

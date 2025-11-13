@@ -7,7 +7,6 @@ The building block of an optical system.
 from typing import TypeVar, Generic
 import abc
 import dataclasses
-import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
 import named_arrays as na
@@ -140,14 +139,12 @@ class AbstractSurface(
         if transformation is not None:
             rays = transformation.inverse(rays)
 
-        rays_1 = sag.intercept(rays)
+        rays_1 = sag.propagate_rays(rays)
 
         wavelength_1 = rays_1.wavelength
         position_1 = rays_1.position
         a = rays_1.direction
-        attenuation_1 = rays_1.attenuation
-        displacement = position_1 - rays.position
-        intensity_1 = rays_1.intensity * np.exp(-attenuation_1 * displacement.length)
+        intensity_1 = rays_1.intensity
         n1 = rays_1.index_refraction
 
         normal = sag.normal(position_1)
