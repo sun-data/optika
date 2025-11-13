@@ -7,7 +7,6 @@ The building block of an optical system.
 from typing import TypeVar, Generic
 import abc
 import dataclasses
-import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
 import named_arrays as na
