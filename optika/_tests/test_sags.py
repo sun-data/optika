@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 import astropy.units as u  # type: ignore[import]
 import named_arrays as na  # type: ignore[import]
@@ -68,6 +67,7 @@ class AbstractTestAbstractSag(
             assert isinstance(result, na.AbstractCartesian3dVectorArray)
             if na.shape(result):
                 assert set(na.shape(position)).issubset(na.shape(result))
+
 
 @pytest.mark.parametrize(
     argnames="a",
