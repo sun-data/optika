@@ -134,7 +134,7 @@ def energy_bandgap(
     and :math:`b = 655 \, \text{K}`.
 
     """
-    T = temperature
+    T = temperature.to(u.K, equivalencies=u.temperature())
     energy_gap_0 = 1.1692 * u.eV
     a = 4.9e-4 * u.eV / u.K
     b = 655 * u.K
@@ -184,6 +184,7 @@ def energy_pair(
             ax.set_ylabel(f"pair-production energy ({ax.get_ylabel()})")
     """
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
+    temperature = temperature.to(u.K, equivalencies=u.temperature())
 
     pn = _probability_of_n_pairs_ramanathan()
 
@@ -345,6 +346,7 @@ def fano_factor(
     """
 
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
+    temperature = temperature.to(u.K, equivalencies=u.temperature())
 
     pn = _probability_of_n_pairs_ramanathan()
 
@@ -401,6 +403,8 @@ def fano_factor_inf(
     :math:`A = 5.2 \, \text{eV}^2`.
     """
 
+    temperature = temperature.to(u.K, equivalencies=u.temperature())
+
     A = 5.2 * u.eV**2
 
     E_g = energy_bandgap(temperature)
@@ -430,6 +434,7 @@ def probability_of_n_pairs(
     """
 
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
+    temperature = temperature.to(u.K, equivalencies=u.temperature())
 
     pn = _probability_of_n_pairs_ramanathan()
 
@@ -551,6 +556,7 @@ def electrons_measured(
               ax=ax,
             )
     """
+    temperature = temperature.to(u.K, equivalencies=u.temperature())
 
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
