@@ -20,6 +20,54 @@ __all__ = [
 ]
 
 
+def incident_effective(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: na.AbstractCartesian3dVectorArray,
+    index_refraction: float | na.AbstractScalar,
+    normal: None | na.AbstractCartesian3dVectorArray,
+    diffraction_order: int = 0,
+    spacing_rulings: None | u.Quantity | na.AbstractScalar = None,
+    normal_rulings: None | na.AbstractCartesian3dVectorArray = None,
+) -> na.Cartesian3dVectorArray:
+    """
+    The effective propagation direction of some rays incident on a diffraction
+    grating.
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The propagation direction of the incident light.
+    index_refraction
+        The index of refraction of the current medium.
+    normal
+        A unit vector perpendicular to the surface on which the rulings are
+        inscribed.
+    diffraction_order
+        The diffraction order of the reflected or transmitted rays.
+    spacing_rulings
+        The distance between the parallel planes defining the rulings.
+    normal_rulings
+        A unit vector perpendicular to the parallel planes defining the rulings.
+    """
+
+    a = direction
+    n = index_refraction
+    m = diffraction_order
+    d = spacing_rulings
+    g = normal_rulings
+
+    if normal is None:
+        sgn = 1
+    else:
+        sgn = -np.sign(a.x * normal.x + a.y * normal.y + a.z * normal.z)
+
+    result = a - sgn * (m * wavelength * g) / (n * d)
+
+    return result
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulings(
     optika.mixins.Printable,
@@ -58,6 +106,29 @@ class AbstractRulings(
                 normal=na.Cartesian3dVectorArray(1, 0, 0),
             )
         return spacing
+
+    def incident_effective(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+
+        kappa = self.spacing_(
+            position=rays.position,
+            normal=normal,
+        )
+
+        spacing = kappa.length
+
+        return incident_effective(
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            index_refraction=rays.index_refraction,
+            normal=normal,
+            diffraction_order=self.diffraction_order,
+            spacing_rulings=spacing,
+            normal_rulings=kappa / spacing,
+        )
 
     @abc.abstractmethod
     def efficiency(
