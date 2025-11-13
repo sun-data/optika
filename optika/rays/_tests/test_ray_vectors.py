@@ -43,7 +43,7 @@ rays = [
             y=na.NormalUncertainScalarArray(4 * u.mm, width=2 * u.mm),
             z=na.NormalUncertainScalarArray(5 * u.mm, width=3 * u.mm),
         ).explicit,
-        direction=na.Cartesian3dVectorArray(0, 0, -1),
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
         attenuation=na.UniformUncertainScalarArray(0.5, width=0.25) / u.mm,
         index_refraction=na.UniformUncertainScalarArray(1.5, width=0.5).explicit,
     ),
