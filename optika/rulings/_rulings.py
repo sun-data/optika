@@ -176,18 +176,27 @@ def incident_effective(
     the interface.
     """
 
+    if normal is None:
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+    w = wavelength
     a = direction
     n = index_refraction
     m = diffraction_order
     d = spacing_rulings
     g = normal_rulings
 
-    if normal is None:
-        sgn = 1
-    else:
-        sgn = -np.sign(a.x * normal.x + a.y * normal.y + a.z * normal.z)
+    ax = a.x
+    ay = a.y
+    az = a.z
 
-    result = a - sgn * (m * wavelength * g) / (n * d)
+    ux = normal.x
+    uy = normal.y
+    uz = normal.z
+
+    result = na.numexpr.evaluate(
+        "a - sign(ax * ux + ay * uy + az * uz) * m * w * g / (n * d)"
+    )
 
     return result
 
