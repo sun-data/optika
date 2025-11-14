@@ -179,11 +179,13 @@ def incident_effective(
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    w = wavelength
+    unit = spacing_rulings.unit
+
+    w = wavelength.to(unit).value
     a = direction
     n = index_refraction
     m = diffraction_order
-    d = spacing_rulings
+    d = spacing_rulings.value
     g = normal_rulings
 
     ax = a.x
@@ -195,7 +197,7 @@ def incident_effective(
     uz = normal.z
 
     result = na.numexpr.evaluate(
-        "a - sign(ax * ux + ay * uy + az * uz) * m * w * g / (n * d)"
+        "a + sign(ax * ux + ay * uy + az * uz) * m * w * g / (n * d)"
     )
 
     return result
