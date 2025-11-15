@@ -141,29 +141,26 @@ class AbstractSurface(
 
         rays_1 = sag.propagate_rays(rays)
 
-        wavelength_1 = rays_1.wavelength
         position_1 = rays_1.position
+
+        normal = sag.normal(position_1)
+
+        if rulings is not None:
+            rays_1 = rulings.incident_effective(
+                rays=rays_1,
+                normal=normal,
+            )
+
+        wavelength_1 = rays_1.wavelength
         a = rays_1.direction
         intensity_1 = rays_1.intensity
         n1 = rays_1.index_refraction
-
-        normal = sag.normal(position_1)
 
         position_2 = position_1
         n2 = material.index_refraction(rays_1)
         r = n1 / n2
 
         wavelength_2 = wavelength_1 / r
-
-        if rulings is not None:
-            diffraction_order = rulings.diffraction_order
-            vector_rulings = rulings.spacing_(position_1, normal)
-            spacing_rulings = vector_rulings.length
-            normal_rulings = vector_rulings / spacing_rulings
-        else:
-            diffraction_order = 0
-            spacing_rulings = None
-            normal_rulings = None
 
         b = optika.materials.snells_law(
             wavelength=wavelength_1,
@@ -172,9 +169,6 @@ class AbstractSurface(
             index_refraction_new=n2,
             is_mirror=material.is_mirror,
             normal=normal,
-            diffraction_order=diffraction_order,
-            spacing_rulings=spacing_rulings,
-            normal_rulings=normal_rulings,
         )
 
         efficiency = material.efficiency(rays_1, normal)
