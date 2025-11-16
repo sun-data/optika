@@ -9,6 +9,7 @@ import optika
 from . import AbstractRulingSpacing
 
 __all__ = [
+    "incident_effective",
     "AbstractRulings",
     "Rulings",
     "MeasuredRulings",
@@ -181,20 +182,20 @@ def incident_effective(
 
     unit = spacing_rulings.unit
 
-    w = wavelength.to(unit).value
-    a = direction
-    n = index_refraction
-    m = diffraction_order
-    d = spacing_rulings.value
-    g = normal_rulings
+    w = wavelength.to(unit).value  # noqa: F841
+    a = direction  # noqa: F841
+    n = index_refraction  # noqa: F841
+    m = diffraction_order  # noqa: F841
+    d = spacing_rulings.value  # noqa: F841
+    g = normal_rulings  # noqa: F841
 
-    ax = a.x
-    ay = a.y
-    az = a.z
+    ax = a.x  # noqa: F841
+    ay = a.y  # noqa: F841
+    az = a.z  # noqa: F841
 
-    ux = normal.x
-    uy = normal.y
-    uz = normal.z
+    ux = normal.x  # noqa: F841
+    uy = normal.y  # noqa: F841
+    uz = normal.z  # noqa: F841
 
     result = na.numexpr.evaluate(
         "a + sign(ax * ux + ay * uy + az * uz) * m * w * g / (n * d)"
