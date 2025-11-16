@@ -160,8 +160,7 @@ class HolographicRulingSpacing(
         # Define the surface normal
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-        # Define input rays emanating from the origin
-        # of the first recording beam
+        # Define input rays emanating from the origin of the first recording beam.
         position = na.Cartesian3dVectorArray(
             x=na.linspace(-5, +5, axis="x", num=5) * u.mm,
             y=0 * u.mm,
@@ -169,23 +168,31 @@ class HolographicRulingSpacing(
         )
         direction_input = position - x1
 
-        # Initialize the holographic ruling spacing
-        # representation
+        # Initialize the holographic ruling spacing representation.
         rulings = optika.rulings.HolographicRulingSpacing(
             x1=x1,
             x2=x2,
             wavelength=wavelength,
         )
 
-        # Evaluate the ruling spacing where
-        # the rays strike the surface
+        # Evaluate the ruling spacing where the rays strike the surface.
         d = rulings(position, normal)
 
-        # Compute the new direction of some diffracted
-        # rays
-        direction_output = optika.materials.snells_law(
+        # Compute the effective propagation direction of the input rays
+        direction_input = optika.rulings.incident_effective(
             wavelength=wavelength,
             direction=direction_input.normalized,
+            index_refraction=1,
+            normal=normal,
+            diffraction_order=1,
+            spacing_rulings=d.length,
+            normal_rulings=d.normalized,
+        )
+
+        # Compute the output direction of the diffracted rays.
+        direction_output = optika.materials.snells_law(
+            wavelength=wavelength,
+            direction=direction_input,
             index_refraction=1,
             index_refraction_new=1,
             normal=normal,
