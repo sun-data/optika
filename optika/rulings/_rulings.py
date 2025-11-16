@@ -55,40 +55,18 @@ def incident_effective(
     Notes
     -----
 
+    Our goal is to find the effective propagation direction of a light ray
+    incident on a diffraction grating.
+    This effective, incident ray can be used in Snell's law to find the
+    direction of the diffracted rays.
+
     Our goal is to derive a 3D version of Snell's law that can model the
     diffraction from a periodic ruling pattern (diffraction grating).
-    To start, consider an incident wave of the form:
+    To start, consider the Dirichlet boundary conditions given in
+    Equation :eq:`boundary-condition` of the :func:`~optika.materials.snells_law`
+    notes.
 
     .. math::
-        :label: incident-wave
-
-        E_1(\mathbf{r}) = A_1 e^{i \mathbf{k}_1 \cdot \mathbf{r}},
-
-    where :math:`E_1` is the magnitude of the incident electric field,
-    :math:`A_1` is the amplitude of the incident wave, and :math:`\mathbf{k}_1` is
-    the incident wavevector.
-
-    Now define an interface at :math:`z = 0`, where the index of
-    refraction changes, and/or there is a periodic ruling pattern inscribed.
-    When the incident wave interacts with this interface, it will create an
-    output wave of the form:
-
-    .. math::
-        :label: transmitted-wave
-
-        E_2(\mathbf{r}) = A_2 e^{i \mathbf{k}_2 \cdot \mathbf{r}},
-
-    where :math:`E_2` is the magnitude of the output electric field,
-    :math:`A_2` is the amplitude of the output wave, and :math:`\mathbf{k}_2` is
-    the output wavevector.
-    Note that in this case we care about only the reflected `or` the transmitted
-    wave, not both, since we're only concerned with sequential optics.
-
-    If the interface at :math:`z = 0` `doesn't` have a periodic ruling pattern,
-    :math:`E_1` and :math:`E_2` satisfy homogenous Dirichlet boundary conditions.
-
-    .. math::
-        :label: boundary-condition
 
         A_1 \exp\left[i \mathbf{k}_1 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
         = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
@@ -117,64 +95,16 @@ def incident_effective(
         :label: boundary-condition-shifted
 
          A_1 \exp\left[i (\mathbf{k}_1 + \boldsymbol{\kappa}) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
-        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
+        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right].
 
-    For Equation :eq:`boundary-condition-shifted` to be true everywhere in
-    the :math:`x`-:math:`y` plane, the exponents must be equal:
-
-    .. math::
-        :label: boundary-condition-exponents
-
-        (\mathbf{k}_1 + \boldsymbol{\kappa}) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
-        = \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}).
-
-    If we take :math:`\mathbf{k}_i = k_i \hat{\mathbf{k}}_i = n_i k_0 \hat{\mathbf{k}}_i` for :math:`i=(1,2)`,
-    where :math:`k_i` is the incident/output wavenumber,
-    :math:`n_i` is the incident/output index of refraction,
-    :math:`k_0` is the wavenumber in vacuum,
-    and :math:`\hat{\mathbf{k}}_i` is the incident/output propagation direction,
-    we get an expression in terms of the output direction, :math:`\hat{\mathbf{k}}_2`:
-
-    .. math::
-        :label: boundary-directions
-
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
-        = n_2 \hat{\mathbf{k}}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}).
-
-    Now, Equation :eq:`boundary-directions` can only be satisfied
-    if the components are separately equal since if :math:`y=0`
-
-    .. math::
-        :label: k_x
-
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot \hat{\mathbf{x}}
-        = n_2 \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{x}},
-
-    and if :math:`x=0`
-
-    .. math::
-        :label: k_y
-
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot \hat{\mathbf{y}}
-        = n_2 \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{y}}.
-
-    So, if we define an effective incident propagation direction
+    By following a similar procedure to the one described in the notes of
+    :func:`~optika.materials.snells_law`,
+    we find that everything is exactly the same if we replace every instance
+    of :math:`\mathbf{k}_1` with an effective incident wavevector:
 
     .. math::
 
-        \boxed{\mathbf{k}_\text{e} = \hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1,}
-
-    we can collect Equations :eq:`k_x` and :eq:`k_y` into a single vector
-    equation
-
-    .. math::
-        :label: snells-law
-
-        n_1 [ \mathbf{k}_\text{e} - ( \mathbf{k}_\text{e} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}} ]
-        = n_2 [ \hat{\mathbf{k}}_2 - ( \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}} ],
-
-    where :math:`\hat{\mathbf{n}} = \hat{\mathbf{z}}` is the vector normal to
-    the interface.
+        \boxed{\mathbf{k}_\text{e} = \hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1}.
     """
 
     unit = spacing_rulings.unit

@@ -44,13 +44,9 @@ def snells_law(
     index_refraction_new: float | na.AbstractScalar,
     normal: None | na.AbstractCartesian3dVectorArray,
     is_mirror: bool | na.AbstractScalar = False,
-    diffraction_order: int = 0,
-    spacing_rulings: None | u.Quantity | na.AbstractScalar = None,
-    normal_rulings: None | na.AbstractCartesian3dVectorArray = None,
 ) -> na.Cartesian3dVectorArray:
     r"""
-    A `vector form of Snell's law <https://en.wikipedia.org/wiki/Snell%27s_law#Vector_form>`_,
-    which has been modified to include the effects of diffraction from a periodic ruling pattern.
+    A `vector form of Snell's law <https://en.wikipedia.org/wiki/Snell%27s_law#Vector_form>`_.
 
     Parameters
     ----------
@@ -69,14 +65,6 @@ def snells_law(
         A boolean flag controlling whether to compute the direction of the
         reflected ray or the transmitted ray.
         The default is to compute the transmitted ray.
-    diffraction_order
-        The diffraction order, :math:`m` of the reflected/transmitted rays.
-        If nonzero, ``spacing_rulings`` and ``normal_rulings`` must be specified.
-    spacing_rulings
-        The distance between two grooves in the ruling pattern.
-        If ``diffraction_order`` is zero, then this argument has no effect.
-    normal_rulings
-        The vector perpendicular to the plane of the grooves.
 
     Examples
     --------
@@ -163,11 +151,11 @@ def snells_law(
         E_1(\mathbf{r}) = A_1 e^{i \mathbf{k}_1 \cdot \mathbf{r}},
 
     where :math:`E_1` is the magnitude of the incident electric field,
-    :math:`A_1` is the amplitude of the incident wave, and :math:`\mathbf{k}_1` is
-    the incident wavevector.
-
-    Now define an interface at :math:`z = 0`, where the index of
-    refraction changes, and/or there is a periodic ruling pattern inscribed.
+    :math:`A_1` is the amplitude of the incident wave,
+    :math:`\mathbf{k}_1` is the incident wavevector,
+    and :math:`\mathbf{r}` is a vector from the origin to the test point.
+    Now we define an interface at :math:`z = 0`,
+    where the index of refraction changes from :math:`n_1` to :math:`n_2`.
     When the incident wave interacts with this interface, it will create an
     output wave of the form:
 
@@ -179,10 +167,8 @@ def snells_law(
     where :math:`E_2` is the magnitude of the output electric field,
     :math:`A_2` is the amplitude of the output wave, and :math:`\mathbf{k}_2` is
     the output wavevector.
-
     Note in this case we care about only the reflected `or` the transmitted
     wave, not both, since we're only concerned with sequential optics.
-
     At the :math:`z = 0` interface,
     :math:`E_1` and :math:`E_2` satisfy homogenous Dirichlet boundary conditions,
 
@@ -242,8 +228,7 @@ def snells_law(
 
     where :math:`\hat{\mathbf{n}} = \hat{\mathbf{z}}` is the vector normal to
     the interface.
-
-    Our goal now is to solve Equation :eq:`snells-law` for
+    Now we can solve Equation :eq:`snells-law` for
     the output propagation direction, :math:`\hat{\mathbf{k}}_2`,
     and the only unknown is the component of the output propagation direction
     parallel to the surface normal vector, :math:`(\hat{\mathbf{k}}_2 \cdot \hat{\mathbf{n}} )`.
@@ -279,33 +264,21 @@ def snells_law(
 
     .. math::
 
-        \hat{\mathbf{k}}_2
+        \boxed{\hat{\mathbf{k}}_2
         = \frac{n_1}{n_2} \left[ \mathbf{k}_1
         + \left(
             \left( -\mathbf{k}_1 \cdot \hat{\mathbf{n}} \right)
             \pm \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_1 \cdot \hat{\mathbf{n}})^2 - k_1^2 }
-        \right) \hat{\mathbf{n}} \right]
+        \right) \hat{\mathbf{n}} \right]}
     """
     a = direction
     n1 = index_refraction
     n2 = index_refraction_new
-    m = diffraction_order
 
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
     r = n1 / n2
-
-    wavelength_new = wavelength / r
-
-    if np.any(m != 0):
-        d = spacing_rulings
-        g = normal_rulings
-        a = np.where(
-            condition=np.isfinite(d),
-            x=a - np.sign(-a @ normal) * (m * wavelength_new * g) / (n1 * d),
-            y=a,
-        )
 
     c = -a @ normal
 
