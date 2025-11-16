@@ -59,9 +59,6 @@ def incident_effective(
     incident on a diffraction grating.
     This effective, incident ray can be used in Snell's law to find the
     direction of the diffracted rays.
-
-    Our goal is to derive a 3D version of Snell's law that can model the
-    diffraction from a periodic ruling pattern (diffraction grating).
     To start, consider the Dirichlet boundary conditions given in
     Equation :eq:`boundary-condition` of the :func:`~optika.materials.snells_law`
     notes.
