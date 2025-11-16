@@ -197,9 +197,6 @@ class HolographicRulingSpacing(
             index_refraction_new=1,
             normal=normal,
             is_mirror=True,
-            diffraction_order=1,
-            spacing_rulings=d.length,
-            normal_rulings=d.normalized,
         )
         direction_output = direction_output * 20 * u.mm
 
