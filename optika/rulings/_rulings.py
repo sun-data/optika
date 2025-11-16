@@ -30,7 +30,7 @@ def incident_effective(
     spacing_rulings: u.Quantity | na.AbstractScalar,
     normal_rulings: na.AbstractCartesian3dVectorArray,
 ) -> na.Cartesian3dVectorArray:
-    """
+    r"""
     The effective propagation direction of some rays incident on a diffraction
     grating.
 
