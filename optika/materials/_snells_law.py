@@ -154,8 +154,7 @@ def snells_law(
     -----
 
     Our goal is to derive a 3D version of Snell's law that can model the
-    diffraction from a periodic ruling pattern (diffraction grating).
-
+    refraction of light in a homogenous material.
     To start, consider an incident wave of the form:
 
     .. math::
@@ -184,48 +183,22 @@ def snells_law(
     Note in this case we care about only the reflected `or` the transmitted
     wave, not both, since we're only concerned with sequential optics.
 
-    If the interface at :math:`z = 0` `doesn't` have a periodic ruling pattern,
-    :math:`E_1` and :math:`E_2` satisfy homogenous Dirichlet boundary conditions.
+    At the :math:`z = 0` interface,
+    :math:`E_1` and :math:`E_2` satisfy homogenous Dirichlet boundary conditions,
 
     .. math::
         :label: boundary-condition
 
         A_1 \exp\left[i \mathbf{k}_1 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
-        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
+        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right].
 
-    To include the ruling pattern, we model it as a phase shift of the wave at the interface,
-
-    .. math::
-        :label: phase-shift
-
-        \phi(x, y) = i \boldsymbol{\kappa} \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
-
-    where the vector
-
-    .. math::
-
-        \boldsymbol{\kappa} = -\frac{2 \pi m}{d} \hat{\boldsymbol{\kappa}},
-
-    :math:`m` is the diffraction order,
-    :math:`d` is the groove spacing,
-    and :math:`\hat{\boldsymbol{\kappa}}` is a unit vector normal to the
-    planes of the rulings.
-
-    With the inclusion of Equation :eq:`phase-shift`, Equation :eq:`boundary-condition` becomes:
-
-    .. math::
-        :label: boundary-condition-shifted
-
-         A_1 \exp\left[i (\mathbf{k}_1 + \boldsymbol{\kappa}) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
-        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
-
-    For Equation :eq:`boundary-condition-shifted` to be true everywhere in
+    For Equation :eq:`boundary-condition` to be true everywhere in
     the :math:`x`-:math:`y` plane, the exponents must be equal:
 
     .. math::
         :label: boundary-condition-exponents
 
-        (\mathbf{k}_1 + \boldsymbol{\kappa}) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
+        \mathbf{k}_1 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
         = \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}).
 
     If we take :math:`\mathbf{k}_i = k_i \hat{\mathbf{k}}_i = n_i k_0 \hat{\mathbf{k}}_i` for :math:`i=(1,2)`,
@@ -238,7 +211,7 @@ def snells_law(
     .. math::
         :label: boundary-directions
 
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
+        n_1 \hat{\mathbf{k}}_1 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
         = n_2 \hat{\mathbf{k}}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}).
 
     Now, Equation :eq:`boundary-directions` can only be satisfied
@@ -247,7 +220,7 @@ def snells_law(
     .. math::
         :label: k_x
 
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot \hat{\mathbf{x}}
+        n_1 \hat{\mathbf{k}}_1 \cdot \hat{\mathbf{x}}
         = n_2 \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{x}},
 
     and if :math:`x=0`
@@ -255,22 +228,16 @@ def snells_law(
     .. math::
         :label: k_y
 
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot \hat{\mathbf{y}}
+        n_1 \hat{\mathbf{k}}_1 \cdot \hat{\mathbf{y}}
         = n_2 \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{y}}.
 
-    So, if we define an effective incident propagation direction
-
-    .. math::
-
-        \mathbf{k}_\text{e} = \hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1,
-
-    we can collect Equations :eq:`k_x` and :eq:`k_y` into a single vector
-    equation
+    We can collect Equations :eq:`k_x` and :eq:`k_y` into a single vector
+    equation,
 
     .. math::
         :label: snells-law
 
-        n_1 [ \mathbf{k}_\text{e} - ( \mathbf{k}_\text{e} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}} ]
+        n_1 [ \mathbf{k}_1 - ( \mathbf{k}_1 \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}} ]
         = n_2 [ \hat{\mathbf{k}}_2 - ( \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}} ],
 
     where :math:`\hat{\mathbf{n}} = \hat{\mathbf{z}}` is the vector normal to
@@ -295,7 +262,7 @@ def snells_law(
         :label: k2_cross_n
 
         \hat{\mathbf{k}}_2 \times \hat{\mathbf{n}}
-        = \frac{n_1}{n_2} \mathbf{k}_\text{e} \times \hat{\mathbf{n}},
+        = \frac{n_1}{n_2} \mathbf{k}_1 \times \hat{\mathbf{n}},
 
     which leads to Equation :eq:`k2_dot_n` becoming:
 
@@ -303,8 +270,8 @@ def snells_law(
         :label: k2_dot_n_expanded
 
         \mathbf{k}_2 \cdot \hat{\mathbf{n}}
-        &= \pm \sqrt{1 - \left( \frac{n_1}{n_2} \right)^2 |\mathbf{k}_\text{e} \times \hat{\mathbf{n}}|^2} \\
-        &= \pm \frac{n_1}{n_2} \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_\text{e} \cdot \hat{\mathbf{n}})^2 - k_\text{e}^2 }
+        &= \pm \sqrt{1 - \left( \frac{n_1}{n_2} \right)^2 |\mathbf{k}_1 \times \hat{\mathbf{n}}|^2} \\
+        &= \pm \frac{n_1}{n_2} \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_1 \cdot \hat{\mathbf{n}})^2 - k_1^2 }
 
     By plugging Equation :eq:`k2_dot_n_expanded` into Equation :eq:`snells-law`,
     and solving for :math:`\hat{\mathbf{k}}_2`, we achieve our goal, an expression for the output ray
@@ -313,10 +280,10 @@ def snells_law(
     .. math::
 
         \hat{\mathbf{k}}_2
-        = \frac{n_1}{n_2} \left[ \mathbf{k}_\text{e}
+        = \frac{n_1}{n_2} \left[ \mathbf{k}_1
         + \left(
-            \left( -\mathbf{k}_\text{e} \cdot \hat{\mathbf{n}} \right)
-            \pm \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_\text{e} \cdot \hat{\mathbf{n}})^2 - k_\text{e}^2 }
+            \left( -\mathbf{k}_1 \cdot \hat{\mathbf{n}} \right)
+            \pm \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_1 \cdot \hat{\mathbf{n}})^2 - k_1^2 }
         \right) \hat{\mathbf{n}} \right]
     """
     a = direction
