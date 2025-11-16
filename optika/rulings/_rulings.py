@@ -25,10 +25,10 @@ def incident_effective(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: na.AbstractCartesian3dVectorArray,
     index_refraction: float | na.AbstractScalar,
-    normal: None | na.AbstractCartesian3dVectorArray,
-    diffraction_order: int = 0,
-    spacing_rulings: None | u.Quantity | na.AbstractScalar = None,
-    normal_rulings: None | na.AbstractCartesian3dVectorArray = None,
+    normal: na.AbstractCartesian3dVectorArray,
+    diffraction_order: int,
+    spacing_rulings: u.Quantity | na.AbstractScalar,
+    normal_rulings: na.AbstractCartesian3dVectorArray,
 ) -> na.Cartesian3dVectorArray:
     """
     The effective propagation direction of some rays incident on a diffraction
@@ -176,9 +176,6 @@ def incident_effective(
     where :math:`\hat{\mathbf{n}} = \hat{\mathbf{z}}` is the vector normal to
     the interface.
     """
-
-    if normal is None:
-        normal = na.Cartesian3dVectorArray(0, 0, -1)
 
     unit = spacing_rulings.unit
 
