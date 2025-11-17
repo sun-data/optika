@@ -714,7 +714,7 @@ class ParabolicSag(
         _y = position.y
 
         return na.numexpr.evaluate(
-            "position / sqrt((_x / r)**2 + (_y / r)**2 + 1) / r"
+            "position / sqrt((_x / r)**2 + (_y / r)**2 + 1) / r",
         )
 
 
