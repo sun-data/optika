@@ -228,8 +228,11 @@ class HolographicRulingSpacing(
 
         \mathbf{d} = \frac{\lambda}{a} \mathbf{q} \times \mathbf{n}
 
-    where :math:`\lambda` is the wavelength of the recording beams,
+    where :math:`\lambda` is the wavelength of the recording beam,
+    :math:`a` is an arbitrary scalar to be solved for,
     :math:`\mathbf{n}` is a unit vector perpendicular to the surface,
+    and :math:`\mathbf{q}` is a unit vector parallel to the rulings.
+    The vector :math:`a \mathbf{q}` is given by
 
     .. math::
 
@@ -241,6 +244,12 @@ class HolographicRulingSpacing(
     recording beam.
     If rays are diverging from the origin of the recording beams,
     the top branch is used, otherwise the bottom branch is used.
+    Since :math:`\mathbf{q}` is a unit vector,
+
+    .. math::
+
+        a = | a \mathbf{q} |.
+
     """
 
     x1: na.AbstractCartesian3dVectorArray
