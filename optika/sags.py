@@ -11,6 +11,7 @@ import optika
 __all__ = [
     "AbstractSag",
     "NoSag",
+    "AbstractSphericalSag",
     "SphericalSag",
     "CylindricalSag",
     "AbstractConicSag",
@@ -311,26 +312,25 @@ class SphericalSag(
     def normal(
         self,
         position: na.AbstractCartesian3dVectorArray,
-    ) -> na.AbstractCartesian3dVectorArray:
+    ) -> na.Cartesian3dVectorArray:
+
         c = self.curvature
+
+        unit = 1 / c.unit
+
         transformation = self.transformation
         if transformation is not None:
             position = transformation.inverse(position)
 
-        shape = na.shape_broadcasted(c, position)
-        c = na.broadcast_to(c, shape)
-        position = na.broadcast_to(position, shape)
+        c = c.value
+        x = position.x.to(unit).value
+        y = position.y.to(unit).value
 
-        x2, y2 = np.square(position.x), np.square(position.y)
-        c2 = np.square(c)
-        g = np.sqrt(1 - c2 * (x2 + y2))
-        dzdx, dzdy = c * position.x / g, c * position.y / g
-        result = na.Cartesian3dVectorArray(
-            x=dzdx,
-            y=dzdy,
-            z=-1 * u.dimensionless_unscaled,
-        )
-        return result / result.length
+        nx = c * x
+        ny = c * y
+        nz = na.numexpr.evaluate("-sqrt(1 - c * c * (x * x + y * y))")
+
+        return na.Cartesian3dVectorArray(nx, ny, nz)
 
     def intercept(
         self,
