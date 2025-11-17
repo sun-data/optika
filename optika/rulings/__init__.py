@@ -10,6 +10,7 @@ from ._spacing import (
     HolographicRulingSpacing,
 )
 from ._rulings import (
+    incident_effective,
     AbstractRulings,
     Rulings,
     MeasuredRulings,
@@ -21,6 +22,7 @@ from ._rulings import (
 )
 
 __all__ = [
+    "incident_effective",
     "AbstractRulingSpacing",
     "ConstantRulingSpacing",
     "Polynomial1dRulingSpacing",

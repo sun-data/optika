@@ -35,6 +35,31 @@ class AbstractTestAbstractRulings(
             na.Cartesian3dVectorArray(0, 0, -1),
         ],
     )
+    def test_rulings(
+        self,
+        a: optika.rulings.AbstractRulings,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.incident_effective(
+            rays=rays,
+            normal=normal,
+        )
+
+        assert isinstance(result, optika.rays.RayVectorArray)
+
+        assert not np.all(result == rays)
+
+    @pytest.mark.parametrize(
+        argnames="rays",
+        argvalues=test_ray_vectors.rays,
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
     def test_efficiency(
         self,
         a: optika.rulings.AbstractRulings,

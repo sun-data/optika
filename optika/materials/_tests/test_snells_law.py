@@ -85,26 +85,6 @@ def test_snells_law_scalar(
         True,
     ],
 )
-@pytest.mark.parametrize(
-    argnames="diffraction_order,spacing_rulings,normal_rulings",
-    argvalues=[
-        (
-            0,
-            None,
-            None,
-        ),
-        (
-            1,
-            5 * u.um,
-            na.Cartesian3dVectorArray(1, 0, 0),
-        ),
-        (
-            na.linspace(-2, 2, "m", 5),
-            5 * u.um,
-            na.Cartesian3dVectorArray(1, 0, 0),
-        ),
-    ],
-)
 def test_snells_law(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: na.AbstractCartesian3dVectorArray,
@@ -112,9 +92,6 @@ def test_snells_law(
     index_refraction_new: float | na.AbstractScalar,
     normal: None | na.AbstractCartesian3dVectorArray,
     is_mirror: bool | na.AbstractScalar,
-    diffraction_order: int,
-    spacing_rulings: None | u.Quantity | na.AbstractScalar,
-    normal_rulings: None | na.AbstractCartesian3dVectorArray,
 ):
     result = optika.materials.snells_law(
         wavelength=wavelength,
@@ -123,9 +100,6 @@ def test_snells_law(
         index_refraction_new=index_refraction_new,
         normal=normal,
         is_mirror=is_mirror,
-        diffraction_order=diffraction_order,
-        spacing_rulings=spacing_rulings,
-        normal_rulings=normal_rulings,
     )
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)

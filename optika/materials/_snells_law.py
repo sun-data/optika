@@ -44,13 +44,9 @@ def snells_law(
     index_refraction_new: float | na.AbstractScalar,
     normal: None | na.AbstractCartesian3dVectorArray,
     is_mirror: bool | na.AbstractScalar = False,
-    diffraction_order: int = 0,
-    spacing_rulings: None | u.Quantity | na.AbstractScalar = None,
-    normal_rulings: None | na.AbstractCartesian3dVectorArray = None,
 ) -> na.Cartesian3dVectorArray:
     r"""
-    A `vector form of Snell's law <https://en.wikipedia.org/wiki/Snell%27s_law#Vector_form>`_,
-    which has been modified to include the effects of diffraction from a periodic ruling pattern.
+    A `vector form of Snell's law <https://en.wikipedia.org/wiki/Snell%27s_law#Vector_form>`_.
 
     Parameters
     ----------
@@ -69,14 +65,6 @@ def snells_law(
         A boolean flag controlling whether to compute the direction of the
         reflected ray or the transmitted ray.
         The default is to compute the transmitted ray.
-    diffraction_order
-        The diffraction order, :math:`m` of the reflected/transmitted rays.
-        If nonzero, ``spacing_rulings`` and ``normal_rulings`` must be specified.
-    spacing_rulings
-        The distance between two grooves in the ruling pattern.
-        If ``diffraction_order`` is zero, then this argument has no effect.
-    normal_rulings
-        The vector perpendicular to the plane of the grooves.
 
     Examples
     --------
@@ -154,8 +142,7 @@ def snells_law(
     -----
 
     Our goal is to derive a 3D version of Snell's law that can model the
-    diffraction from a periodic ruling pattern (diffraction grating).
-
+    refraction of light in a homogenous material.
     To start, consider an incident wave of the form:
 
     .. math::
@@ -164,11 +151,11 @@ def snells_law(
         E_1(\mathbf{r}) = A_1 e^{i \mathbf{k}_1 \cdot \mathbf{r}},
 
     where :math:`E_1` is the magnitude of the incident electric field,
-    :math:`A_1` is the amplitude of the incident wave, and :math:`\mathbf{k}_1` is
-    the incident wavevector.
-
-    Now define an interface at :math:`z = 0`, where the index of
-    refraction changes, and/or there is a periodic ruling pattern inscribed.
+    :math:`A_1` is the amplitude of the incident wave,
+    :math:`\mathbf{k}_1` is the incident wavevector,
+    and :math:`\mathbf{r}` is a vector from the origin to the test point.
+    Now we define an interface at :math:`z = 0`,
+    where the index of refraction changes from :math:`n_1` to :math:`n_2`.
     When the incident wave interacts with this interface, it will create an
     output wave of the form:
 
@@ -180,52 +167,24 @@ def snells_law(
     where :math:`E_2` is the magnitude of the output electric field,
     :math:`A_2` is the amplitude of the output wave, and :math:`\mathbf{k}_2` is
     the output wavevector.
-
     Note in this case we care about only the reflected `or` the transmitted
     wave, not both, since we're only concerned with sequential optics.
-
-    If the interface at :math:`z = 0` `doesn't` have a periodic ruling pattern,
-    :math:`E_1` and :math:`E_2` satisfy homogenous Dirichlet boundary conditions.
+    At the :math:`z = 0` interface,
+    :math:`E_1` and :math:`E_2` satisfy homogenous Dirichlet boundary conditions,
 
     .. math::
         :label: boundary-condition
 
         A_1 \exp\left[i \mathbf{k}_1 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
-        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
+        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right].
 
-    To include the ruling pattern, we model it as a phase shift of the wave at the interface,
-
-    .. math::
-        :label: phase-shift
-
-        \phi(x, y) = i \boldsymbol{\kappa} \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
-
-    where the vector
-
-    .. math::
-
-        \boldsymbol{\kappa} = -\frac{2 \pi m}{d} \hat{\boldsymbol{\kappa}},
-
-    :math:`m` is the diffraction order,
-    :math:`d` is the groove spacing,
-    and :math:`\hat{\boldsymbol{\kappa}}` is a unit vector normal to the
-    planes of the rulings.
-
-    With the inclusion of Equation :eq:`phase-shift`, Equation :eq:`boundary-condition` becomes:
-
-    .. math::
-        :label: boundary-condition-shifted
-
-         A_1 \exp\left[i (\mathbf{k}_1 + \boldsymbol{\kappa}) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
-        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
-
-    For Equation :eq:`boundary-condition-shifted` to be true everywhere in
+    For Equation :eq:`boundary-condition` to be true everywhere in
     the :math:`x`-:math:`y` plane, the exponents must be equal:
 
     .. math::
         :label: boundary-condition-exponents
 
-        (\mathbf{k}_1 + \boldsymbol{\kappa}) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
+        \mathbf{k}_1 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
         = \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}).
 
     If we take :math:`\mathbf{k}_i = k_i \hat{\mathbf{k}}_i = n_i k_0 \hat{\mathbf{k}}_i` for :math:`i=(1,2)`,
@@ -238,7 +197,7 @@ def snells_law(
     .. math::
         :label: boundary-directions
 
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
+        n_1 \hat{\mathbf{k}}_1 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
         = n_2 \hat{\mathbf{k}}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}).
 
     Now, Equation :eq:`boundary-directions` can only be satisfied
@@ -247,7 +206,7 @@ def snells_law(
     .. math::
         :label: k_x
 
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot \hat{\mathbf{x}}
+        n_1 \hat{\mathbf{k}}_1 \cdot \hat{\mathbf{x}}
         = n_2 \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{x}},
 
     and if :math:`x=0`
@@ -255,28 +214,21 @@ def snells_law(
     .. math::
         :label: k_y
 
-        n_1 (\hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1) \cdot \hat{\mathbf{y}}
+        n_1 \hat{\mathbf{k}}_1 \cdot \hat{\mathbf{y}}
         = n_2 \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{y}}.
 
-    So, if we define an effective incident propagation direction
-
-    .. math::
-
-        \mathbf{k}_\text{e} = \hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1,
-
-    we can collect Equations :eq:`k_x` and :eq:`k_y` into a single vector
-    equation
+    We can collect Equations :eq:`k_x` and :eq:`k_y` into a single vector
+    equation,
 
     .. math::
         :label: snells-law
 
-        n_1 [ \mathbf{k}_\text{e} - ( \mathbf{k}_\text{e} \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}} ]
+        n_1 [ \mathbf{k}_1 - ( \mathbf{k}_1 \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}} ]
         = n_2 [ \hat{\mathbf{k}}_2 - ( \hat{\mathbf{k}}_2 \cdot \hat{\mathbf{n}} ) \hat{\mathbf{n}} ],
 
     where :math:`\hat{\mathbf{n}} = \hat{\mathbf{z}}` is the vector normal to
     the interface.
-
-    Our goal now is to solve Equation :eq:`snells-law` for
+    Now we can solve Equation :eq:`snells-law` for
     the output propagation direction, :math:`\hat{\mathbf{k}}_2`,
     and the only unknown is the component of the output propagation direction
     parallel to the surface normal vector, :math:`(\hat{\mathbf{k}}_2 \cdot \hat{\mathbf{n}} )`.
@@ -295,7 +247,7 @@ def snells_law(
         :label: k2_cross_n
 
         \hat{\mathbf{k}}_2 \times \hat{\mathbf{n}}
-        = \frac{n_1}{n_2} \mathbf{k}_\text{e} \times \hat{\mathbf{n}},
+        = \frac{n_1}{n_2} \mathbf{k}_1 \times \hat{\mathbf{n}},
 
     which leads to Equation :eq:`k2_dot_n` becoming:
 
@@ -303,8 +255,8 @@ def snells_law(
         :label: k2_dot_n_expanded
 
         \mathbf{k}_2 \cdot \hat{\mathbf{n}}
-        &= \pm \sqrt{1 - \left( \frac{n_1}{n_2} \right)^2 |\mathbf{k}_\text{e} \times \hat{\mathbf{n}}|^2} \\
-        &= \pm \frac{n_1}{n_2} \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_\text{e} \cdot \hat{\mathbf{n}})^2 - k_\text{e}^2 }
+        &= \pm \sqrt{1 - \left( \frac{n_1}{n_2} \right)^2 |\mathbf{k}_1 \times \hat{\mathbf{n}}|^2} \\
+        &= \pm \frac{n_1}{n_2} \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_1 \cdot \hat{\mathbf{n}})^2 - k_1^2 }
 
     By plugging Equation :eq:`k2_dot_n_expanded` into Equation :eq:`snells-law`,
     and solving for :math:`\hat{\mathbf{k}}_2`, we achieve our goal, an expression for the output ray
@@ -312,33 +264,21 @@ def snells_law(
 
     .. math::
 
-        \hat{\mathbf{k}}_2
-        = \frac{n_1}{n_2} \left[ \mathbf{k}_\text{e}
+        \boxed{\hat{\mathbf{k}}_2
+        = \frac{n_1}{n_2} \left[ \mathbf{k}_1
         + \left(
-            \left( -\mathbf{k}_\text{e} \cdot \hat{\mathbf{n}} \right)
-            \pm \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_\text{e} \cdot \hat{\mathbf{n}})^2 - k_\text{e}^2 }
-        \right) \hat{\mathbf{n}} \right]
+            \left( -\mathbf{k}_1 \cdot \hat{\mathbf{n}} \right)
+            \pm \sqrt{\left( n_2 / n_1 \right)^2 + (\mathbf{k}_1 \cdot \hat{\mathbf{n}})^2 - k_1^2 }
+        \right) \hat{\mathbf{n}} \right]}
     """
     a = direction
     n1 = index_refraction
     n2 = index_refraction_new
-    m = diffraction_order
 
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
     r = n1 / n2
-
-    wavelength_new = wavelength / r
-
-    if np.any(m != 0):
-        d = spacing_rulings
-        g = normal_rulings
-        a = np.where(
-            condition=np.isfinite(d),
-            x=a - np.sign(-a @ normal) * (m * wavelength_new * g) / (n1 * d),
-            y=a,
-        )
 
     c = -a @ normal
 

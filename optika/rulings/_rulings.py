@@ -9,6 +9,7 @@ import optika
 from . import AbstractRulingSpacing
 
 __all__ = [
+    "incident_effective",
     "AbstractRulings",
     "Rulings",
     "MeasuredRulings",
@@ -18,6 +19,113 @@ __all__ = [
     "TriangularRulings",
     "RectangularRulings",
 ]
+
+
+def incident_effective(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: na.AbstractCartesian3dVectorArray,
+    index_refraction: float | na.AbstractScalar,
+    normal: na.AbstractCartesian3dVectorArray,
+    diffraction_order: int,
+    spacing_rulings: u.Quantity | na.AbstractScalar,
+    normal_rulings: na.AbstractCartesian3dVectorArray,
+) -> na.Cartesian3dVectorArray:
+    r"""
+    The effective propagation direction of some rays incident on a diffraction
+    grating.
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The propagation direction of the incident light.
+    index_refraction
+        The index of refraction of the current medium.
+    normal
+        A unit vector perpendicular to the surface on which the rulings are
+        inscribed.
+    diffraction_order
+        The diffraction order of the reflected or transmitted rays.
+    spacing_rulings
+        The distance between the parallel planes defining the rulings.
+    normal_rulings
+        A unit vector perpendicular to the parallel planes defining the rulings.
+
+    Notes
+    -----
+
+    Our goal is to find the effective propagation direction of a light ray
+    incident on a diffraction grating.
+    This effective, incident ray can be used in Snell's law to find the
+    direction of the diffracted rays.
+    To start, consider the Dirichlet boundary conditions given in
+    Equation :eq:`boundary-condition` of the :func:`~optika.materials.snells_law`
+    notes.
+
+    .. math::
+
+        A_1 \exp\left[i \mathbf{k}_1 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
+        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
+
+    To include the ruling pattern, we model it as a phase shift of the wave at the interface,
+
+    .. math::
+        :label: phase-shift
+
+        \phi(x, y) = i \boldsymbol{\kappa} \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}})
+
+    where
+
+    .. math::
+
+        \boldsymbol{\kappa} = -\frac{2 \pi m}{d} \hat{\boldsymbol{\kappa}},
+
+    :math:`m` is the diffraction order,
+    :math:`d` is the groove spacing,
+    and :math:`\hat{\boldsymbol{\kappa}}` is a unit vector normal to the
+    planes of the rulings.
+
+    With the inclusion of Equation :eq:`phase-shift`, Equation :eq:`boundary-condition` becomes:
+
+    .. math::
+        :label: boundary-condition-shifted
+
+         A_1 \exp\left[i (\mathbf{k}_1 + \boldsymbol{\kappa}) \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right]
+        = A_2 \exp\left[i \mathbf{k}_2 \cdot (x \hat{\mathbf{x}} + y \hat{\mathbf{y}}) \right].
+
+    By following a similar procedure to the one described in the notes of
+    :func:`~optika.materials.snells_law`,
+    we find that everything is exactly the same if we replace every instance
+    of :math:`\mathbf{k}_1` with an effective incident wavevector:
+
+    .. math::
+
+        \boxed{\mathbf{k}_\text{e} = \hat{\mathbf{k}}_1 + \boldsymbol{\kappa} / k_1}.
+    """
+
+    unit = spacing_rulings.unit
+
+    w = wavelength.to(unit).value  # noqa: F841
+    a = direction  # noqa: F841
+    n = index_refraction  # noqa: F841
+    m = diffraction_order  # noqa: F841
+    d = spacing_rulings.value  # noqa: F841
+    g = normal_rulings  # noqa: F841
+
+    ax = a.x  # noqa: F841
+    ay = a.y  # noqa: F841
+    az = a.z  # noqa: F841
+
+    ux = normal.x  # noqa: F841
+    uy = normal.y  # noqa: F841
+    uz = normal.z  # noqa: F841
+
+    result = na.numexpr.evaluate(
+        "a + sign(ax * ux + ay * uy + az * uz) * m * w * g / (n * d)"
+    )
+
+    return result
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -58,6 +166,42 @@ class AbstractRulings(
                 normal=na.Cartesian3dVectorArray(1, 0, 0),
             )
         return spacing
+
+    def incident_effective(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> optika.rays.RayVectorArray:
+        """
+        Compute the effective propagation direction of the given rays
+        using :func:`~optika.rulings.incident_effective`.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the rulings
+        normal
+            The vector normal to the surface on which the rulings are placed.
+        """
+
+        kappa = self.spacing_(
+            position=rays.position,
+            normal=normal,
+        )
+
+        spacing = kappa.length
+
+        direction = incident_effective(
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            index_refraction=rays.index_refraction,
+            normal=normal,
+            diffraction_order=self.diffraction_order,
+            spacing_rulings=spacing,
+            normal_rulings=kappa / spacing,
+        )
+
+        return rays.replace(direction=direction)
 
     @abc.abstractmethod
     def efficiency(
