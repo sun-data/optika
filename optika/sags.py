@@ -692,6 +692,31 @@ class ParabolicSag(
     def conic(self) -> int:
         return -1
 
+    def normal(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractCartesian3dVectorArray:
+
+        r = self.radius
+
+        unit = r.unit
+
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
+
+        r = r.value
+        position = position.to(unit).value
+
+        position.z = -r
+
+        _x = position.x
+        _y = position.y
+
+        return na.numexpr.evaluate(
+            "position / sqrt((_x / r)**2 + (_y / r)**2 + 1) / r",
+        )
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class ToroidalSag(
