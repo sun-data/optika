@@ -68,6 +68,7 @@ class AbstractTestAbstractSag(
             assert isinstance(result, na.AbstractCartesian3dVectorArray)
             assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
             assert np.all(result.z < 0)
+            assert np.allclose(result.length, 1)
 
 
 @pytest.mark.parametrize(
