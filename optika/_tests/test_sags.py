@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 import astropy.units as u  # type: ignore[import]
 import named_arrays as na  # type: ignore[import]
 import optika
@@ -65,8 +66,9 @@ class AbstractTestAbstractSag(
         ):
             result = a.normal(position)
             assert isinstance(result, na.AbstractCartesian3dVectorArray)
-            if na.shape(result):
-                assert set(na.shape(position)).issubset(na.shape(result))
+            assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
+            assert np.all(result.z < 0)
+            assert np.allclose(result.length, 1)
 
 
 @pytest.mark.parametrize(
