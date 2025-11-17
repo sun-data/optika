@@ -19,6 +19,7 @@ positions = [
     ),
 ]
 
+
 class AbstractTestAbstractSag(
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
