@@ -6,6 +6,18 @@ import optika
 from . import test_mixins
 from . import test_propagators
 
+positions = [
+    na.Cartesian3dVectorArray() * u.mm,
+    na.Cartesian3dVectorLinearSpace(0, 1, axis="s", num=5) * u.mm,
+    na.Cartesian3dVectorArray(
+        x=na.ScalarLinearSpace(0, 1, axis="x", num=5) * u.mm,
+        y=na.NormalUncertainScalarArray(
+            nominal=na.ScalarLinearSpace(-1, 0, axis="y", num=6) * u.mm,
+            width=0.1 * u.mm,
+        ),
+        z=0 * u.mm,
+    ),
+]
 
 class AbstractTestAbstractSag(
     test_mixins.AbstractTestPrintable,
@@ -34,41 +46,27 @@ class AbstractTestAbstractSag(
                 optika.metrology.RoughnessParameters,
             )
 
-    @pytest.mark.parametrize(
-        argnames="position",
-        argvalues=[
-            na.Cartesian3dVectorArray() * u.mm,
-            na.Cartesian3dVectorLinearSpace(0, 1, axis="s", num=5) * u.mm,
-            na.Cartesian3dVectorArray(
-                x=na.ScalarLinearSpace(0, 1, axis="x", num=5) * u.mm,
-                y=na.NormalUncertainScalarArray(
-                    nominal=na.ScalarLinearSpace(-1, 0, axis="y", num=6) * u.mm,
-                    width=0.1 * u.mm,
-                ),
-                z=0 * u.mm,
-            ),
-        ],
-    )
-    class TestFunctionsOfPosition:
-        def test__call__(
-            self,
-            a: optika.sags.AbstractSag,
-            position: na.AbstractCartesian3dVectorArray,
-        ):
-            result = a(position)
-            assert isinstance(na.as_named_array(result), na.AbstractScalar)
-            assert result.unit.is_equivalent(u.mm)
+    @pytest.mark.parametrize("position", positions)
+    def test__call__(
+        self,
+        a: optika.sags.AbstractSag,
+        position: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a(position)
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert result.unit.is_equivalent(u.mm)
 
-        def test_normal(
-            self,
-            a: optika.sags.AbstractSag,
-            position: na.AbstractCartesian3dVectorArray,
-        ):
-            result = a.normal(position)
-            assert isinstance(result, na.AbstractCartesian3dVectorArray)
-            assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
-            assert np.all(result.z < 0)
-            assert np.allclose(result.length, 1)
+    @pytest.mark.parametrize("position", positions)
+    def test_normal(
+        self,
+        a: optika.sags.AbstractSag,
+        position: na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.normal(position)
+        assert isinstance(result, na.AbstractCartesian3dVectorArray)
+        assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
+        assert np.all(result.z < 0)
+        assert np.allclose(result.length, 1)
 
 
 @pytest.mark.parametrize(
@@ -219,7 +217,20 @@ class TestConicSag(
 class TestParabolicSag(
     AbstractTestAbstractConicSag,
 ):
-    pass
+
+    @pytest.mark.parametrize("position", positions)
+    def test_normal(
+        self,
+        a: optika.sags.AbstractSag,
+        position: na.AbstractCartesian3dVectorArray,
+    ):
+        super().test_normal(a, position)
+
+        result = a.normal(position)
+
+        result_expected = super(type(a), a).normal(position)
+
+        assert np.allclose(result, result_expected)
 
 
 @pytest.mark.parametrize(
