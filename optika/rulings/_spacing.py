@@ -238,7 +238,7 @@ class HolographicRulingSpacing(
 
         a \mathbf{q} = \mathbf{n} \times (\pm \mathbf{r}_1 \mp \mathbf{r}_2),
 
-    :math:`\mathbf{r}_1` is a unit vector in the direction of the first
+    where :math:`\mathbf{r}_1` is a unit vector in the direction of the first
     recording beam,
     and :math:`\mathbf{r}_2` is a unit vector in the direction of the second
     recording beam.
