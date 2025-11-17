@@ -328,7 +328,7 @@ class SphericalSag(
 
         nx = c * x
         ny = c * y
-        nz = na.numexpr.evaluate("-sqrt(1 - c * c * (x * x + y * y))")
+        nz = na.numexpr.evaluate("-sqrt(1 - nx**2 - ny**2)")
 
         return na.Cartesian3dVectorArray(nx, ny, nz)
 
@@ -454,25 +454,22 @@ class CylindricalSag(
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractCartesian3dVectorArray:
 
-        c = 1 / self.radius
+        r = self.radius
+
+        unit = r.unit
+
         transformation = self.transformation
         if transformation is not None:
             position = transformation.inverse(position)
 
-        shape = na.shape_broadcasted(c, position)
-        c = na.broadcast_to(c, shape)
-        position = na.broadcast_to(position, shape)
+        r = r.value
+        x = position.x.to(unit).value
 
-        x2 = np.square(position.x)
-        c2 = np.square(c)
-        g = np.sqrt(1 - c2 * x2)
-        dzdx = c * position.x / g
-        result = na.Cartesian3dVectorArray(
-            x=dzdx,
-            y=0,
-            z=-1 * u.dimensionless_unscaled,
-        )
-        return result / result.length
+        nx = x / r
+        ny = 0
+        nz = na.numexpr.evaluate("-sqrt(1 - nx**2)")
+
+        return na.Cartesian3dVectorArray(nx, ny, nz)
 
     def intercept(
         self,
