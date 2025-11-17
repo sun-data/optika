@@ -5,6 +5,7 @@ import named_arrays as na  # type: ignore[import]
 import optika
 from . import test_mixins
 from . import test_propagators
+import optika.rays._tests.test_ray_vectors
 
 positions = [
     na.Cartesian3dVectorArray() * u.mm,
@@ -68,6 +69,18 @@ class AbstractTestAbstractSag(
         assert na.unit_normalized(result).is_equivalent(u.dimensionless_unscaled)
         assert np.all(result.z < 0)
         assert np.allclose(result.length, 1)
+
+    @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
+    def test_intercept(
+        self,
+        a: optika.sags.AbstractSag,
+        rays: optika.rays.RayVectorArray,
+    ):
+        result = a.intercept(rays)
+
+        result_expected = optika.sags.AbstractSag.intercept(a, rays)
+
+        assert np.allclose(result, result_expected)
 
 
 @pytest.mark.parametrize(
