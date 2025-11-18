@@ -342,25 +342,35 @@ class SphericalSag(
 
         r = self.radius
 
-        o = rays.position
+        unit = r.unit
+
+        r = r.value
+
+        o = rays.position.to(unit).value
 
         u = rays.direction
 
-        c = na.Cartesian3dVectorArray(z=r)
+        p = o.replace(z=o.z - r)
 
-        o_c = o - c
+        px = p.x  # noqa: F841
+        py = p.y  # noqa: F841
+        pz = p.z  # noqa: F841
 
-        u_o_c = u @ o_c
+        ux = u.x  # noqa: F841
+        uy = u.y  # noqa: F841
+        uz = u.z  # noqa: F841
 
-        nabla = np.square(u_o_c) - (np.square(o_c.length) - np.square(r))
+        position = na.numexpr.evaluate(
+            "o + u * ("
+            "   -(ux * px + uy * py + uz * pz)"
+            "   - sign(r * uz) * sqrt("
+            "       (ux * px + uy * py + uz * pz)**2"
+            "       - (px**2 + py**2 + pz**2 - r**2)"
+            "   )"
+            ")"
+        )
 
-        sgn = np.sign(r * u.z)
-
-        d = -u_o_c - sgn * np.sqrt(nabla)
-
-        position = o + d * u
-
-        result = rays.replace(position=position)
+        result = rays.replace(position=position << unit)
 
         if self.transformation is not None:
             result = self.transformation(result)
