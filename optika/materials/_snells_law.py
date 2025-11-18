@@ -288,6 +288,7 @@ def snells_law(
     u_z = normal.z
 
     return na.numexpr.evaluate(
-        'r * (a + (-(a_x*u_x + a_y*u_y + a_z*u_z) + sign(-(a_x*u_x + a_y*u_y + a_z*u_z)) '
-        '* (2 * is_mirror - 1) * sqrt(1 / (r*r) + (a_x*u_x + a_y*u_y + a_z*u_z)*(a_x*u_x + a_y*u_y + a_z*u_z)'
-        '- abs(a_x*a_x + a_y*a_y + a_z*a_z))) * normal)')
+        "r * (a + (-(a_x*u_x + a_y*u_y + a_z*u_z) + sign(-(a_x*u_x + a_y*u_y + a_z*u_z)) "
+        "* (2 * is_mirror - 1) * sqrt(1 / (r*r) + (a_x*u_x + a_y*u_y + a_z*u_z)*(a_x*u_x + a_y*u_y + a_z*u_z)"
+        "- abs(a_x*a_x + a_y*a_y + a_z*a_z))) * normal)"
+    )
