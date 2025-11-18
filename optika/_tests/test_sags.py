@@ -80,6 +80,7 @@ class AbstractTestAbstractSag(
 
         assert np.allclose(a(result.position), result.position.z)
 
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
