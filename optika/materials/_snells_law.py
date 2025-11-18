@@ -283,11 +283,11 @@ def snells_law(
     a_x = a.x
     a_y = a.y
     a_z = a.z
-    normal_x = normal.x
-    normal_y = normal.y
-    normal_z = normal.z
+    u_x = normal.x
+    u_y = normal.y
+    u_z = normal.z
 
     return na.numexpr.evaluate(
-        'r * (a + (-(a_x*normal_x + a_y*normal_y + a_z*normal_z) + sign(-(a_x*normal_x + a_y*normal_y + '
-        'a_z*normal_z)) *(2 * is_mirror - 1) * sqrt(1 / (r*r) + (a_x*normal_x + a_y*normal_y + a_z*normal_z)*('
-        'a_x*normal_x + a_y*normal_y + a_z*normal_z) - abs(a_x*a_x + a_y*a_y + a_z*a_z))) * normal)')
+        'r * (a + (-(a_x*u_x + a_y*u_y + a_z*u_z) + sign(-(a_x*u_x + a_y*u_y + a_z*u_z)) '
+        '* (2 * is_mirror - 1) * sqrt(1 / (r*r) + (a_x*u_x + a_y*u_y + a_z*u_z)*(a_x*u_x + a_y*u_y + a_z*u_z)'
+        '- abs(a_x*a_x + a_y*a_y + a_z*a_z))) * normal)')
