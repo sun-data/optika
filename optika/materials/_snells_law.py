@@ -278,7 +278,7 @@ def snells_law(
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    r = n1 / n2
+    r = n1 / n2  # noqa: F841
 
     a_x = a.x  # noqa: F841
     a_y = a.y  # noqa: F841
