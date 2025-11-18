@@ -280,11 +280,22 @@ def snells_law(
 
     r = n1 / n2
 
-    c = -a @ normal
+    a_x = a.x
+    a_y = a.y
+    a_z = a.z
+    normal_x = normal.x
+    normal_y = normal.y
+    normal_z = normal.z
 
-    mirror = np.sign(c) * (2 * is_mirror - 1)
+    # c = -a @ normal
+    # c = na.numexpr.evaluate('-(a_x*normal_x + a_y*normal_y + a_z*normal_z)')
 
-    t = np.sqrt(np.square(1 / r) + np.square(c) - np.square(a.length))
-    b = r * (a + (c + mirror * t) * normal)
+    # mirror = np.sign(-(a_x*normal_x + a_y*normal_y + a_z*normal_z)) * (2 * is_mirror - 1)
+
+    # t = np.sqrt(np.square(1 / r) + np.square(c) - np.square(a.length))
+    # t = na.numexpr.evaluate('sqrt(1 / (r*r) + (a_x*normal_x + a_y*normal_y + a_z*normal_z)*(a_x*normal_x + a_y*normal_y + a_z*normal_z) - abs(a_x*a_x + a_y*a_y + a_z*a_z))')
+    # b = r * (a + (-(a_x*normal_x + a_y*normal_y + a_z*normal_z) + sign(-(a_x*normal_x + a_y*normal_y + a_z*normal_z)) * (2 * is_mirror - 1) * t) * normal)
+    b = na.numexpr.evaluate(
+        'r * (a + (-(a_x*normal_x + a_y*normal_y + a_z*normal_z) + sign(-(a_x*normal_x + a_y*normal_y + a_z*normal_z)) *(2 * is_mirror - 1) * sqrt(1 / (r*r) + (a_x*normal_x + a_y*normal_y + a_z*normal_z)*(a_x*normal_x + a_y*normal_y + a_z*normal_z) - abs(a_x*a_x + a_y*a_y + a_z*a_z))) * normal)')
 
     return b
