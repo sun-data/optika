@@ -280,12 +280,12 @@ def snells_law(
 
     r = n1 / n2
 
-    a_x = a.x
-    a_y = a.y
-    a_z = a.z
-    u_x = normal.x
-    u_y = normal.y
-    u_z = normal.z
+    a_x = a.x  # noqa: F841
+    a_y = a.y  # noqa: F841
+    a_z = a.z  # noqa: F841
+    u_x = normal.x  # noqa: F841
+    u_y = normal.y  # noqa: F841
+    u_z = normal.z  # noqa: F841
 
     return na.numexpr.evaluate(
         "r * (a + (-(a_x*u_x + a_y*u_y + a_z*u_z) + sign(-(a_x*u_x + a_y*u_y + a_z*u_z)) "
