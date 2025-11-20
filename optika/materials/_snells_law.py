@@ -278,8 +278,6 @@ def snells_law(
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    r = n1 / n2  # noqa: F841
-
     a_x = a.x  # noqa: F841
     a_y = a.y  # noqa: F841
     a_z = a.z  # noqa: F841
@@ -288,7 +286,7 @@ def snells_law(
     u_z = normal.z  # noqa: F841
 
     return na.numexpr.evaluate(
-        "r * (a + (-(a_x*u_x + a_y*u_y + a_z*u_z) + sign(-(a_x*u_x + a_y*u_y + a_z*u_z)) "
-        "* (2 * is_mirror - 1) * sqrt(1 / (r*r) + (a_x*u_x + a_y*u_y + a_z*u_z)*(a_x*u_x + a_y*u_y + a_z*u_z)"
-        "- abs(a_x*a_x + a_y*a_y + a_z*a_z))) * normal)"
+        "(n1 / n2) * (a + (-(a_x*u_x + a_y*u_y + a_z*u_z) + sign(-(a_x*u_x + a_y*u_y + a_z*u_z)) "
+        "* (2 * is_mirror - 1) * sqrt(1 / (n1 / n2)**2 + (a_x*u_x + a_y*u_y + a_z*u_z)**2"
+        "- (a_x*a_x + a_y*a_y + a_z*a_z))) * normal)"
     )
