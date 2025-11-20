@@ -57,7 +57,7 @@ def test_snells_law_scalar(
     argnames="direction",
     argvalues=[
         na.Cartesian3dVectorArray(0, 0, 1),
-        optika.direction(na.Cartesian2dVectorArray(1 * u.deg, 2 * u.deg))
+        optika.direction(na.Cartesian2dVectorArray(1 * u.deg, 2 * u.deg)),
     ],
 )
 @pytest.mark.parametrize(
