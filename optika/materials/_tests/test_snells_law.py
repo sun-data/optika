@@ -57,6 +57,7 @@ def test_snells_law_scalar(
     argnames="direction",
     argvalues=[
         na.Cartesian3dVectorArray(0, 0, 1),
+        optika.direction(na.Cartesian2dVectorArray(1 * u.deg, 2 * u.deg)),
     ],
 )
 @pytest.mark.parametrize(
@@ -101,8 +102,22 @@ def test_snells_law(
         normal=normal,
         is_mirror=is_mirror,
     )
+
+    a = direction
+    n1 = index_refraction  # noqa: F841
+    n2 = index_refraction_new  # noqa: F841
+
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+    r = n1 / n2
+
+    c = -a @ normal
+
+    mirror = np.sign(c) * (2 * is_mirror - 1)
+
+    t = np.sqrt(np.square(1 / r) + np.square(c) - np.square(a.length))
+    result_expected = r * (a + (c + mirror * t) * normal)
 
     assert isinstance(result, na.AbstractCartesian3dVectorArray)
     assert np.allclose(result.length, 1)
@@ -110,3 +125,5 @@ def test_snells_law(
         assert not np.allclose(np.sign(direction @ normal), np.sign(result @ normal))
     else:
         assert np.allclose(np.sign(direction @ normal), np.sign(result @ normal))
+
+    assert np.allclose(result, result_expected)

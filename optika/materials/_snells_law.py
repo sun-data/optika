@@ -272,19 +272,21 @@ def snells_law(
         \right) \hat{\mathbf{n}} \right]}
     """
     a = direction
-    n1 = index_refraction
-    n2 = index_refraction_new
+    n1 = index_refraction  # noqa: F841
+    n2 = index_refraction_new  # noqa: F841
 
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-    r = n1 / n2
+    a_x = a.x  # noqa: F841
+    a_y = a.y  # noqa: F841
+    a_z = a.z  # noqa: F841
+    u_x = normal.x  # noqa: F841
+    u_y = normal.y  # noqa: F841
+    u_z = normal.z  # noqa: F841
 
-    c = -a @ normal
-
-    mirror = np.sign(c) * (2 * is_mirror - 1)
-
-    t = np.sqrt(np.square(1 / r) + np.square(c) - np.square(a.length))
-    b = r * (a + (c + mirror * t) * normal)
-
-    return b
+    return na.numexpr.evaluate(
+        "(n1 / n2) * (a + (-(a_x*u_x + a_y*u_y + a_z*u_z) + sign(-(a_x*u_x + a_y*u_y + a_z*u_z)) "
+        "* (2 * is_mirror - 1) * sqrt(1 / (n1 / n2)**2 + (a_x*u_x + a_y*u_y + a_z*u_z)**2"
+        "- (a_x*a_x + a_y*a_y + a_z*a_z))) * normal)"
+    )
