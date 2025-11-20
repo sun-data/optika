@@ -272,8 +272,8 @@ def snells_law(
         \right) \hat{\mathbf{n}} \right]}
     """
     a = direction
-    n1 = index_refraction
-    n2 = index_refraction_new
+    n1 = index_refraction  # noqa: F841
+    n2 = index_refraction_new  # noqa: F841
 
     if normal is None:
         normal = na.Cartesian3dVectorArray(0, 0, -1)
