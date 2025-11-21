@@ -771,7 +771,7 @@ class ParabolicSag(
         .. math::
 
             d = \frac{-o_x u_x - o_y u_y + 2 f u_z
-                      + \sqrt{-o_y^2 u_x^2 - o_x^2 u_y^2 + 2 o_y u_y (o_x u_x - 2 f u_z)
+                      - \text{sgn}(f u_z) \sqrt{-o_y^2 u_x^2 - o_x^2 u_y^2 + 2 o_y u_y (o_x u_x - 2 f u_z)
                               + 4 f (o_z (u_x^2 + u_y^2) - o_x u_x u_z + f u_z^2}
                       }{u_x^2 + u_y^2}.
 
