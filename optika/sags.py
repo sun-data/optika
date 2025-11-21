@@ -794,7 +794,7 @@ class ParabolicSag(
 
         o = rays.position.to(unit).value
 
-        u = rays.direction
+        u = rays.direction.value
 
         ox = o.x  # noqa: F841
         oy = o.y  # noqa: F841
@@ -806,12 +806,12 @@ class ParabolicSag(
 
         position = na.numexpr.evaluate(
             "o + u * where("
-            "   uz != 1,"
-            "   (-ox * ux - oy * uy + 2 * f * uz + sqrt("
+            "   (ux**2 + uy**2) > 1e-10,"
+            "   (-ox * ux - oy * uy + 2 * f * uz - sign(f * uz) * sqrt("
             "       -(oy * ux)**2 - (ox * uy)**2 + 2 * oy * uy * (ox * ux - 2 * f * uz)"
             "       + 4 * f * (oz * (ux**2 + uy**2) - ox * ux * uz + f * uz**2)"
             "   )) / (ux**2 + uy**2),"
-            "   (ox**2 + oy**2 - 4 * f * oz) / (4 * f * uz)"
+            "   (ox**2 + oy**2 - 4 * f * oz) / (4 * f * uz),"
             ")"
         )
 

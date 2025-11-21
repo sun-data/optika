@@ -80,6 +80,10 @@ class AbstractTestAbstractSag(
 
         assert np.allclose(a(result.position), result.position.z)
 
+        result_expected = optika.sags.AbstractSag.intercept(a, rays)
+
+        assert np.allclose(result, result_expected)
+
 
 @pytest.mark.parametrize(
     argnames="a",
