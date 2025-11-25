@@ -1,7 +1,3 @@
-"""
-Apertures that can be used by optical surfaces to block a portion of the beam.
-"""
-
 import abc
 import dataclasses
 import numpy as np
@@ -20,7 +16,9 @@ __all__ = [
     "EllipticalAperture",
     "AbstractPolygonalAperture",
     "PolygonalAperture",
+    "RectangularAperture",
     "AbstractRegularPolygonalAperture",
+    "RegularPolygonalAperture",
     "AbstractOctagonalAperture",
     "OctagonalAperture",
     "AbstractIsoscelesTrapezoidalAperture",

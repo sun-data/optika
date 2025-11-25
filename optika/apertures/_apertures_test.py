@@ -5,7 +5,7 @@ import astropy.units as u
 import named_arrays as na
 import optika
 import optika.rays._tests.test_ray_vectors
-from . import test_mixins
+from .._tests import test_mixins
 
 
 active_parameterization = [
