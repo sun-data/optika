@@ -7,6 +7,7 @@ from .materials._diffusion import (
     charge_diffusion,
     mean_charge_capture,
     kernel_diffusion,
+    vmr_diffusion,
 )
 from .materials._materials import (
     energy_bandgap,
@@ -48,6 +49,7 @@ __all__ = [
     "electrons_measured_approx",
     "signal",
     "vmr_signal",
+    "vmr_diffusion",
     "materials",
     "AbstractImagingSensor",
     "ImagingSensor",
