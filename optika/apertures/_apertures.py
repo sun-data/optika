@@ -374,7 +374,7 @@ class CircularSectorAperture(
     """
 
     angle_stop: u.Quantity | na.AbstractScalar = 180 * u.deg
-    """
+    r"""
     The ending angle of the circular sector.
     Must be between :math:`-2 \pi` and :math:`+2 \pi` radians and 
     counterclockwise from `angle_start`.
@@ -606,34 +606,40 @@ class AbstractPolygonalAperture(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
+
         vertices = self.vertices
         active = self.active
         inverted = self.inverted
+
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        shape = na.shape_broadcasted(
-            vertices[dict(vertex=0)],
-            active,
-            inverted,
-            position,
-        )
+        if np.any(active):
+            result = na.geometry.point_in_polygon(
+                x=position.x,
+                y=position.y,
+                vertices_x=vertices.x,
+                vertices_y=vertices.y,
+                axis="vertex",
+            )
 
-        active = na.broadcast_to(active, shape)
-        inverted = na.broadcast_to(inverted, shape)
-        position = na.broadcast_to(position, shape)
+            if not np.all(active):
+                shape_active = na.shape_broadcasted(result, active)
+                if shape_active != result.shape:
+                    result = na.broadcast_to(result, shape_active).copy()
+                result[~active] = True
 
-        result = False
-        for v in range(vertices.shape["vertex"]):
-            vert_j = na.broadcast_to(vertices[dict(vertex=v - 1)], shape)
-            vert_i = na.broadcast_to(vertices[dict(vertex=v)], shape)
-            slope = (vert_j.y - vert_i.y) / (vert_j.x - vert_i.x)
-            condition_1 = (vert_i.y > position.y) != (vert_j.y > position.y)
-            condition_2 = position.x < ((position.y - vert_i.y) / slope + vert_i.x)
-            result = result ^ (condition_1 & condition_2)
+        else:
+            result = True
 
-        result[inverted] = ~result[inverted]
-        result[~active] = True
+        if np.any(inverted):
+            if np.all(inverted):
+                result = ~result
+            else:
+                shape_inverted = na.shape_broadcasted(result, inverted)
+                if shape_inverted != result.shape:
+                    result = na.broadcast_to(result, shape_inverted).copy()
+                result[inverted] = ~result[inverted]
 
         return result
 
