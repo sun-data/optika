@@ -39,11 +39,10 @@ def snells_law_scalar(
 
 
 def snells_law(
-    wavelength: u.Quantity | na.AbstractScalar,
     direction: na.AbstractCartesian3dVectorArray,
     index_refraction: float | na.AbstractScalar,
     index_refraction_new: float | na.AbstractScalar,
-    normal: None | na.AbstractCartesian3dVectorArray,
+    normal: None | na.AbstractCartesian3dVectorArray = None,
     is_mirror: bool | na.AbstractScalar = False,
 ) -> na.Cartesian3dVectorArray:
     r"""
@@ -51,8 +50,6 @@ def snells_law(
 
     Parameters
     ----------
-    wavelength
-        The wavelength of the incoming light
     direction
         The propagation direction of the incoming light
     index_refraction
@@ -91,7 +88,6 @@ def snells_law(
         # Define the keyword arguments that are common
         # to both the reflected and transmitted ray
         kwargs = dict(
-            wavelength=350 * u.nm,
             direction=direction,
             index_refraction=1,
             normal=na.Cartesian3dVectorArray(0, 0, 1),

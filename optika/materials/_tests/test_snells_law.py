@@ -47,13 +47,6 @@ def test_snells_law_scalar(
 
 
 @pytest.mark.parametrize(
-    argnames="wavelength",
-    argvalues=[
-        350 * u.nm,
-        na.linspace(300 * u.nm, 400 * u.nm, axis="wavelength", num=3),
-    ],
-)
-@pytest.mark.parametrize(
     argnames="direction",
     argvalues=[
         na.Cartesian3dVectorArray(0, 0, 1),
@@ -87,7 +80,6 @@ def test_snells_law_scalar(
     ],
 )
 def test_snells_law(
-    wavelength: u.Quantity | na.AbstractScalar,
     direction: na.AbstractCartesian3dVectorArray,
     index_refraction: float | na.AbstractScalar,
     index_refraction_new: float | na.AbstractScalar,
@@ -95,7 +87,6 @@ def test_snells_law(
     is_mirror: bool | na.AbstractScalar,
 ):
     result = optika.materials.snells_law(
-        wavelength=wavelength,
         direction=direction,
         index_refraction=index_refraction,
         index_refraction_new=index_refraction_new,
