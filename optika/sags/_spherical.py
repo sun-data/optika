@@ -12,6 +12,7 @@ __all__ = [
     "SphericalSag",
 ]
 
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSphericalSag(
     AbstractSag,

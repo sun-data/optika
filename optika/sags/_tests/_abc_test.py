@@ -20,6 +20,7 @@ positions = [
     ),
 ]
 
+
 def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
     nominals = [
         100 * u.mm,

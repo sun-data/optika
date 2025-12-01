@@ -6,6 +6,7 @@ from ..._tests import test_mixins
 from ._abc_test import radius_parameterization, positions
 from ._conic_test import AbstractTestAbstractConicSag
 
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[

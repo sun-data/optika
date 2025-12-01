@@ -14,7 +14,7 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class ToroidalSag(
-    AbstractSag
+    AbstractSag,
 ):
     """
     A toroidal sag profile.

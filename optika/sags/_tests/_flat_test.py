@@ -4,6 +4,7 @@ import named_arrays as na
 import optika
 from ._abc_test import AbstractTestAbstractSag
 
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
