@@ -16,7 +16,7 @@ class ParabolicSag(
 ):
     """A parabolic sag profile."""
 
-    focal_length: u.Quantity["length"] | na.AbstractScalar = np.inf * u.mm
+    focal_length: u.Quantity | na.AbstractScalar = np.inf * u.mm
     """The focal length of this parabola."""
 
     @property
@@ -30,7 +30,7 @@ class ParabolicSag(
         )
 
     @property
-    def radius(self) -> u.Quantity["length"] | na.AbstractScalar:
+    def radius(self) -> u.Quantity | na.AbstractScalar:
         return 2 * self.focal_length
 
     @property

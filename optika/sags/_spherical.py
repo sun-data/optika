@@ -1,4 +1,3 @@
-from typing import TypeVar, Generic
 import abc
 import dataclasses
 import numpy as np
@@ -23,13 +22,13 @@ class AbstractSphericalSag(
 
     @property
     @abc.abstractmethod
-    def radius(self) -> u.Quantity["length"] | na.AbstractScalar:
+    def radius(self) -> u.Quantity | na.AbstractScalar:
         """
         The radius of curvature of this sphere.
         """
 
     @property
-    def curvature(self) -> u.Quantity["length"] | na.AbstractScalar:
+    def curvature(self) -> u.Quantity | na.AbstractScalar:
         """
         The curvature of the spherical surface.
         Equal to the reciprocal of :attr:`radius`.
@@ -85,7 +84,7 @@ class SphericalSag(
             plt.legend(title="radius")
     """
 
-    radius: u.Quantity["length"] | na.AbstractScalar = np.inf * u.mm
+    radius: u.Quantity | na.AbstractScalar = np.inf * u.mm
     """The radius of curvature of this sphere."""
 
     @property

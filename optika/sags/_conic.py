@@ -20,7 +20,7 @@ class AbstractConicSag(
 
     @property
     @abc.abstractmethod
-    def radius(self) -> u.Quantity["length"] | na.AbstractScalar:
+    def radius(self) -> u.Quantity | na.AbstractScalar:
         """The effective radius of this conic section."""
 
     @property
@@ -139,7 +139,7 @@ class ConicSag(
             plt.legend(title="conic constant")
     """
 
-    radius: u.Quantity["length"] | na.AbstractScalar = np.inf * u.mm
+    radius: u.Quantity | na.AbstractScalar = np.inf * u.mm
     """The effective radius of this conic section."""
 
     conic: float | na.AbstractScalar = 0 * u.dimensionless_unscaled

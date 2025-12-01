@@ -1,7 +1,4 @@
-from typing import TypeVar, Generic
-import abc
 import dataclasses
-import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika

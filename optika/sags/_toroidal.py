@@ -1,5 +1,3 @@
-from typing import TypeVar, Generic
-import abc
 import dataclasses
 import numpy as np
 import astropy.units as u
@@ -20,10 +18,10 @@ class ToroidalSag(
     A toroidal sag profile.
     """
 
-    radius: u.Quantity["length"] | na.AbstractScalar = np.inf * u.mm
+    radius: u.Quantity | na.AbstractScalar = np.inf * u.mm
     """The minor radius of this toroidal surface."""
 
-    radius_of_rotation: u.Quantity["length"] | na.AbstractScalar = 0 * u.mm
+    radius_of_rotation: u.Quantity | na.AbstractScalar = 0 * u.mm
     """The major radius of this toroidal surface."""
 
     @property

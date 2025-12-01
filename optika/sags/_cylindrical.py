@@ -59,7 +59,7 @@ class CylindricalSag(
             plt.legend(title="radius")
     """
 
-    radius: u.Quantity["length"] | na.AbstractScalar = np.inf * u.mm
+    radius: u.Quantity | na.AbstractScalar = np.inf * u.mm
     """The radius of this cylinder."""
 
     @property
