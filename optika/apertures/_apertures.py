@@ -623,6 +623,15 @@ class AbstractPolygonalAperture(
                 axis="vertex",
             )
 
+            if np.any(inverted):
+                if np.all(inverted):
+                    result = ~result
+                else:
+                    shape_inverted = na.shape_broadcasted(result, inverted)
+                    if shape_inverted != result.shape:
+                        result = na.broadcast_to(result, shape_inverted).copy()
+                    result[inverted] = ~result[inverted]
+
             if not np.all(active):
                 shape_active = na.shape_broadcasted(result, active)
                 if shape_active != result.shape:
@@ -630,16 +639,7 @@ class AbstractPolygonalAperture(
                 result[~active] = True
 
         else:
-            result = True
-
-        if np.any(inverted):
-            if np.all(inverted):
-                result = ~result
-            else:
-                shape_inverted = na.shape_broadcasted(result, inverted)
-                if shape_inverted != result.shape:
-                    result = na.broadcast_to(result, shape_inverted).copy()
-                result[inverted] = ~result[inverted]
+            result = na.ScalarArray(True)
 
         return result
 
