@@ -49,7 +49,15 @@ class AbstractSag(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        pass
+        """
+        Check if the given positions are inside the aperture.
+
+        Parameters
+        ----------
+        position
+            The points to check if inside the aperture.
+            The :math:`z` coordinate is ignored.
+        """
 
     @abc.abstractmethod
     def normal(
