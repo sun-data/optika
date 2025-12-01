@@ -10,10 +10,12 @@ from .._tests import test_mixins
 
 active_parameterization = [
     True,
+    False,
     na.linspace(-1, 1, "active", 3) >= 0,
 ]
 
 inverted_parameterization = [
+    True,
     False,
     na.linspace(-1, 1, "inverted", 4) >= 0,
 ]
@@ -52,7 +54,8 @@ class AbstractTestAbstractAperture(
 
         result = a(position)
         assert np.issubdtype(na.get_dtype(result), bool)
-        assert np.any(result)
+
+        assert np.all(result[~na.as_named_array(a.active)])
 
     @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
     def test_clip_rays(

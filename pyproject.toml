@@ -9,13 +9,13 @@ authors = [
 ]
 description = "A Python library for simulating optical systems, similar to Zemax"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
     "astropy!=6.1.5",
-    "named-arrays>=0.27.1",
+    "named-arrays~=1.0",
     "pymupdf",
     "joblib",
 ]
@@ -29,7 +29,6 @@ doc = [
     "pytest",
     "matplotlib",
     "graphviz",
-    "Sphinx<8.2",
     "sphinx-autodoc-typehints",
     "sphinxcontrib-bibtex",
     "pydata-sphinx-theme",
