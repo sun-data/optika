@@ -320,7 +320,6 @@ def transfer(
     """
 
     direction_internal = snells_law(
-        wavelength=wavelength,
         direction=direction,
         index_refraction=1,
         index_refraction_new=np.real(n),
