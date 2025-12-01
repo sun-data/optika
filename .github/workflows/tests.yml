@@ -19,7 +19,7 @@ jobs:
           macOS-latest,
         ]
         python-version: ["3.11", "3.13"]
-    name: ${{ matrix.os }}, Python ${{ matrix.python-version }} lint and test
+    name: ${{ matrix.os }}, Python ${{ matrix.python-version }} tests
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
