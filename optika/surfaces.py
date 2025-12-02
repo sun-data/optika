@@ -163,7 +163,6 @@ class AbstractSurface(
         wavelength_2 = wavelength_1 / r
 
         b = optika.materials.snells_law(
-            wavelength=wavelength_1,
             direction=a,
             index_refraction=n1,
             index_refraction_new=n2,

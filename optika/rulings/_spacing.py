@@ -191,7 +191,6 @@ class HolographicRulingSpacing(
 
         # Compute the output direction of the diffracted rays.
         direction_output = optika.materials.snells_law(
-            wavelength=wavelength,
             direction=direction_input,
             index_refraction=1,
             index_refraction_new=1,
