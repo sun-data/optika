@@ -313,7 +313,7 @@ def _snells_law_numba(
     result_x: np.ndarray,
     result_y: np.ndarray,
     result_z: np.ndarray,
-):
+):  # pragma: nocover
     """
     A :mod:`numba`-accelerated version of Snell's law.
 
