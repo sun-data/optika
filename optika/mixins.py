@@ -35,7 +35,7 @@ class Shaped(abc.ABC):
 
 
 @dataclasses.dataclass(repr=False)
-class Printable:
+class Printable(abc.ABC):
     """An object that can be printed."""
 
     @classmethod
