@@ -1145,7 +1145,7 @@ class AbstractSequentialSystem(
             plt.colorbar(
                 mappable=matplotlib.cm.ScalarMappable(colorizer=colorizer),
                 ax=ax.ndarray,
-                label=f"wavelength ({wavelength.unit:latex_inline})"
+                label=f"wavelength ({wavelength.unit:latex_inline})",
             )
 
         return fig, ax
