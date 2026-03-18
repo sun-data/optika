@@ -1066,8 +1066,8 @@ class RectangularRulings(
 
         result = np.where(
             i == 0,
-            x=1 - ((2 * a / np.pi) - np.square(a / np.pi)) * b,
-            y=(2 / np.square(i * np.pi)) * (1 - np.cos(i * a * u.rad)) * b,
+            1 - ((2 * a / np.pi) - np.square(a / np.pi)) * b,
+            (2 / np.square(i * np.pi)) * (1 - np.cos(i * a * u.rad)) * b,
         )
 
         return result
