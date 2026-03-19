@@ -7,7 +7,6 @@ import named_arrays as na
 import optika
 from optika._tests import test_mixins
 
-
 _wavelength = [
     500 * u.nm,
     na.geomspace(10, 10000, axis="wavelength", num=101) * u.AA,

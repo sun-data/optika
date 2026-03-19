@@ -7,7 +7,6 @@ import optika
 import optika.rays._tests.test_ray_vectors
 from .._tests import test_mixins
 
-
 active_parameterization = [
     True,
     False,
