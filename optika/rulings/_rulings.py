@@ -602,13 +602,13 @@ class SquareRulings(
 
         result = np.where(
             i % 2 == 0,
-            x=0,
-            y=np.square(2 * np.sin(np.pi * gamma / 2 * u.rad) / (i * np.pi)),
+            0,
+            np.square(2 * np.sin(np.pi * gamma / 2 * u.rad) / (i * np.pi)),
         )
         result = np.where(
             i == 0,
-            x=np.square(np.cos(np.pi * gamma / 2 * u.rad)),
-            y=result,
+            np.square(np.cos(np.pi * gamma / 2 * u.rad)),
+            result,
         )
 
         return result
@@ -904,8 +904,8 @@ class TriangularRulings(
 
         result = np.where(
             i % 2 == 0,
-            x=np.square(a * np.sin(np.square(np.pi) * gamma / 4 * u.rad)),
-            y=np.square(a * np.cos(np.square(np.pi) * gamma / 4 * u.rad)),
+            np.square(a * np.sin(np.square(np.pi) * gamma / 4 * u.rad)),
+            np.square(a * np.cos(np.square(np.pi) * gamma / 4 * u.rad)),
         )
 
         return result
