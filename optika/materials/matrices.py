@@ -10,7 +10,6 @@ import named_arrays as na
 import optika
 from . import snells_law
 
-
 __all__ = [
     "refraction",
     "propagation",
