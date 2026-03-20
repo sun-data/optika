@@ -601,9 +601,9 @@ def _discrete_gamma(
     )
 
     x = np.where(
-        condition=vmr != 0,
-        x=x,
-        y=mean,
+        vmr != 0,
+        x,
+        mean,
     )
 
     unit_x = x.unit
