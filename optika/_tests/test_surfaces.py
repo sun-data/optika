@@ -6,7 +6,6 @@ import optika
 from . import test_mixins
 from . import test_propagators
 
-
 surfaces = [
     optika.surfaces.Surface(),
     optika.surfaces.Surface(

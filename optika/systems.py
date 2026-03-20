@@ -8,9 +8,12 @@ import abc
 import dataclasses
 import functools
 import astropy.units as u
+import astropy.visualization
 import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
+import matplotlib.cm
+import matplotlib.pyplot as plt
 import named_arrays as na
 import optika
 
@@ -100,7 +103,7 @@ class AbstractSequentialSystem(
     @abc.abstractmethod
     def surfaces(self) -> Sequence[optika.surfaces.AbstractSurface]:
         """
-        a sequence of surfaces representing this optical system.
+        A sequence of surfaces representing this optical system.
 
         At least one of these surfaces needs to be marked as the pupil surface,
         and if the object surface is not marked as the field stop, one of these
@@ -511,41 +514,21 @@ class AbstractSequentialSystem(
 
         object_is_at_infinity = self.object_is_at_infinity
         if object_is_at_infinity:
-            field = rayfunction_stops.outputs.direction.xy
+            field = optika.angles(rayfunction_stops.outputs.direction)
             pupil = rayfunction_stops.outputs.position.xy
         else:
             field = rayfunction_stops.outputs.position.xy
-            pupil = rayfunction_stops.outputs.direction.xy
+            pupil = optika.angles(rayfunction_stops.outputs.direction)
 
         if normalized_field:
             min_field = field.min(axis=(axis_field, axis_pupil))
             ptp_field = field.ptp(axis=(axis_field, axis_pupil))
             result.field = ptp_field * (result.field + 1) / 2 + min_field
 
-            if object_is_at_infinity:
-                direction = na.Cartesian3dVectorArray(
-                    x=result.field.x,
-                    y=result.field.y,
-                    z=np.sqrt(
-                        1 - np.square(result.field.x) - np.square(result.field.y)
-                    ),
-                )
-                result.field = optika.angles(direction)
-
         if normalized_pupil:
             min_pupil = pupil.min(axis=(axis_field, axis_pupil))
             ptp_pupil = pupil.ptp(axis=(axis_field, axis_pupil))
             result.pupil = ptp_pupil * (result.pupil + 1) / 2 + min_pupil
-
-            if not object_is_at_infinity:
-                direction = na.Cartesian3dVectorArray(
-                    x=result.pupil.x,
-                    y=result.pupil.y,
-                    z=np.sqrt(
-                        1 - np.square(result.pupil.x) - np.square(result.pupil.y)
-                    ),
-                )
-                result.pupil = optika.angles(direction)
 
         return result
 
@@ -1033,6 +1016,139 @@ class AbstractSequentialSystem(
             )
 
         return result
+
+    def spot_diagram(
+        self,
+        figsize: tuple[float, float] = (8, 6),
+        s: float = 5,
+        cmap: None | str | plt.Colormap = None,
+    ) -> tuple[
+        plt.Figure,
+        plt.Axes,
+    ]:
+        """
+        Create a spot diagram of the rays at each field point to inspect
+        the performance of this optical system.
+
+        Parameters
+        ----------
+        figsize
+            The size of the returned figure in inches.
+        s
+            The marker size in points squared.
+        cmap
+            The colormap used to map scalar data to colors.
+        """
+        shape = self.shape
+
+        grid = self.grid_input
+
+        wavelength = na.as_named_array(grid.wavelength)
+        field = grid.field
+        pupil = grid.pupil
+
+        axis_wavelength = set(wavelength.shape) - set(shape)
+        axis_wavelength = tuple(axis_wavelength)
+        if len(axis_wavelength) > 1:  # pragma: nocover
+            raise ValueError(
+                f"Expected one or zero wavelength axes, got {len(axis_wavelength)}."
+            )
+
+        axis_field_x = tuple(field.x.shape)
+        if len(axis_field_x) != 1:  # pragma: nocover
+            raise ValueError(
+                "The horizontal field array must be one-dimensional, "
+                f"got {self.grid_input.field.x.shape=}."
+            )
+        axis_field_x = axis_field_x[0]
+
+        axis_field_y = tuple(field.y.shape)
+        if len(axis_field_y) != 1:  # pragma: nocover
+            raise ValueError(
+                "The vertical field array must be one-dimensional, "
+                f"got {self.grid_input.field.y.shape=}."
+            )
+        axis_field_y = axis_field_y[0]
+
+        axis_field = (axis_field_x, axis_field_y)
+
+        axis_pupil = set(pupil.shape) - set(shape)
+        axis_pupil = axis_pupil - set(axis_wavelength) - set(axis_field)
+
+        rays = self.rayfunction_default.outputs
+        position = rays.position.to(u.um)
+        position_relative = position - position.mean(axis_pupil)
+
+        with astropy.visualization.quantity_support():
+            fig, ax = na.plt.subplots(
+                axis_rows=axis_field_y,
+                axis_cols=axis_field_x,
+                nrows=field.y.shape[axis_field_y],
+                ncols=field.x.shape[axis_field_x],
+                sharex=True,
+                sharey=True,
+                figsize=figsize,
+                constrained_layout=True,
+                origin="lower",
+            )
+
+            colorizer = plt.Colorizer(
+                cmap=cmap,
+                norm=plt.Normalize(
+                    vmin=wavelength.ndarray.value.min(),
+                    vmax=wavelength.ndarray.value.max(),
+                ),
+            )
+
+            na.plt.scatter(
+                position_relative.x,
+                position_relative.y,
+                ax=ax,
+                s=s,
+                where=rays.unvignetted,
+                c=self.grid_input.wavelength.value,
+                colorizer=colorizer,
+            )
+
+            ax_lower = ax[{axis_field_y: +0}]
+            ax_upper = ax[{axis_field_y: ~0}]
+            ax_left = ax[{axis_field_x: +0}]
+            ax_right = ax[{axis_field_x: ~0}]
+
+            na.plt.set_xlabel(f"$x$ ({position.x.unit:latex_inline})", ax=ax_lower)
+            na.plt.set_ylabel(f"$y$ ({position.y.unit:latex_inline})", ax=ax_left)
+
+            angle = self.rayfunction_default.inputs.field
+
+            angle_x = angle.x
+            angle_y = angle.y
+
+            na.plt.text(
+                x=0.5,
+                y=1,
+                s=angle_x.to_string_array(),
+                ax=ax_upper,
+                transform=na.plt.transAxes(ax_upper),
+                ha="center",
+                va="bottom",
+            )
+            na.plt.text(
+                x=1.05,
+                y=0.5,
+                s=angle_y.to_string_array(),
+                ax=ax_right,
+                transform=na.plt.transAxes(ax_right),
+                ha="left",
+                va="center",
+            )
+
+            plt.colorbar(
+                mappable=matplotlib.cm.ScalarMappable(colorizer=colorizer),
+                ax=ax.ndarray,
+                label=f"wavelength ({wavelength.unit:latex_inline})",
+            )
+
+        return fig, ax
 
 
 @dataclasses.dataclass(eq=False, repr=False)

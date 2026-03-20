@@ -1,0 +1,15 @@
+name: Notebooks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  nbstripout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install nbstripout
+      - run: find . -name "*.ipynb" -exec nbstripout --verify {} +

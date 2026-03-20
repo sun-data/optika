@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import pytest
 import numpy as np
 import astropy.units as u
@@ -227,6 +228,14 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(rayfunction.inputs, optika.vectors.ObjectVectorArray)
         assert isinstance(rayfunction.outputs, optika.rays.RayVectorArray)
         assert a.axis_surface not in rayfunction.shape
+
+    def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
+        fig, axs = a.spot_diagram()
+        assert isinstance(fig, plt.Figure)
+
+        for ax in axs.ndarray.flat:
+            assert isinstance(ax, plt.Axes)
+            assert ax.has_data()
 
 
 _objects = [
