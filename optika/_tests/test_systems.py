@@ -250,6 +250,13 @@ _objects = [
     ),
 ]
 
+_transformations = [
+    None,
+    None,
+    na.transformations.Cartesian3dTranslation(x=100 * u.mm),
+    na.transformations.Cartesian3dRotationZ(23 * u.deg),
+]
+
 _surfaces = [
     optika.surfaces.Surface(
         name="mirror",
@@ -296,8 +303,9 @@ _grid_input = optika.vectors.ObjectVectorArray(
             surfaces=_surfaces,
             sensor=_sensor,
             grid_input=_grid_input,
+            transformation=transform,
         )
-        for obj in _objects
+        for obj, transform in zip(_objects, _transformations)
     ],
 )
 class TestSequentialSystem(AbstractTestAbstractSequentialSystem):

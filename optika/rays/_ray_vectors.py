@@ -178,16 +178,8 @@ class AbstractRayVectorArray(
         **kwargs,
     ) -> None:
 
-        shape = self.shape
-
-        if axis is None:
-            if len(shape) == 1:
-                axis = next(iter(shape))
-            else:
-                raise ValueError(
-                    f"if `axis` is `None`, the shape of {type(self)} should have"
-                    f"only one axis, got {self.shape=}."
-                )
+        if axis is None:  # pragma: nocover
+            raise ValueError("`axis` cannot be None.")
 
         super()._write_to_dxf(
             dxf=dxf,
