@@ -238,7 +238,7 @@ class AbstractTestDxfWritable(
         argnames="file",
         argvalues=[
             pathlib.Path("test_dwg.dxf"),
-        ]
+        ],
     )
     @pytest.mark.parametrize(
         argnames="unit",
@@ -251,7 +251,7 @@ class AbstractTestDxfWritable(
         argvalues=[
             None,
             na.transformations.Cartesian3dRotationY(23 * u.deg),
-        ]
+        ],
     )
     def test_to_dxf(
         self,

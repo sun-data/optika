@@ -217,7 +217,7 @@ class AbstractAperture(
                     y[index].ndarray,
                     z[index].ndarray,
                 ],
-                axis=~0
+                axis=~0,
             )
 
             vertices = vertices.to_value(unit)
