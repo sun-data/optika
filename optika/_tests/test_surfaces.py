@@ -27,6 +27,7 @@ surfaces = [
 
 
 class AbstractTestAbstractSurface(
+    test_mixins.AbstractTestDxfWritable,
     test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,

@@ -55,6 +55,7 @@ class AbstractTestAbstractSystem(
 
 
 class AbstractTestAbstractSequentialSystem(
+    test_mixins.AbstractTestDxfWritable,
     AbstractTestAbstractSystem,
 ):
     def test_object(self, a: optika.systems.AbstractSequentialSystem):

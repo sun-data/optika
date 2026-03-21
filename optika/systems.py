@@ -16,6 +16,7 @@ import matplotlib.cm
 import matplotlib.pyplot as plt
 import named_arrays as na
 import optika
+from ezdxf.addons.r12writer import R12FastStreamWriter
 
 __all__ = [
     "AbstractSystem",
@@ -26,6 +27,7 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSystem(
+    optika.mixins.DxfWritable,
     optika.mixins.Plottable,
     optika.mixins.Printable,
     optika.mixins.Transformable,
@@ -1149,6 +1151,38 @@ class AbstractSequentialSystem(
             )
 
         return fig, ax
+
+    def _write_to_dxf(
+        self,
+        dxf: R12FastStreamWriter,
+        unit: u.Unit,
+        transformation: None | na.transformations.AbstractTransformation = None,
+        **kwargs,
+    ) -> None:
+
+        if self.transformation is not None:
+            if transformation is not None:
+                transformation = transformation @ self.transformation
+            else:
+                transformation = self.transformation
+
+        surfaces = self.surfaces_all
+
+        for surface in surfaces:
+            surface._write_to_dxf(
+                dxf=dxf,
+                unit=unit,
+                transformation=transformation,
+            )
+
+        rays = self.raytrace().outputs
+
+        rays._write_to_dxf(
+            dxf=dxf,
+            unit=unit,
+            transformation=transformation,
+            axis=self.axis_surface,
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)

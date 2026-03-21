@@ -4,11 +4,14 @@ from __future__ import annotations
 from typing import Any
 import abc
 import dataclasses
+import pathlib
 import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
 import astropy.units as u
 import named_arrays as na
+import ezdxf.addons
+from ezdxf.addons.r12writer import R12FastStreamWriter
 
 __all__ = [
     "Shaped",
@@ -243,3 +246,45 @@ class Rollable(
         return super().transformation @ na.transformations.Cartesian3dRotationZ(
             angle=self.roll
         )
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class DxfWritable(abc.ABC):
+
+    def to_dxf(
+        self,
+        file: pathlib.Path,
+        unit: u.Unit,
+        transformation: None | na.transformations.AbstractTransformation = None,
+    ):
+
+        with ezdxf.addons.r12writer(file) as dxf:
+            self._write_to_dxf(
+                dxf=dxf,
+                unit=unit,
+                transformation=transformation,
+            )
+
+    @abc.abstractmethod
+    def _write_to_dxf(
+        self,
+        dxf: R12FastStreamWriter,
+        unit: u.Unit,
+        transformation: None | na.transformations.AbstractTransformation = None,
+        **kwargs,
+    ) -> None:
+        """
+        Write a representation of this object to a DXF file.
+
+        Parameters
+        ----------
+        dxf
+            The stream representing the open DXF file.
+        unit
+            The length units to use for this file.
+        transformation
+            An additional transformation to apply to the coordinate system
+            before writing to the DXF file.
+        kwargs
+            Additional keyword arguments passed to subclass implementations.
+        """

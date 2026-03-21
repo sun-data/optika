@@ -9,8 +9,10 @@ import abc
 import dataclasses
 import numpy.typing as npt
 import matplotlib.axes
+from astropy import units as u
 import named_arrays as na
 import optika
+from ezdxf.addons.r12writer import R12FastStreamWriter
 
 __all__ = [
     "AbstractSurface",
@@ -41,6 +43,7 @@ RulingsT = TypeVar(
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSurface(
+    optika.mixins.DxfWritable,
     optika.mixins.Plottable,
     optika.mixins.Printable,
     optika.mixins.Transformable,
@@ -239,6 +242,42 @@ class AbstractSurface(
             )
 
         return result
+
+    def _write_to_dxf(
+        self,
+        dxf: R12FastStreamWriter,
+        unit: u.Unit,
+        transformation: None | na.transformations.AbstractTransformation = None,
+        **kwargs,
+    ) -> None:
+
+        if self.transformation is not None:
+            if transformation is not None:
+                transformation = transformation @ self.transformation
+            else:
+                transformation = self.transformation
+
+        super()._write_to_dxf(
+            dxf=dxf,
+            unit=unit,
+            transformation=transformation,
+        )
+
+        if self.aperture is not None:
+            self.aperture._write_to_dxf(
+                dxf=dxf,
+                unit=unit,
+                transformation=transformation,
+                sag=self.sag,
+            )
+
+        if self.aperture_mechanical is not None:
+            self.aperture_mechanical._write_to_dxf(
+                dxf=dxf,
+                unit=unit,
+                transformation=transformation,
+                sag=self.sag,
+            )
 
 
 @dataclasses.dataclass(eq=False, repr=False)

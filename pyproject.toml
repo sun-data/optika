@@ -18,6 +18,7 @@ dependencies = [
     "named-arrays~=1.0",
     "pymupdf",
     "joblib",
+    "ezdxf",
 ]
 dynamic = ["version"]
 

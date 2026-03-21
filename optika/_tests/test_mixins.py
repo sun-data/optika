@@ -1,6 +1,7 @@
 import pytest
 import abc
 import dataclasses
+import pathlib
 import numpy as np
 import matplotlib.axes
 import matplotlib.pyplot as plt
@@ -227,3 +228,46 @@ class TestRollable(
     AbstractTestRollable,
 ):
     pass
+
+
+class AbstractTestDxfWritable(
+    abc.ABC,
+):
+
+    @pytest.mark.parametrize(
+        argnames="file",
+        argvalues=[
+            pathlib.Path("test_dwg.dxf"),
+        ]
+    )
+    @pytest.mark.parametrize(
+        argnames="unit",
+        argvalues=[
+            u.mm,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="transformation",
+        argvalues=[
+            None,
+            na.transformations.Cartesian3dRotationY(23 * u.deg),
+        ]
+    )
+    def test_to_dxf(
+        self,
+        a: optika.mixins.DxfWritable,
+        file: pathlib.Path,
+        unit: u.Unit,
+        transformation: None | na.transformations.AbstractTransformation,
+    ):
+        a.to_dxf(
+            file=file,
+            unit=unit,
+            transformation=transformation,
+        )
+
+        assert file.is_file()
+
+        assert file.stat().st_size > 0
+
+        file.unlink()

@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika
+from ezdxf.addons.r12writer import R12FastStreamWriter
 
 __all__ = [
     "AbstractAperture",
@@ -28,6 +29,7 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractAperture(
+    optika.mixins.DxfWritable,
     optika.mixins.Printable,
     optika.mixins.Plottable,
     optika.mixins.Transformable,
@@ -165,6 +167,64 @@ class AbstractAperture(
             components=components,
             **kwargs,
         )
+
+    def _write_to_dxf(
+        self,
+        dxf: R12FastStreamWriter,
+        unit: u.Unit,
+        transformation: None | na.transformations.AbstractTransformation = None,
+        sag: None | optika.sags.AbstractSag = None,
+        **kwargs,
+    ) -> None:
+
+        if self.transformation is not None:
+            if transformation is not None:
+                transformation = transformation @ self.transformation
+            else:
+                transformation = self.transformation
+
+        super()._write_to_dxf(
+            dxf=dxf,
+            unit=unit,
+            transformation=transformation,
+        )
+
+        wire = self.wire()
+
+        wire = wire.broadcast_to(wire.shape)
+
+        unit_wire = na.unit_normalized(wire)
+        if not unit_wire.is_equivalent(unit):
+            return
+
+        if sag is not None:
+            wire.z = sag(wire)
+
+        if transformation is not None:
+            wire = transformation(wire)
+
+        wire = na.nominal(wire.broadcasted)
+
+        x = na.as_named_array(wire.x)
+        y = na.as_named_array(wire.y)
+        z = na.as_named_array(wire.z)
+
+        for index in wire.ndindex(axis_ignored="wire"):
+
+            vertices = np.stack(
+                arrays=[
+                    x[index].ndarray,
+                    y[index].ndarray,
+                    z[index].ndarray,
+                ],
+                axis=~0
+            )
+
+            vertices = vertices.to_value(unit)
+
+            dxf.add_polyline(
+                vertices=vertices,
+            )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
