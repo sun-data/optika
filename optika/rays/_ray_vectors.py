@@ -189,16 +189,18 @@ class AbstractRayVectorArray(
 
         mask = self.unvignetted[{axis: ~0}]
 
-        position = self.position.broadcasted
+        position = self.position
 
         position = position[mask]
 
         if transformation is not None:
             position = transformation(position)
 
-        x = position.x
-        y = position.y
-        z = position.z
+        position = na.nominal(position.broadcasted)
+
+        x = na.as_named_array(position.x)
+        y = na.as_named_array(position.y)
+        z = na.as_named_array(position.z)
 
         for index in x.ndindex(axis_ignored=axis):
 

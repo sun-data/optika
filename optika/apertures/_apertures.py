@@ -177,12 +177,6 @@ class AbstractAperture(
         **kwargs,
     ) -> None:
 
-        if self.transformation is not None:
-            if transformation is not None:
-                transformation = transformation @ self.transformation
-            else:
-                transformation = self.transformation
-
         super()._write_to_dxf(
             dxf=dxf,
             unit=unit,
