@@ -20,6 +20,7 @@ surfaces = [
         sag=optika.sags.SphericalSag(radius=1000 * u.mm),
         material=optika.materials.Mirror(),
         aperture=optika.apertures.RectangularAperture(half_width=10 * u.mm),
+        aperture_mechanical=optika.apertures.RectangularAperture(11 * u.mm),
         transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
         rulings=optika.rulings.Rulings(spacing=1 * u.um, diffraction_order=1),
     ),
@@ -27,6 +28,7 @@ surfaces = [
 
 
 class AbstractTestAbstractSurface(
+    test_mixins.AbstractTestDxfWritable,
     test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,

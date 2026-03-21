@@ -5,6 +5,8 @@ import dataclasses
 import numpy as np
 import astropy.units as u
 import named_arrays as na
+from ezdxf.addons.r12writer import R12FastStreamWriter
+from .. import mixins
 
 __all__ = [
     "AbstractRayVectorArray",
@@ -22,6 +24,7 @@ UnvignettedT = TypeVar("UnvignettedT", bound=na.ScalarLike)
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRayVectorArray(
+    mixins.DxfWritable,
     na.AbstractSpectralPositionalVectorArray,
 ):
     """An interface describing an ensemble of lights rays."""
@@ -165,6 +168,56 @@ class AbstractRayVectorArray(
         if function is np.add:
             if method == "__call__":
                 return self.__array_add__(*inputs, **kwargs)
+
+    def _write_to_dxf(
+        self,
+        dxf: R12FastStreamWriter,
+        unit: u.Unit,
+        transformation: None | na.transformations.AbstractTransformation = None,
+        axis: None | str = None,
+        **kwargs,
+    ) -> None:
+
+        if axis is None:  # pragma: nocover
+            raise ValueError("`axis` cannot be None.")
+
+        super()._write_to_dxf(
+            dxf=dxf,
+            unit=unit,
+            transformation=transformation,
+        )
+
+        mask = self.unvignetted[{axis: ~0}]
+
+        position = self.position
+
+        position = position[mask]
+
+        if transformation is not None:
+            position = transformation(position)
+
+        position = na.nominal(position.broadcasted)
+
+        x = na.as_named_array(position.x)
+        y = na.as_named_array(position.y)
+        z = na.as_named_array(position.z)
+
+        for index in x.ndindex(axis_ignored=axis):
+
+            vertices = np.stack(
+                arrays=[
+                    x[index].ndarray,
+                    y[index].ndarray,
+                    z[index].ndarray,
+                ],
+                axis=~0,
+            )
+
+            vertices = vertices.to_value(unit)
+
+            dxf.add_polyline(
+                vertices=vertices,
+            )
 
 
 @dataclasses.dataclass(eq=False, repr=False)

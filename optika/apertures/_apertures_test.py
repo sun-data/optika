@@ -26,6 +26,7 @@ transform_parameterization = [
 
 
 class AbstractTestAbstractAperture(
+    test_mixins.AbstractTestDxfWritable,
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestTransformable,
