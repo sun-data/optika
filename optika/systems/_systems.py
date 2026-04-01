@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Sequence, Callable, Any, ClassVar
+from typing import Any
 import abc
 import dataclasses
 import named_arrays as na
