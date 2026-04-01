@@ -20,6 +20,7 @@ __all__ = [
     "SequentialSystem",
 ]
 
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSequentialSystem(
     AbstractSystem,
