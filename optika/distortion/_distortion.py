@@ -259,10 +259,7 @@ class PolynomialDistortionModel(
         residual = (self.coordinates_sensor - self.fit.predictions).length
         unit = na.unit(residual)
 
-        if axis_wavelength in na.shape(wavelength):
-            ncols = wavelength.shape[axis_wavelength]
-        else:
-            ncols = 1
+        ncols = na.shape(wavelength).get(axis_wavelength, 1)
 
         with astropy.visualization.quantity_support():
             fig, ax = na.plt.subplots(
