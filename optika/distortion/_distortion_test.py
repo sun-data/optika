@@ -100,8 +100,19 @@ class TestPolynomialDistortionModel(
         assert isinstance(a.fit_inverse, na.PolynomialFitFunctionArray)
         assert a.fit_inverse.degree == a.degree
 
-    def test_plot_residual(self, a: optika.distortion.PolynomialDistortionModel):
-        fig, ax = a.plot_residual()
+    @pytest.mark.parametrize(
+        argnames="kwargs",
+        argvalues=[
+            dict(),
+            dict(figsize=(8, 4), cmap="viridis", vmin=0 * u.um, vmax=5 * u.um),
+        ],
+    )
+    def test_plot_residual(
+        self,
+        a: optika.distortion.PolynomialDistortionModel,
+        kwargs: dict,
+    ):
+        fig, ax = a.plot_residual(**kwargs)
         assert isinstance(fig, matplotlib.figure.Figure)
         assert isinstance(ax, na.ScalarArray)
         assert a.axis_wavelength in na.shape(ax)

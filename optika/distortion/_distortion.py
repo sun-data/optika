@@ -234,7 +234,10 @@ class PolynomialDistortionModel(
 
     def plot_residual(
         self,
+        figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
+        vmin: None | na.ArrayLike = None,
+        vmax: None | na.ArrayLike = None,
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
@@ -247,8 +250,18 @@ class PolynomialDistortionModel(
 
         Parameters
         ----------
+        figsize
+            The size of the returned figure in inches.
+            If :obj:`None`, the size is chosen automatically from the number
+            of wavelengths and the aspect ratio of the field of view.
         cmap
             The colormap used to map the residual magnitude to colors.
+        vmin
+            The residual value mapped to the lowest color.
+            If :obj:`None`, defaults to zero.
+        vmax
+            The residual value mapped to the highest color.
+            If :obj:`None`, defaults to the maximum residual.
         kwargs
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
@@ -261,7 +274,22 @@ class PolynomialDistortionModel(
         residual = (self.coordinates_sensor - self.fit.predictions).length
         unit = na.unit(residual)
 
+        if vmin is None:
+            vmin = 0 * unit
+        if vmax is None:
+            vmax = residual.max()
+
         ncols = na.shape(wavelength).get(axis_wavelength, 1)
+
+        if figsize is None:
+            # shape each subplot to the field-of-view aspect ratio, and widen
+            # the figure to fit one subplot per wavelength
+            height_subplot = 3
+            aspect = (field.x.ptp() / field.y.ptp()).ndarray.value
+            figsize = (
+                ncols * height_subplot * aspect + 1.5,
+                height_subplot + 1,
+            )
 
         with astropy.visualization.quantity_support():
             fig, ax = na.plt.subplots(
@@ -270,12 +298,16 @@ class PolynomialDistortionModel(
                 sharex=True,
                 sharey=True,
                 squeeze=False,
+                figsize=figsize,
                 constrained_layout=True,
             )
 
             colorizer = plt.Colorizer(
                 cmap=cmap,
-                norm=plt.Normalize(vmin=0, vmax=residual.ndarray.max().value),
+                norm=plt.Normalize(
+                    vmin=na.as_named_array(vmin).ndarray.to_value(unit),
+                    vmax=na.as_named_array(vmax).ndarray.to_value(unit),
+                ),
             )
 
             na.plt.pcolormesh(
