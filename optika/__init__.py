@@ -17,6 +17,7 @@ from . import apertures
 from . import rulings
 from . import surfaces
 from . import sensors
+from . import distortion
 from . import systems
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     "rulings",
     "surfaces",
     "sensors",
+    "distortion",
     "systems",
 ]
