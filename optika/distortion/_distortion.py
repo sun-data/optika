@@ -150,7 +150,7 @@ class PolynomialDistortionModel(
         )
 
         fig, ax = model.plot_residual()
-        na.plt.set_aspect("equal", ax=ax)
+        na.plt.set_aspect("equal", ax=ax);
     """
 
     coordinates_scene: optika.vectors.SceneVectorArray = dataclasses.MISSING
