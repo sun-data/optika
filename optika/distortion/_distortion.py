@@ -1,0 +1,227 @@
+import abc
+import dataclasses
+import functools
+import named_arrays as na
+import optika
+
+__all__ = [
+    "AbstractDistortionModel",
+    "AbstractInterpolatedDistortionModel",
+    "PolynomialDistortionModel",
+]
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractDistortionModel(
+    optika.mixins.Printable,
+):
+    """
+    An interface describing an arbitrary distortion model,
+    which maps scene coordinates to sensor coordinates (and vice versa).
+
+    A distortion model carries the wavelength along with the position, since
+    the mapping from a point in the scene to a point on the sensor generally
+    depends on wavelength (for example, the dispersion of a spectrograph).
+    As a result :meth:`distort` and :meth:`undistort` are inverses of one
+    another only up to the accuracy of the model.
+    """
+
+    @abc.abstractmethod
+    def distort(
+        self,
+        coordinates: optika.vectors.SceneVectorArray,
+    ) -> na.SpectralPositionalVectorArray:
+        """
+        Convert scene coordinates to sensor coordinates.
+
+        Parameters
+        ----------
+        coordinates
+            The wavelength and field position of each point in the scene.
+        """
+
+    @abc.abstractmethod
+    def undistort(
+        self,
+        coordinates: na.SpectralPositionalVectorArray,
+    ) -> optika.vectors.SceneVectorArray:
+        """
+        Convert sensor coordinates to scene coordinates.
+
+        Parameters
+        ----------
+        coordinates
+            The wavelength and sensor position of each point.
+        """
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractInterpolatedDistortionModel(
+    AbstractDistortionModel,
+):
+    """
+    A distortion model defined by interpolating between known scene/sensor
+    coordinates.
+
+    This class has two main members, :attr:`coordinates_scene` and
+    :attr:`coordinates_sensor`, the calibration points between which subclasses
+    interpolate.
+    """
+
+    @property
+    @abc.abstractmethod
+    def coordinates_scene(self) -> optika.vectors.SceneVectorArray:
+        """
+        The wavelength and field position of each calibration point in the scene.
+        """
+
+    @property
+    @abc.abstractmethod
+    def coordinates_sensor(self) -> na.Cartesian2dVectorArray:
+        """
+        The position of each calibration point mapped onto the sensor.
+        """
+
+    @property
+    @abc.abstractmethod
+    def axis_wavelength(self) -> str:
+        """The logical axis corresponding to changing wavelength."""
+
+    @property
+    @abc.abstractmethod
+    def axis_field(self) -> tuple[str, str]:
+        """The logical axes corresponding to changing position in the scene."""
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class PolynomialDistortionModel(
+    AbstractInterpolatedDistortionModel,
+):
+    """
+    A distortion model which fits a polynomial to known scene/sensor coordinates.
+
+    The forward model (:meth:`distort`) is a polynomial fit mapping scene field
+    position to sensor position as a function of wavelength.
+    The inverse model (:meth:`undistort`) is a *separate* polynomial fit in the
+    opposite direction, so the round trip is exact only to the accuracy of the
+    two fits.
+
+    Examples
+    --------
+
+    Build a distortion model from a grid of scene/sensor calibration points and
+    confirm that the round trip recovers the original scene coordinates.
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define a grid of known field positions and wavelengths
+        scene = optika.vectors.SceneVectorArray(
+            wavelength=na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
+            field=na.Cartesian2dVectorLinearSpace(
+                start=-1 * u.deg,
+                stop=+1 * u.deg,
+                axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                num=5,
+            ),
+        )
+
+        # Map them onto the sensor with a simple linear distortion
+        sensor = na.Cartesian2dVectorArray(
+            x=scene.field.x * (10 * u.mm / u.deg),
+            y=scene.field.y * (10 * u.mm / u.deg),
+        )
+
+        model = optika.distortion.PolynomialDistortionModel(
+            coordinates_scene=scene,
+            coordinates_sensor=sensor,
+            axis_wavelength="wavelength",
+            axis_field=("field_x", "field_y"),
+            degree=1,
+        )
+
+        scene_roundtrip = model.undistort(model.distort(scene))
+    """
+
+    coordinates_scene: optika.vectors.SceneVectorArray = dataclasses.MISSING
+    """The wavelength and field position of each calibration point in the scene."""
+
+    coordinates_sensor: na.Cartesian2dVectorArray = dataclasses.MISSING
+    """The position of each calibration point mapped onto the sensor."""
+
+    axis_wavelength: str = dataclasses.MISSING
+    """The logical axis corresponding to changing wavelength."""
+
+    axis_field: tuple[str, str] = dataclasses.MISSING
+    """The logical axes corresponding to changing position in the scene."""
+
+    degree: int = 1
+    """The degree of the polynomial used to model the distortion."""
+
+    where: bool | na.AbstractScalar = True
+    """A boolean mask selecting which calibration points to use for fitting."""
+
+    @property
+    def _axis_scene(self) -> tuple[str, ...]:
+        """The logical axes over which the calibration points are distributed."""
+        return (self.axis_wavelength, *self.axis_field)
+
+    @functools.cached_property
+    def fit(self) -> na.PolynomialFitFunctionArray:
+        """The polynomial fit mapping scene field position to sensor position."""
+        scene = self.coordinates_scene
+        inputs = na.SpectralPositionalVectorArray(
+            wavelength=scene.wavelength,
+            position=scene.field,
+        )
+        return na.PolynomialFitFunctionArray(
+            inputs=inputs,
+            outputs=self.coordinates_sensor,
+            center=inputs.mean(self._axis_scene),
+            degree=self.degree,
+            where_polynomial=self.where,
+        )
+
+    @functools.cached_property
+    def fit_inverse(self) -> na.PolynomialFitFunctionArray:
+        """The polynomial fit mapping sensor position back to scene field position."""
+        scene = self.coordinates_scene
+        inputs = na.SpectralPositionalVectorArray(
+            wavelength=scene.wavelength,
+            position=self.coordinates_sensor,
+        )
+        return na.PolynomialFitFunctionArray(
+            inputs=inputs,
+            outputs=scene.field,
+            center=inputs.mean(self._axis_scene),
+            degree=self.degree,
+            where_polynomial=self.where,
+        )
+
+    def distort(
+        self,
+        coordinates: optika.vectors.SceneVectorArray,
+    ) -> na.SpectralPositionalVectorArray:
+        inputs = na.SpectralPositionalVectorArray(
+            wavelength=coordinates.wavelength,
+            position=coordinates.field,
+        )
+        position = self.fit(inputs).outputs
+        return na.SpectralPositionalVectorArray(
+            wavelength=coordinates.wavelength,
+            position=position,
+        )
+
+    def undistort(
+        self,
+        coordinates: na.SpectralPositionalVectorArray,
+    ) -> optika.vectors.SceneVectorArray:
+        field = self.fit_inverse(coordinates).outputs
+        return optika.vectors.SceneVectorArray(
+            wavelength=coordinates.wavelength,
+            field=field,
+        )
