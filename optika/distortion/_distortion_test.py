@@ -1,6 +1,8 @@
 import pytest
 import numpy as np
 import astropy.units as u
+import matplotlib.figure
+import matplotlib.pyplot as plt
 import named_arrays as na
 import optika
 from .._tests import test_mixins
@@ -97,3 +99,10 @@ class TestPolynomialDistortionModel(
     def test_fit_inverse(self, a: optika.distortion.PolynomialDistortionModel):
         assert isinstance(a.fit_inverse, na.PolynomialFitFunctionArray)
         assert a.fit_inverse.degree == a.degree
+
+    def test_plot_residual(self, a: optika.distortion.PolynomialDistortionModel):
+        fig, ax = a.plot_residual()
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(ax, na.ScalarArray)
+        assert a.axis_wavelength in na.shape(ax)
+        plt.close(fig)

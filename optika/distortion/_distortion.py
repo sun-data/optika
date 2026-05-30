@@ -1,6 +1,12 @@
 import abc
 import dataclasses
 import functools
+import matplotlib.axes
+import matplotlib.cm
+import matplotlib.colors
+import matplotlib.figure
+import matplotlib.pyplot as plt
+import astropy.visualization
 import named_arrays as na
 import optika
 
@@ -109,8 +115,8 @@ class PolynomialDistortionModel(
     Examples
     --------
 
-    Build a distortion model from a grid of scene/sensor calibration points and
-    confirm that the round trip recovers the original scene coordinates.
+    Plot the fit residual of a distortion model with a deliberately
+    underfit (linear) polynomial.
 
     .. jupyter-execute::
 
@@ -119,20 +125,18 @@ class PolynomialDistortionModel(
         import named_arrays as na
         import optika
 
-        # Define a grid of known field positions and wavelengths
         scene = optika.vectors.SceneVectorArray(
             wavelength=na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
             field=na.Cartesian2dVectorLinearSpace(
                 start=-1 * u.deg,
                 stop=+1 * u.deg,
                 axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-                num=5,
+                num=11,
             ),
         )
-
-        # Map them onto the sensor with a simple linear distortion
         sensor = na.Cartesian2dVectorArray(
-            x=scene.field.x * (10 * u.mm / u.deg),
+            x=scene.field.x * (10 * u.mm / u.deg)
+            + scene.field.x**2 * (1 * u.mm / u.deg**2),
             y=scene.field.y * (10 * u.mm / u.deg),
         )
 
@@ -144,7 +148,7 @@ class PolynomialDistortionModel(
             degree=1,
         )
 
-        scene_roundtrip = model.undistort(model.distort(scene))
+        fig, ax = model.plot_residual()
     """
 
     coordinates_scene: optika.vectors.SceneVectorArray = dataclasses.MISSING
@@ -225,3 +229,75 @@ class PolynomialDistortionModel(
             wavelength=coordinates.wavelength,
             field=field,
         )
+
+    def plot_residual(
+        self,
+        cmap: None | str | matplotlib.colors.Colormap = None,
+        **kwargs,
+    ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
+        """
+        Plot the residual of the forward :attr:`fit` as a function of field
+        angle, with a separate subplot for each wavelength.
+
+        The residual is the magnitude of the difference between the calibration
+        sensor positions, :attr:`coordinates_sensor`, and the positions
+        predicted by the forward polynomial fit.
+
+        Parameters
+        ----------
+        cmap
+            The colormap used to map the residual magnitude to colors.
+        kwargs
+            Additional keyword arguments passed to
+            :func:`named_arrays.plt.pcolormesh`.
+        """
+        scene = self.coordinates_scene
+        field = scene.field
+        wavelength = na.as_named_array(scene.wavelength)
+        axis_wavelength = self.axis_wavelength
+
+        residual = (self.coordinates_sensor - self.fit.predictions).length
+        unit = na.unit(residual)
+
+        if axis_wavelength in na.shape(wavelength):
+            ncols = wavelength.shape[axis_wavelength]
+        else:
+            ncols = 1
+
+        with astropy.visualization.quantity_support():
+            fig, ax = na.plt.subplots(
+                axis_cols=axis_wavelength,
+                ncols=ncols,
+                sharex=True,
+                sharey=True,
+                squeeze=False,
+                constrained_layout=True,
+            )
+
+            colorizer = plt.Colorizer(
+                cmap=cmap,
+                norm=plt.Normalize(vmin=0, vmax=residual.ndarray.max().value),
+            )
+
+            na.plt.pcolormesh(
+                field,
+                C=residual,
+                ax=ax,
+                colorizer=colorizer,
+                **kwargs,
+            )
+
+            na.plt.set_xlabel(f"field $x$ ({na.unit(field.x):latex_inline})", ax=ax)
+            na.plt.set_ylabel(
+                f"field $y$ ({na.unit(field.y):latex_inline})",
+                ax=ax[{axis_wavelength: 0}],
+            )
+            na.plt.set_title(wavelength.to_string_array(), ax=ax)
+
+            plt.colorbar(
+                mappable=matplotlib.cm.ScalarMappable(colorizer=colorizer),
+                ax=ax.ndarray,
+                label=f"residual ({unit:latex_inline})",
+            )
+
+        return fig, ax
