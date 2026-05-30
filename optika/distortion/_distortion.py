@@ -131,13 +131,14 @@ class PolynomialDistortionModel(
                 start=-1 * u.deg,
                 stop=+1 * u.deg,
                 axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-                num=11,
+                num=13,
             ),
         )
         sensor = na.Cartesian2dVectorArray(
             x=scene.field.x * (10 * u.mm / u.deg)
             + scene.field.x**2 * (1 * u.mm / u.deg**2),
-            y=scene.field.y * (10 * u.mm / u.deg),
+            y=scene.field.y * (10 * u.mm / u.deg)
+            + scene.field.y**2 * (1 * u.mm / u.deg**2),
         )
 
         model = optika.distortion.PolynomialDistortionModel(
@@ -149,6 +150,7 @@ class PolynomialDistortionModel(
         )
 
         fig, ax = model.plot_residual()
+        na.plt.set_aspect("equal", ax=ax)
     """
 
     coordinates_scene: optika.vectors.SceneVectorArray = dataclasses.MISSING
