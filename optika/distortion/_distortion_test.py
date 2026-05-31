@@ -44,6 +44,40 @@ class AbstractTestAbstractDistortionModel(
         assert np.all(error < 1e-9 * u.deg)
 
 
+class AbstractTestAbstractLinearDistortionModel(
+    AbstractTestAbstractDistortionModel,
+):
+    def test_matrix(self, a: optika.distortion.AbstractLinearDistortionModel):
+        assert isinstance(a.matrix, na.AbstractSpectralPositionalMatrixArray)
+
+    def test_center(self, a: optika.distortion.AbstractLinearDistortionModel):
+        assert isinstance(a.center, na.AbstractSpectralPositionalVectorArray)
+
+    def test_intercept(self, a: optika.distortion.AbstractLinearDistortionModel):
+        assert isinstance(a.intercept, na.AbstractSpectralPositionalVectorArray)
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.distortion.SimpleDistortionModel(
+            plate_scale=1 * u.arcsec / u.pix,
+            dispersion=0.1 * u.nm / u.pix,
+            angle=angle,
+            reference=na.SpectralPositionalVectorArray(
+                wavelength=550 * u.nm,
+                position=na.Cartesian2dVectorArray(0, 0) * u.pix,
+            ),
+        )
+        for angle in [0 * u.deg, 15 * u.deg]
+    ],
+)
+class TestSimpleDistortionModel(
+    AbstractTestAbstractLinearDistortionModel,
+):
+    pass
+
+
 class AbstractTestAbstractInterpolatedDistortionModel(
     AbstractTestAbstractDistortionModel,
 ):
