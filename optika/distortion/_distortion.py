@@ -163,14 +163,17 @@ class SimpleDistortionModel(
 
         fig, ax = plt.subplots(constrained_layout=True)
         ax.set_aspect("equal")
-        na.plt.scatter(
-            sensor.position.x,
-            sensor.position.y,
-            c=sensor.wavelength.to_value(u.nm),
-            ax=ax,
-        )
+        for wavelength in scene.wavelength.ndarray:
+            na.plt.scatter(
+                sensor.position.x,
+                sensor.position.y,
+                where=scene.wavelength == wavelength,
+                label=f"{wavelength}",
+                ax=ax,
+            )
         ax.set_xlabel(f"detector $x$ ({na.unit(sensor.position.x):latex_inline})")
-        ax.set_ylabel(f"detector $y$ ({na.unit(sensor.position.y):latex_inline})");
+        ax.set_ylabel(f"detector $y$ ({na.unit(sensor.position.y):latex_inline})")
+        ax.legend();
     """
 
     plate_scale: u.Quantity | na.AbstractScalar = dataclasses.MISSING
