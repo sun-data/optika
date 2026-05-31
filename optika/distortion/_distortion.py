@@ -121,17 +121,20 @@ class SimpleDistortionModel(
     an isotropic plate scale, and a linear spectral dispersion along the
     rotated :math:`x` axis.
 
-    This captures the distortion of an idealized spectrograph: the field at
-    :attr:`wavelength_ref` maps to :attr:`position_ref` on the sensor, and
-    other wavelengths are displaced along the dispersion direction.
+    This captures the distortion of an idealized spectrograph: the field
+    center at the :attr:`reference` wavelength maps to the :attr:`reference`
+    position on the sensor, and other wavelengths are displaced along the
+    dispersion direction.
 
     Examples
     --------
 
-    Distort a grid of scene coordinates and confirm the inverse recovers them.
+    Distort a grid of scene coordinates and plot the result on the sensor,
+    colored by wavelength.
 
     .. jupyter-execute::
 
+        import matplotlib.pyplot as plt
         import astropy.units as u
         import named_arrays as na
         import optika
@@ -140,8 +143,10 @@ class SimpleDistortionModel(
             plate_scale=1 * u.arcsec / u.pix,
             dispersion=0.1 * u.nm / u.pix,
             angle=15 * u.deg,
-            wavelength_ref=550 * u.nm,
-            position_ref=na.Cartesian2dVectorArray(0, 0) * u.pix,
+            reference=na.SpectralPositionalVectorArray(
+                wavelength=550 * u.nm,
+                position=na.Cartesian2dVectorArray(0, 0) * u.pix,
+            ),
         )
 
         scene = na.SpectralPositionalVectorArray(
@@ -155,7 +160,15 @@ class SimpleDistortionModel(
         )
 
         sensor = model.distort(scene)
-        scene_roundtrip = model.undistort(sensor)
+
+        fig, ax = plt.subplots(constrained_layout=True)
+        ax.set_aspect("equal")
+        na.plt.scatter(
+            sensor.position.x,
+            sensor.position.y,
+            c=sensor.wavelength,
+            ax=ax,
+        );
     """
 
     plate_scale: u.Quantity | na.AbstractScalar = dataclasses.MISSING
@@ -167,13 +180,9 @@ class SimpleDistortionModel(
     angle: u.Quantity | na.AbstractScalar = dataclasses.MISSING
     """The angle of the dispersion direction with respect to the scene."""
 
-    wavelength_ref: u.Quantity | na.AbstractScalar = dataclasses.MISSING
-    """The reference wavelength which maps the field center to :attr:`position_ref`."""
-
-    position_ref: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray = (
-        dataclasses.MISSING
-    )
-    """The sensor position of the field center at :attr:`wavelength_ref`."""
+    reference: na.AbstractSpectralPositionalVectorArray = dataclasses.MISSING
+    """The reference wavelength and the sensor position that the field center
+    maps to at that wavelength."""
 
     @functools.cached_property
     def matrix(self) -> na.SpectralPositionalMatrixArray:
@@ -181,7 +190,7 @@ class SimpleDistortionModel(
         sin = np.sin(self.angle)
         plate_scale = self.plate_scale
         dispersion = self.dispersion
-        unit_wavelength = na.unit(self.wavelength_ref)
+        unit_wavelength = na.unit(self.reference.wavelength)
         return na.SpectralPositionalMatrixArray(
             wavelength=na.SpectralPositionalVectorArray(
                 wavelength=1,
@@ -211,16 +220,13 @@ class SimpleDistortionModel(
     @property
     def center(self) -> na.SpectralPositionalVectorArray:
         return na.SpectralPositionalVectorArray(
-            wavelength=self.wavelength_ref,
+            wavelength=self.reference.wavelength,
             position=na.Cartesian2dVectorArray(0, 0) * u.arcsec,
         )
 
     @property
-    def intercept(self) -> na.SpectralPositionalVectorArray:
-        return na.SpectralPositionalVectorArray(
-            wavelength=self.wavelength_ref,
-            position=self.position_ref,
-        )
+    def intercept(self) -> na.AbstractSpectralPositionalVectorArray:
+        return self.reference
 
 
 @dataclasses.dataclass(eq=False, repr=False)

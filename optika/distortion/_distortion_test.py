@@ -64,8 +64,10 @@ class AbstractTestAbstractLinearDistortionModel(
             plate_scale=1 * u.arcsec / u.pix,
             dispersion=0.1 * u.nm / u.pix,
             angle=angle,
-            wavelength_ref=550 * u.nm,
-            position_ref=na.Cartesian2dVectorArray(0, 0) * u.pix,
+            reference=na.SpectralPositionalVectorArray(
+                wavelength=550 * u.nm,
+                position=na.Cartesian2dVectorArray(0, 0) * u.pix,
+            ),
         )
         for angle in [0 * u.deg, 15 * u.deg]
     ],
