@@ -97,6 +97,24 @@ class TestPolynomialVignettingModel(
             dict(figsize=(8, 4), cmap="viridis", vmin=0, vmax=0.01),
         ],
     )
+    def test_plot(
+        self,
+        a: optika.vignetting.PolynomialVignettingModel,
+        kwargs: dict,
+    ):
+        fig, ax = a.plot(**kwargs)
+        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(ax, na.ScalarArray)
+        assert a.axis_wavelength in na.shape(ax)
+        plt.close(fig)
+
+    @pytest.mark.parametrize(
+        argnames="kwargs",
+        argvalues=[
+            dict(),
+            dict(figsize=(8, 4), cmap="viridis", vmin=0, vmax=0.01),
+        ],
+    )
     def test_plot_residual(
         self,
         a: optika.vignetting.PolynomialVignettingModel,

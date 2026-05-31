@@ -106,8 +106,9 @@ class PolynomialVignettingModel(
     Examples
     --------
 
-    Plot the fit residual of a vignetting model with a radial transmission
-    falloff and a deliberately underfit (linear) polynomial.
+    Build a vignetting model with a radial transmission falloff fit by a
+    deliberately underfit (linear) polynomial, then plot the transmission and
+    the fit residual.
 
     .. jupyter-execute::
 
@@ -134,6 +135,9 @@ class PolynomialVignettingModel(
             axis_field=("field_x", "field_y"),
             degree=1,
         )
+
+        fig, ax = model.plot()
+        na.plt.set_aspect("equal", ax=ax);
 
         fig, ax = model.plot_residual()
         na.plt.set_aspect("equal", ax=ax);
@@ -214,17 +218,79 @@ class PolynomialVignettingModel(
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
         """
+        return self._plot(
+            abs(self.transmission - self.fit.predictions),
+            label="transmission residual",
+            figsize=figsize,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            **kwargs,
+        )
+
+    def plot(
+        self,
+        figsize: None | tuple[float, float] = None,
+        cmap: None | str | matplotlib.colors.Colormap = None,
+        vmin: None | na.ArrayLike = None,
+        vmax: None | na.ArrayLike = None,
+        **kwargs,
+    ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
+        """
+        Plot the calibration :attr:`transmission` as a function of field angle,
+        with a separate subplot for each wavelength.
+
+        Parameters
+        ----------
+        figsize
+            The size of the returned figure in inches.
+            If :obj:`None`, the size is chosen automatically from the number
+            of wavelengths and the aspect ratio of the field of view.
+        cmap
+            The colormap used to map the transmission to colors.
+        vmin
+            The transmission value mapped to the lowest color.
+            If :obj:`None`, defaults to zero.
+        vmax
+            The transmission value mapped to the highest color.
+            If :obj:`None`, defaults to the maximum transmission.
+        kwargs
+            Additional keyword arguments passed to
+            :func:`named_arrays.plt.pcolormesh`.
+        """
+        return self._plot(
+            self.transmission,
+            label="transmission",
+            figsize=figsize,
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+            **kwargs,
+        )
+
+    def _plot(
+        self,
+        values: na.AbstractScalar,
+        label: str,
+        figsize: None | tuple[float, float] = None,
+        cmap: None | str | matplotlib.colors.Colormap = None,
+        vmin: None | na.ArrayLike = None,
+        vmax: None | na.ArrayLike = None,
+        **kwargs,
+    ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
+        """
+        Plot a scalar quantity as a function of field angle, with a separate
+        subplot for each wavelength.
+        """
         scene = self.coordinates_scene
         field = scene.field
         wavelength = na.as_named_array(scene.wavelength)
         axis_wavelength = self.axis_wavelength
 
-        residual = abs(self.transmission - self.fit.predictions)
-
         if vmin is None:
             vmin = 0
         if vmax is None:
-            vmax = residual.max()
+            vmax = values.max()
 
         ncols = na.shape(wavelength).get(axis_wavelength, 1)
 
@@ -259,7 +325,7 @@ class PolynomialVignettingModel(
 
             na.plt.pcolormesh(
                 field,
-                C=residual,
+                C=values,
                 ax=ax,
                 colorizer=colorizer,
                 **kwargs,
@@ -275,7 +341,7 @@ class PolynomialVignettingModel(
             plt.colorbar(
                 mappable=matplotlib.cm.ScalarMappable(colorizer=colorizer),
                 ax=ax.ndarray,
-                label="transmission residual",
+                label=label,
             )
 
         return fig, ax
