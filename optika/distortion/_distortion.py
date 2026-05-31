@@ -141,7 +141,7 @@ class SimpleDistortionModel(
 
         model = optika.distortion.SimpleDistortionModel(
             plate_scale=1 * u.arcsec / u.pix,
-            dispersion=0.1 * u.nm / u.pix,
+            dispersion=2 * u.nm / u.pix,
             angle=15 * u.deg,
             reference=na.SpectralPositionalVectorArray(
                 wavelength=550 * u.nm,
@@ -168,7 +168,9 @@ class SimpleDistortionModel(
             sensor.position.y,
             c=sensor.wavelength.to_value(u.nm),
             ax=ax,
-        );
+        )
+        ax.set_xlabel(f"detector $x$ ({na.unit(sensor.position.x):latex_inline})")
+        ax.set_ylabel(f"detector $y$ ({na.unit(sensor.position.y):latex_inline})");
     """
 
     plate_scale: u.Quantity | na.AbstractScalar = dataclasses.MISSING
