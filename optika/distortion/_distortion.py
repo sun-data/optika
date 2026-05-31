@@ -1,17 +1,21 @@
 import abc
 import dataclasses
 import functools
+import numpy as np
 import matplotlib.axes
 import matplotlib.cm
 import matplotlib.colors
 import matplotlib.figure
 import matplotlib.pyplot as plt
+import astropy.units as u
 import astropy.visualization
 import named_arrays as na
 import optika
 
 __all__ = [
     "AbstractDistortionModel",
+    "AbstractLinearDistortionModel",
+    "SimpleDistortionModel",
     "AbstractInterpolatedDistortionModel",
     "PolynomialDistortionModel",
 ]
@@ -59,6 +63,164 @@ class AbstractDistortionModel(
         coordinates
             The wavelength and sensor position of each point.
         """
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractLinearDistortionModel(
+    AbstractDistortionModel,
+):
+    r"""
+    A distortion model which is an affine transformation of the scene
+    coordinates,
+
+    .. math::
+
+        \text{distort}(\vec{c}) = \mathbf{M} \, (\vec{c} - \vec{c}_0) + \vec{b},
+
+    where :math:`\mathbf{M}` is :attr:`matrix`, :math:`\vec{c}_0` is
+    :attr:`center`, and :math:`\vec{b}` is :attr:`intercept`.
+    Since the transformation is linear, :meth:`undistort` is its *exact*
+    inverse (unlike a polynomial fit).
+    """
+
+    @property
+    @abc.abstractmethod
+    def matrix(self) -> na.AbstractSpectralPositionalMatrixArray:
+        """The linear part of the affine transformation."""
+
+    @property
+    @abc.abstractmethod
+    def center(self) -> na.AbstractSpectralPositionalVectorArray:
+        """The reference point subtracted from the coordinates before
+        applying :attr:`matrix`."""
+
+    @property
+    @abc.abstractmethod
+    def intercept(self) -> na.AbstractSpectralPositionalVectorArray:
+        """The constant offset added after applying :attr:`matrix`."""
+
+    def distort(
+        self,
+        coordinates: na.AbstractSpectralPositionalVectorArray,
+    ) -> na.SpectralPositionalVectorArray:
+        return self.matrix @ (coordinates - self.center) + self.intercept
+
+    def undistort(
+        self,
+        coordinates: na.AbstractSpectralPositionalVectorArray,
+    ) -> na.SpectralPositionalVectorArray:
+        return self.matrix.inverse @ (coordinates - self.intercept) + self.center
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class SimpleDistortionModel(
+    AbstractLinearDistortionModel,
+):
+    r"""
+    A simple analytic distortion model consisting of a rotation of the field,
+    an isotropic plate scale, and a linear spectral dispersion along the
+    rotated :math:`x` axis.
+
+    This captures the distortion of an idealized spectrograph: the field at
+    :attr:`wavelength_ref` maps to :attr:`position_ref` on the sensor, and
+    other wavelengths are displaced along the dispersion direction.
+
+    Examples
+    --------
+
+    Distort a grid of scene coordinates and confirm the inverse recovers them.
+
+    .. jupyter-execute::
+
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        model = optika.distortion.SimpleDistortionModel(
+            plate_scale=1 * u.arcsec / u.pix,
+            dispersion=0.1 * u.nm / u.pix,
+            angle=15 * u.deg,
+            wavelength_ref=550 * u.nm,
+            position_ref=na.Cartesian2dVectorArray(0, 0) * u.pix,
+        )
+
+        scene = na.SpectralPositionalVectorArray(
+            wavelength=na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
+            position=na.Cartesian2dVectorLinearSpace(
+                start=-10 * u.arcsec,
+                stop=+10 * u.arcsec,
+                axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                num=5,
+            ),
+        )
+
+        sensor = model.distort(scene)
+        scene_roundtrip = model.undistort(sensor)
+    """
+
+    plate_scale: u.Quantity | na.AbstractScalar = dataclasses.MISSING
+    """The spatial plate scale, in units such as :math:`\\text{arcsec} / \\text{pix}`."""
+
+    dispersion: u.Quantity | na.AbstractScalar = dataclasses.MISSING
+    """The magnitude of the spectral dispersion, in units such as :math:`\\text{nm} / \\text{pix}`."""
+
+    angle: u.Quantity | na.AbstractScalar = dataclasses.MISSING
+    """The angle of the dispersion direction with respect to the scene."""
+
+    wavelength_ref: u.Quantity | na.AbstractScalar = dataclasses.MISSING
+    """The reference wavelength which maps the field center to :attr:`position_ref`."""
+
+    position_ref: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray = (
+        dataclasses.MISSING
+    )
+    """The sensor position of the field center at :attr:`wavelength_ref`."""
+
+    @functools.cached_property
+    def matrix(self) -> na.SpectralPositionalMatrixArray:
+        cos = np.cos(self.angle)
+        sin = np.sin(self.angle)
+        plate_scale = self.plate_scale
+        dispersion = self.dispersion
+        unit_wavelength = na.unit(self.wavelength_ref)
+        return na.SpectralPositionalMatrixArray(
+            wavelength=na.SpectralPositionalVectorArray(
+                wavelength=1,
+                position=na.Cartesian2dVectorArray(
+                    x=0 * unit_wavelength / u.arcsec,
+                    y=0 * unit_wavelength / u.arcsec,
+                ),
+            ),
+            position=na.Cartesian2dMatrixArray(
+                x=na.SpectralPositionalVectorArray(
+                    wavelength=1 / dispersion,
+                    position=na.Cartesian2dVectorArray(
+                        x=cos / plate_scale,
+                        y=-sin / plate_scale,
+                    ),
+                ),
+                y=na.SpectralPositionalVectorArray(
+                    wavelength=0 / dispersion,
+                    position=na.Cartesian2dVectorArray(
+                        x=sin / plate_scale,
+                        y=cos / plate_scale,
+                    ),
+                ),
+            ),
+        )
+
+    @property
+    def center(self) -> na.SpectralPositionalVectorArray:
+        return na.SpectralPositionalVectorArray(
+            wavelength=self.wavelength_ref,
+            position=na.Cartesian2dVectorArray(0, 0) * u.arcsec,
+        )
+
+    @property
+    def intercept(self) -> na.SpectralPositionalVectorArray:
+        return na.SpectralPositionalVectorArray(
+            wavelength=self.wavelength_ref,
+            position=self.position_ref,
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
