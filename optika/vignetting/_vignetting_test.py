@@ -8,10 +8,10 @@ import optika
 from .._tests import test_mixins
 
 
-def _scene() -> optika.vectors.SceneVectorArray:
-    return optika.vectors.SceneVectorArray(
+def _scene() -> na.SpectralPositionalVectorArray:
+    return na.SpectralPositionalVectorArray(
         wavelength=na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
-        field=na.Cartesian2dVectorLinearSpace(
+        position=na.Cartesian2dVectorLinearSpace(
             start=-1 * u.deg,
             stop=+1 * u.deg,
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
@@ -21,7 +21,7 @@ def _scene() -> optika.vectors.SceneVectorArray:
 
 
 def _transmission() -> na.AbstractScalar:
-    return 1 - 0.1 * (_scene().field.length / u.deg) ** 2
+    return 1 - 0.1 * (_scene().position.length / u.deg) ** 2
 
 
 class AbstractTestAbstractVignettingModel(
@@ -48,7 +48,7 @@ class AbstractTestAbstractInterpolatedVignettingModel(
         self,
         a: optika.vignetting.AbstractInterpolatedVignettingModel,
     ):
-        assert isinstance(a.coordinates_scene, optika.vectors.SceneVectorArray)
+        assert isinstance(a.coordinates_scene, na.AbstractSpectralPositionalVectorArray)
 
     def test_transmission(
         self,

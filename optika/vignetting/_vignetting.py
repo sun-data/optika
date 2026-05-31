@@ -29,7 +29,7 @@ class AbstractVignettingModel(
     @abc.abstractmethod
     def __call__(
         self,
-        coordinates: optika.vectors.SceneVectorArray,
+        coordinates: na.AbstractSpectralPositionalVectorArray,
     ) -> na.AbstractScalar:
         """
         Compute the fraction of light transmitted for the given scene
@@ -38,12 +38,12 @@ class AbstractVignettingModel(
         Parameters
         ----------
         coordinates
-            The wavelength and field position of each point in the scene.
+            The wavelength and position of each point in the scene.
         """
 
     def inverse(
         self,
-        coordinates: optika.vectors.SceneVectorArray,
+        coordinates: na.AbstractSpectralPositionalVectorArray,
     ) -> na.AbstractScalar:
         r"""
         Compute the inverse of the transmission, :math:`1 / T`, the factor
@@ -52,7 +52,7 @@ class AbstractVignettingModel(
         Parameters
         ----------
         coordinates
-            The wavelength and field position of each point in the scene.
+            The wavelength and position of each point in the scene.
         """
         return 1 / self(coordinates)
 
@@ -72,9 +72,9 @@ class AbstractInterpolatedVignettingModel(
 
     @property
     @abc.abstractmethod
-    def coordinates_scene(self) -> optika.vectors.SceneVectorArray:
+    def coordinates_scene(self) -> na.AbstractSpectralPositionalVectorArray:
         """
-        The wavelength and field position of each calibration point in the scene.
+        The wavelength and position of each calibration point in the scene.
         """
 
     @property
@@ -117,16 +117,16 @@ class PolynomialVignettingModel(
         import named_arrays as na
         import optika
 
-        scene = optika.vectors.SceneVectorArray(
+        scene = na.SpectralPositionalVectorArray(
             wavelength=na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
-            field=na.Cartesian2dVectorLinearSpace(
+            position=na.Cartesian2dVectorLinearSpace(
                 start=-1 * u.deg,
                 stop=+1 * u.deg,
                 axis=na.Cartesian2dVectorArray("field_x", "field_y"),
                 num=13,
             ),
         )
-        transmission = 1 - 0.1 * (scene.field.length / u.deg) ** 2
+        transmission = 1 - 0.1 * (scene.position.length / u.deg) ** 2
 
         model = optika.vignetting.PolynomialVignettingModel(
             coordinates_scene=scene,
@@ -143,8 +143,8 @@ class PolynomialVignettingModel(
         na.plt.set_aspect("equal", ax=ax);
     """
 
-    coordinates_scene: optika.vectors.SceneVectorArray = dataclasses.MISSING
-    """The wavelength and field position of each calibration point in the scene."""
+    coordinates_scene: na.AbstractSpectralPositionalVectorArray = dataclasses.MISSING
+    """The wavelength and position of each calibration point in the scene."""
 
     transmission: na.AbstractScalar = dataclasses.MISSING
     """The fraction of light transmitted at each calibration point."""
@@ -180,7 +180,7 @@ class PolynomialVignettingModel(
 
     def __call__(
         self,
-        coordinates: optika.vectors.SceneVectorArray,
+        coordinates: na.AbstractSpectralPositionalVectorArray,
     ) -> na.AbstractScalar:
         return self.fit(coordinates).outputs
 
@@ -283,7 +283,7 @@ class PolynomialVignettingModel(
         subplot for each wavelength.
         """
         scene = self.coordinates_scene
-        field = scene.field
+        position = scene.position
         wavelength = na.as_named_array(scene.wavelength)
         axis_wavelength = self.axis_wavelength
 
@@ -298,7 +298,7 @@ class PolynomialVignettingModel(
             # shape each subplot to the field-of-view aspect ratio, and widen
             # the figure to fit one subplot per wavelength
             height_subplot = 3
-            aspect = (field.x.ptp() / field.y.ptp()).ndarray.value
+            aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
             figsize = (
                 ncols * height_subplot * aspect + 1.5,
                 height_subplot + 1,
@@ -324,16 +324,16 @@ class PolynomialVignettingModel(
             )
 
             na.plt.pcolormesh(
-                field,
+                position,
                 C=values,
                 ax=ax,
                 colorizer=colorizer,
                 **kwargs,
             )
 
-            na.plt.set_xlabel(f"field $x$ ({na.unit(field.x):latex_inline})", ax=ax)
+            na.plt.set_xlabel(f"field $x$ ({na.unit(position.x):latex_inline})", ax=ax)
             na.plt.set_ylabel(
-                f"field $y$ ({na.unit(field.y):latex_inline})",
+                f"field $y$ ({na.unit(position.y):latex_inline})",
                 ax=ax[{axis_wavelength: 0}],
             )
             na.plt.set_title(wavelength.to_string_array(), ax=ax)
