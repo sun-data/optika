@@ -166,7 +166,7 @@ class SimpleDistortionModel(
         na.plt.scatter(
             sensor.position.x,
             sensor.position.y,
-            c=sensor.wavelength,
+            c=sensor.wavelength.to_value(u.nm),
             ax=ax,
         );
     """
