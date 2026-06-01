@@ -94,7 +94,7 @@ def transmittance(
     Examples
     --------
 
-    Plot the absorbance as a function of wavelength.
+    Plot the transmittance as a function of wavelength.
 
     .. jupyter-execute::
 
@@ -106,16 +106,16 @@ def transmittance(
         # Define a grid of wavelengths
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
-        # Compute the absorbance vs wavelength
-        absorbance = optika.sensors.absorbance(
+        # Compute the transmittance vs wavelength
+        transmittance = optika.sensors.transmittance(
             wavelength=wavelength,
         )
 
-        # Plot the average absorbance vs. wavelength
+        # Plot the average transmittance vs. wavelength
         fig, ax = plt.subplots(constrained_layout=True)
         na.plt.plot(
             wavelength,
-            absorbance.average,
+            transmittance.average,
             ax=ax,
         );
         ax.set_xscale("log");
@@ -199,7 +199,8 @@ def absorbance(
     Examples
     --------
 
-    Plot the absorbance as a function of wavelength.
+    Plot the absorbance as a function of wavelength and compare it to the
+    transmittance.
 
     .. jupyter-execute::
 
@@ -211,6 +212,11 @@ def absorbance(
         # Define a grid of wavelengths
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
+        # Compute the transmittance vs wavelength
+        transmittance = optika.sensors.transmittance(
+            wavelength=wavelength,
+        )
+
         # Compute the absorbance vs wavelength
         absorbance = optika.sensors.absorbance(
             wavelength=wavelength,
@@ -220,12 +226,20 @@ def absorbance(
         fig, ax = plt.subplots(constrained_layout=True)
         na.plt.plot(
             wavelength,
+            transmittance.average,
+            ax=ax,
+            label="transmittance",
+        );
+        na.plt.plot(
+            wavelength,
             absorbance.average,
             ax=ax,
+            label="absorbance",
         );
         ax.set_xscale("log");
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("incident energy fraction");
+        ax.legend();
     """
     if not isinstance(chemical_oxide, optika.chemicals.AbstractChemical):
         chemical_oxide = optika.chemicals.Chemical(chemical_oxide)
@@ -698,7 +712,6 @@ def _discrete_gamma(
     vmr: float | na.ScalarArray,
     shape_random: None | dict[str, int] = None,
 ) -> na.ScalarArray:
-
     x = na.random.gamma(
         shape=mean / vmr,
         scale=vmr,
@@ -1211,19 +1224,16 @@ def vmr_signal(
     result = 0
 
     if shot:
-
         F_shot = n * cce
 
         result = result + F_shot
 
     if fano:
-
         F_fano = cce * F
 
         result = result + F_fano
 
     if pcc:
-
         n0 = cce_backsurface
         aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
         F_cce = 2 * np.exp(-aW) * np.square((n0 - 1) / aW) * (np.sinh(aW) - aW) / cce
@@ -1253,13 +1263,13 @@ class AbstractSensorMaterial(
         noise: bool = True,
     ) -> optika.rays.RayVectorArray:
         """
-        Given a set of incident rays, compute the number of electrons
+        Given a set of absorbed rays, compute the number of electrons
         measured by the sensor using :func:`signal`.
 
         Parameters
         ----------
         rays
-            The rays incident on the sensor surface.
+            The rays absorbed by the light-sensitive silicon layer.
             The :attr:`optika.rays.RayVectorArray.intensity` field should
             either be in units of photons or energy.
         normal
@@ -1328,7 +1338,6 @@ class IdealSensorMaterial(
         normal: na.AbstractCartesian3dVectorArray,
         noise: bool = False,
     ) -> optika.rays.RayVectorArray:
-
         intensity = rays.intensity
         if not intensity.unit.is_equivalent(u.photon):
             h = astropy.constants.h
@@ -1669,7 +1678,6 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         normal: na.AbstractCartesian3dVectorArray,
         noise: bool = True,
     ) -> optika.rays.RayVectorArray:
-
         intensity = rays.intensity
         wavelength = rays.wavelength
 
@@ -1736,7 +1744,6 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> optika.rays.RayVectorArray:
-
         width = self.width_charge_diffusion(rays, normal)
 
         position = dataclasses.replace(
