@@ -122,13 +122,13 @@ def transmittance(
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("incident energy fraction");
     """
-    
+
     if not isinstance(chemical_oxide, optika.chemicals.AbstractChemical):
         chemical_oxide = optika.chemicals.Chemical(chemical_oxide)
 
     if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
         chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
-    
+
     reflection, transmission = optika.materials.multilayer_efficiency(
         wavelength=wavelength,
         direction=direction,
@@ -150,8 +150,9 @@ def transmittance(
             ),
         ),
     )
-    
+
     return transmission
+
 
 def absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
