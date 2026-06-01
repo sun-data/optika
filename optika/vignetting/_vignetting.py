@@ -23,7 +23,8 @@ class AbstractVignettingModel(
 ):
     """
     An interface describing an arbitrary vignetting model, which maps scene
-    coordinates to the fraction of light transmitted by the optical system.
+    coordinates to the relative illumination of the optical system (the spatial
+    response normalized to one at the center of the field of view).
     """
 
     @abc.abstractmethod
@@ -32,8 +33,7 @@ class AbstractVignettingModel(
         coordinates: na.AbstractSpectralPositionalVectorArray,
     ) -> na.AbstractScalar:
         """
-        Compute the fraction of light transmitted for the given scene
-        coordinates.
+        Compute the relative illumination for the given scene coordinates.
 
         Parameters
         ----------
@@ -46,7 +46,7 @@ class AbstractVignettingModel(
         coordinates: na.AbstractSpectralPositionalVectorArray,
     ) -> na.AbstractScalar:
         r"""
-        Compute the inverse of the transmission, :math:`1 / T`, the factor
+        Compute the inverse of the illumination, :math:`1 / I`, the factor
         which corrects for the vignetting at the given scene coordinates.
 
         Parameters
@@ -63,10 +63,10 @@ class AbstractInterpolatedVignettingModel(
 ):
     """
     A vignetting model defined by interpolating between known scene coordinates
-    and their measured transmission.
+    and their measured illumination.
 
     This class has two main members, :attr:`coordinates_scene` and
-    :attr:`transmission`, the calibration points between which subclasses
+    :attr:`illumination`, the calibration points between which subclasses
     interpolate.
     """
 
@@ -79,9 +79,9 @@ class AbstractInterpolatedVignettingModel(
 
     @property
     @abc.abstractmethod
-    def transmission(self) -> na.AbstractScalar:
+    def illumination(self) -> na.AbstractScalar:
         """
-        The fraction of light transmitted at each calibration point.
+        The relative illumination at each calibration point.
         """
 
     @property
@@ -100,14 +100,14 @@ class PolynomialVignettingModel(
     AbstractInterpolatedVignettingModel,
 ):
     """
-    A vignetting model which fits a polynomial to the measured transmission at
+    A vignetting model which fits a polynomial to the measured illumination at
     known scene coordinates.
 
     Examples
     --------
 
-    Build a vignetting model with a radial transmission falloff fit by a
-    deliberately underfit (linear) polynomial, then plot the transmission and
+    Build a vignetting model with a radial illumination falloff fit by a
+    deliberately underfit (linear) polynomial, then plot the illumination and
     the fit residual.
 
     .. jupyter-execute::
@@ -126,11 +126,11 @@ class PolynomialVignettingModel(
                 num=13,
             ),
         )
-        transmission = 1 - 0.1 * (scene.position.length / u.deg) ** 2
+        illumination = 1 - 0.1 * (scene.position.length / u.deg) ** 2
 
         model = optika.vignetting.PolynomialVignettingModel(
             coordinates_scene=scene,
-            transmission=transmission,
+            illumination=illumination,
             axis_wavelength="wavelength",
             axis_field=("field_x", "field_y"),
             degree=1,
@@ -146,8 +146,8 @@ class PolynomialVignettingModel(
     coordinates_scene: na.AbstractSpectralPositionalVectorArray = dataclasses.MISSING
     """The wavelength and position of each calibration point in the scene."""
 
-    transmission: na.AbstractScalar = dataclasses.MISSING
-    """The fraction of light transmitted at each calibration point."""
+    illumination: na.AbstractScalar = dataclasses.MISSING
+    """The relative illumination at each calibration point."""
 
     axis_wavelength: str = dataclasses.MISSING
     """The logical axis corresponding to changing wavelength."""
@@ -168,11 +168,11 @@ class PolynomialVignettingModel(
 
     @functools.cached_property
     def fit(self) -> na.PolynomialFitFunctionArray:
-        """The polynomial fit mapping scene coordinates to transmission."""
+        """The polynomial fit mapping scene coordinates to illumination."""
         scene = self.coordinates_scene
         return na.PolynomialFitFunctionArray(
             inputs=scene,
-            outputs=self.transmission,
+            outputs=self.illumination,
             center=scene.mean(self._axis_scene),
             degree=self.degree,
             where_polynomial=self.where,
@@ -197,7 +197,7 @@ class PolynomialVignettingModel(
         a separate subplot for each wavelength.
 
         The residual is the absolute difference between the calibration
-        :attr:`transmission` and the transmission predicted by the polynomial
+        :attr:`illumination` and the illumination predicted by the polynomial
         fit.
 
         Parameters
@@ -219,8 +219,8 @@ class PolynomialVignettingModel(
             :func:`named_arrays.plt.pcolormesh`.
         """
         return self._plot(
-            abs(self.transmission - self.fit.predictions),
-            label="transmission residual",
+            abs(self.illumination - self.fit.predictions),
+            label="illumination residual",
             figsize=figsize,
             cmap=cmap,
             vmin=vmin,
@@ -237,7 +237,7 @@ class PolynomialVignettingModel(
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
-        Plot the calibration :attr:`transmission` as a function of field angle,
+        Plot the calibration :attr:`illumination` as a function of field angle,
         with a separate subplot for each wavelength.
 
         Parameters
@@ -247,20 +247,20 @@ class PolynomialVignettingModel(
             If :obj:`None`, the size is chosen automatically from the number
             of wavelengths and the aspect ratio of the field of view.
         cmap
-            The colormap used to map the transmission to colors.
+            The colormap used to map the illumination to colors.
         vmin
-            The transmission value mapped to the lowest color.
+            The illumination value mapped to the lowest color.
             If :obj:`None`, defaults to zero.
         vmax
-            The transmission value mapped to the highest color.
-            If :obj:`None`, defaults to the maximum transmission.
+            The illumination value mapped to the highest color.
+            If :obj:`None`, defaults to the maximum illumination.
         kwargs
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
         """
         return self._plot(
-            self.transmission,
-            label="transmission",
+            self.illumination,
+            label="illumination",
             figsize=figsize,
             cmap=cmap,
             vmin=vmin,

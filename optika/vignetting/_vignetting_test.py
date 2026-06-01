@@ -20,7 +20,7 @@ def _scene() -> na.SpectralPositionalVectorArray:
     )
 
 
-def _transmission() -> na.AbstractScalar:
+def _illumination() -> na.AbstractScalar:
     return 1 - 0.1 * (_scene().position.length / u.deg) ** 2
 
 
@@ -50,11 +50,11 @@ class AbstractTestAbstractInterpolatedVignettingModel(
     ):
         assert isinstance(a.coordinates_scene, na.AbstractSpectralPositionalVectorArray)
 
-    def test_transmission(
+    def test_illumination(
         self,
         a: optika.vignetting.AbstractInterpolatedVignettingModel,
     ):
-        assert isinstance(a.transmission, na.AbstractScalar)
+        assert isinstance(a.illumination, na.AbstractScalar)
 
     def test_axis_wavelength(
         self,
@@ -75,7 +75,7 @@ class AbstractTestAbstractInterpolatedVignettingModel(
     argvalues=[
         optika.vignetting.PolynomialVignettingModel(
             coordinates_scene=_scene(),
-            transmission=_transmission(),
+            illumination=_illumination(),
             axis_wavelength="wavelength",
             axis_field=("field_x", "field_y"),
             degree=degree,
