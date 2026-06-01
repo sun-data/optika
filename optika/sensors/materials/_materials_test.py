@@ -38,6 +38,57 @@ from optika.materials._tests.test_materials import AbstractTestAbstractMaterial
         10 * u.um,
     ],
 )
+def test_transmittance(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar,
+    n: float | na.AbstractScalar,
+    thickness_oxide: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+):
+    result = optika.sensors.transmittance(
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        thickness_oxide=thickness_oxide,
+        thickness_substrate=thickness_substrate,
+    )
+
+    assert np.all(result >= 0)
+    assert np.all(result <= 1)
+
+
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        304 * u.AA,
+        na.linspace(100, 200, axis="wavelength", num=4) * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="direction",
+    argvalues=[
+        1,
+        0.5,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="n",
+    argvalues=[
+        1,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_oxide",
+    argvalues=[
+        10 * u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="thickness_substrate",
+    argvalues=[
+        10 * u.um,
+    ],
+)
 def test_absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar,
