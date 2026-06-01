@@ -19,6 +19,7 @@ from . import surfaces
 from . import sensors
 from . import distortion
 from . import vignetting
+from . import radiometry
 from . import systems
 
 __all__ = [
@@ -41,5 +42,6 @@ __all__ = [
     "sensors",
     "distortion",
     "vignetting",
+    "radiometry",
     "systems",
 ]
