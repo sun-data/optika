@@ -27,14 +27,14 @@ def _illumination() -> na.AbstractScalar:
 class AbstractTestAbstractVignettingModel(
     test_mixins.AbstractTestPrintable,
 ):
-    def test__call__(self, a: optika.vignetting.AbstractVignettingModel):
+    def test__call__(self, a: optika.radiometry.AbstractVignettingModel):
         scene = _scene()
         result = a(scene)
         assert isinstance(result, na.AbstractScalar)
         for ax in ("field_x", "field_y"):
             assert ax in na.shape(result)
 
-    def test_inverse(self, a: optika.vignetting.AbstractVignettingModel):
+    def test_inverse(self, a: optika.radiometry.AbstractVignettingModel):
         scene = _scene()
         result = a.inverse(scene)
         assert isinstance(result, na.AbstractScalar)
@@ -46,25 +46,25 @@ class AbstractTestAbstractInterpolatedVignettingModel(
 ):
     def test_coordinates_scene(
         self,
-        a: optika.vignetting.AbstractInterpolatedVignettingModel,
+        a: optika.radiometry.AbstractInterpolatedVignettingModel,
     ):
         assert isinstance(a.coordinates_scene, na.AbstractSpectralPositionalVectorArray)
 
     def test_illumination(
         self,
-        a: optika.vignetting.AbstractInterpolatedVignettingModel,
+        a: optika.radiometry.AbstractInterpolatedVignettingModel,
     ):
         assert isinstance(a.illumination, na.AbstractScalar)
 
     def test_axis_wavelength(
         self,
-        a: optika.vignetting.AbstractInterpolatedVignettingModel,
+        a: optika.radiometry.AbstractInterpolatedVignettingModel,
     ):
         assert isinstance(a.axis_wavelength, str)
 
     def test_axis_field(
         self,
-        a: optika.vignetting.AbstractInterpolatedVignettingModel,
+        a: optika.radiometry.AbstractInterpolatedVignettingModel,
     ):
         assert isinstance(a.axis_field, tuple)
         assert all(isinstance(ax, str) for ax in a.axis_field)
@@ -73,7 +73,7 @@ class AbstractTestAbstractInterpolatedVignettingModel(
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
-        optika.vignetting.PolynomialVignettingModel(
+        optika.radiometry.PolynomialVignettingModel(
             coordinates_scene=_scene(),
             illumination=_illumination(),
             axis_wavelength="wavelength",
@@ -86,7 +86,7 @@ class AbstractTestAbstractInterpolatedVignettingModel(
 class TestPolynomialVignettingModel(
     AbstractTestAbstractInterpolatedVignettingModel,
 ):
-    def test_fit(self, a: optika.vignetting.PolynomialVignettingModel):
+    def test_fit(self, a: optika.radiometry.PolynomialVignettingModel):
         assert isinstance(a.fit, na.PolynomialFitFunctionArray)
         assert a.fit.degree == a.degree
 
@@ -99,7 +99,7 @@ class TestPolynomialVignettingModel(
     )
     def test_plot(
         self,
-        a: optika.vignetting.PolynomialVignettingModel,
+        a: optika.radiometry.PolynomialVignettingModel,
         kwargs: dict,
     ):
         fig, ax = a.plot(**kwargs)
@@ -117,7 +117,7 @@ class TestPolynomialVignettingModel(
     )
     def test_plot_residual(
         self,
-        a: optika.vignetting.PolynomialVignettingModel,
+        a: optika.radiometry.PolynomialVignettingModel,
         kwargs: dict,
     ):
         fig, ax = a.plot_residual(**kwargs)

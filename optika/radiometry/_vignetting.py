@@ -128,7 +128,7 @@ class PolynomialVignettingModel(
         )
         illumination = 1 - 0.1 * (scene.position.length / u.deg) ** 2
 
-        model = optika.vignetting.PolynomialVignettingModel(
+        model = optika.radiometry.PolynomialVignettingModel(
             coordinates_scene=scene,
             illumination=illumination,
             axis_wavelength="wavelength",

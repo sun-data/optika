@@ -18,7 +18,6 @@ from . import rulings
 from . import surfaces
 from . import sensors
 from . import distortion
-from . import vignetting
 from . import radiometry
 from . import systems
 
@@ -41,7 +40,6 @@ __all__ = [
     "surfaces",
     "sensors",
     "distortion",
-    "vignetting",
     "radiometry",
     "systems",
 ]
