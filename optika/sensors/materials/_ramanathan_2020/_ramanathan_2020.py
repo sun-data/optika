@@ -8,6 +8,8 @@ import named_arrays as na
 import optika
 from .._stern_1994 import (
     _thickness_implant,
+    _thickness_substrate,
+    _width_pixel,
     _cce_backsurface,
 )
 
@@ -464,12 +466,16 @@ def probability_of_n_pairs(
 
 
 def electrons_measured(
-    photons_absorbed: u.Quantity | na.AbstractScalar,
+    photons_transmitted: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    width_pixel: u.Quantity | na.ScalarArray = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    axis_xy: None | tuple[str, str] = None,
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
@@ -482,20 +488,34 @@ def electrons_measured(
 
     Parameters
     ----------
-    photons_absorbed
-        The number of photons absorbed by the light-sensitive layer of the sensor.
+    photons_transmitted
+        The number of photons transmitted into the light-sensitive region
+        of the sensor.
     wavelength
         The vacuum wavelength of the absorbed photons.
     absorption
         The absorption coefficient of silicon at the given wavelength.
     thickness_implant
         The thickness of the implant layer, where partial-charge collection occurs.
+    thickness_depletion
+        The thickness of the depletion region, the region with significant electric
+        field.
+        This is sent to `thickness_substrate` by default, which is equivalent to
+        there being no field-free region in which charge diffusion occurs.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    width_pixel
+        The size of a single pixel on the sensor.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
     temperature
         The temperature of the silicon detector.
         Default is room temperature.
+    axis_xy
+        The two logical axes corresponding to the pixel grid of the sensor
+        along which electrons will diffuse.
+        If :obj:`None` (the default), there is no charge diffusion.
     shape_random
         Additional shape used to specify the number of samples to draw.
 
@@ -518,7 +538,7 @@ def electrons_measured(
 
         # Define the expected number of photons
         # for each experiment
-        photons_absorbed = (100 * u.photon).astype(int)
+        photons_transmitted = (100 * u.photon).astype(int)
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
@@ -526,7 +546,7 @@ def electrons_measured(
 
         # Compute the actual number of electrons measured for each experiment
         electrons = optika.sensors.electrons_measured(
-            photons_absorbed=photons_absorbed,
+            photons_transmitted=photons_transmitted,
             wavelength=wavelength,
             shape_random=dict(experiment=num_experiments),
         )
@@ -565,18 +585,34 @@ def electrons_measured(
         shape_random = dict()
 
     shape = na.broadcast_shapes(
-        na.shape(photons_absorbed),
+        na.shape(photons_transmitted),
         na.shape(wavelength),
         na.shape(absorption),
         na.shape(thickness_implant),
+        na.shape(thickness_depletion),
+        na.shape(thickness_substrate),
+        na.shape(width_pixel),
         na.shape(cce_backsurface),
         na.shape(temperature),
         shape_random,
     )
 
-    photons_absorbed = na.broadcast_to(photons_absorbed, shape)
+    if axis_xy is not None:
+        axis_x, axis_y = axis_xy
+        shape[axis_x] = shape.pop(axis_x)
+        shape[axis_y] = shape.pop(axis_y)
+    else:
+        axis_x = "__dummy_x__"
+        axis_y = "__dummy_y__"
+        shape[axis_x] = 1
+        shape[axis_y] = 1
+
+    photons_transmitted = na.broadcast_to(photons_transmitted, shape)
     absorption = na.broadcast_to(absorption, shape)
     thickness_implant = na.broadcast_to(thickness_implant, shape)
+    thickness_depletion = na.broadcast_to(thickness_depletion, shape)
+    thickness_substrate = na.broadcast_to(thickness_substrate, shape)
+    width_pixel = na.broadcast_to(width_pixel, shape)
     cce_backsurface = na.broadcast_to(cce_backsurface, shape)
 
     if not isinstance(cce_backsurface, u.Quantity):
@@ -600,10 +636,13 @@ def electrons_measured(
     fano_inf = fano_inf.broadcast_to(shape)
 
     result = _electrons_measured_quantity(
-        photons_absorbed=photons_absorbed.ndarray,
+        photons_transmitted=photons_transmitted.ndarray,
         wavelength=wavelength.ndarray,
         absorption=absorption.ndarray,
         thickness_implant=thickness_implant.ndarray,
+        thickness_depletion=thickness_depletion.ndarray,
+        thickness_substrate=thickness_substrate.ndarray,
+        width_pixel=width_pixel,
         cce_backsurface=cce_backsurface.ndarray,
         p_n=p_n.ndarray,
         n=n.ndarray,
@@ -618,10 +657,13 @@ def electrons_measured(
 
 
 def _electrons_measured_quantity(
-    photons_absorbed: u.Quantity,
+    photons_transmitted: u.Quantity,
     wavelength: u.Quantity,
     absorption: u.Quantity,
     thickness_implant: u.Quantity,
+    thickness_depletion: u.Quantity,
+    thickness_substrate: u.Quantity,
+    width_pixel: u.Quantity,
     cce_backsurface: u.Quantity,
     p_n: np.ndarray,
     n: np.ndarray,
@@ -630,32 +672,44 @@ def _electrons_measured_quantity(
 ) -> u.Quantity:
 
     shape = np.broadcast_shapes(
-        photons_absorbed.shape,
+        photons_transmitted.shape,
         absorption.shape,
         thickness_implant.shape,
+        thickness_depletion.shape,
+        thickness_substrate.shape,
         cce_backsurface.shape,
+        width_pixel.shape,
     )
+
+    num_x = shape[~1]
+    num_y = shape[~0]
 
     unit_length = u.mm
 
-    photons_absorbed = photons_absorbed.to_value(u.photon)
+    photons_transmitted = photons_transmitted.to_value(u.photon)
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
     absorption = absorption.to_value(1 / unit_length)
     thickness_implant = thickness_implant.to_value(unit_length)
+    thickness_depletion = thickness_depletion.to_value(unit_length)
+    thickness_substrate = thickness_substrate.to_value(unit_length)
+    width_pixel = width_pixel.to_value(unit_length)
     cce_backsurface = cce_backsurface.to_value(u.dimensionless_unscaled)
     energy_pair_inf = energy_pair_inf.to_value(u.eV)
     fano_inf = fano_inf.to_value(u.electron / u.photon)
 
     result = _electrons_measured_numba(
-        photons_absorbed=photons_absorbed.reshape(-1),
-        energy=energy.reshape(-1),
-        absorption=absorption.reshape(-1),
-        thickness_implant=thickness_implant.reshape(-1),
-        cce_backsurface=cce_backsurface.reshape(-1),
-        p_n=p_n.reshape(-1, p_n.shape[~0]),
-        n=n.reshape(-1, n.shape[~0]),
-        energy_pair_inf=energy_pair_inf.reshape(-1),
-        fano_inf=fano_inf.reshape(-1),
+        photons_transmitted=photons_transmitted.reshape(-1, num_x, num_y),
+        energy=energy.reshape(-1, num_x, num_y),
+        absorption=absorption.reshape(-1, num_x, num_y),
+        thickness_implant=thickness_implant.reshape(-1, num_x, num_y),
+        thickness_depletion=thickness_depletion.reshape(-1, num_x, num_y),
+        thickness_substrate=thickness_substrate.reshape(-1, num_x, num_y),
+        width_pixel=width_pixel.reshape(-1, num_x, num_y),
+        cce_backsurface=cce_backsurface.reshape(-1, num_x, num_y),
+        p_n=p_n.reshape(-1, num_x, num_y, p_n.shape[~0]),
+        n=n.reshape(-1, num_x, num_y, n.shape[~0]),
+        energy_pair_inf=energy_pair_inf.reshape(-1, num_x, num_y),
+        fano_inf=fano_inf.reshape(-1, num_x, num_y),
     )
 
     result = result.reshape(shape)
@@ -667,73 +721,92 @@ def _electrons_measured_quantity(
 
 @numba.njit(fastmath=True, parallel=True)
 def _electrons_measured_numba(
-    photons_absorbed: np.ndarray,
+    photons_transmitted: np.ndarray,
     energy: np.ndarray,
     absorption: np.ndarray,
     thickness_implant: np.ndarray,
+    thickness_depletion: np.ndarray,
+    thickness_substrate: np.ndarray,
+    width_pixel: np.ndarray,
     cce_backsurface: np.ndarray,
     p_n: np.ndarray,
     n: np.ndarray,
     energy_pair_inf: np.ndarray,
     fano_inf: np.ndarray,
-) -> np.ndarray:  # pragma: nocover
+) -> np.ndarray:
+    
+    num_i, num_x, num_y, num_n = p_n.shape
 
-    num_i, num_n = p_n.shape
-
-    result = np.empty(num_i)
+    result = np.zeros((num_i, num_x, num_y))
 
     for i in numba.prange(num_i):
+        for x in range(num_x):
+            for y in range(num_y):
+                num_photon = int(photons_transmitted[i, x, y])
+                energy_i = energy[i, x, y]
+                a = absorption[i, x, y]
+                W = thickness_implant[i, x, y]
+                h_0 = cce_backsurface[i, x, y]
+                cmf_i = np.cumsum(p_n[i, x, y])
+                n_i = n[i, x, y]
+                energy_pair_inf_i = energy_pair_inf[i, x, y]
+                fano_inf_i = fano_inf[i, x, y]
+                z_substrate = thickness_substrate[i, x, y]
+                z_ff = z_substrate - thickness_depletion[i, x, y]
 
-        num_photon = int(photons_absorbed[i])
-        energy_i = energy[i]
-        a = absorption[i]
-        W = thickness_implant[i]
-        h_0 = cce_backsurface[i]
-        cmf_i = np.cumsum(p_n[i])
-        n_i = n[i]
-        energy_pair_inf_i = energy_pair_inf[i]
-        fano_inf_i = fano_inf[i]
+                d = 1 / a
 
-        d = 1 / a
+                mean_inf = energy_i / energy_pair_inf_i
+                std_inf = math.sqrt(fano_inf_i * mean_inf)
 
-        num_electron_i = 0
+                low_energy = energy_i <= 50
 
-        mean_inf = energy_i / energy_pair_inf_i
-        std_inf = math.sqrt(fano_inf_i * mean_inf)
+                for j in range(num_photon):
+                    if low_energy:
+                        x_ij = random.uniform(0, 1)
 
-        low_energy = energy_i <= 50
+                        for k_ij in range(num_n):
+                            if cmf_i[k_ij] > x_ij:
+                                break
 
-        for j in range(num_photon):
+                        n_ij = n_i[k_ij]
 
-            if low_energy:
+                    else:
+                        n_ij = random.normalvariate(
+                            mu=mean_inf,
+                            sigma=std_inf,
+                        )
+                        n_ij = round(n_ij)
 
-                x_ij = random.uniform(0, 1)
+                    y_ij = random.uniform(0, 1)
+                    z_ij = -d * math.log(1 - y_ij)
 
-                for k_ij in range(num_n):
-                    if cmf_i[k_ij] > x_ij:
-                        break
+                    if z_ij < W:
+                        h_ij = h_0 + (1 - h_0) * z_ij / W
+                    else:
+                        h_ij = 1
 
-                n_ij = n_i[k_ij]
+                    m_ij = np.random.binomial(n=n_ij, p=h_ij)
 
-            else:
-                n_ij = random.normalvariate(
-                    mu=mean_inf,
-                    sigma=std_inf,
-                )
-                n_ij = round(n_ij)
+                    u = random.uniform(-0.5, 0.5)
+                    v = random.uniform(-0.5, 0.5)
 
-            y_ij = random.uniform(0, 1)
-            z_ij = -d * math.log(1 - y_ij)
+                    for e in range(m_ij):
+                        if z_ij < z_ff:
+                            w = z_ff * math.sqrt(1 - z_ij / z_ff) / width_pixel
 
-            if z_ij < W:
-                h_ij = h_0 + (1 - h_0) * z_ij / W
-            else:
-                h_ij = 1
+                            p = random.gauss(u, w)
+                            q = random.gauss(v, w)
 
-            m_ij = np.random.binomial(n=n_ij, p=h_ij)
+                            p = round(p)
+                            q = round(q)
 
-            num_electron_i = num_electron_i + m_ij
+                        elif z_ij > z_substrate:
+                            continue
 
-        result[i] = num_electron_i
+                        else:
+                            p = q = 0
+
+                        result[i, (x + p) % num_x, (y + q) % num_y] += 1
 
     return result

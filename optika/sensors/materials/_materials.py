@@ -13,6 +13,7 @@ from ._stern_1994 import (
     _thickness_oxide,
     _thickness_implant,
     _thickness_substrate,
+    _width_pixel,
     _cce_backsurface,
 )
 from ._ramanathan_2020 import (
@@ -945,15 +946,18 @@ def electrons_measured_approx(
     return result
 
 
-_absorbance = absorbance
+_transmittance = transmittance
 
 
 def signal(
     photons_expected: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
-    absorbance: None | float | na.AbstractScalar = None,
+    transmittance: None | float | na.AbstractScalar = None,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: None | na.AbstractScalar = _thickness_substrate,
+    width_pixel: u.Quantity | na.AbstractScalar = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     method: Literal["exact", "approx", "expected"] = "exact",
@@ -974,9 +978,9 @@ def signal(
         The `expected` number of photons incident on the detector surface.
     wavelength
         The vacuum wavelength of the absorbed photons.
-    absorbance
-        The fraction of incident energy absorbed by the light-sensitive layer
-        of the detector computed using the average of :func:`absorbance`.
+    transmittance
+        The fraction of incident energy transmitted to the light-sensitive layer
+        of the detector.
         If :obj:`None` (the default), the result of :func:`absorbance`
         called with default values will be used.
     absorption
@@ -1048,8 +1052,8 @@ def signal(
         ax.set_ylabel(f"variance-to-mean ratio ({electrons.unit:latex_inline})");
     """
 
-    if absorbance is None:
-        absorbance = _absorbance(wavelength).average
+    if transmittance is None:
+        transmittance = _transmittance(wavelength).average
 
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
@@ -1064,7 +1068,7 @@ def signal(
             thickness_implant=thickness_implant,
             cce_backsurface=cce_backsurface,
         )
-        return iqy * absorbance * cce * photons_expected.to(u.ph)
+        return iqy * transmittance * cce * photons_expected.to(u.ph)
 
     photons_absorbed_expected = absorbance * photons_expected.to(u.ph)
     photons_absorbed = na.random.poisson(
