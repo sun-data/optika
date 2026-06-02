@@ -49,6 +49,111 @@ __all__ = [
 ]
 
 
+def transmittance(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar = 1,
+    n: float | na.AbstractScalar = 1,
+    thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
+    roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
+    roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
+) -> optika.vectors.PolarizationVectorArray:
+    """
+    The fraction of incident energy transmitted through the oxide layer into
+    the light-sensitive material.
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    direction
+        The component of the incident light's propagation direction antiparallel
+        to the surface normal of the sensor.
+        Default is normal incidence.
+    n
+        The index of refraction in the ambient medium.
+    thickness_oxide
+        The thickness of the oxide layer on the illuminated surface of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    thickness_substrate
+        The thickness of the light-sensitive substrate layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    chemical_oxide
+        The chemical formula of the oxide layer on the illuminated surface of the sensor.
+        Default is silicon dioxide.
+    chemical_substrate
+        The chemical formula of the light-sensitive portion of the sensor.
+        Default is silicon.
+    roughness_oxide
+        The RMS roughness the oxide layer surface.
+    roughness_substrate
+        The RMS roughness of the substrate surface.
+
+    Examples
+    --------
+
+    Plot the transmittance as a function of wavelength.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+        # Compute the transmittance vs wavelength
+        transmittance = optika.sensors.transmittance(
+            wavelength=wavelength,
+        )
+
+        # Plot the average transmittance vs. wavelength
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.plot(
+            wavelength,
+            transmittance.average,
+            ax=ax,
+        );
+        ax.set_xscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel("incident energy fraction");
+    """
+
+    if not isinstance(chemical_oxide, optika.chemicals.AbstractChemical):
+        chemical_oxide = optika.chemicals.Chemical(chemical_oxide)
+
+    if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
+        chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
+
+    reflection, transmission = optika.materials.multilayer_efficiency(
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        layers=[
+            optika.materials.Layer(
+                chemical=chemical_oxide,
+                thickness=thickness_oxide,
+                interface=optika.materials.profiles.ErfInterfaceProfile(
+                    width=roughness_oxide,
+                ),
+            ),
+        ],
+        substrate=optika.materials.Layer(
+            chemical=chemical_substrate,
+            thickness=thickness_substrate,
+            interface=optika.materials.profiles.ErfInterfaceProfile(
+                width=roughness_substrate,
+            ),
+        ),
+    )
+
+    return transmission
+
+
 def absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
@@ -94,7 +199,8 @@ def absorbance(
     Examples
     --------
 
-    Plot the absorbance as a function of wavelength.
+    Plot the absorbance as a function of wavelength and compare it to the
+    transmittance.
 
     .. jupyter-execute::
 
@@ -106,21 +212,34 @@ def absorbance(
         # Define a grid of wavelengths
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
+        # Compute the transmittance vs wavelength
+        transmittance = optika.sensors.transmittance(
+            wavelength=wavelength,
+        )
+
         # Compute the absorbance vs wavelength
         absorbance = optika.sensors.absorbance(
             wavelength=wavelength,
         )
 
-        # Plot the effective and maximum quantum efficiency
+        # Plot the average absorbance vs. wavelength
         fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.plot(
+            wavelength,
+            transmittance.average,
+            ax=ax,
+            label="transmittance",
+        );
         na.plt.plot(
             wavelength,
             absorbance.average,
             ax=ax,
+            label="absorbance",
         );
         ax.set_xscale("log");
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("incident energy fraction");
+        ax.legend();
     """
     if not isinstance(chemical_oxide, optika.chemicals.AbstractChemical):
         chemical_oxide = optika.chemicals.Chemical(chemical_oxide)
@@ -593,7 +712,6 @@ def _discrete_gamma(
     vmr: float | na.ScalarArray,
     shape_random: None | dict[str, int] = None,
 ) -> na.ScalarArray:
-
     x = na.random.gamma(
         shape=mean / vmr,
         scale=vmr,
@@ -1106,19 +1224,16 @@ def vmr_signal(
     result = 0
 
     if shot:
-
         F_shot = n * cce
 
         result = result + F_shot
 
     if fano:
-
         F_fano = cce * F
 
         result = result + F_fano
 
     if pcc:
-
         n0 = cce_backsurface
         aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
         F_cce = 2 * np.exp(-aW) * np.square((n0 - 1) / aW) * (np.sinh(aW) - aW) / cce
@@ -1148,13 +1263,13 @@ class AbstractSensorMaterial(
         noise: bool = True,
     ) -> optika.rays.RayVectorArray:
         """
-        Given a set of incident rays, compute the number of electrons
+        Given a set of absorbed rays, compute the number of electrons
         measured by the sensor using :func:`signal`.
 
         Parameters
         ----------
         rays
-            The rays incident on the sensor surface.
+            The rays absorbed by the light-sensitive silicon layer.
             The :attr:`optika.rays.RayVectorArray.intensity` field should
             either be in units of photons or energy.
         normal
@@ -1223,7 +1338,6 @@ class IdealSensorMaterial(
         normal: na.AbstractCartesian3dVectorArray,
         noise: bool = False,
     ) -> optika.rays.RayVectorArray:
-
         intensity = rays.intensity
         if not intensity.unit.is_equivalent(u.photon):
             h = astropy.constants.h
@@ -1564,7 +1678,6 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         normal: na.AbstractCartesian3dVectorArray,
         noise: bool = True,
     ) -> optika.rays.RayVectorArray:
-
         intensity = rays.intensity
         wavelength = rays.wavelength
 
@@ -1581,7 +1694,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         electrons = signal(
             photons_expected=intensity,
             wavelength=wavelength,
-            absorbance=self.absorbance(rays, normal).average,
+            absorbance=1,
             absorption=self._chemical.absorption(wavelength),
             thickness_implant=self.thickness_implant,
             cce_backsurface=self.cce_backsurface,
@@ -1631,7 +1744,6 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> optika.rays.RayVectorArray:
-
         width = self.width_charge_diffusion(rays, normal)
 
         position = dataclasses.replace(
@@ -1652,7 +1764,12 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
-        return 1
+        result = self.absorbance(
+            rays=rays,
+            normal=normal,
+        )
+
+        return result.average
 
 
 @dataclasses.dataclass(eq=False, repr=False)
