@@ -960,7 +960,8 @@ def signal(
     width_pixel: u.Quantity | na.AbstractScalar = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
-    method: Literal["exact", "approx", "expected"] = "exact",
+    method: Literal["monte-carlo", "expected"] = "monte-carlo",
+    axis_xy: None | tuple[str, str] = None,
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
@@ -991,6 +992,16 @@ def signal(
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
+    thickness_depletion
+        The thickness of the depletion region, the region with significant electric
+        field.
+        If :obj:`None` (the default), this is set to the same value as
+        `thickness_substrate`.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+        The default
+    width_pixel
+        The size of a single pixel on the sensor.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -1005,6 +1016,10 @@ def signal(
         of photons is high.
         The `expected` method does not add any noise to the signal and just
         returns the expected number of electrons.
+    axis_xy
+        The two logical axes corresponding to the pixel grid of the sensor
+        along which electrons will diffuse.
+        If :obj:`None` (the default), there is no charge diffusion.
     shape_random
         Additional shape used to specify the number of samples to draw.
 
@@ -1063,33 +1078,36 @@ def signal(
             wavelength=wavelength,
             temperature=temperature,
         )
+        absorbance = transmittance * np.exp(-absorption * thickness_substrate)
         cce = charge_collection_efficiency(
             absorption=absorption,
             thickness_implant=thickness_implant,
             cce_backsurface=cce_backsurface,
         )
-        return iqy * transmittance * cce * photons_expected.to(u.ph)
+        return iqy * absorbance * cce * photons_expected.to(u.ph)
 
-    photons_absorbed_expected = absorbance * photons_expected.to(u.ph)
-    photons_absorbed = na.random.poisson(
-        lam=photons_absorbed_expected,
-        shape_random=shape_random,
-    ).astype(int)
+    elif method == "monte-carlo":
 
-    kwargs = dict(
-        photons_absorbed=photons_absorbed,
-        wavelength=wavelength,
-        absorption=absorption,
-        thickness_implant=thickness_implant,
-        cce_backsurface=cce_backsurface,
-        temperature=temperature,
-        shape_random=shape_random,
-    )
+        photons_expected = transmittance * photons_expected.to(u.ph)
+        photons = na.random.poisson(
+            lam=photons_expected,
+            shape_random=shape_random,
+        ).astype(int)
 
-    if method == "exact":
-        return electrons_measured(**kwargs)
-    elif method == "approx":
-        return electrons_measured_approx(**kwargs)
+        return electrons_measured(
+            photons_transmitted=photons,
+            wavelength=wavelength,
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            thickness_depletion=thickness_depletion,
+            thickness_substrate=thickness_substrate,
+            width_pixel=width_pixel,
+            cce_backsurface=cce_backsurface,
+            temperature=temperature,
+            axis_xy=axis_xy,
+            shape_random=shape_random,
+        )
+
     else:  # pragma: nocover
         raise ValueError(f"Unrecognized method: {method}")
 
@@ -1262,22 +1280,31 @@ class AbstractSensorMaterial(
     @abc.abstractmethod
     def signal(
         self,
-        rays: optika.rays.RayVectorArray,
+        photons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: na.AbstractCartesian3dVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
-    ) -> optika.rays.RayVectorArray:
+    ) -> na.AbstractScalar:
         """
         Given a set of absorbed rays, compute the number of electrons
         measured by the sensor using :func:`signal`.
 
         Parameters
         ----------
-        rays
-            The rays absorbed by the light-sensitive silicon layer.
-            The :attr:`optika.rays.RayVectorArray.intensity` field should
-            either be in units of photons or energy.
+        photons
+            The number of photons incident on each pixel.
+        wavelength
+            An assumed grid of wavelengths for the incident photons.
+        direction
+            An assumed propagation direction for the incident photons.
         normal
             The vector perpendicular to the surface of the sensor.
+        axis_xy
+            The two logical axes corresponding to the pixel grid of the sensor.
+            If provided, charge diffusion will occur along these two axes.
+            If :obj:`None` (the default), no diffusion is performed.
         noise
             Whether to add noise to the result.
         """
@@ -1298,29 +1325,11 @@ class AbstractSensorMaterial(
         Parameters
         ----------
         electrons
-            The number of electrons measured by the sensor.
+            The number of electrons measured by each pixel.
         wavelength
             An assumed grid of wavelengths for the incident photons.
         direction
             An assumed propagation direction for the incident photons.
-        normal
-            The vector perpendicular to the surface of the sensor.
-        """
-
-    @abc.abstractmethod
-    def charge_diffusion(
-        self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> optika.rays.RayVectorArray:
-        """
-        Given a set of incident rays, compute how much the position of each ray
-        is perturbed due to charge diffusion within the sensor.
-
-        Parameters
-        ----------
-        rays
-            The rays incident on the sensor surface.
         normal
             The vector perpendicular to the surface of the sensor.
         """
@@ -1338,15 +1347,18 @@ class IdealSensorMaterial(
 
     def signal(
         self,
-        rays: optika.rays.RayVectorArray,
+        photons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: na.AbstractCartesian3dVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
-        noise: bool = False,
+        axis_xy: None | tuple[str, str] = None,
+        noise: bool = True,
     ) -> optika.rays.RayVectorArray:
-        intensity = rays.intensity
-        if not intensity.unit.is_equivalent(u.photon):
+
+        if not photons.unit.is_equivalent(u.photon):
             h = astropy.constants.h
             c = astropy.constants.c
-            intensity = intensity / (h * c / rays.wavelength) * u.photon
+            intensity = photons / (h * c / wavelength) * u.photon
 
         if noise:
             intensity = na.random.poisson(intensity.to(u.ph)).astype(int)
@@ -1354,9 +1366,7 @@ class IdealSensorMaterial(
         electrons = intensity * u.electron / u.photon
         electrons = electrons.to(u.electron)
 
-        result = dataclasses.replace(rays, intensity=electrons)
-
-        return result
+        return electrons
 
     def photons_incident(
         self,
@@ -1366,13 +1376,6 @@ class IdealSensorMaterial(
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         return electrons * u.photon / u.electron
-
-    def charge_diffusion(
-        self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> optika.rays.RayVectorArray:
-        return rays
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -1503,8 +1506,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
     def width_charge_diffusion(
         self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
     ) -> na.AbstractScalar:
         """
         The standard deviation of the charge diffusion kernel for this sensor.
@@ -1512,21 +1514,62 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
         Parameters
         ----------
-        rays
-            The rays incident on the sensor surface.
-        normal
-            The vector perpendicular to the surface of the sensor.
+        wavelength
+            The wavelength of the incident light in vacuum.
         """
         return optika.sensors.charge_diffusion(
-            self._chemical.absorption(rays.wavelength),
+            self._chemical.absorption(wavelength),
             thickness_substrate=self.thickness_substrate,
             thickness_depletion=self.depletion.thickness,
         )
 
+    def transmittance(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        index_refraction: float | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+    ) -> optika.vectors.PolarizationVectorArray:
+        """
+        Compute the fraction of energy transmitted to the light-sensitive region
+        of the sensor.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+        index_refraction
+            The complex index of refraction of the ambient medium.
+        normal
+            The vector perpendicular to the surface of the CCD sensor.
+        """
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, 1)
+
+        return transmittance(
+            wavelength=wavelength,
+            direction=-direction @ normal,
+            n=index_refraction,
+            thickness_oxide=self.thickness_oxide,
+            thickness_substrate=self.thickness_substrate,
+            chemical_oxide=self._chemical_oxide,
+            chemical_substrate=self._chemical,
+            roughness_oxide=self.roughness_oxide,
+            roughness_substrate=self.roughness_substrate,
+        )
+
     def absorbance(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        index_refraction: float | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
     ) -> optika.vectors.PolarizationVectorArray:
         """
         Compute the fraction of energy absorbed by the light-sensitive region
@@ -1534,15 +1577,26 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
         Parameters
         ----------
-        rays
-            The light rays incident on the CCD surface.
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+        n
+            The complex index of refraction of the ambient medium.
         normal
             The vector perpendicular to the surface of the CCD sensor.
         """
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+        
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, 1)
+        
         return absorbance(
-            wavelength=rays.wavelength,
-            direction=-rays.direction @ normal,
-            n=rays.index_refraction,
+            wavelength=wavelength,
+            direction=-direction @ normal,
+            n=index_refraction,
             thickness_oxide=self.thickness_oxide,
             thickness_substrate=self.thickness_substrate,
             chemical_oxide=self._chemical_oxide,

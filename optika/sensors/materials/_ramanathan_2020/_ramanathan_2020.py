@@ -470,7 +470,7 @@ def electrons_measured(
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_depletion: None | u.Quantity | na.AbstractScalar = None,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     width_pixel: u.Quantity | na.ScalarArray = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
@@ -500,8 +500,8 @@ def electrons_measured(
     thickness_depletion
         The thickness of the depletion region, the region with significant electric
         field.
-        This is sent to `thickness_substrate` by default, which is equivalent to
-        there being no field-free region in which charge diffusion occurs.
+        If :obj:`None` (the default), this is set to the same value as
+        `thickness_substrate`.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
     width_pixel
@@ -580,6 +580,9 @@ def electrons_measured(
 
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+
+    if thickness_depletion is None:
+        thickness_depletion = thickness_substrate
 
     if shape_random is None:
         shape_random = dict()
