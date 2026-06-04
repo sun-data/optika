@@ -88,3 +88,23 @@ class TestHolographicRulingSpacing(
     AbstractTestAbstractRulingSpacing,
 ):
     pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.rulings.FZPRulingSpacing(
+            wavelength=171 * u.AA,
+            focal_length=1000 * u.mm,
+        ),
+        optika.rulings.FZPRulingSpacing(
+            wavelength=500 * u.nm,
+            focal_length=200 * u.mm,
+            center=na.Cartesian2dVectorArray(5 * u.mm, 0 * u.mm),
+        ),
+    ],
+)
+class TestFZPRulingSpacing(
+    AbstractTestAbstractRulingSpacing,
+):
+    pass

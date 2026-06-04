@@ -8,6 +8,7 @@ __all__ = [
     "ConstantRulingSpacing",
     "Polynomial1dRulingSpacing",
     "HolographicRulingSpacing",
+    "FZPRulingSpacing",
 ]
 
 
@@ -326,3 +327,77 @@ class HolographicRulingSpacing(
         result = spacing * q.cross(n)
 
         return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class FZPRulingSpacing(
+    AbstractRulingSpacing,
+):
+    r"""
+    Ruling spacing for a Fresnel Zone Plate (FZP) designed to focus
+    collimated input light to a single focal point.
+
+    This is a convenience wrapper around :class:`HolographicRulingSpacing`
+    for the common case of a transmissive FZP illuminated by a plane wave
+    (object at infinity).  The two recording-beam origins are derived
+    automatically:
+
+    - :math:`x_1` is placed at :math:`1\,\mathrm{AU}` on the optical axis,
+      approximating a true plane wave (:math:`x_1 \to -\infty`).
+    - :math:`x_2` is placed at ``(center.x, center.y, focal_length)``.
+
+    Parameters
+    ----------
+    wavelength
+        The design wavelength of the FZP.
+    focal_length
+        Distance from the FZP plane to the focal point along the optical axis.
+    center
+        Lateral (:math:`x, y`) offset of the focal point from the optical
+        axis, for off-axis FZPs.  If ``None`` (default), the focal point
+        is on-axis.
+    transformation
+        An optional transformation from surface coordinates to ruling
+        coordinates.
+    """
+
+    wavelength: u.Quantity | na.AbstractScalar
+    """The design wavelength."""
+
+    focal_length: u.Quantity | na.AbstractScalar
+    """Distance from the FZP to the focal point along the optical axis."""
+
+    center: None | na.AbstractCartesian2dVectorArray = None
+    """Lateral focal-point offset for off-axis FZPs (default: on-axis)."""
+
+    transformation: None | na.transformations.AbstractTransformation = None
+    """Optional coordinate-system transformation."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.wavelength),
+            optika.shape(self.focal_length),
+            optika.shape(self.center),
+        )
+
+    def __call__(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.Cartesian3dVectorArray:
+        f = self.focal_length
+        unit = na.unit(f)
+        if self.center is not None:
+            cx = self.center.x
+            cy = self.center.y
+        else:
+            cx = cy = 0 * unit
+        return HolographicRulingSpacing(
+            x1=na.Cartesian3dVectorArray(0, 0, -1) * (1 * u.au).to(unit),
+            x2=na.Cartesian3dVectorArray(x=cx, y=cy, z=f),
+            wavelength=self.wavelength,
+            is_diverging_1=True,
+            is_diverging_2=False,
+            transformation=self.transformation,
+        )(position, normal)
