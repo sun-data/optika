@@ -107,4 +107,31 @@ class TestHolographicRulingSpacing(
 class TestFZPRulingSpacing(
     AbstractTestAbstractRulingSpacing,
 ):
-    pass
+    @pytest.mark.parametrize(
+        argnames="position",
+        argvalues=[
+            # Avoid (0, 0, 0): the ruling vector degenerates to zero at the
+            # exact on-axis center of an FZP (physically correct behaviour).
+            na.Cartesian3dVectorArray(5, 0, 0) * u.mm,
+            na.Cartesian3dVectorArray(
+                x=na.linspace(-5, 5, axis="position_x", num=6) * u.mm,
+                y=na.linspace(-5, 5, axis="position_y", num=6) * u.mm,
+                z=0 * u.mm,
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test__call__(
+        self,
+        a: optika.rulings.AbstractRulingSpacing,
+        position: na.AbstractCartesian3dVectorArray,
+        normal: na.Cartesian3dVectorArray,
+    ):
+        result = a(position, normal)
+        assert isinstance(result, na.AbstractCartesian3dVectorArray)
+        assert np.all(result.length > (0 * u.mm))
