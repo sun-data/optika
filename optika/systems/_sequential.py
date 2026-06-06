@@ -549,11 +549,12 @@ class AbstractSequentialSystem(
         axis: None | str = None,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
+        accumulate: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
         rays, trace those rays through the system and return the result in
-        global coordinates, including all intermediate rays.
+        global coordinates, optionally including all intermediate rays.
 
         Parameters
         ----------
@@ -580,6 +581,8 @@ class AbstractSequentialSystem(
         normalized_pupil
             A boolean flag indicating whether the `pupil` parameter is given
             in normalized or physical units.
+        accumulate
+            Whether to include intermediate rays in the result.
 
         See Also
         --------
@@ -614,11 +617,18 @@ class AbstractSequentialSystem(
 
         surfaces = self.surfaces_all
 
-        result.outputs = optika.propagators.accumulate_rays(
-            propagators=surfaces,
-            rays=rays,
-            axis=axis,
-        )
+        if accumulate:
+            result.outputs = optika.propagators.accumulate_rays(
+                propagators=surfaces,
+                rays=rays,
+                axis=axis,
+            )
+        else:
+            result.outputs = optika.propagators.propagate_rays(
+                propagators=surfaces,
+                rays=rays,
+            )
+
         return result
 
     def rayfunction(
@@ -633,7 +643,7 @@ class AbstractSequentialSystem(
         """
         Given the wavelength, field position, and pupil position of some input
         rays, trace those rays through the system and return the resulting
-        rays in local coordinates at the last surface.
+        rays in local coordinates of the sensor (if it exists).
 
         Parameters
         ----------
@@ -660,7 +670,7 @@ class AbstractSequentialSystem(
 
         See Also
         --------
-        raytrace : Similar to `rayfunction` except it computes all the
+        raytrace : Similar to `rayfunction` except it can compute all the
             intermediate rays, and it returns results in global coordinates.
         """
 

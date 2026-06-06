@@ -28,9 +28,9 @@ def propagate_rays(
     Parameters
     ----------
     propagators
-        a sequence of ray propagators to interact with ``rays``
+        A sequence of ray propagators to interact with `rays`.
     rays
-        the input rays to propagate through the sequence
+        The input rays to propagate through the sequence.
     """
     if isinstance(propagators, AbstractRayPropagator):
         propagators = [propagators]
@@ -54,11 +54,11 @@ def accumulate_rays(
     Parameters
     ----------
     propagators
-        a sequence of ray propagators to interact with ``rays``
+        A sequence of ray propagators to interact with `rays`.
     rays
-        the input rays to propagate through the sequence
+        The input rays to propagate through the sequence.
     axis
-        the new axis representing the sequence of propagators
+        The new logical axis representing the sequence of propagators.
     """
     if isinstance(propagators, AbstractRayPropagator):
         propagators = [propagators]
@@ -98,7 +98,7 @@ class AbstractRayPropagator(
         Parameters
         ----------
         rays
-            a set of input rays that will interact with this object
+            A set of input rays that will interact with this object.
         """
 
 
