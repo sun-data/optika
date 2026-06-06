@@ -118,22 +118,26 @@ class AbstractTestAbstractSequentialSystem(
             ),
         ],
     )
+    @pytest.mark.parametrize("accumulate", [True, False])
     def test_raytrace(
         self,
         a: optika.systems.AbstractSequentialSystem,
         wavelength: None | u.Quantity | na.AbstractScalar,
         field: None | na.AbstractCartesian2dVectorArray,
         pupil: None | na.AbstractCartesian2dVectorArray,
+        accumulate: bool,
     ):
         raytrace = a.raytrace(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
+            accumulate=accumulate,
         )
         assert isinstance(raytrace, optika.rays.RayFunctionArray)
         assert isinstance(raytrace.inputs, optika.vectors.ObjectVectorArray)
         assert isinstance(raytrace.outputs, optika.rays.RayVectorArray)
-        assert a.axis_surface in raytrace.shape
+        if accumulate:
+            assert a.axis_surface in raytrace.shape
 
     @pytest.mark.parametrize(
         argnames="wavelength,field,pupil",
