@@ -472,7 +472,9 @@ def electrons_measured(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_depletion: None | u.Quantity | na.AbstractScalar = None,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
-    width_pixel: u.Quantity | na.ScalarArray = _width_pixel,
+    width_pixel: (
+        u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     axis_xy: None | tuple[str, str] = None,
@@ -494,7 +496,10 @@ def electrons_measured(
     wavelength
         The vacuum wavelength of the absorbed photons.
     absorption
-        The absorption coefficient of silicon at the given wavelength.
+        The absorption coefficient of silicon per unit perpendicular depth.
+        For oblique incidence, supply the effective coefficient from
+        :func:`optika.sensors.absorption_effective`, which folds in the
+        refracted angle, so no separate angle argument is needed.
     thickness_implant
         The thickness of the implant layer, where partial-charge collection occurs.
     thickness_depletion
@@ -506,6 +511,10 @@ def electrons_measured(
         The thickness of the entire light-sensitive region of the device.
     width_pixel
         The size of a single pixel on the sensor.
+        A scalar gives square pixels; a
+        :class:`named_arrays.AbstractCartesian2dVectorArray` whose ``x``/``y``
+        components are the pixel widths along ``axis_xy[0]``/``axis_xy[1]``
+        gives rectangular pixels.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -587,6 +596,12 @@ def electrons_measured(
     if shape_random is None:
         shape_random = dict()
 
+    if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
+        width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
+
+    width_pixel_x = width_pixel.x
+    width_pixel_y = width_pixel.y
+
     shape = na.broadcast_shapes(
         na.shape(photons_transmitted),
         na.shape(wavelength),
@@ -594,7 +609,8 @@ def electrons_measured(
         na.shape(thickness_implant),
         na.shape(thickness_depletion),
         na.shape(thickness_substrate),
-        na.shape(width_pixel),
+        na.shape(width_pixel_x),
+        na.shape(width_pixel_y),
         na.shape(cce_backsurface),
         na.shape(temperature),
         shape_random,
@@ -615,7 +631,8 @@ def electrons_measured(
     thickness_implant = na.broadcast_to(thickness_implant, shape)
     thickness_depletion = na.broadcast_to(thickness_depletion, shape)
     thickness_substrate = na.broadcast_to(thickness_substrate, shape)
-    width_pixel = na.broadcast_to(width_pixel, shape)
+    width_pixel_x = na.broadcast_to(width_pixel_x, shape)
+    width_pixel_y = na.broadcast_to(width_pixel_y, shape)
     cce_backsurface = na.broadcast_to(cce_backsurface, shape)
 
     if not isinstance(cce_backsurface, u.Quantity):
@@ -645,7 +662,8 @@ def electrons_measured(
         thickness_implant=thickness_implant.ndarray,
         thickness_depletion=thickness_depletion.ndarray,
         thickness_substrate=thickness_substrate.ndarray,
-        width_pixel=width_pixel,
+        width_pixel_x=width_pixel_x.ndarray,
+        width_pixel_y=width_pixel_y.ndarray,
         cce_backsurface=cce_backsurface.ndarray,
         p_n=p_n.ndarray,
         n=n.ndarray,
@@ -653,10 +671,15 @@ def electrons_measured(
         fano_inf=fano_inf.ndarray,
     )
 
-    return na.ScalarArray(
+    result = na.ScalarArray(
         ndarray=result,
         axes=tuple(shape),
     )
+
+    if axis_xy is None:
+        result = result[{axis_x: 0, axis_y: 0}]
+
+    return result
 
 
 def _electrons_measured_quantity(
@@ -666,7 +689,8 @@ def _electrons_measured_quantity(
     thickness_implant: u.Quantity,
     thickness_depletion: u.Quantity,
     thickness_substrate: u.Quantity,
-    width_pixel: u.Quantity,
+    width_pixel_x: u.Quantity,
+    width_pixel_y: u.Quantity,
     cce_backsurface: u.Quantity,
     p_n: np.ndarray,
     n: np.ndarray,
@@ -681,7 +705,8 @@ def _electrons_measured_quantity(
         thickness_depletion.shape,
         thickness_substrate.shape,
         cce_backsurface.shape,
-        width_pixel.shape,
+        width_pixel_x.shape,
+        width_pixel_y.shape,
     )
 
     num_x = shape[~1]
@@ -695,7 +720,8 @@ def _electrons_measured_quantity(
     thickness_implant = thickness_implant.to_value(unit_length)
     thickness_depletion = thickness_depletion.to_value(unit_length)
     thickness_substrate = thickness_substrate.to_value(unit_length)
-    width_pixel = width_pixel.to_value(unit_length)
+    width_pixel_x = width_pixel_x.to_value(unit_length)
+    width_pixel_y = width_pixel_y.to_value(unit_length)
     cce_backsurface = cce_backsurface.to_value(u.dimensionless_unscaled)
     energy_pair_inf = energy_pair_inf.to_value(u.eV)
     fano_inf = fano_inf.to_value(u.electron / u.photon)
@@ -707,7 +733,8 @@ def _electrons_measured_quantity(
         thickness_implant=thickness_implant.reshape(-1, num_x, num_y),
         thickness_depletion=thickness_depletion.reshape(-1, num_x, num_y),
         thickness_substrate=thickness_substrate.reshape(-1, num_x, num_y),
-        width_pixel=width_pixel.reshape(-1, num_x, num_y),
+        width_pixel_x=width_pixel_x.reshape(-1, num_x, num_y),
+        width_pixel_y=width_pixel_y.reshape(-1, num_x, num_y),
         cce_backsurface=cce_backsurface.reshape(-1, num_x, num_y),
         p_n=p_n.reshape(-1, num_x, num_y, p_n.shape[~0]),
         n=n.reshape(-1, num_x, num_y, n.shape[~0]),
@@ -722,7 +749,11 @@ def _electrons_measured_quantity(
     return result
 
 
-@numba.njit(fastmath=True, parallel=True)
+@numba.njit(
+    cache=True,
+    fastmath=True,
+    parallel=True,
+)
 def _electrons_measured_numba(
     photons_transmitted: np.ndarray,
     energy: np.ndarray,
@@ -730,7 +761,8 @@ def _electrons_measured_numba(
     thickness_implant: np.ndarray,
     thickness_depletion: np.ndarray,
     thickness_substrate: np.ndarray,
-    width_pixel: np.ndarray,
+    width_pixel_x: np.ndarray,
+    width_pixel_y: np.ndarray,
     cce_backsurface: np.ndarray,
     p_n: np.ndarray,
     n: np.ndarray,
@@ -756,6 +788,8 @@ def _electrons_measured_numba(
                 fano_inf_i = fano_inf[i, x, y]
                 z_substrate = thickness_substrate[i, x, y]
                 z_ff = z_substrate - thickness_depletion[i, x, y]
+                wp_x = width_pixel_x[i, x, y]
+                wp_y = width_pixel_y[i, x, y]
 
                 d = 1 / a
 
@@ -795,11 +829,11 @@ def _electrons_measured_numba(
                     v = random.uniform(-0.5, 0.5)
 
                     for e in range(m_ij):
-                        if z_ij < z_ff:
-                            w = z_ff * math.sqrt(1 - z_ij / z_ff) / width_pixel
+                        if z_ij < z_ff and wp_x > 0 and wp_y > 0:
+                            w = z_ff * math.sqrt(1 - z_ij / z_ff)
 
-                            p = random.gauss(u, w)
-                            q = random.gauss(v, w)
+                            p = random.gauss(u, w / wp_x)
+                            q = random.gauss(v, w / wp_y)
 
                             p = round(p)
                             q = round(q)

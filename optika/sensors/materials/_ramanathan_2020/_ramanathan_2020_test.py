@@ -98,7 +98,7 @@ def test_fano_factor_inf(
 
 
 @pytest.mark.parametrize(
-    argnames="photons_absorbed",
+    argnames="photons_transmitted",
     argvalues=[
         100 * u.photon,
     ],
@@ -125,20 +125,28 @@ def test_fano_factor_inf(
         0.5,
     ],
 )
+@pytest.mark.parametrize(
+    argnames="width_pixel",
+    argvalues=[
+        15 * u.um,
+    ],
+)
 @pytest.mark.parametrize("temperature", _temperture)
 def test_electrons_measured(
-    photons_absorbed: u.Quantity | na.AbstractScalar,
+    photons_transmitted: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar,
     cce_backsurface: u.Quantity | na.AbstractScalar,
     temperature: u.Quantity | na.ScalarArray,
+    width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
 ):
     result = _ramanathan_2020.electrons_measured(
-        photons_absorbed=photons_absorbed,
+        photons_transmitted=photons_transmitted,
         wavelength=wavelength,
         absorption=absorption,
         thickness_implant=thickness_implant,
+        width_pixel=width_pixel,
         cce_backsurface=cce_backsurface,
         temperature=temperature,
     )
@@ -146,7 +154,7 @@ def test_electrons_measured(
     assert np.all(result >= 0 * u.electron)
 
     shape = na.shape_broadcasted(
-        photons_absorbed,
+        photons_transmitted,
         wavelength,
         absorption,
         thickness_implant,

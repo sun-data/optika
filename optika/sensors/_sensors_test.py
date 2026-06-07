@@ -26,6 +26,7 @@ class AbstractTestAbstractImagingSensor(
                 intensity=100 * u.photon / u.s,
                 wavelength=500 * u.nm,
                 position=na.Cartesian3dVectorArray() * u.mm,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
             ),
             optika.rays.RayVectorArray(
                 intensity=na.random.poisson(100, shape_random=dict(t=11)) * u.erg / u.s,
@@ -35,6 +36,7 @@ class AbstractTestAbstractImagingSensor(
                     y=na.random.uniform(-1, 1, shape_random=dict(t=11)) * u.mm,
                     z=0 * u.mm,
                 ),
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
             ),
         ],
     )
