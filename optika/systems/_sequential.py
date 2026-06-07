@@ -915,7 +915,7 @@ class AbstractSequentialSystem(
                 axis=axis_wavelength,
             )
 
-        return self.sensor.readout(
+        return self.sensor.measure(
             rays=rayfunction.outputs,
             wavelength=wavelength,
             axis=(axis_wavelength,) + axis_field + axis_pupil,

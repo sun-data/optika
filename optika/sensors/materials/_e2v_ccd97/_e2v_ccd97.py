@@ -95,10 +95,8 @@ def e2v_ccd97(
 
         # Evaluate the fitted QE using the given wavelengths
         eqe_fit = material.quantum_efficiency_effective(
-            rays=optika.rays.RayVectorArray(
-                wavelength=wavelength_fit,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            wavelength=wavelength_fit,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
             normal=na.Cartesian3dVectorArray(0, 0, -1),
         )
 
@@ -161,10 +159,8 @@ def e2v_ccd97(
         material_ccd_aia = optika.sensors.materials.e2v_ccd203()
 
         eqe_fit_aia = material_ccd_aia.quantum_efficiency_effective(
-            rays=optika.rays.RayVectorArray(
-                wavelength=wavelength_fit,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            wavelength=wavelength_fit,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
             normal=na.Cartesian3dVectorArray(0, 0, -1),
         )
 
@@ -205,11 +201,7 @@ def e2v_ccd97(
         # Compute the width of the charge diffusion kernel
         # for each wavelength.
         width = material.width_charge_diffusion(
-            rays=optika.rays.RayVectorArray(
-                wavelength=wavelength_fit,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
-            normal=na.Cartesian3dVectorArray(0, 0, -1),
+            wavelength=wavelength_fit,
         )
 
         # Plot the results

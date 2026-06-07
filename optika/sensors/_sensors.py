@@ -81,7 +81,7 @@ class AbstractImagingSensor(
             half_width=self.width_pixel * self.num_pixel / 2,
         )
 
-    def bin_rays(
+    def collect(
         self,
         rays: optika.rays.RayVectorArray,
         wavelength: na.AbstractScalar,
@@ -136,7 +136,8 @@ class AbstractImagingSensor(
 
         # flux-weighted mean cosine; empty pixels carry no flux, assume normal incidence
         nonempty = image.outputs > 0
-        direction = np.where(nonempty, moment.outputs / image.outputs, 1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            direction = np.where(nonempty, moment.outputs / image.outputs, 1)
 
         return image, direction
 
@@ -147,6 +148,7 @@ class AbstractImagingSensor(
             na.AbstractScalar,
         ],
         direction: float | na.AbstractScalar = 1,
+        axis_wavelength: None | str = None,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         noise: bool = True,
     ) -> na.FunctionArray[
@@ -158,7 +160,7 @@ class AbstractImagingSensor(
 
         This is the detector-physics step shared by every optical system: it
         operates on a pixel grid (a photon image plus an incidence-cosine map),
-        so it can be driven by :meth:`bin_rays` for a ray-traced system, or by
+        so it can be driven by :meth:`collect` for a ray-traced system, or by
         any model that produces a per-pixel photon image directly.
 
         The photon flux is multiplied by the exposure time and converted to
@@ -171,8 +173,14 @@ class AbstractImagingSensor(
         image
             The expected photon flux incident on each pixel, as a function of
             wavelength and pixel position.
+            The wavelength inputs (``image.inputs.wavelength``) must be the
+            bin *edges*, not the centers.
         direction
             The cosine of the incidence angle in each pixel.
+        axis_wavelength
+            The logical axis of `image` corresponding to changing wavelength.
+            If :obj:`None` (the default), ``image.inputs.wavelength`` must have
+            only one logical axis.
         timedelta
             The exposure time of the measurement.
             If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
@@ -180,24 +188,32 @@ class AbstractImagingSensor(
         noise
             Whether to add shot noise and intrinsic sensor noise to the result.
         """
+        if axis_wavelength is None:
+            shape_wavelength = na.shape(image.inputs.wavelength)
+            if len(shape_wavelength) != 1:
+                raise ValueError(
+                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
+                    f"must have exactly one logical axis, got {shape_wavelength}."
+                )
+            (axis_wavelength,) = shape_wavelength
+
         if timedelta is None:
             timedelta = self.timedelta_exposure
 
         photons = image.outputs * timedelta
-        sgn = np.sign(photons)
 
         electrons = self.material.signal(
-            photons=np.abs(photons),
-            wavelength=image.inputs.wavelength,
+            photons=photons,
+            wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
             direction=direction,
             width_pixel=self.width_pixel,
             axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
             noise=noise,
         )
 
-        return dataclasses.replace(image, outputs=sgn * electrons)
+        return dataclasses.replace(image, outputs=electrons)
 
-    def readout(
+    def measure(
         self,
         rays: optika.rays.RayVectorArray,
         wavelength: na.AbstractScalar,
@@ -213,7 +229,7 @@ class AbstractImagingSensor(
         Bin a set of rays onto the pixel grid and convert them to the electrons
         measured by the sensor.
 
-        This composes :meth:`bin_rays` (gather rays into the pixel grid) with
+        This composes :meth:`collect` (gather rays into the pixel grid) with
         :meth:`expose` (apply the detector physics).
 
         Parameters
@@ -233,7 +249,7 @@ class AbstractImagingSensor(
         noise
             Whether to add shot noise and intrinsic sensor noise to the result.
         """
-        image, direction = self.bin_rays(
+        image, direction = self.collect(
             rays=rays,
             wavelength=wavelength,
             axis=axis,

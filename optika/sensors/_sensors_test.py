@@ -46,13 +46,13 @@ class AbstractTestAbstractImagingSensor(
             na.linspace(500, 600, axis="wavelength", num=11) * u.nm,
         ],
     )
-    def test_readout(
+    def test_measure(
         self,
         a: optika.sensors.AbstractImagingSensor,
         rays: optika.rays.RayVectorArray,
         wavelength: u.Quantity | na.AbstractScalar,
     ):
-        result = a.readout(rays, wavelength)
+        result = a.measure(rays, wavelength)
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert isinstance(result.outputs, na.AbstractScalar)

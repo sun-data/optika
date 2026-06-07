@@ -602,13 +602,9 @@ def quantum_efficiency_effective(
         # Define an array of wavelengths with which to sample the EQE
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
-        # Define the incidence directions
+        # Define the cosines of the incidence angles
         angle = na.linspace(0, 30, axis="angle", num=2) * u.deg
-        direction = na.Cartesian3dVectorArray(
-            x=np.sin(angle),
-            y=0,
-            z=np.cos(angle),
-        )
+        direction = np.cos(angle)
 
         eqe = optika.sensors.quantum_efficiency_effective(
             wavelength=wavelength,
@@ -2103,7 +2099,7 @@ class BackIlluminatedSiliconSensorMaterial(
             ) = x
             qe_fit = quantum_efficiency_effective(
                 wavelength=eqe_measured.inputs,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
+                direction=1,
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
                 thickness_substrate=thickness_substrate,

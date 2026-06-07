@@ -71,6 +71,10 @@ class AbstractRayVectorArray(
         """
 
     @property
+    def n(self) -> complex | na.AbstractScalar:
+        return self.index_refraction + self.attenuation * self.wavelength / (4 * np.pi) * 1j
+
+    @property
     def type_abstract(self) -> type[na.AbstractArray]:
         return AbstractRayVectorArray
 

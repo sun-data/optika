@@ -80,6 +80,21 @@ class AbstractTestAbstractRayVectorArray(
     def test_index_refraction(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.index_refraction), na.AbstractScalar)
 
+    def test_n(self, array: optika.rays.AbstractRayVectorArray):
+        result = array.n
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+
+        # The real part is the real index of refraction.
+        assert np.allclose(np.real(result), array.index_refraction)
+
+        # The imaginary part is the (non-negative) extinction coefficient,
+        # k = alpha * lambda / (4 pi).
+        extinction = (array.attenuation * array.wavelength / (4 * np.pi)).to(
+            u.dimensionless_unscaled
+        )
+        assert np.allclose(np.imag(result), extinction)
+        assert np.all(np.imag(result) >= 0)
+
     def test_unvignetted(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.unvignetted), na.AbstractScalar)
 
