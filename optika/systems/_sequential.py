@@ -795,13 +795,12 @@ class AbstractSequentialSystem(
     def image(
         self,
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
-        wavelength: None | na.AbstractScalar = None,
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         axis_pupil: None | tuple[str, str] = None,
+        integrate: bool = True,
         noise: bool = True,
-        **kwargs,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Forward model of the optical system.
@@ -813,47 +812,50 @@ class AbstractSequentialSystem(
             The spectral radiance of the scene as a function of wavelength
             and field position.
             The inputs must be cell vertices.
-        wavelength
-            The vertices of the final wavelength grid on the image plane.
-            If :obj:`None` (the default), ``scene.inputs.wavelength`` is used.
         pupil
             The vertices of the pupil grid in either normalized or physical
             coordinates.
-            If :obj:`None`, ``self.grid_input.pupil`` is used.
+            If :obj:`None` (the default), the pupil grid will only have one cell.
         axis_wavelength
-            The logical axis corresponding to changing wavelength coordinate.
+            The logical axis of `scene` corresponding to changing wavelength coordinate.
             If :obj:`None`,
             ``set(scene.inputs.wavelength.shape) - set(self.shape)``,
             should have only one element.
         axis_field
-            The two logical axes corresponding to changing field coordinate.
+            The two logical axes of `scene` corresponding to changing field coordinate.
             If :obj:`None`,
             ``set(scene.inputs.position.shape) - set(self.shape) - {axis_wavelength}``,
             should have exactly two elements.
         axis_pupil
-            The two logical axes corresponding to changing pupil coordinate.
+            The two logical axes of `pupil` corresponding to changing pupil coordinate.
             If :obj:`None`,
             ``set(pupil.shape) - set(self.shape) - {axis_wavelength,} - set(axis_field)``,
             should have exactly two elements.
+            If `pupil` is :obj:`None`, this parameter is ignored.
+        integrate
+            Whether to integrate the wavelength axis.
+            Real images usually have the wavelength axis integrated since they use
+            a black/white sensor, but it can be useful to leave the wavelengths
+            separate for introspective purposes.
         noise
             Whether to add noise to the result.
-        kwargs
-            Additional keyword arguments used by subclass implementations
-            of this method.
         """
 
         shape = self.shape
 
         scene = scene.explicit
 
-        wavelength_scene = scene.inputs.wavelength
+        wavelength = scene.inputs.wavelength
         field = scene.inputs.position
 
-        if wavelength is None:
-            wavelength = wavelength_scene
-
         if pupil is None:
-            pupil = self.grid_input.pupil
+            axis_pupil = ("_pupil_x", "_pupil_y")
+            pupil = na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray(*axis_pupil),
+                num=2,
+            )
 
         unit_field = na.unit_normalized(field)
         unit_pupil = na.unit_normalized(pupil)
@@ -862,7 +864,7 @@ class AbstractSequentialSystem(
         normalized_pupil = unit_pupil.is_equivalent(u.dimensionless_unscaled)
 
         if axis_wavelength is None:
-            axis_wavelength = set(wavelength_scene.shape) - set(shape)
+            axis_wavelength = set(wavelength.shape) - set(shape)
             axis_wavelength = tuple(axis_wavelength)
             if len(axis_wavelength) != 1:  # pragma: nocover
                 raise ValueError(
@@ -894,7 +896,7 @@ class AbstractSequentialSystem(
 
         rayfunction = self._rayfunction_from_vertices(
             radiance=scene.outputs,
-            wavelength=wavelength_scene,
+            wavelength=wavelength,
             field=field,
             pupil=pupil,
             axis_wavelength=axis_wavelength,
@@ -903,6 +905,15 @@ class AbstractSequentialSystem(
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
         )
+
+        if integrate:
+            wavelength = na.stack(
+                arrays=[
+                    wavelength.min(axis_wavelength),
+                    wavelength.max(axis_wavelength),
+                ],
+                axis=axis_wavelength,
+            )
 
         return self.sensor.readout(
             rays=rayfunction.outputs,
