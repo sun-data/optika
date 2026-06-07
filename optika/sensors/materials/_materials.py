@@ -271,7 +271,7 @@ def absorbance(
             wavelength=wavelength,
             method="exact",
         )
-        
+
         absorbance_beer = optika.sensors.absorbance(
             wavelength=wavelength,
             method="Beer-Lambert",
@@ -361,7 +361,9 @@ def absorbance(
             direction_substrate=direction_substrate,
         )
 
-        _transmittance_total = _transmittance * np.exp(-absorption * thickness_substrate)
+        _transmittance_total = _transmittance * np.exp(
+            -absorption * thickness_substrate
+        )
 
         result = _transmittance - _transmittance_total
 
@@ -658,7 +660,7 @@ def quantum_efficiency_effective(
         roughness_oxide=roughness_oxide,
         roughness_substrate=roughness_substrate,
     )
-    
+
     n_substrate = chemical_substrate.n(wavelength)
 
     direction_substrate = optika.materials.snells_law_scalar(
@@ -1401,7 +1403,8 @@ class AbstractSensorMaterial(
         direction: float | na.AbstractScalar = 1,
         width_pixel: (
             u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0 * u.um,
+        ) = 0
+        * u.um,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
     ) -> na.AbstractScalar:
@@ -1470,7 +1473,8 @@ class IdealSensorMaterial(
         direction: float | na.AbstractScalar = 1,
         width_pixel: (
             u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0 * u.um,
+        ) = 0
+        * u.um,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
     ) -> na.AbstractScalar:
@@ -1709,10 +1713,10 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         """
         if direction is None:
             direction = na.Cartesian3dVectorArray(0, 0, 1)
-        
+
         if normal is None:
             normal = na.Cartesian3dVectorArray(0, 0, -1)
-        
+
         return absorbance(
             wavelength=wavelength,
             direction=-direction @ normal,
@@ -1891,7 +1895,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         normal: None | na.AbstractCartesian3dVectorArray = None,
         width_pixel: (
             u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0 * u.um,
+        ) = 0
+        * u.um,
         axis_xy: None | tuple[str, str] = None,
     ) -> na.AbstractScalar:
         """
@@ -1940,7 +1945,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         n: complex | na.AbstractScalar = 1,
         width_pixel: (
             u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0 * u.um,
+        ) = 0
+        * u.um,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
     ) -> na.AbstractScalar:
@@ -1971,7 +1977,6 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             method=method,
             axis_xy=axis_xy,
         )
-
 
     def photons_incident(
         self,

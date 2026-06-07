@@ -769,7 +769,7 @@ def _electrons_measured_numba(
     energy_pair_inf: np.ndarray,
     fano_inf: np.ndarray,
 ) -> np.ndarray:
-    
+
     num_i, num_x, num_y, num_n = p_n.shape
 
     result = np.zeros((num_i, num_x, num_y))
