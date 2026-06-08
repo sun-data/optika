@@ -89,12 +89,20 @@ def test_transmittance(
         10 * u.um,
     ],
 )
+@pytest.mark.parametrize(
+    argnames="method",
+    argvalues=[
+        "Beer-Lambert",
+        "exact",
+    ],
+)
 def test_absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar,
     n: float | na.AbstractScalar,
     thickness_oxide: u.Quantity | na.AbstractScalar,
     thickness_substrate: u.Quantity | na.AbstractScalar,
+    method: str,
 ):
     result = optika.sensors.absorbance(
         wavelength=wavelength,
@@ -102,6 +110,7 @@ def test_absorbance(
         n=n,
         thickness_oxide=thickness_oxide,
         thickness_substrate=thickness_substrate,
+        method=method,
     )
 
     assert np.all(result >= 0)
@@ -509,6 +518,39 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
     ):
         result = a.width_charge_diffusion(wavelength=wavelength)
         assert np.all(result >= 0 * u.um)
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            None,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            None,
+        ],
+    )
+    def test_transmittance(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray,
+        normal: None | na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.transmittance(
+            wavelength=wavelength,
+            direction=direction,
+            normal=normal,
+        )
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
 
     @pytest.mark.parametrize(
         argnames="wavelength",
