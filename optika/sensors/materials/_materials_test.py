@@ -222,7 +222,7 @@ def test_probability_measurement(
 
 
 @pytest.mark.parametrize(
-    argnames="photons_absorbed",
+    argnames="photons_transmitted",
     argvalues=[
         (100 * u.photon).astype(int),
     ],
@@ -248,14 +248,14 @@ def test_probability_measurement(
 )
 @pytest.mark.parametrize("temperature", [300 * u.K])
 def test_electrons_measured_approx(
-    photons_absorbed: u.Quantity | na.AbstractScalar,
+    photons_transmitted: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     thickness_implant: u.Quantity | na.AbstractScalar,
     cce_backsurface: u.Quantity | na.AbstractScalar,
     temperature: u.Quantity | na.ScalarArray,
 ):
     result = optika.sensors.electrons_measured_approx(
-        photons_absorbed=photons_absorbed,
+        photons_transmitted=photons_transmitted,
         wavelength=wavelength,
         thickness_implant=thickness_implant,
         cce_backsurface=cce_backsurface,
@@ -265,7 +265,7 @@ def test_electrons_measured_approx(
     assert np.all(result >= 0 * u.electron)
 
     shape = na.shape_broadcasted(
-        photons_absorbed,
+        photons_transmitted,
         wavelength,
         thickness_implant,
         cce_backsurface,

@@ -820,10 +820,11 @@ _fano_factor = fano_factor
 
 
 def electrons_measured_approx(
-    photons_absorbed: u.Quantity | na.AbstractScalar,
+    photons_transmitted: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     iqy: None | u.Quantity | na.AbstractScalar = None,
@@ -832,30 +833,35 @@ def electrons_measured_approx(
 ) -> na.AbstractScalar:
     r"""
     A random sample from an approximate distribution of measured electrons
-    given the number of photons absorbed by the light-sensitive layer of the
-    sensor.
+    given the number of photons transmitted into the light-sensitive region
+    of the sensor.
 
-    This function accounts for both Fano noise and recombination noise due to
+    This function accounts for the fraction of photons that escape without being
+    absorbed, as well as both Fano noise and recombination noise due to
     partial-charge collection.
 
     Parameters
     ----------
-    photons_absorbed
-        The number of photons absorbed by the light-sensitive layer of the sensor.
+    photons_transmitted
+        The number of photons transmitted into the light-sensitive region
+        of the sensor.
     wavelength
         The vacuum wavelength of the absorbed photons.
     absorption
-        The absorption coefficient of the light-sensitive material for the
-        wavelength of interest.
+        The absorption coefficient of silicon per unit perpendicular depth.
+        For oblique incidence, supply the effective coefficient from
+        :func:`optika.sensors.absorption_effective`, which folds in the
+        refracted angle, so no separate angle argument is needed.
     thickness_implant
-        The thickness of the implant layer.
-        Default is the value given in :cite:t:`Stern1994`.
+        The thickness of the implant layer, where partial-charge collection occurs.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
-        Default is the value given in :cite:t:`Stern1994`.
     temperature
-        The temperature of the light-sensitive silicon layer.
+        The temperature of the silicon detector.
+        Default is room temperature.
     iqy
         The ideal quantum yield of the sensor in electrons per photon.
         If :obj:`None` (the default), the result of :func:`quantum_yield_ideal`
@@ -888,7 +894,7 @@ def electrons_measured_approx(
 
         # Define the expected number of photons
         # for each experiment
-        photons_absorbed = (100 * u.photon).astype(int)
+        photons_transmitted = (100 * u.photon).astype(int)
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
@@ -896,14 +902,14 @@ def electrons_measured_approx(
 
         # Compute the actual number of electrons measured for each experiment
         electrons_exact = optika.sensors.electrons_measured(
-            photons_absorbed=photons_absorbed,
+            photons_transmitted=photons_transmitted,
             wavelength=wavelength,
             shape_random=dict(experiment=num_experiments),
         )
 
         # Compute the approximate number of electrons measured for each experiment
         electrons_approx = optika.sensors.electrons_measured_approx(
-            photons_absorbed=photons_absorbed,
+            photons_transmitted=photons_transmitted,
             wavelength=wavelength,
             shape_random=dict(experiment=num_experiments),
         )
@@ -962,11 +968,11 @@ def electrons_measured_approx(
         shape_random = dict()
 
     shape = na.shape_broadcasted(
-        photons_absorbed,
+        photons_transmitted,
         absorption,
-        absorbance,
         iqy,
         thickness_implant,
+        thickness_substrate,
         cce_backsurface,
         fano_factor,
     )
@@ -978,15 +984,24 @@ def electrons_measured_approx(
     W = thickness_implant
     n0 = cce_backsurface
     aW = (a * W).to(u.dimensionless_unscaled).value
+    aDW = (a * (thickness_substrate - W)).to(u.dimensionless_unscaled).value
 
-    fraction_complete = np.exp(-aW)
-    fraction_partial = 1 - fraction_complete
+    # A transmitted photon is absorbed in the implant region (partial charge
+    # collection) with probability 1 - exp(-alpha * W); of those penetrating
+    # deeper, the fraction absorbed within the remaining substrate (complete
+    # charge collection) is 1 - exp(-alpha * (D - W)), and the rest escape.
+    fraction_partial = 1 - np.exp(-aW)
     photons_absorbed_partial = na.random.binomial(
-        n=photons_absorbed,
+        n=photons_transmitted,
         p=fraction_partial,
         shape_random=shape,
     )
-    photons_absorbed_complete = photons_absorbed - photons_absorbed_partial
+    fraction_complete = 1 - np.exp(-aDW)
+    photons_absorbed_complete = na.random.binomial(
+        n=(photons_transmitted - photons_absorbed_partial).astype(int),
+        p=fraction_complete,
+        shape_random=shape,
+    )
 
     mean_p = n0 + (1 - n0) / (aW) + (1 - n0) / (1 - np.exp(aW))
     var_p = np.square(n0 - 1) * (4 / np.square(aW) - 1 / np.square(np.sinh(aW / 2))) / 4

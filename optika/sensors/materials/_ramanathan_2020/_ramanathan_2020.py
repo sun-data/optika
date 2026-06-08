@@ -482,10 +482,11 @@ def electrons_measured(
 ) -> na.AbstractScalar:
     r"""
     A random sample from the distribution of measured electrons
-    given the number of photons absorbed by the light-sensitive layer of the
-    sensor.
+    given the number of photons transmitted into the light-sensitive region
+    of the sensor.
 
-    This function accounts for both Fano noise and recombination noise due to
+    This function accounts for the fraction of photons that escape without being
+    absorbed, as well as both Fano noise and recombination noise due to
     partial-charge collection.
 
     Parameters
