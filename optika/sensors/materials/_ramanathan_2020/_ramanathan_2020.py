@@ -531,7 +531,7 @@ def electrons_measured(
     Examples
     --------
 
-    Plot the energy spectrum of 100 6 keV photons emitted from an Fe-55
+    Plot the energy spectrum of twenty 6 keV photons emitted from an Fe-55
     radioactive source.
 
     .. jupyter-execute::
@@ -547,7 +547,7 @@ def electrons_measured(
 
         # Define the expected number of photons
         # for each experiment
-        photons_absorbed = (100 * u.photon).astype(int)
+        photons_absorbed = (20 * u.photon).astype(int)
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
