@@ -466,7 +466,7 @@ def probability_of_n_pairs(
 
 
 def electrons_measured(
-    photons_transmitted: u.Quantity | na.AbstractScalar,
+    photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
@@ -482,18 +482,17 @@ def electrons_measured(
 ) -> na.AbstractScalar:
     r"""
     A random sample from the distribution of measured electrons
-    given the number of photons transmitted into the light-sensitive region
-    of the sensor.
+    given the number of photons absorbed by the light-sensitive layer of the
+    sensor.
 
-    This function accounts for the fraction of photons that escape without being
-    absorbed, as well as both Fano noise and recombination noise due to
+    This function accounts for both Fano noise and recombination noise due to
     partial-charge collection.
 
     Parameters
     ----------
-    photons_transmitted
-        The number of photons transmitted into the light-sensitive region
-        of the sensor.
+    photons_absorbed
+        The number of photons absorbed by the light-sensitive layer of the
+        sensor.
     wavelength
         The vacuum wavelength of the absorbed photons.
     absorption
@@ -548,7 +547,7 @@ def electrons_measured(
 
         # Define the expected number of photons
         # for each experiment
-        photons_transmitted = (100 * u.photon).astype(int)
+        photons_absorbed = (100 * u.photon).astype(int)
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
@@ -556,7 +555,7 @@ def electrons_measured(
 
         # Compute the actual number of electrons measured for each experiment
         electrons = optika.sensors.electrons_measured(
-            photons_transmitted=photons_transmitted,
+            photons_absorbed=photons_absorbed,
             wavelength=wavelength,
             shape_random=dict(experiment=num_experiments),
         )
@@ -604,7 +603,7 @@ def electrons_measured(
     width_pixel_y = width_pixel.y
 
     shape = na.broadcast_shapes(
-        na.shape(photons_transmitted),
+        na.shape(photons_absorbed),
         na.shape(wavelength),
         na.shape(absorption),
         na.shape(thickness_implant),
@@ -627,7 +626,7 @@ def electrons_measured(
         shape[axis_x] = 1
         shape[axis_y] = 1
 
-    photons_transmitted = na.broadcast_to(photons_transmitted, shape)
+    photons_absorbed = na.broadcast_to(photons_absorbed, shape)
     absorption = na.broadcast_to(absorption, shape)
     thickness_implant = na.broadcast_to(thickness_implant, shape)
     thickness_depletion = na.broadcast_to(thickness_depletion, shape)
@@ -657,7 +656,7 @@ def electrons_measured(
     fano_inf = fano_inf.broadcast_to(shape)
 
     result = _electrons_measured_quantity(
-        photons_transmitted=photons_transmitted.ndarray,
+        photons_absorbed=photons_absorbed.ndarray,
         wavelength=wavelength.ndarray,
         absorption=absorption.ndarray,
         thickness_implant=thickness_implant.ndarray,
@@ -684,7 +683,7 @@ def electrons_measured(
 
 
 def _electrons_measured_quantity(
-    photons_transmitted: u.Quantity,
+    photons_absorbed: u.Quantity,
     wavelength: u.Quantity,
     absorption: u.Quantity,
     thickness_implant: u.Quantity,
@@ -700,7 +699,7 @@ def _electrons_measured_quantity(
 ) -> u.Quantity:
 
     shape = np.broadcast_shapes(
-        photons_transmitted.shape,
+        photons_absorbed.shape,
         absorption.shape,
         thickness_implant.shape,
         thickness_depletion.shape,
@@ -715,7 +714,7 @@ def _electrons_measured_quantity(
 
     unit_length = u.mm
 
-    photons_transmitted = photons_transmitted.to_value(u.photon)
+    photons_absorbed = photons_absorbed.to_value(u.photon)
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
     absorption = absorption.to_value(1 / unit_length)
     thickness_implant = thickness_implant.to_value(unit_length)
@@ -728,7 +727,7 @@ def _electrons_measured_quantity(
     fano_inf = fano_inf.to_value(u.electron / u.photon)
 
     result = _electrons_measured_numba(
-        photons_transmitted=photons_transmitted.reshape(-1, num_x, num_y),
+        photons_absorbed=photons_absorbed.reshape(-1, num_x, num_y),
         energy=energy.reshape(-1, num_x, num_y),
         absorption=absorption.reshape(-1, num_x, num_y),
         thickness_implant=thickness_implant.reshape(-1, num_x, num_y),
@@ -756,7 +755,7 @@ def _electrons_measured_quantity(
     parallel=True,
 )
 def _electrons_measured_numba(  # pragma: nocover
-    photons_transmitted: np.ndarray,
+    photons_absorbed: np.ndarray,
     energy: np.ndarray,
     absorption: np.ndarray,
     thickness_implant: np.ndarray,
@@ -778,7 +777,7 @@ def _electrons_measured_numba(  # pragma: nocover
     for i in numba.prange(num_i):
         for x in range(num_x):
             for y in range(num_y):
-                num_photon = int(photons_transmitted[i, x, y])
+                num_photon = int(photons_absorbed[i, x, y])
                 energy_i = energy[i, x, y]
                 a = absorption[i, x, y]
                 W = thickness_implant[i, x, y]
@@ -793,6 +792,10 @@ def _electrons_measured_numba(  # pragma: nocover
                 wp_y = width_pixel_y[i, x, y]
 
                 d = 1 / a
+
+                # every photon is absorbed within the substrate, so sample the
+                # depth from the exponential truncated to [0, z_substrate)
+                fraction_absorbed = 1 - math.exp(-a * z_substrate)
 
                 mean_inf = energy_i / energy_pair_inf_i
                 std_inf = math.sqrt(fano_inf_i * mean_inf)
@@ -817,7 +820,7 @@ def _electrons_measured_numba(  # pragma: nocover
                         n_ij = round(n_ij)
 
                     y_ij = random.uniform(0, 1)
-                    z_ij = -d * math.log(1 - y_ij)
+                    z_ij = -d * math.log(1 - y_ij * fraction_absorbed)
 
                     if z_ij < W:
                         h_ij = h_0 + (1 - h_0) * z_ij / W
@@ -838,9 +841,6 @@ def _electrons_measured_numba(  # pragma: nocover
 
                             p = round(p)
                             q = round(q)
-
-                        elif z_ij > z_substrate:
-                            continue
 
                         else:
                             p = q = 0

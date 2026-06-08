@@ -98,7 +98,7 @@ def test_fano_factor_inf(
 
 
 @pytest.mark.parametrize(
-    argnames="photons_transmitted",
+    argnames="photons_absorbed",
     argvalues=[
         na.broadcast_to((100 * u.photon).astype(int), dict(pixel_x=2, pixel_y=2)),
     ],
@@ -140,7 +140,7 @@ def test_fano_factor_inf(
 )
 @pytest.mark.parametrize("temperature", _temperture)
 def test_electrons_measured(
-    photons_transmitted: u.Quantity | na.AbstractScalar,
+    photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar,
@@ -150,7 +150,7 @@ def test_electrons_measured(
     axis_xy: None | tuple[str, str],
 ):
     result = _ramanathan_2020.electrons_measured(
-        photons_transmitted=photons_transmitted,
+        photons_absorbed=photons_absorbed,
         wavelength=wavelength,
         absorption=absorption,
         thickness_implant=thickness_implant,
@@ -163,7 +163,7 @@ def test_electrons_measured(
     assert np.all(result >= 0 * u.electron)
 
     shape = na.shape_broadcasted(
-        photons_transmitted,
+        photons_absorbed,
         wavelength,
         absorption,
         thickness_implant,

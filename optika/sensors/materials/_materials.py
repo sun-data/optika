@@ -820,11 +820,10 @@ _fano_factor = fano_factor
 
 
 def electrons_measured_approx(
-    photons_transmitted: u.Quantity | na.AbstractScalar,
+    photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     iqy: None | u.Quantity | na.AbstractScalar = None,
@@ -833,17 +832,16 @@ def electrons_measured_approx(
 ) -> na.AbstractScalar:
     r"""
     A random sample from an approximate distribution of measured electrons
-    given the number of photons transmitted into the light-sensitive region
+    given the number of photons absorbed by the light-sensitive layer
     of the sensor.
 
-    This function accounts for the fraction of photons that escape without being
-    absorbed, as well as both Fano noise and recombination noise due to
+    This function accounts for both Fano noise and recombination noise due to
     partial-charge collection.
 
     Parameters
     ----------
-    photons_transmitted
-        The number of photons transmitted into the light-sensitive region
+    photons_absorbed
+        The number of photons absorbed by the light-sensitive layer
         of the sensor.
     wavelength
         The vacuum wavelength of the absorbed photons.
@@ -854,8 +852,6 @@ def electrons_measured_approx(
         refracted angle, so no separate angle argument is needed.
     thickness_implant
         The thickness of the implant layer, where partial-charge collection occurs.
-    thickness_substrate
-        The thickness of the entire light-sensitive region of the device.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -894,7 +890,7 @@ def electrons_measured_approx(
 
         # Define the expected number of photons
         # for each experiment
-        photons_transmitted = (100 * u.photon).astype(int)
+        photons_absorbed = (100 * u.photon).astype(int)
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
@@ -902,14 +898,14 @@ def electrons_measured_approx(
 
         # Compute the actual number of electrons measured for each experiment
         electrons_exact = optika.sensors.electrons_measured(
-            photons_transmitted=photons_transmitted,
+            photons_absorbed=photons_absorbed,
             wavelength=wavelength,
             shape_random=dict(experiment=num_experiments),
         )
 
         # Compute the approximate number of electrons measured for each experiment
         electrons_approx = optika.sensors.electrons_measured_approx(
-            photons_transmitted=photons_transmitted,
+            photons_absorbed=photons_absorbed,
             wavelength=wavelength,
             shape_random=dict(experiment=num_experiments),
         )
@@ -968,11 +964,10 @@ def electrons_measured_approx(
         shape_random = dict()
 
     shape = na.shape_broadcasted(
-        photons_transmitted,
+        photons_absorbed,
         absorption,
         iqy,
         thickness_implant,
-        thickness_substrate,
         cce_backsurface,
         fano_factor,
     )
@@ -984,24 +979,17 @@ def electrons_measured_approx(
     W = thickness_implant
     n0 = cce_backsurface
     aW = (a * W).to(u.dimensionless_unscaled).value
-    aDW = (a * (thickness_substrate - W)).to(u.dimensionless_unscaled).value
 
-    # A transmitted photon is absorbed in the implant region (partial charge
-    # collection) with probability 1 - exp(-alpha * W); of those penetrating
-    # deeper, the fraction absorbed within the remaining substrate (complete
-    # charge collection) is 1 - exp(-alpha * (D - W)), and the rest escape.
+    # An absorbed photon is absorbed within the implant region (partial charge
+    # collection) with probability 1 - exp(-alpha * W); otherwise it is absorbed
+    # deeper in the substrate (complete charge collection).
     fraction_partial = 1 - np.exp(-aW)
     photons_absorbed_partial = na.random.binomial(
-        n=photons_transmitted,
+        n=photons_absorbed,
         p=fraction_partial,
         shape_random=shape,
     )
-    fraction_complete = 1 - np.exp(-aDW)
-    photons_absorbed_complete = na.random.binomial(
-        n=(photons_transmitted - photons_absorbed_partial).astype(int),
-        p=fraction_complete,
-        shape_random=shape,
-    )
+    photons_absorbed_complete = photons_absorbed - photons_absorbed_partial
 
     mean_p = n0 + (1 - n0) / (aW) + (1 - n0) / (1 - np.exp(aW))
     var_p = np.square(n0 - 1) * (4 / np.square(aW) - 1 / np.square(np.sinh(aW / 2))) / 4
@@ -1035,6 +1023,7 @@ def electrons_measured_approx(
 
 
 _transmittance = transmittance
+_absorbance = absorbance
 
 
 def signal(
@@ -1043,7 +1032,7 @@ def signal(
     direction: float | na.AbstractScalar = 1,
     n: complex | na.AbstractScalar = 1,
     n_substrate: None | complex | na.AbstractScalar = None,
-    transmittance: None | float | na.AbstractScalar = None,
+    absorbance: None | float | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
     thickness_substrate: None | na.AbstractScalar = _thickness_substrate,
@@ -1079,10 +1068,10 @@ def signal(
         The complex index of refraction of the light-sensitive material
         If :obj:`None` (the default), the result of
         :meth:`optika.chemicals.Chemical.n` for silicon will be used.
-    transmittance
-        The fraction of incident energy transmitted to the light-sensitive layer
+    absorbance
+        The fraction of incident energy absorbed by the light-sensitive region
         of the detector.
-        If :obj:`None` (the default), the result of :func:`transmittance`
+        If :obj:`None` (the default), the result of :func:`absorbance`
         called with default values will be used.
     thickness_implant
         The thickness of the implant layer.
@@ -1162,11 +1151,12 @@ def signal(
         ax.set_ylabel(f"variance-to-mean ratio ({electrons.unit:latex_inline})");
     """
 
-    if transmittance is None:
-        transmittance = _transmittance(
+    if absorbance is None:
+        absorbance = _absorbance(
             wavelength=wavelength,
             direction=direction,
             n=n,
+            thickness_substrate=thickness_substrate,
         ).average
 
     if n_substrate is None:
@@ -1190,10 +1180,6 @@ def signal(
             temperature=temperature,
         )
 
-        transmittance_total = transmittance * np.exp(-absorption * thickness_substrate)
-
-        absorbance = transmittance - transmittance_total
-
         cce = charge_collection_efficiency(
             absorption=absorption,
             thickness_implant=thickness_implant,
@@ -1203,14 +1189,13 @@ def signal(
 
     elif method == "monte-carlo":
 
-        photons_expected = transmittance * photons_expected.to(u.ph)
         photons = na.random.poisson(
-            lam=photons_expected,
+            lam=absorbance * photons_expected.to(u.ph),
             shape_random=shape_random,
         ).astype(int)
 
         return electrons_measured(
-            photons_transmitted=photons,
+            photons_absorbed=photons,
             wavelength=wavelength,
             absorption=absorption,
             thickness_implant=thickness_implant,
@@ -1903,7 +1888,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
     def electrons_measured(
         self,
-        photons_transmitted: na.AbstractScalar,
+        photons_absorbed: na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: None | na.AbstractCartesian3dVectorArray = None,
         n: complex | na.AbstractScalar = 1,
@@ -1936,7 +1921,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         )
 
         return electrons_measured(
-            photons_transmitted=photons_transmitted,
+            photons_absorbed=photons_absorbed,
             wavelength=wavelength,
             absorption=absorption_effective(
                 wavelength=wavelength,
@@ -1982,7 +1967,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             direction=direction,
             n=n,
             n_substrate=self._chemical.n(wavelength),
-            transmittance=1,
+            absorbance=1,
             thickness_implant=self.thickness_implant,
             thickness_depletion=self.depletion.thickness,
             thickness_substrate=self.thickness_substrate,
@@ -2033,7 +2018,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
-        result = self.transmittance(
+        result = self.absorbance(
             wavelength=rays.wavelength,
             direction=rays.direction,
             n=rays.n,
