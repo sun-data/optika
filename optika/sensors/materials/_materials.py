@@ -1104,13 +1104,13 @@ def signal(
     temperature
         The temperature of the light-sensitive silicon layer.
     method
-        The method used to generate random samples of measured electrons.
-        The `exact` method simulates every photon so it is accurate for low
-        photon counts but slow for high photon counts.
-        The `approx` method is much faster, but is only accurate if the number
-        of photons is high.
-        The `expected` method does not add any noise to the signal and just
-        returns the expected number of electrons.
+        The method used to generate samples of measured electrons.
+        The `monte-carlo` method draws a random sample by simulating every
+        photon using :func:`electrons_measured`, including shot, Fano, and
+        recombination noise as well as charge diffusion.
+        The `expected` method adds no noise and just returns the expected
+        number of electrons in each pixel; since it is a per-pixel expectation,
+        it does not apply charge diffusion.
     axis_xy
         The two logical axes corresponding to the pixel grid of the sensor
         along which electrons will diffuse.
