@@ -100,7 +100,14 @@ def test_fano_factor_inf(
 @pytest.mark.parametrize(
     argnames="photons_transmitted",
     argvalues=[
-        100 * u.photon,
+        na.broadcast_to((100 * u.photon).astype(int), dict(pixel_x=2, pixel_y=2)),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="axis_xy",
+    argvalues=[
+        None,
+        ("pixel_x", "pixel_y"),
     ],
 )
 @pytest.mark.parametrize(
@@ -140,6 +147,7 @@ def test_electrons_measured(
     cce_backsurface: u.Quantity | na.AbstractScalar,
     temperature: u.Quantity | na.ScalarArray,
     width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+    axis_xy: None | tuple[str, str],
 ):
     result = _ramanathan_2020.electrons_measured(
         photons_transmitted=photons_transmitted,
@@ -149,6 +157,7 @@ def test_electrons_measured(
         width_pixel=width_pixel,
         cce_backsurface=cce_backsurface,
         temperature=temperature,
+        axis_xy=axis_xy,
     )
 
     assert np.all(result >= 0 * u.electron)

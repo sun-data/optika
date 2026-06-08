@@ -755,7 +755,7 @@ def _electrons_measured_quantity(
     fastmath=True,
     parallel=True,
 )
-def _electrons_measured_numba(
+def _electrons_measured_numba(  # pragma: nocover
     photons_transmitted: np.ndarray,
     energy: np.ndarray,
     absorption: np.ndarray,

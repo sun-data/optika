@@ -367,7 +367,7 @@ def absorbance(
 
         result = _transmittance - _transmittance_total
 
-    else:
+    else:  # pragma: nocover
         raise ValueError(f"Method {method} not implemented")
 
     return np.real(result)

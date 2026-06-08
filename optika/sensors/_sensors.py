@@ -190,7 +190,7 @@ class AbstractImagingSensor(
         """
         if axis_wavelength is None:
             shape_wavelength = na.shape(image.inputs.wavelength)
-            if len(shape_wavelength) != 1:
+            if len(shape_wavelength) != 1:  # pragma: nocover
                 raise ValueError(
                     f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
                     f"must have exactly one logical axis, got {shape_wavelength}."
