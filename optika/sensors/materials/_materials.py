@@ -824,6 +824,7 @@ def electrons_measured_approx(
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     iqy: None | u.Quantity | na.AbstractScalar = None,
@@ -852,6 +853,10 @@ def electrons_measured_approx(
         refracted angle, so no separate angle argument is needed.
     thickness_implant
         The thickness of the implant layer, where partial-charge collection occurs.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+        The absorbed photons are distributed within this region, which sets
+        the fraction that land in the implant layer.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -968,6 +973,7 @@ def electrons_measured_approx(
         absorption,
         iqy,
         thickness_implant,
+        thickness_substrate,
         cce_backsurface,
         fano_factor,
     )
@@ -977,13 +983,18 @@ def electrons_measured_approx(
 
     a = absorption
     W = thickness_implant
+    D = thickness_substrate
     n0 = cce_backsurface
     aW = (a * W).to(u.dimensionless_unscaled).value
+    aD = (a * D).to(u.dimensionless_unscaled).value
 
-    # An absorbed photon is absorbed within the implant region (partial charge
-    # collection) with probability 1 - exp(-alpha * W); otherwise it is absorbed
-    # deeper in the substrate (complete charge collection).
-    fraction_partial = 1 - np.exp(-aW)
+    # The absorbed photons are distributed within the substrate `[0, D)`, so the
+    # depth follows an exponential truncated to that region (matching the exact
+    # `electrons_measured` kernel). Conditioned on absorption within the
+    # substrate, a photon lands in the implant region (partial charge collection)
+    # with probability (1 - exp(-alpha * W)) / (1 - exp(-alpha * D)); otherwise
+    # it is absorbed deeper in the substrate (complete charge collection).
+    fraction_partial = (1 - np.exp(-aW)) / (1 - np.exp(-aD))
     photons_absorbed_partial = na.random.binomial(
         n=photons_absorbed,
         p=fraction_partial,
