@@ -95,9 +95,12 @@ class AbstractImagingSensor(
         Bin a cloud of rays onto the pixel grid.
 
         Returns the per-pixel photon image (the binned ray intensity) and the
-        flux-weighted mean cosine of the incidence angle in each pixel: the two
-        quantities :meth:`expose` needs. Performing the ray-to-cosine projection
-        here is what lets :meth:`expose` be shared with systems that have no rays.
+        flux-weighted mean cosine of the *refracted* angle inside the
+        light-sensitive region in each pixel: the two quantities :meth:`expose`
+        needs. Refracting each ray here (with its own ambient index of
+        refraction) and binning the result is what lets :meth:`expose` and the
+        material's ``signal`` model be shared with systems that have no rays,
+        without threading a separate ambient-index argument through them.
 
         Parameters
         ----------
@@ -113,7 +116,16 @@ class AbstractImagingSensor(
         where = where & rays.unvignetted
 
         normal = self.sag.normal(rays.position)
-        direction = -(rays.direction @ normal)
+
+        # Cosine of the refracted angle inside the light-sensitive region,
+        # folding in each ray's ambient index of refraction. This is generally
+        # complex, so its real and imaginary parts are binned separately below.
+        direction = self.material.direction_refracted(
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            n=rays.n,
+            normal=normal,
+        )
 
         flux = rays.intensity * where
 
@@ -132,12 +144,20 @@ class AbstractImagingSensor(
         )
 
         image = na.histogram(a, bins=bins, axis=axis, weights=flux)
-        moment = na.histogram(a, bins=bins, axis=axis, weights=flux * direction)
+        moment_real = na.histogram(
+            a, bins=bins, axis=axis, weights=flux * np.real(direction)
+        )
+        moment_imag = na.histogram(
+            a, bins=bins, axis=axis, weights=flux * np.imag(direction)
+        )
 
-        # flux-weighted mean cosine; empty pixels carry no flux, assume normal incidence
+        # flux-weighted mean refracted cosine; empty pixels carry no flux, so
+        # assume normal incidence (cosine of 1).
         nonempty = image.outputs > 0
         with np.errstate(invalid="ignore", divide="ignore"):
-            direction = np.where(nonempty, moment.outputs / image.outputs, 1)
+            direction_real = np.where(nonempty, moment_real.outputs / image.outputs, 1)
+            direction_imag = np.where(nonempty, moment_imag.outputs / image.outputs, 0)
+        direction = direction_real + direction_imag * 1j
 
         return image, direction
 

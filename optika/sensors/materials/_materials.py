@@ -1442,6 +1442,36 @@ class AbstractSensorMaterial(
         """
 
     @abc.abstractmethod
+    def direction_refracted(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+    ) -> complex | na.AbstractScalar:
+        """
+        The cosine of the refracted propagation angle inside the light-sensitive
+        region of the sensor.
+
+        This is the quantity :meth:`signal` expects as its ``direction``
+        argument. Performing the refraction here lets the sensor's ``collect``
+        method fold the ambient index of refraction into the per-pixel cosine,
+        so :meth:`signal` does not need a separate ambient-index argument.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\\hat{z}`) is assumed.
+        n
+            The complex index of refraction of the ambient medium.
+        normal
+            The vector perpendicular to the surface of the sensor.
+        """
+
+    @abc.abstractmethod
     def photons_incident(
         self,
         electrons: u.Quantity | na.AbstractScalar,
@@ -1502,6 +1532,21 @@ class IdealSensorMaterial(
         electrons = electrons.to(u.electron)
 
         return electrons
+
+    def direction_refracted(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+    ) -> complex | na.AbstractScalar:
+        # An ideal material does not refract, so the refracted cosine is just
+        # the cosine of the incidence angle.
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, -1)
+        return -direction @ normal
 
     def photons_incident(
         self,
@@ -1897,6 +1942,25 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             ),
         )
 
+    def direction_refracted(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+    ) -> complex | na.AbstractScalar:
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        return optika.materials.snells_law_scalar(
+            cos_incidence=-direction @ normal,
+            index_refraction=n,
+            index_refraction_new=self._chemical.n(wavelength),
+        )
+
     def electrons_measured(
         self,
         photons_absorbed: na.AbstractScalar,
@@ -1915,20 +1979,11 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         absorbed photons using :func:`electrons_measured`.
         """
 
-        if direction is None:
-            direction = na.Cartesian3dVectorArray(0, 0, 1)
-
-        if normal is None:
-            normal = na.Cartesian3dVectorArray(0, 0, -1)
-
-        direction = -direction @ normal
-
-        n_substrate = self._chemical.n(wavelength)
-
-        direction_substrate = optika.materials.snells_law_scalar(
-            cos_incidence=direction,
-            index_refraction=n,
-            index_refraction_new=n_substrate,
+        direction_substrate = self.direction_refracted(
+            wavelength=wavelength,
+            direction=direction,
+            n=n,
+            normal=normal,
         )
 
         return electrons_measured(
@@ -1936,7 +1991,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             wavelength=wavelength,
             absorption=absorption_effective(
                 wavelength=wavelength,
-                n_substrate=n_substrate,
+                n_substrate=self._chemical.n(wavelength),
                 direction_substrate=direction_substrate,
             ),
             thickness_implant=self.thickness_implant,
@@ -1953,7 +2008,6 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         photons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
-        n: complex | na.AbstractScalar = 1,
         width_pixel: (
             u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
         ) = 0
@@ -1972,12 +2026,18 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         else:
             method = "expected"
 
+        # `direction` is the cosine of the refracted angle *inside* the substrate
+        # (computed by the sensor's `collect` method), so use equal ambient and
+        # substrate indices to make the Snell refraction inside `signal` a no-op
+        # while still computing the effective absorption with the correct index.
+        n_substrate = self._chemical.n(wavelength)
+
         return signal(
             photons_expected=photons,
             wavelength=wavelength,
             direction=direction,
-            n=n,
-            n_substrate=self._chemical.n(wavelength),
+            n=n_substrate,
+            n_substrate=n_substrate,
             absorbance=1,
             thickness_implant=self.thickness_implant,
             thickness_depletion=self.depletion.thickness,
