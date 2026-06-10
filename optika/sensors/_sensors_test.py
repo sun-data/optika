@@ -26,6 +26,7 @@ class AbstractTestAbstractImagingSensor(
                 intensity=100 * u.photon / u.s,
                 wavelength=500 * u.nm,
                 position=na.Cartesian3dVectorArray() * u.mm,
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
             ),
             optika.rays.RayVectorArray(
                 intensity=na.random.poisson(100, shape_random=dict(t=11)) * u.erg / u.s,
@@ -35,6 +36,7 @@ class AbstractTestAbstractImagingSensor(
                     y=na.random.uniform(-1, 1, shape_random=dict(t=11)) * u.mm,
                     z=0 * u.mm,
                 ),
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
             ),
         ],
     )
@@ -44,13 +46,13 @@ class AbstractTestAbstractImagingSensor(
             na.linspace(500, 600, axis="wavelength", num=11) * u.nm,
         ],
     )
-    def test_readout(
+    def test_measure(
         self,
         a: optika.sensors.AbstractImagingSensor,
         rays: optika.rays.RayVectorArray,
         wavelength: u.Quantity | na.AbstractScalar,
     ):
-        result = a.readout(rays, wavelength)
+        result = a.measure(rays, wavelength)
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert isinstance(result.outputs, na.AbstractScalar)

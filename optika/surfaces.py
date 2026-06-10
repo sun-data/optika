@@ -123,7 +123,6 @@ class AbstractSurface(
     def propagate_rays(
         self,
         rays: optika.rays.RayVectorArray,
-        # material: None | optika.materials.AbstractMaterial = None,
     ) -> optika.rays.RayVectorArray:
         r"""
         Refract, reflect, and/or diffract the given rays off of this surface
@@ -131,7 +130,7 @@ class AbstractSurface(
         Parameters
         ----------
         rays
-            a set of input rays that will interact with this surface
+            A set of input rays that will interact with this surface.
         """
         sag = self.sag
         material = self.material

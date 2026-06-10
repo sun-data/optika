@@ -89,12 +89,20 @@ def test_transmittance(
         10 * u.um,
     ],
 )
+@pytest.mark.parametrize(
+    argnames="method",
+    argvalues=[
+        "Beer-Lambert",
+        "exact",
+    ],
+)
 def test_absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar,
     n: float | na.AbstractScalar,
     thickness_oxide: u.Quantity | na.AbstractScalar,
     thickness_substrate: u.Quantity | na.AbstractScalar,
+    method: str,
 ):
     result = optika.sensors.absorbance(
         wavelength=wavelength,
@@ -102,6 +110,7 @@ def test_absorbance(
         n=n,
         thickness_oxide=thickness_oxide,
         thickness_substrate=thickness_substrate,
+        method=method,
     )
 
     assert np.all(result >= 0)
@@ -127,23 +136,15 @@ def test_absorbance(
         1,
     ],
 )
-@pytest.mark.parametrize(
-    argnames="cos_incidence",
-    argvalues=[
-        1,
-    ],
-)
 def test_charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar,
     cce_backsurface: u.Quantity | na.AbstractScalar,
-    cos_incidence: float | na.AbstractScalar,
 ):
     result = optika.sensors.charge_collection_efficiency(
         absorption=absorption,
         thickness_implant=thickness_implant,
         cce_backsurface=cce_backsurface,
-        cos_incidence=cos_incidence,
     )
 
     assert np.all(result >= 0)
@@ -160,8 +161,8 @@ def test_charge_collection_efficiency(
 @pytest.mark.parametrize(
     argnames="direction",
     argvalues=[
-        None,
-        na.Cartesian3dVectorArray(0, 0, 1),
+        1,
+        0.5,
     ],
 )
 @pytest.mark.parametrize(
@@ -191,7 +192,7 @@ def test_charge_collection_efficiency(
 )
 def test_quantum_efficiency_effective(
     wavelength: u.Quantity | na.AbstractScalar,
-    direction: na.AbstractCartesian3dVectorArray,
+    direction: float | na.AbstractScalar,
     thickness_oxide: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar,
     thickness_substrate: u.Quantity | na.AbstractScalar,
@@ -299,8 +300,8 @@ def test_electrons_measured_approx(
 @pytest.mark.parametrize(
     argnames="method",
     argvalues=[
-        "exact",
-        "approx",
+        "monte-carlo",
+        "expected",
     ],
 )
 def test_signal(
@@ -336,19 +337,22 @@ class AbstractTestAbstractSensorMaterial(
     AbstractTestAbstractMaterial,
 ):
     @pytest.mark.parametrize(
-        argnames="rays",
+        argnames="photons",
         argvalues=[
-            optika.rays.RayVectorArray(
-                intensity=1e-6 * u.erg,
-                wavelength=100 * u.AA,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            1e-6 * u.erg,
         ],
     )
     @pytest.mark.parametrize(
-        argnames="normal",
+        argnames="wavelength",
         argvalues=[
-            na.Cartesian3dVectorArray(0, 0, -1),
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
         ],
     )
     @pytest.mark.parametrize(
@@ -358,13 +362,19 @@ class AbstractTestAbstractSensorMaterial(
     def test_signal(
         self,
         a: optika.sensors.materials.AbstractSensorMaterial,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        photons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
         noise: bool,
     ):
-        result = a.signal(rays, normal, noise=noise)
-        assert isinstance(result, optika.rays.RayVectorArray)
-        assert np.all(result.intensity >= 0 * u.electron)
+        result = a.signal(
+            photons=photons,
+            wavelength=wavelength,
+            direction=direction,
+            noise=noise,
+        )
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert np.all(result >= 0 * u.electron)
 
     @pytest.mark.parametrize(
         argnames="electrons",
@@ -408,30 +418,21 @@ class AbstractTestAbstractSensorMaterial(
         assert result.unit.is_equivalent(u.photon)
 
     @pytest.mark.parametrize(
-        argnames="rays",
+        argnames="wavelength",
         argvalues=[
-            optika.rays.RayVectorArray(
-                intensity=10 * u.electron,
-                wavelength=100 * u.AA,
-                position=na.Cartesian3dVectorArray() * u.mm,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            100 * u.AA,
         ],
     )
-    @pytest.mark.parametrize(
-        argnames="normal",
-        argvalues=[
-            na.Cartesian3dVectorArray(0, 0, -1),
-        ],
-    )
-    def test_charge_diffusion(
+    def test_direction_refracted(
         self,
         a: optika.sensors.materials.AbstractSensorMaterial,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
     ):
-        result = a.charge_diffusion(rays, normal)
-        assert isinstance(result, optika.rays.RayVectorArray)
+        # with the default direction and normal (normal incidence) the
+        # refracted cosine is unity
+        result = a.direction_refracted(wavelength=wavelength)
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert np.all(np.real(result) > 0)
 
 
 @pytest.mark.parametrize(
@@ -522,154 +523,223 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
         )
 
     @pytest.mark.parametrize(
-        argnames="rays",
+        argnames="wavelength",
         argvalues=[
-            optika.rays.RayVectorArray(
-                wavelength=100 * u.AA,
-                position=na.Cartesian3dVectorArray() * u.mm,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
-        ],
-    )
-    @pytest.mark.parametrize(
-        argnames="normal",
-        argvalues=[
-            na.Cartesian3dVectorArray(0, 0, -1),
+            100 * u.AA,
         ],
     )
     def test_width_charge_diffusion(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
     ):
-        result = a.width_charge_diffusion(rays, normal)
+        result = a.width_charge_diffusion(wavelength=wavelength)
         assert np.all(result >= 0 * u.um)
 
     @pytest.mark.parametrize(
-        argnames="rays",
+        argnames="wavelength",
         argvalues=[
-            optika.rays.RayVectorArray(
-                wavelength=100 * u.AA,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            None,
         ],
     )
     @pytest.mark.parametrize(
         argnames="normal",
         argvalues=[
-            na.Cartesian3dVectorArray(0, 0, -1),
+            None,
+        ],
+    )
+    def test_transmittance(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray,
+        normal: None | na.AbstractCartesian3dVectorArray,
+    ):
+        result = a.transmittance(
+            wavelength=wavelength,
+            direction=direction,
+            normal=normal,
+        )
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            None,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            None,
         ],
     )
     def test_absorbance(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray,
+        normal: None | na.AbstractCartesian3dVectorArray,
     ):
-        result = a.absorbance(rays, normal)
+        result = a.absorbance(
+            wavelength=wavelength,
+            direction=direction,
+            normal=normal,
+        )
         assert np.all(result >= 0)
         assert np.all(result <= 1)
 
     @pytest.mark.parametrize(
-        argnames="rays",
+        argnames="wavelength",
         argvalues=[
-            optika.rays.RayVectorArray(
-                wavelength=100 * u.AA,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            None,
         ],
     )
     @pytest.mark.parametrize(
         argnames="normal",
         argvalues=[
-            na.Cartesian3dVectorArray(0, 0, -1),
+            None,
         ],
     )
     def test_charge_collection_efficiency(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray,
+        normal: None | na.AbstractCartesian3dVectorArray,
     ):
-        result = a.charge_collection_efficiency(rays, normal)
+        result = a.charge_collection_efficiency(
+            wavelength=wavelength,
+            direction=direction,
+            normal=normal,
+        )
         assert np.all(result >= 0)
         assert np.all(result <= 1)
 
     @pytest.mark.parametrize(
-        argnames="rays",
+        argnames="wavelength",
         argvalues=[
-            optika.rays.RayVectorArray(
-                wavelength=100 * u.AA,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            None,
         ],
     )
     @pytest.mark.parametrize(
         argnames="normal",
         argvalues=[
-            na.Cartesian3dVectorArray(0, 0, -1),
+            None,
         ],
     )
     def test_quantum_efficiency(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray,
+        normal: None | na.AbstractCartesian3dVectorArray,
     ):
-        result = a.quantum_efficiency(rays, normal)
+        result = a.quantum_efficiency(
+            wavelength=wavelength,
+            direction=direction,
+            normal=normal,
+        )
         assert result > 0 * u.electron / u.photon
 
     @pytest.mark.parametrize(
-        argnames="rays",
+        argnames="wavelength",
         argvalues=[
-            optika.rays.RayVectorArray(
-                wavelength=100 * u.AA,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            None,
         ],
     )
     @pytest.mark.parametrize(
         argnames="normal",
         argvalues=[
-            na.Cartesian3dVectorArray(0, 0, -1),
+            None,
         ],
     )
     def test_probability_measurement(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray,
+        normal: None | na.AbstractCartesian3dVectorArray,
     ):
-        result = a.probability_measurement(rays, normal)
+        result = a.probability_measurement(
+            wavelength=wavelength,
+            direction=direction,
+            normal=normal,
+        )
         assert np.all(result >= 0)
         assert np.all(result <= 1)
 
     @pytest.mark.parametrize(
-        argnames="rays",
+        argnames="photons_absorbed",
         argvalues=[
-            optika.rays.RayVectorArray(
-                intensity=100 * u.photon,
-                wavelength=100 * u.AA,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            ),
+            (100 * u.photon).astype(int),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            None,
         ],
     )
     @pytest.mark.parametrize(
         argnames="normal",
         argvalues=[
-            na.Cartesian3dVectorArray(0, 0, -1),
+            None,
         ],
     )
     def test_electrons_measured(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        photons_absorbed: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray,
+        normal: None | na.AbstractCartesian3dVectorArray,
     ):
-        result = a.electrons_measured(rays, normal)
-        assert isinstance(result, optika.rays.RayVectorArray)
-        assert np.all(result.intensity >= 0 * u.electron)
+        result = a.electrons_measured(
+            photons_absorbed=photons_absorbed,
+            wavelength=wavelength,
+            direction=direction,
+            normal=normal,
+        )
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert np.all(result >= 0 * u.electron)
 
 
 @pytest.mark.parametrize(

@@ -81,70 +81,54 @@ class AbstractImagingSensor(
             half_width=self.width_pixel * self.num_pixel / 2,
         )
 
-    def readout(
+    def collect(
         self,
         rays: optika.rays.RayVectorArray,
         wavelength: na.AbstractScalar,
-        timedelta: None | u.Quantity | na.AbstractScalar = None,
         axis: None | str | Sequence[str] = None,
         where: bool | na.AbstractScalar = True,
-        noise: bool = True,
-    ) -> na.FunctionArray[
-        na.SpectralPositionalVectorArray,
+    ) -> tuple[
+        na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
         na.AbstractScalar,
     ]:
         """
-        Given a set of rays incident on the sensor surface,
-        where each ray represents an expected number of photons per unit time,
-        simulate the number of electrons that would be measured by the sensor.
+        Bin a cloud of rays onto the pixel grid.
+
+        Returns the per-pixel photon image (the binned ray intensity) and the
+        flux-weighted mean cosine of the *refracted* angle inside the
+        light-sensitive region in each pixel: the two quantities :meth:`expose`
+        needs. Refracting each ray here (with its own ambient index of
+        refraction) and binning the result is what lets :meth:`expose` and the
+        material's :meth:`~optika.sensors.materials.AbstractSensorMaterial.signal`
+        model be shared with systems that have no rays,
+        without threading a separate ambient-index argument through them.
 
         Parameters
         ----------
         rays
-            A set of incident rays in local coordinates to measure.
+            A set of incident rays in local coordinates to bin.
         wavelength
             The edges of the wavelength bins to sample.
-        timedelta
-            The exposure time of the measurement.
-            If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
-            will be used.
         axis
             The logical axes along which to collect photons.
         where
-            A boolean mask used to indicate which photons should be considered
-            when calculating the signal measured by the sensor.
-        noise
-            Whether to add noise to the result
+            A boolean mask used to indicate which rays should be considered.
         """
-        if timedelta is None:
-            timedelta = self.timedelta_exposure
-
         where = where & rays.unvignetted
-
-        sgn = np.sign(rays.intensity)
-
-        rays = dataclasses.replace(
-            rays,
-            intensity=np.abs(rays.intensity) * timedelta,
-        )
 
         normal = self.sag.normal(rays.position)
 
-        rays = self.material.signal(
-            rays=rays,
-            normal=normal,
-            noise=noise,
-        )
-
-        rays = dataclasses.replace(
-            rays,
-            intensity=sgn * rays.intensity,
-        )
-
-        rays = self.material.charge_diffusion(
-            rays=rays,
+        # Cosine of the refracted angle inside the light-sensitive region,
+        # folding in each ray's ambient index of refraction. This is generally
+        # complex, so its real and imaginary parts are binned separately below.
+        direction = self.material.direction_refracted(
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            n=rays.n,
             normal=normal,
         )
+
+        flux = rays.intensity * where
 
         bins = na.SpectralPositionalVectorArray(
             wavelength=wavelength,
@@ -155,15 +139,149 @@ class AbstractImagingSensor(
                 num=self.num_pixel + 1,
             ),
         )
+        a = na.SpectralPositionalVectorArray(
+            wavelength=rays.wavelength,
+            position=rays.position.xy,
+        )
 
-        return na.histogram(
-            a=na.SpectralPositionalVectorArray(
-                wavelength=rays.wavelength,
-                position=rays.position.xy,
-            ),
-            bins=bins,
+        image = na.histogram(a, bins=bins, axis=axis, weights=flux)
+        moment_real = na.histogram(
+            a, bins=bins, axis=axis, weights=flux * np.real(direction)
+        )
+        moment_imag = na.histogram(
+            a, bins=bins, axis=axis, weights=flux * np.imag(direction)
+        )
+
+        # flux-weighted mean refracted cosine; empty pixels carry no flux, so
+        # assume normal incidence (cosine of 1).
+        nonempty = image.outputs > 0
+        with np.errstate(invalid="ignore", divide="ignore"):
+            direction_real = np.where(nonempty, moment_real.outputs / image.outputs, 1)
+            direction_imag = np.where(nonempty, moment_imag.outputs / image.outputs, 0)
+        direction = direction_real + direction_imag * 1j
+
+        return image, direction
+
+    def expose(
+        self,
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        direction: float | na.AbstractScalar = 1,
+        axis_wavelength: None | str = None,
+        timedelta: None | u.Quantity | na.AbstractScalar = None,
+        noise: bool = True,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """
+        Convert a per-pixel photon image into the electrons measured by the sensor.
+
+        This is the detector-physics step shared by every optical system: it
+        operates on a pixel grid (a photon image plus a refracted-cosine map),
+        so it can be driven by :meth:`collect` for a ray-traced system, or by
+        any model that produces a per-pixel photon image directly.
+
+        The photon flux is multiplied by the exposure time and converted to
+        electrons using
+        :meth:`~optika.sensors.materials.AbstractSensorMaterial.signal`, which
+        applies the quantum efficiency, noise, and charge-diffusion models.
+
+        Parameters
+        ----------
+        image
+            The expected photon flux incident on each pixel, as a function of
+            wavelength and pixel position.
+            The wavelength inputs (``image.inputs.wavelength``) must be the
+            bin *edges*, not the centers.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region
+            in each pixel, as produced by :meth:`collect`.
+        axis_wavelength
+            The logical axis of `image` corresponding to changing wavelength.
+            If :obj:`None` (the default), ``image.inputs.wavelength`` must have
+            only one logical axis.
+        timedelta
+            The exposure time of the measurement.
+            If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
+            will be used.
+        noise
+            Whether to add shot noise and intrinsic sensor noise to the result.
+        """
+        if axis_wavelength is None:
+            shape_wavelength = na.shape(image.inputs.wavelength)
+            if len(shape_wavelength) != 1:  # pragma: nocover
+                raise ValueError(
+                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
+                    f"must have exactly one logical axis, got {shape_wavelength}."
+                )
+            (axis_wavelength,) = shape_wavelength
+
+        if timedelta is None:
+            timedelta = self.timedelta_exposure
+
+        photons = image.outputs * timedelta
+
+        electrons = self.material.signal(
+            photons=photons,
+            wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
+            direction=direction,
+            width_pixel=self.width_pixel,
+            axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
+            noise=noise,
+        )
+
+        return dataclasses.replace(image, outputs=electrons)
+
+    def measure(
+        self,
+        rays: optika.rays.RayVectorArray,
+        wavelength: na.AbstractScalar,
+        axis: None | str | Sequence[str] = None,
+        where: bool | na.AbstractScalar = True,
+        timedelta: None | u.Quantity | na.AbstractScalar = None,
+        noise: bool = True,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """
+        Bin a set of rays onto the pixel grid and convert them to the electrons
+        measured by the sensor.
+
+        This composes :meth:`collect` (gather rays into the pixel grid) with
+        :meth:`expose` (apply the detector physics).
+
+        Parameters
+        ----------
+        rays
+            A set of incident rays in local coordinates to measure.
+        wavelength
+            The edges of the wavelength bins to sample.
+        axis
+            The logical axes along which to collect photons.
+        where
+            A boolean mask used to indicate which rays should be considered.
+        timedelta
+            The exposure time of the measurement.
+            If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
+            will be used.
+        noise
+            Whether to add shot noise and intrinsic sensor noise to the result.
+        """
+        image, direction = self.collect(
+            rays=rays,
+            wavelength=wavelength,
             axis=axis,
-            weights=rays.intensity * where,
+            where=where,
+        )
+        return self.expose(
+            image,
+            direction=direction,
+            timedelta=timedelta,
+            noise=noise,
         )
 
 

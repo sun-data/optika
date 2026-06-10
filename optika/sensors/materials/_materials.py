@@ -13,6 +13,7 @@ from ._stern_1994 import (
     _thickness_oxide,
     _thickness_implant,
     _thickness_substrate,
+    _width_pixel,
     _cce_backsurface,
 )
 from ._ramanathan_2020 import (
@@ -33,6 +34,8 @@ __all__ = [
     "quantum_yield_ideal",
     "fano_factor",
     "fano_factor_inf",
+    "absorption_effective",
+    "transmittance",
     "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
@@ -49,10 +52,51 @@ __all__ = [
 ]
 
 
+def absorption_effective(
+    wavelength: u.Quantity | na.AbstractScalar,
+    n_substrate: complex | na.AbstractScalar,
+    direction_substrate: complex | na.AbstractScalar,
+) -> na.AbstractScalar:
+    r"""
+    The absorption coefficient per unit perpendicular depth for a wave
+    refracted into the (absorbing) light-sensitive region at oblique incidence.
+
+    This is the rigorous generalization of :math:`4 \pi \, \text{Im}(n) / \lambda`
+    to oblique incidence: it uses the complex refracted cosine
+    ``direction_substrate`` so that the geometric :math:`\sec\theta` path-length
+    factor is no longer needed downstream. Reduces to the normal-incidence
+    coefficient when ``direction_substrate`` is 1.
+
+    Parameters
+    ----------
+    wavelength
+        The wavelength of the incident light in vacuum.
+    n_substrate
+        The complex index of refraction of the light-sensitive region.
+    direction_substrate
+        The (generally complex) cosine of the refracted angle inside the
+        light-sensitive region, e.g. from :func:`optika.materials.snells_law_scalar`.
+
+    Notes
+    -----
+    For a wave refracted from a transparent ambient medium into an absorbing
+    medium, the planes of constant amplitude remain parallel to the interface,
+    so the intensity attenuates along the surface normal with coefficient
+
+    .. math::
+
+        \alpha_\perp = \frac{4 \pi}{\lambda} \, \text{Im}(n_2 \cos\theta_2),
+
+    where :math:`n_2` is the complex index of the light-sensitive region and
+    :math:`\cos\theta_2` is its (complex) refracted cosine.
+    """
+    return 4 * np.pi * np.imag(n_substrate * direction_substrate) / wavelength
+
+
 def transmittance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
-    n: float | na.AbstractScalar = 1,
+    n: complex | na.AbstractScalar = 1,
     thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
@@ -69,11 +113,10 @@ def transmittance(
     wavelength
         The wavelength of the incident light in vacuum.
     direction
-        The component of the incident light's propagation direction antiparallel
-        to the surface normal of the sensor.
+        The cosine of the incidence angle.
         Default is normal incidence.
     n
-        The index of refraction in the ambient medium.
+        The complex index of refraction in the ambient medium.
     thickness_oxide
         The thickness of the oxide layer on the illuminated surface of the sensor.
         Default is the value given in :cite:t:`Stern1994`.
@@ -157,13 +200,14 @@ def transmittance(
 def absorbance(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
-    n: float | na.AbstractScalar = 1,
+    n: complex | na.AbstractScalar = 1,
     thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
+    method: Literal["exact", "Beer-Lambert"] = "Beer-Lambert",
 ) -> optika.vectors.PolarizationVectorArray:
     """
     The fraction of incident energy absorbed by the light-sensitive
@@ -174,11 +218,10 @@ def absorbance(
     wavelength
         The wavelength of the incident light in vacuum.
     direction
-        The component of the incident light's propagation direction antiparallel
-        to the surface normal of the sensor.
+        The cosine of the incidence angle.
         Default is normal incidence.
     n
-        The index of refraction in the ambient medium.
+        The complex index of refraction in the ambient medium.
     thickness_oxide
         The thickness of the oxide layer on the illuminated surface of the sensor.
         Default is the value given in :cite:t:`Stern1994`.
@@ -195,6 +238,13 @@ def absorbance(
         The RMS roughness the oxide layer surface.
     roughness_substrate
         The RMS roughness of the substrate surface.
+    method
+        The method to use to compute the absorbance.
+        If ``exact``, this method allows thin-film interference effects
+        inside the light-sensitive region.
+        If ``Beer-Lambert``, this method assumes no interference effects.
+        These methods only differ in the infrared, where the wavelength is
+        commensurate with the thickness of the light-sensitive region.
 
     Examples
     --------
@@ -218,8 +268,14 @@ def absorbance(
         )
 
         # Compute the absorbance vs wavelength
-        absorbance = optika.sensors.absorbance(
+        absorbance_exact = optika.sensors.absorbance(
             wavelength=wavelength,
+            method="exact",
+        )
+
+        absorbance_beer = optika.sensors.absorbance(
+            wavelength=wavelength,
+            method="Beer-Lambert",
         )
 
         # Plot the average absorbance vs. wavelength
@@ -232,9 +288,15 @@ def absorbance(
         );
         na.plt.plot(
             wavelength,
-            absorbance.average,
+            absorbance_exact.average,
             ax=ax,
-            label="absorbance",
+            label="exact absorbance",
+        );
+        na.plt.plot(
+            wavelength,
+            absorbance_beer.average,
+            ax=ax,
+            label="Beer-Lambert absorbance",
         );
         ax.set_xscale("log");
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
@@ -247,28 +309,67 @@ def absorbance(
     if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
         chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
 
-    result = optika.materials.layer_absorbance(
-        index=1,
-        wavelength=wavelength,
-        direction=direction,
-        n=n,
-        layers=[
-            optika.materials.Layer(
-                chemical=chemical_oxide,
-                thickness=thickness_oxide,
-                interface=optika.materials.profiles.ErfInterfaceProfile(
-                    width=roughness_oxide,
+    if method == "exact":
+
+        result = optika.materials.layer_absorbance(
+            index=1,
+            wavelength=wavelength,
+            direction=direction,
+            n=n,
+            layers=[
+                optika.materials.Layer(
+                    chemical=chemical_oxide,
+                    thickness=thickness_oxide,
+                    interface=optika.materials.profiles.ErfInterfaceProfile(
+                        width=roughness_oxide,
+                    ),
                 ),
-            ),
-            optika.materials.Layer(
-                chemical=chemical_substrate,
-                thickness=thickness_substrate,
-                interface=optika.materials.profiles.ErfInterfaceProfile(
-                    width=roughness_substrate,
+                optika.materials.Layer(
+                    chemical=chemical_substrate,
+                    thickness=thickness_substrate,
+                    interface=optika.materials.profiles.ErfInterfaceProfile(
+                        width=roughness_substrate,
+                    ),
                 ),
-            ),
-        ],
-    )
+            ],
+        )
+
+    elif method == "Beer-Lambert":
+
+        _transmittance = transmittance(
+            wavelength=wavelength,
+            direction=direction,
+            n=n,
+            thickness_oxide=thickness_oxide,
+            thickness_substrate=thickness_substrate,
+            chemical_oxide=chemical_oxide,
+            chemical_substrate=chemical_substrate,
+            roughness_oxide=roughness_oxide,
+            roughness_substrate=roughness_substrate,
+        )
+
+        n_substrate = chemical_substrate.n(wavelength)
+
+        direction_substrate = optika.materials.snells_law_scalar(
+            cos_incidence=direction,
+            index_refraction=n,
+            index_refraction_new=n_substrate,
+        )
+
+        absorption = absorption_effective(
+            wavelength=wavelength,
+            n_substrate=n_substrate,
+            direction_substrate=direction_substrate,
+        )
+
+        _transmittance_total = _transmittance * np.exp(
+            -absorption * thickness_substrate
+        )
+
+        result = _transmittance - _transmittance_total
+
+    else:  # pragma: nocover
+        raise ValueError(f"Method {method} not implemented")
 
     return np.real(result)
 
@@ -277,7 +378,6 @@ def charge_collection_efficiency(
     absorption: u.Quantity | na.AbstractScalar,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
-    cos_incidence: float | na.AbstractScalar = 1,
 ) -> na.AbstractScalar:
     r"""
     Compute the average charge collection efficiency using the differential
@@ -286,8 +386,11 @@ def charge_collection_efficiency(
     Parameters
     ----------
     absorption
-        The absorption coefficient of the light-sensitive material for the
-        wavelength of interest.
+        The absorption coefficient of the light-sensitive material per unit
+        perpendicular depth.
+        For oblique incidence, supply the effective coefficient from
+        :func:`absorption_effective`, which folds in the refracted angle, so no
+        separate angle argument is needed.
     thickness_implant
         The thickness of the implant layer, the layer where recombination can
         occur.
@@ -296,9 +399,6 @@ def charge_collection_efficiency(
         The differential charge collection efficiency on the back surface
         of the sensor.
         Default is the value given in :cite:t:`Stern1994`.
-    cos_incidence
-        The cosine of the angle of the incident light's propagation direction
-        inside the substrate with the surface normal
 
     Examples
     --------
@@ -381,27 +481,14 @@ def charge_collection_efficiency(
     with the addition of an :math:`e^{-\alpha W}` term which represents photons
     absorbed inside the epitaxial layer but outside the implant layer.
 
-    Equation :eq:`cce` is only valid for normally-incident light.
-    We can generalize it to obliquely-incident light by making the substitution
-
-    .. math::
-        :label: x-oblique
-
-        x \rightarrow \frac{x}{\cos \theta}
-
-    where :math:`\theta` is the angle between the propagation direction
-    inside the silicon substrate and the normal vector.
-
-    Substituting :eq:`x-oblique` into Equation :eq:`cce` and solving yields
-
-    .. math::
-        :label: eqe-oblique
-
-        \text{CCE}(\lambda, \theta) =
-            \eta_0
-            + \left( \frac{1 - \eta_0}{\alpha W \sec \theta} \right) (1 - e^{-\alpha W \sec \theta})
+    In Equation :eq:`cce`, :math:`\alpha` and :math:`z` are measured along the
+    surface normal. Oblique incidence is therefore handled entirely by the
+    absorption coefficient: passing the perpendicular-depth coefficient
+    :math:`\alpha_\perp` from :func:`absorption_effective` (which folds in the
+    refracted angle, and reduces to :math:`\alpha` at normal incidence) makes
+    Equation :eq:`cce` valid at any incidence angle without further modification.
     """
-    z0 = absorption * thickness_implant / np.real(cos_incidence)
+    z0 = absorption * thickness_implant
     exp_z0 = np.exp(-z0)
 
     term_1 = cce_backsurface
@@ -412,8 +499,8 @@ def charge_collection_efficiency(
 
 def quantum_efficiency_effective(
     wavelength: u.Quantity | na.AbstractScalar,
-    direction: None | na.AbstractCartesian3dVectorArray = None,
-    n: float | na.AbstractScalar = 1,
+    direction: float | na.AbstractScalar = 1,
+    n: complex | na.AbstractScalar = 1,
     thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
@@ -422,7 +509,6 @@ def quantum_efficiency_effective(
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
-    normal: None | na.AbstractCartesian3dVectorArray = None,
 ) -> na.AbstractScalar:
     r"""
     Calculate the effective quantum efficiency of a backilluminated detector.
@@ -432,8 +518,8 @@ def quantum_efficiency_effective(
     wavelength
         The wavelength of the incident light in vacuum.
     direction
-        The propagation direction of the incident light in the ambient medium.
-        If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+        The cosine of the incidence angle.
+        Default is normal incidence.
     n
         The complex index of refraction of the ambient medium.
     thickness_oxide
@@ -459,9 +545,6 @@ def quantum_efficiency_effective(
         The RMS roughness the oxide layer surface.
     roughness_substrate
         The RMS roughness of the substrate surface.
-    normal
-        The vector perpendicular to the surface of the sensor.
-        If :obj:`None`, then the normal is assumed to be :math:`-\hat{z}`
 
     Examples
     --------
@@ -522,13 +605,9 @@ def quantum_efficiency_effective(
         # Define an array of wavelengths with which to sample the EQE
         wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
 
-        # Define the incidence directions
+        # Define the cosines of the incidence angles
         angle = na.linspace(0, 30, axis="angle", num=2) * u.deg
-        direction = na.Cartesian3dVectorArray(
-            x=np.sin(angle),
-            y=0,
-            z=np.cos(angle),
-        )
+        direction = np.cos(angle)
 
         eqe = optika.sensors.quantum_efficiency_effective(
             wavelength=wavelength,
@@ -564,19 +643,12 @@ def quantum_efficiency_effective(
     and :math:`\text{CCE}(\lambda)` is the charge collection efficiency
     (computed by :func:`charge_collection_efficiency`).
     """
-    if direction is None:
-        direction = na.Cartesian3dVectorArray(0, 0, 1)
 
     if not isinstance(chemical_oxide, optika.chemicals.AbstractChemical):
         chemical_oxide = optika.chemicals.Chemical(chemical_oxide)
 
     if not isinstance(chemical_substrate, optika.chemicals.AbstractChemical):
         chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
-
-    if normal is None:
-        normal = na.Cartesian3dVectorArray(0, 0, -1)
-
-    direction = -direction @ normal
 
     absorbance_substrate = absorbance(
         wavelength=wavelength,
@@ -591,8 +663,6 @@ def quantum_efficiency_effective(
     )
 
     n_substrate = chemical_substrate.n(wavelength)
-    wavenumber_substrate = np.imag(n_substrate)
-    absorption_substrate = 4 * np.pi * wavenumber_substrate / wavelength
 
     direction_substrate = optika.materials.snells_law_scalar(
         cos_incidence=direction,
@@ -600,11 +670,16 @@ def quantum_efficiency_effective(
         index_refraction_new=n_substrate,
     )
 
+    absorption_substrate = absorption_effective(
+        wavelength=wavelength,
+        n_substrate=n_substrate,
+        direction_substrate=direction_substrate,
+    )
+
     cce = charge_collection_efficiency(
         absorption=absorption_substrate,
         thickness_implant=thickness_implant,
         cce_backsurface=cce_backsurface,
-        cos_incidence=direction_substrate,
     )
 
     result = absorbance_substrate.average * cce
@@ -750,6 +825,7 @@ def electrons_measured_approx(
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     iqy: None | u.Quantity | na.AbstractScalar = None,
@@ -758,8 +834,8 @@ def electrons_measured_approx(
 ) -> na.AbstractScalar:
     r"""
     A random sample from an approximate distribution of measured electrons
-    given the number of photons absorbed by the light-sensitive layer of the
-    sensor.
+    given the number of photons absorbed by the light-sensitive layer
+    of the sensor.
 
     This function accounts for both Fano noise and recombination noise due to
     partial-charge collection.
@@ -767,21 +843,27 @@ def electrons_measured_approx(
     Parameters
     ----------
     photons_absorbed
-        The number of photons absorbed by the light-sensitive layer of the sensor.
+        The number of photons absorbed by the light-sensitive layer
+        of the sensor.
     wavelength
         The vacuum wavelength of the absorbed photons.
     absorption
-        The absorption coefficient of the light-sensitive material for the
-        wavelength of interest.
+        The absorption coefficient of silicon per unit perpendicular depth.
+        For oblique incidence, supply the effective coefficient from
+        :func:`optika.sensors.absorption_effective`, which folds in the
+        refracted angle, so no separate angle argument is needed.
     thickness_implant
-        The thickness of the implant layer.
-        Default is the value given in :cite:t:`Stern1994`.
+        The thickness of the implant layer, where partial-charge collection occurs.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+        The absorbed photons are distributed within this region, which sets
+        the fraction that land in the implant layer.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
-        Default is the value given in :cite:t:`Stern1994`.
     temperature
-        The temperature of the light-sensitive silicon layer.
+        The temperature of the silicon detector.
+        Default is room temperature.
     iqy
         The ideal quantum yield of the sensor in electrons per photon.
         If :obj:`None` (the default), the result of :func:`quantum_yield_ideal`
@@ -798,7 +880,7 @@ def electrons_measured_approx(
     Examples
     --------
 
-    Plot the energy spectrum of 100 6 keV photons emitted from an Fe-55
+    Plot the energy spectrum of twenty 6 keV photons emitted from an Fe-55
     radioactive source and compare it to the exact spectrum
 
     .. jupyter-execute::
@@ -814,7 +896,7 @@ def electrons_measured_approx(
 
         # Define the expected number of photons
         # for each experiment
-        photons_absorbed = (100 * u.photon).astype(int)
+        photons_absorbed = (20 * u.photon).astype(int)
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
@@ -890,9 +972,9 @@ def electrons_measured_approx(
     shape = na.shape_broadcasted(
         photons_absorbed,
         absorption,
-        absorbance,
         iqy,
         thickness_implant,
+        thickness_substrate,
         cce_backsurface,
         fano_factor,
     )
@@ -902,11 +984,18 @@ def electrons_measured_approx(
 
     a = absorption
     W = thickness_implant
+    D = thickness_substrate
     n0 = cce_backsurface
     aW = (a * W).to(u.dimensionless_unscaled).value
+    aD = (a * D).to(u.dimensionless_unscaled).value
 
-    fraction_complete = np.exp(-aW)
-    fraction_partial = 1 - fraction_complete
+    # The absorbed photons are distributed within the substrate `[0, D)`, so the
+    # depth follows an exponential truncated to that region (matching the exact
+    # `electrons_measured` kernel). Conditioned on absorption within the
+    # substrate, a photon lands in the implant region (partial charge collection)
+    # with probability (1 - exp(-alpha * W)) / (1 - exp(-alpha * D)); otherwise
+    # it is absorbed deeper in the substrate (complete charge collection).
+    fraction_partial = (1 - np.exp(-aW)) / (1 - np.exp(-aD))
     photons_absorbed_partial = na.random.binomial(
         n=photons_absorbed,
         p=fraction_partial,
@@ -945,22 +1034,32 @@ def electrons_measured_approx(
     return result
 
 
+_transmittance = transmittance
 _absorbance = absorbance
 
 
 def signal(
     photons_expected: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
+    direction: float | na.AbstractScalar = 1,
+    n: complex | na.AbstractScalar = 1,
+    n_substrate: None | complex | na.AbstractScalar = None,
     absorbance: None | float | na.AbstractScalar = None,
-    absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: None | na.AbstractScalar = _thickness_substrate,
+    width_pixel: (
+        u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
-    method: Literal["exact", "approx", "expected"] = "exact",
+    method: Literal["monte-carlo", "expected"] = "monte-carlo",
+    axis_xy: None | tuple[str, str] = None,
+    wrap: bool = False,
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
-    A random sample from the approximate distribution of measured electrons
+    A random sample from the distribution of measured electrons
     given the expected number of photons incident on the front surface of
     the sensor.
 
@@ -974,19 +1073,32 @@ def signal(
         The `expected` number of photons incident on the detector surface.
     wavelength
         The vacuum wavelength of the absorbed photons.
+    direction
+        The cosine of the incidence angle.
+    n
+        The complex index of refraction of the ambient medium.
+    n_substrate
+        The complex index of refraction of the light-sensitive material
+        If :obj:`None` (the default), the result of
+        :meth:`optika.chemicals.Chemical.n` for silicon will be used.
     absorbance
-        The fraction of incident energy absorbed by the light-sensitive layer
-        of the detector computed using the average of :func:`absorbance`.
+        The fraction of incident energy absorbed by the light-sensitive region
+        of the detector.
         If :obj:`None` (the default), the result of :func:`absorbance`
         called with default values will be used.
-    absorption
-        The absorption coefficient of the light-sensitive material for the
-        wavelength of interest.
-        If :obj:`None` (the default), the result of
-        :meth:`optika.chemicals.Chemical.absorption` for silicon will be used.
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
+    thickness_depletion
+        The thickness of the depletion region, the region with significant electric
+        field.
+        If :obj:`None` (the default), this is set to the same value as
+        `thickness_substrate`.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+        The default
+    width_pixel
+        The size of a single pixel on the sensor.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -994,13 +1106,23 @@ def signal(
     temperature
         The temperature of the light-sensitive silicon layer.
     method
-        The method used to generate random samples of measured electrons.
-        The `exact` method simulates every photon so it is accurate for low
-        photon counts but slow for high photon counts.
-        The `approx` method is much faster, but is only accurate if the number
-        of photons is high.
-        The `expected` method does not add any noise to the signal and just
-        returns the expected number of electrons.
+        The method used to generate samples of measured electrons.
+        The `monte-carlo` method draws a random sample by simulating every
+        photon using :func:`electrons_measured`, including shot, Fano, and
+        recombination noise as well as charge diffusion.
+        The `expected` method adds no noise and just returns the expected
+        number of electrons in each pixel; since it is a per-pixel expectation,
+        it does not apply charge diffusion.
+    axis_xy
+        The two logical axes corresponding to the pixel grid of the sensor
+        along which electrons will diffuse.
+        If :obj:`None` (the default), there is no charge diffusion.
+    wrap
+        Controls how diffused charge is treated at the edges of the pixel grid.
+        If :obj:`False` (the default), charge that diffuses past the edge of the
+        grid is lost, as it would be at the physical edge of a sensor.
+        If :obj:`True`, the grid is treated as periodic and the charge re-enters
+        the opposite edge (a toroidal boundary).
     shape_random
         Additional shape used to specify the number of samples to draw.
 
@@ -1049,16 +1171,34 @@ def signal(
     """
 
     if absorbance is None:
-        absorbance = _absorbance(wavelength).average
+        absorbance = _absorbance(
+            wavelength=wavelength,
+            direction=direction,
+            n=n,
+            thickness_substrate=thickness_substrate,
+        ).average
 
-    if absorption is None:
-        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+    if n_substrate is None:
+        n_substrate = optika.chemicals.Chemical("Si").n(wavelength)
+
+    direction_substrate = optika.materials.snells_law_scalar(
+        cos_incidence=direction,
+        index_refraction=n,
+        index_refraction_new=n_substrate,
+    )
+
+    absorption = absorption_effective(
+        wavelength=wavelength,
+        n_substrate=n_substrate,
+        direction_substrate=direction_substrate,
+    )
 
     if method == "expected":
         iqy = quantum_yield_ideal(
             wavelength=wavelength,
             temperature=temperature,
         )
+
         cce = charge_collection_efficiency(
             absorption=absorption,
             thickness_implant=thickness_implant,
@@ -1066,33 +1206,37 @@ def signal(
         )
         return iqy * absorbance * cce * photons_expected.to(u.ph)
 
-    photons_absorbed_expected = absorbance * photons_expected.to(u.ph)
-    photons_absorbed = na.random.poisson(
-        lam=photons_absorbed_expected,
-        shape_random=shape_random,
-    ).astype(int)
+    elif method == "monte-carlo":
 
-    kwargs = dict(
-        photons_absorbed=photons_absorbed,
-        wavelength=wavelength,
-        absorption=absorption,
-        thickness_implant=thickness_implant,
-        cce_backsurface=cce_backsurface,
-        temperature=temperature,
-        shape_random=shape_random,
-    )
+        photons = na.random.poisson(
+            lam=absorbance * photons_expected.to(u.ph),
+            shape_random=shape_random,
+        ).astype(int)
 
-    if method == "exact":
-        return electrons_measured(**kwargs)
-    elif method == "approx":
-        return electrons_measured_approx(**kwargs)
+        return electrons_measured(
+            photons_absorbed=photons,
+            wavelength=wavelength,
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            thickness_depletion=thickness_depletion,
+            thickness_substrate=thickness_substrate,
+            width_pixel=width_pixel,
+            cce_backsurface=cce_backsurface,
+            temperature=temperature,
+            axis_xy=axis_xy,
+            wrap=wrap,
+            shape_random=shape_random,
+        )
+
     else:  # pragma: nocover
         raise ValueError(f"Unrecognized method: {method}")
 
 
 def vmr_signal(
     wavelength: u.Quantity | na.ScalarArray,
-    absorption: None | u.Quantity | na.AbstractScalar = None,
+    direction: float | na.AbstractScalar = 1,
+    n: complex | na.AbstractScalar = 1,
+    n_substrate: None | complex | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
@@ -1108,11 +1252,14 @@ def vmr_signal(
     ----------
     wavelength
         The vacuum wavelength of the absorbed photons.
-    absorption
-        The absorption coefficient of the light-sensitive material for the
-        wavelength of interest.
+    direction
+        The cosine of the incidence angle.
+    n
+        The complex index of refraction of the ambient medium.
+    n_substrate
+        The complex index of refraction of the light-sensitive material.
         If :obj:`None` (the default), the result of
-        :meth:`optika.chemicals.Chemical.absorption` for silicon will be used.
+        :meth:`optika.chemicals.Chemical.n` for silicon will be used.
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
@@ -1205,10 +1352,22 @@ def vmr_signal(
     and :math:`\eta_0` is the CCE at the back surface.
     """
 
-    if absorption is None:
-        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+    if n_substrate is None:
+        n_substrate = optika.chemicals.Chemical("Si").n(wavelength)
 
-    n = quantum_yield_ideal(
+    direction_substrate = optika.materials.snells_law_scalar(
+        cos_incidence=direction,
+        index_refraction=n,
+        index_refraction_new=n_substrate,
+    )
+
+    absorption = absorption_effective(
+        wavelength=wavelength,
+        n_substrate=n_substrate,
+        direction_substrate=direction_substrate,
+    )
+
+    iqy = quantum_yield_ideal(
         wavelength=wavelength,
         temperature=temperature,
     )
@@ -1224,7 +1383,7 @@ def vmr_signal(
     result = 0
 
     if shot:
-        F_shot = n * cce
+        F_shot = iqy * cce
 
         result = result + F_shot
 
@@ -1235,12 +1394,13 @@ def vmr_signal(
 
     if pcc:
         n0 = cce_backsurface
-        aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
+        aW = absorption * thickness_implant
+        aW = aW.to(u.dimensionless_unscaled).value
         F_cce = 2 * np.exp(-aW) * np.square((n0 - 1) / aW) * (np.sinh(aW) - aW) / cce
 
         unit = u.electron / u.photon
 
-        F_pcc = 1 * unit - cce * unit - F_cce * unit + n * F_cce + F * F_cce
+        F_pcc = 1 * unit - cce * unit - F_cce * unit + iqy * F_cce + F * F_cce
 
         result = result + F_pcc
 
@@ -1258,24 +1418,74 @@ class AbstractSensorMaterial(
     @abc.abstractmethod
     def signal(
         self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        photons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
+        axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
-    ) -> optika.rays.RayVectorArray:
+        wrap: bool = False,
+    ) -> na.AbstractScalar:
         """
-        Given a set of absorbed rays, compute the number of electrons
-        measured by the sensor using :func:`signal`.
+        Given the photons incident on each pixel, compute the number of
+        electrons measured by the sensor using :func:`signal`.
 
         Parameters
         ----------
-        rays
-            The rays absorbed by the light-sensitive silicon layer.
-            The :attr:`optika.rays.RayVectorArray.intensity` field should
-            either be in units of photons or energy.
-        normal
-            The vector perpendicular to the surface of the sensor.
+        photons
+            The number of photons incident on each pixel.
+        wavelength
+            An assumed grid of wavelengths for the incident photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        width_pixel
+            The physical size of each pixel, used by the charge-diffusion model.
+        axis_xy
+            The two logical axes corresponding to the pixel grid of the sensor.
+            If provided, charge diffusion will occur along these two axes.
+            If :obj:`None` (the default), no diffusion is performed.
         noise
             Whether to add noise to the result.
+        wrap
+            Controls how diffused charge is treated at the edges of the pixel grid.
+            If :obj:`False` (the default), charge that diffuses past the edge of
+            the grid is lost, as it would be at the physical edge of a sensor.
+            If :obj:`True`, the grid is treated as periodic and the charge
+            re-enters the opposite edge (a toroidal boundary).
+        """
+
+    @abc.abstractmethod
+    def direction_refracted(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+    ) -> complex | na.AbstractScalar:
+        """
+        The cosine of the refracted propagation angle inside the light-sensitive
+        region of the sensor.
+
+        This is the quantity :meth:`signal` expects as its ``direction``
+        argument. Performing the refraction here lets the sensor's ``collect``
+        method fold the ambient index of refraction into the per-pixel cosine,
+        so :meth:`signal` does not need a separate ambient-index argument.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\\hat{z}`) is assumed.
+        n
+            The complex index of refraction of the ambient medium.
+        normal
+            The vector perpendicular to the surface of the sensor.
         """
 
     @abc.abstractmethod
@@ -1294,29 +1504,11 @@ class AbstractSensorMaterial(
         Parameters
         ----------
         electrons
-            The number of electrons measured by the sensor.
+            The number of electrons measured by each pixel.
         wavelength
             An assumed grid of wavelengths for the incident photons.
         direction
             An assumed propagation direction for the incident photons.
-        normal
-            The vector perpendicular to the surface of the sensor.
-        """
-
-    @abc.abstractmethod
-    def charge_diffusion(
-        self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> optika.rays.RayVectorArray:
-        """
-        Given a set of incident rays, compute how much the position of each ray
-        is perturbed due to charge diffusion within the sensor.
-
-        Parameters
-        ----------
-        rays
-            The rays incident on the sensor surface.
         normal
             The vector perpendicular to the surface of the sensor.
         """
@@ -1334,25 +1526,45 @@ class IdealSensorMaterial(
 
     def signal(
         self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
-        noise: bool = False,
-    ) -> optika.rays.RayVectorArray:
-        intensity = rays.intensity
-        if not intensity.unit.is_equivalent(u.photon):
+        photons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
+        axis_xy: None | tuple[str, str] = None,
+        noise: bool = True,
+        wrap: bool = False,
+    ) -> na.AbstractScalar:
+
+        if not photons.unit.is_equivalent(u.photon):
             h = astropy.constants.h
             c = astropy.constants.c
-            intensity = intensity / (h * c / rays.wavelength) * u.photon
+            photons = photons / (h * c / wavelength) * u.photon
 
         if noise:
-            intensity = na.random.poisson(intensity.to(u.ph)).astype(int)
+            photons = na.random.poisson(photons.to(u.ph)).astype(int)
 
-        electrons = intensity * u.electron / u.photon
+        electrons = photons * u.electron / u.photon
         electrons = electrons.to(u.electron)
 
-        result = dataclasses.replace(rays, intensity=electrons)
+        return electrons
 
-        return result
+    def direction_refracted(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+    ) -> complex | na.AbstractScalar:
+        # An ideal material does not refract, so the refracted cosine is just
+        # the cosine of the incidence angle.
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, -1)
+        return -direction @ normal
 
     def photons_incident(
         self,
@@ -1362,13 +1574,6 @@ class IdealSensorMaterial(
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
         return electrons * u.photon / u.electron
-
-    def charge_diffusion(
-        self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> optika.rays.RayVectorArray:
-        return rays
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -1499,8 +1704,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
     def width_charge_diffusion(
         self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
     ) -> na.AbstractScalar:
         """
         The standard deviation of the charge diffusion kernel for this sensor.
@@ -1508,37 +1712,89 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
         Parameters
         ----------
-        rays
-            The rays incident on the sensor surface.
-        normal
-            The vector perpendicular to the surface of the sensor.
+        wavelength
+            The wavelength of the incident light in vacuum.
         """
         return optika.sensors.charge_diffusion(
-            self._chemical.absorption(rays.wavelength),
+            self._chemical.absorption(wavelength),
             thickness_substrate=self.thickness_substrate,
             thickness_depletion=self.depletion.thickness,
         )
 
+    def transmittance(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+    ) -> optika.vectors.PolarizationVectorArray:
+        r"""
+        Compute the fraction of energy transmitted to the light-sensitive region
+        of the sensor.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+        n
+            The complex index of refraction of the ambient medium.
+        normal
+            The vector perpendicular to the surface of the CCD sensor.
+        """
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        return transmittance(
+            wavelength=wavelength,
+            direction=-direction @ normal,
+            n=n,
+            thickness_oxide=self.thickness_oxide,
+            thickness_substrate=self.thickness_substrate,
+            chemical_oxide=self._chemical_oxide,
+            chemical_substrate=self._chemical,
+            roughness_oxide=self.roughness_oxide,
+            roughness_substrate=self.roughness_substrate,
+        )
+
     def absorbance(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
     ) -> optika.vectors.PolarizationVectorArray:
-        """
+        r"""
         Compute the fraction of energy absorbed by the light-sensitive region
         of the sensor.
 
         Parameters
         ----------
-        rays
-            The light rays incident on the CCD surface.
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+        n
+            The complex index of refraction of the ambient medium.
         normal
             The vector perpendicular to the surface of the CCD sensor.
         """
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, -1)
+
         return absorbance(
-            wavelength=rays.wavelength,
-            direction=-rays.direction @ normal,
-            n=rays.index_refraction,
+            wavelength=wavelength,
+            direction=-direction @ normal,
+            n=n,
             thickness_oxide=self.thickness_oxide,
             thickness_substrate=self.thickness_substrate,
             chemical_oxide=self._chemical_oxide,
@@ -1549,49 +1805,88 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
     def charge_collection_efficiency(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
     ) -> na.AbstractScalar:
-        """
+        r"""
         Compute the charge collection efficiency of this CCD sensor material
         using :func:`charge_collection_efficiency`.
 
         Parameters
         ----------
-        rays
-            The light rays incident on the CCD surface.
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+        n
+            The complex index of refraction of the ambient medium.
         normal
             The vector perpendicular to the surface of the CCD sensor.
         """
+
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        direction = -direction @ normal
+
+        n_substrate = self._chemical.n(wavelength)
+
+        direction_substrate = optika.materials.snells_law_scalar(
+            cos_incidence=direction,
+            index_refraction=n,
+            index_refraction_new=n_substrate,
+        )
+
         return charge_collection_efficiency(
-            absorption=self._chemical.absorption(rays.wavelength),
+            absorption=absorption_effective(
+                wavelength=wavelength,
+                n_substrate=n_substrate,
+                direction_substrate=direction_substrate,
+            ),
             thickness_implant=self.thickness_implant,
             cce_backsurface=self.cce_backsurface,
-            cos_incidence=-rays.direction @ normal,
         )
 
     def quantum_efficiency_effective(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
     ) -> na.AbstractScalar:
-        """
+        r"""
         Compute the effective quantum efficiency of this CCD material using
         :func:`quantum_efficiency_effective`.
 
         Parameters
         ----------
-        rays
-            The light rays incident on the CCD surface
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+        n
+            The complex index of refraction of the ambient medium.
         normal
             The vector perpendicular to the surface of the CCD.
         """
-        k = rays.attenuation * rays.wavelength / (4 * np.pi)
-        n = rays.index_refraction + k * 1j
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        direction = -direction @ normal
 
         return quantum_efficiency_effective(
-            wavelength=rays.wavelength,
-            direction=rays.direction,
+            wavelength=wavelength,
+            direction=direction,
             n=n,
             thickness_oxide=self.thickness_oxide,
             thickness_implant=self.thickness_implant,
@@ -1601,117 +1896,188 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             chemical_substrate=self._chemical,
             roughness_oxide=self.roughness_oxide,
             roughness_substrate=self.roughness_substrate,
-            normal=normal,
         )
 
     def quantum_efficiency(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
     ) -> na.AbstractScalar:
-        """
+        r"""
         Compute the quantum efficiency of this CCD material using
         :meth:`quantum_efficiency_effective` and
         :meth:`quantum_yield_ideal`.
 
         Parameters
         ----------
-        rays
-            The light rays incident on the CCD surface
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
+        n
+            The complex index of refraction of the ambient medium.
         normal
             The vector perpendicular to the surface of the CCD.
         """
-        iqy = self.quantum_yield_ideal(rays.wavelength)
-        eqe = self.quantum_efficiency_effective(rays, normal)
+        iqy = self.quantum_yield_ideal(wavelength)
+        eqe = self.quantum_efficiency_effective(
+            wavelength=wavelength,
+            direction=direction,
+            n=n,
+            normal=normal,
+        )
         return iqy * eqe
 
     def probability_measurement(
         self,
-        rays: optika.rays.AbstractRayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
     ) -> na.AbstractScalar:
-        """
+        r"""
         Compute the probability of measuring an absorbed photon for this sensor
         using :func:`probability_measurement`.
 
         Parameters
         ----------
-        rays
-            The light rays incident on the CCD surface
+        wavelength
+            The wavelength of the incident light in vacuum.
+        direction
+            The propagation direction of the incident light in the ambient medium.
+            If :obj:`None` (default), normal incidence (:math:`\hat{z}`) is assumed.
         normal
             The vector perpendicular to the surface of the CCD.
         """
         return probability_measurement(
-            iqy=self.quantum_yield_ideal(rays.wavelength),
-            cce=self.charge_collection_efficiency(rays, normal),
+            iqy=self.quantum_yield_ideal(wavelength),
+            cce=self.charge_collection_efficiency(
+                wavelength=wavelength,
+                direction=direction,
+                normal=normal,
+            ),
+        )
+
+    def direction_refracted(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+    ) -> complex | na.AbstractScalar:
+        if direction is None:
+            direction = na.Cartesian3dVectorArray(0, 0, 1)
+
+        if normal is None:
+            normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        return optika.materials.snells_law_scalar(
+            cos_incidence=-direction @ normal,
+            index_refraction=n,
+            index_refraction_new=self._chemical.n(wavelength),
         )
 
     def electrons_measured(
         self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> optika.rays.RayVectorArray:
+        photons_absorbed: na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
+        axis_xy: None | tuple[str, str] = None,
+        wrap: bool = False,
+    ) -> na.AbstractScalar:
         """
         Randomly sample the number of measured electrons given the number of
         absorbed photons using :func:`electrons_measured`.
         """
 
-        intensity = rays.intensity
-        wavelength = rays.wavelength
-
-        electrons = electrons_measured(
-            photons_absorbed=intensity,
+        direction_substrate = self.direction_refracted(
             wavelength=wavelength,
-            absorption=self._chemical.absorption(wavelength),
-            thickness_implant=self.thickness_implant,
-            cce_backsurface=self.cce_backsurface,
-            temperature=self.temperature,
+            direction=direction,
+            n=n,
+            normal=normal,
         )
 
-        result = dataclasses.replace(rays, intensity=electrons)
-
-        return result
+        return electrons_measured(
+            photons_absorbed=photons_absorbed,
+            wavelength=wavelength,
+            absorption=absorption_effective(
+                wavelength=wavelength,
+                n_substrate=self._chemical.n(wavelength),
+                direction_substrate=direction_substrate,
+            ),
+            thickness_implant=self.thickness_implant,
+            thickness_depletion=self.depletion.thickness,
+            thickness_substrate=self.thickness_substrate,
+            width_pixel=width_pixel,
+            cce_backsurface=self.cce_backsurface,
+            axis_xy=axis_xy,
+            wrap=wrap,
+            temperature=self.temperature,
+        )
 
     def signal(
         self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        photons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
+        axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
-    ) -> optika.rays.RayVectorArray:
-        intensity = rays.intensity
-        wavelength = rays.wavelength
+        wrap: bool = False,
+    ) -> na.AbstractScalar:
 
-        if not intensity.unit.is_equivalent(u.photon):
+        if not photons.unit.is_equivalent(u.photon):
             h = astropy.constants.h
             c = astropy.constants.c
-            intensity = intensity / (h * c / wavelength) * u.photon
+            photons = photons / (h * c / wavelength) * u.photon
 
         if noise:
-            method = "exact"
+            method = "monte-carlo"
         else:
             method = "expected"
 
-        electrons = signal(
-            photons_expected=intensity,
+        # `direction` is the cosine of the refracted angle *inside* the substrate
+        # (computed by the sensor's `collect` method), so use equal ambient and
+        # substrate indices to make the Snell refraction inside `signal` a no-op
+        # while still computing the effective absorption with the correct index.
+        n_substrate = self._chemical.n(wavelength)
+
+        return signal(
+            photons_expected=photons,
             wavelength=wavelength,
+            direction=direction,
+            n=n_substrate,
+            n_substrate=n_substrate,
             absorbance=1,
-            absorption=self._chemical.absorption(wavelength),
             thickness_implant=self.thickness_implant,
+            thickness_depletion=self.depletion.thickness,
+            thickness_substrate=self.thickness_substrate,
+            width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
             method=method,
+            axis_xy=axis_xy,
+            wrap=wrap,
         )
-
-        result = dataclasses.replace(rays, intensity=electrons)
-
-        return result
 
     def photons_incident(
         self,
         electrons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
-        direction: na.AbstractCartesian3dVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
+        direction: None | na.AbstractCartesian3dVectorArray = None,
+        n: complex | na.AbstractScalar = 1,
+        normal: None | na.AbstractCartesian3dVectorArray = None,
     ) -> na.AbstractScalar:
         """
         Compute the expected number of incident photons for a given number
@@ -1725,39 +2091,20 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             The assumed wavelength of the incident photons.
         direction
             The assumed direction of the incident photons.
+        n
+            The complex index of refraction of the ambient medium.
         normal
             The vector perpendicular to the surface of the sensor.
         """
 
         qe = self.quantum_efficiency(
-            rays=optika.rays.RayVectorArray(
-                wavelength=wavelength,
-                direction=direction,
-            ),
+            wavelength=wavelength,
+            direction=direction,
+            n=n,
             normal=normal,
         )
 
         return electrons / qe
-
-    def charge_diffusion(
-        self,
-        rays: optika.rays.RayVectorArray,
-        normal: na.AbstractCartesian3dVectorArray,
-    ) -> optika.rays.RayVectorArray:
-        width = self.width_charge_diffusion(rays, normal)
-
-        position = dataclasses.replace(
-            rays.position,
-            x=na.random.normal(rays.position.x, width),
-            y=na.random.normal(rays.position.y, width),
-        )
-
-        rays = dataclasses.replace(
-            rays,
-            position=position,
-        )
-
-        return rays
 
     def efficiency(
         self,
@@ -1765,7 +2112,9 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
         result = self.absorbance(
-            rays=rays,
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            n=rays.n,
             normal=normal,
         )
 
@@ -1848,7 +2197,7 @@ class BackIlluminatedSiliconSensorMaterial(
             ) = x
             qe_fit = quantum_efficiency_effective(
                 wavelength=eqe_measured.inputs,
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
+                direction=1,
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
                 thickness_substrate=thickness_substrate,

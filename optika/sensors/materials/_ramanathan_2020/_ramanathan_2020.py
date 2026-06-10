@@ -8,6 +8,8 @@ import named_arrays as na
 import optika
 from .._stern_1994 import (
     _thickness_implant,
+    _thickness_substrate,
+    _width_pixel,
     _cce_backsurface,
 )
 
@@ -468,8 +470,15 @@ def electrons_measured(
     wavelength: u.Quantity | na.ScalarArray,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_depletion: None | u.Quantity | na.AbstractScalar = None,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    width_pixel: (
+        u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    axis_xy: None | tuple[str, str] = None,
+    wrap: bool = False,
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
@@ -483,26 +492,53 @@ def electrons_measured(
     Parameters
     ----------
     photons_absorbed
-        The number of photons absorbed by the light-sensitive layer of the sensor.
+        The number of photons absorbed by the light-sensitive layer of the
+        sensor.
     wavelength
         The vacuum wavelength of the absorbed photons.
     absorption
-        The absorption coefficient of silicon at the given wavelength.
+        The absorption coefficient of silicon per unit perpendicular depth.
+        For oblique incidence, supply the effective coefficient from
+        :func:`optika.sensors.absorption_effective`, which folds in the
+        refracted angle, so no separate angle argument is needed.
     thickness_implant
         The thickness of the implant layer, where partial-charge collection occurs.
+    thickness_depletion
+        The thickness of the depletion region, the region with significant electric
+        field.
+        If :obj:`None` (the default), this is set to the same value as
+        `thickness_substrate`.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    width_pixel
+        The size of a single pixel on the sensor.
+        A scalar gives square pixels; a
+        :class:`named_arrays.AbstractCartesian2dVectorArray` whose ``x``/``y``
+        components are the pixel widths along ``axis_xy[0]``/``axis_xy[1]``
+        gives rectangular pixels.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
     temperature
         The temperature of the silicon detector.
         Default is room temperature.
+    axis_xy
+        The two logical axes corresponding to the pixel grid of the sensor
+        along which electrons will diffuse.
+        If :obj:`None` (the default), there is no charge diffusion.
+    wrap
+        Controls how diffused charge is treated at the edges of the pixel grid.
+        If :obj:`False` (the default), charge that diffuses past the edge of the
+        grid is lost, as it would be at the physical edge of a sensor.
+        If :obj:`True`, the grid is treated as periodic and the charge re-enters
+        the opposite edge (a toroidal boundary).
     shape_random
         Additional shape used to specify the number of samples to draw.
 
     Examples
     --------
 
-    Plot the energy spectrum of 100 6 keV photons emitted from an Fe-55
+    Plot the energy spectrum of twenty 6 keV photons emitted from an Fe-55
     radioactive source.
 
     .. jupyter-execute::
@@ -518,7 +554,7 @@ def electrons_measured(
 
         # Define the expected number of photons
         # for each experiment
-        photons_absorbed = (100 * u.photon).astype(int)
+        photons_absorbed = (20 * u.photon).astype(int)
 
         # Define the wavelength at which to sample the distribution
         wavelength = 5.9 * u.keV
@@ -561,22 +597,49 @@ def electrons_measured(
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
+    if thickness_depletion is None:
+        thickness_depletion = thickness_substrate
+
     if shape_random is None:
         shape_random = dict()
+
+    if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
+        width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
+
+    width_pixel_x = width_pixel.x
+    width_pixel_y = width_pixel.y
 
     shape = na.broadcast_shapes(
         na.shape(photons_absorbed),
         na.shape(wavelength),
         na.shape(absorption),
         na.shape(thickness_implant),
+        na.shape(thickness_depletion),
+        na.shape(thickness_substrate),
+        na.shape(width_pixel_x),
+        na.shape(width_pixel_y),
         na.shape(cce_backsurface),
         na.shape(temperature),
         shape_random,
     )
 
+    if axis_xy is not None:
+        axis_x, axis_y = axis_xy
+        shape[axis_x] = shape.pop(axis_x)
+        shape[axis_y] = shape.pop(axis_y)
+    else:
+        axis_x = "__dummy_x__"
+        axis_y = "__dummy_y__"
+        shape[axis_x] = 1
+        shape[axis_y] = 1
+
     photons_absorbed = na.broadcast_to(photons_absorbed, shape)
     absorption = na.broadcast_to(absorption, shape)
     thickness_implant = na.broadcast_to(thickness_implant, shape)
+    thickness_depletion = na.broadcast_to(thickness_depletion, shape)
+    thickness_substrate = na.broadcast_to(thickness_substrate, shape)
+    width_pixel_x = na.broadcast_to(width_pixel_x, shape)
+    width_pixel_y = na.broadcast_to(width_pixel_y, shape)
     cce_backsurface = na.broadcast_to(cce_backsurface, shape)
 
     if not isinstance(cce_backsurface, u.Quantity):
@@ -604,17 +667,27 @@ def electrons_measured(
         wavelength=wavelength.ndarray,
         absorption=absorption.ndarray,
         thickness_implant=thickness_implant.ndarray,
+        thickness_depletion=thickness_depletion.ndarray,
+        thickness_substrate=thickness_substrate.ndarray,
+        width_pixel_x=width_pixel_x.ndarray,
+        width_pixel_y=width_pixel_y.ndarray,
         cce_backsurface=cce_backsurface.ndarray,
         p_n=p_n.ndarray,
         n=n.ndarray,
         energy_pair_inf=energy_pair_inf.ndarray,
         fano_inf=fano_inf.ndarray,
+        wrap=wrap,
     )
 
-    return na.ScalarArray(
+    result = na.ScalarArray(
         ndarray=result,
         axes=tuple(shape),
     )
+
+    if axis_xy is None:
+        result = result[{axis_x: 0, axis_y: 0}]
+
+    return result
 
 
 def _electrons_measured_quantity(
@@ -622,19 +695,31 @@ def _electrons_measured_quantity(
     wavelength: u.Quantity,
     absorption: u.Quantity,
     thickness_implant: u.Quantity,
+    thickness_depletion: u.Quantity,
+    thickness_substrate: u.Quantity,
+    width_pixel_x: u.Quantity,
+    width_pixel_y: u.Quantity,
     cce_backsurface: u.Quantity,
     p_n: np.ndarray,
     n: np.ndarray,
     energy_pair_inf: u.Quantity,
     fano_inf: u.Quantity,
+    wrap: bool,
 ) -> u.Quantity:
 
     shape = np.broadcast_shapes(
         photons_absorbed.shape,
         absorption.shape,
         thickness_implant.shape,
+        thickness_depletion.shape,
+        thickness_substrate.shape,
         cce_backsurface.shape,
+        width_pixel_x.shape,
+        width_pixel_y.shape,
     )
+
+    num_x = shape[~1]
+    num_y = shape[~0]
 
     unit_length = u.mm
 
@@ -642,20 +727,29 @@ def _electrons_measured_quantity(
     energy = wavelength.to(u.eV, equivalencies=u.spectral())
     absorption = absorption.to_value(1 / unit_length)
     thickness_implant = thickness_implant.to_value(unit_length)
+    thickness_depletion = thickness_depletion.to_value(unit_length)
+    thickness_substrate = thickness_substrate.to_value(unit_length)
+    width_pixel_x = width_pixel_x.to_value(unit_length)
+    width_pixel_y = width_pixel_y.to_value(unit_length)
     cce_backsurface = cce_backsurface.to_value(u.dimensionless_unscaled)
     energy_pair_inf = energy_pair_inf.to_value(u.eV)
     fano_inf = fano_inf.to_value(u.electron / u.photon)
 
     result = _electrons_measured_numba(
-        photons_absorbed=photons_absorbed.reshape(-1),
-        energy=energy.reshape(-1),
-        absorption=absorption.reshape(-1),
-        thickness_implant=thickness_implant.reshape(-1),
-        cce_backsurface=cce_backsurface.reshape(-1),
-        p_n=p_n.reshape(-1, p_n.shape[~0]),
-        n=n.reshape(-1, n.shape[~0]),
-        energy_pair_inf=energy_pair_inf.reshape(-1),
-        fano_inf=fano_inf.reshape(-1),
+        photons_absorbed=photons_absorbed.reshape(-1, num_x, num_y),
+        energy=energy.reshape(-1, num_x, num_y),
+        absorption=absorption.reshape(-1, num_x, num_y),
+        thickness_implant=thickness_implant.reshape(-1, num_x, num_y),
+        thickness_depletion=thickness_depletion.reshape(-1, num_x, num_y),
+        thickness_substrate=thickness_substrate.reshape(-1, num_x, num_y),
+        width_pixel_x=width_pixel_x.reshape(-1, num_x, num_y),
+        width_pixel_y=width_pixel_y.reshape(-1, num_x, num_y),
+        cce_backsurface=cce_backsurface.reshape(-1, num_x, num_y),
+        p_n=p_n.reshape(-1, num_x, num_y, p_n.shape[~0]),
+        n=n.reshape(-1, num_x, num_y, n.shape[~0]),
+        energy_pair_inf=energy_pair_inf.reshape(-1, num_x, num_y),
+        fano_inf=fano_inf.reshape(-1, num_x, num_y),
+        wrap=wrap,
     )
 
     result = result.reshape(shape)
@@ -665,75 +759,118 @@ def _electrons_measured_quantity(
     return result
 
 
-@numba.njit(fastmath=True, parallel=True)
-def _electrons_measured_numba(
+@numba.njit(
+    cache=True,
+    fastmath=True,
+    parallel=True,
+)
+def _electrons_measured_numba(  # pragma: nocover
     photons_absorbed: np.ndarray,
     energy: np.ndarray,
     absorption: np.ndarray,
     thickness_implant: np.ndarray,
+    thickness_depletion: np.ndarray,
+    thickness_substrate: np.ndarray,
+    width_pixel_x: np.ndarray,
+    width_pixel_y: np.ndarray,
     cce_backsurface: np.ndarray,
     p_n: np.ndarray,
     n: np.ndarray,
     energy_pair_inf: np.ndarray,
     fano_inf: np.ndarray,
-) -> np.ndarray:  # pragma: nocover
+    wrap: bool,
+) -> np.ndarray:
 
-    num_i, num_n = p_n.shape
+    num_i, num_x, num_y, num_n = p_n.shape
 
-    result = np.empty(num_i)
+    result = np.zeros((num_i, num_x, num_y))
 
     for i in numba.prange(num_i):
+        for x in range(num_x):
+            for y in range(num_y):
+                num_photon = int(photons_absorbed[i, x, y])
+                energy_i = energy[i, x, y]
+                a = absorption[i, x, y]
+                W = thickness_implant[i, x, y]
+                h_0 = cce_backsurface[i, x, y]
+                cmf_i = np.cumsum(p_n[i, x, y])
+                n_i = n[i, x, y]
+                energy_pair_inf_i = energy_pair_inf[i, x, y]
+                fano_inf_i = fano_inf[i, x, y]
+                z_substrate = thickness_substrate[i, x, y]
+                z_ff = z_substrate - thickness_depletion[i, x, y]
+                wp_x = width_pixel_x[i, x, y]
+                wp_y = width_pixel_y[i, x, y]
 
-        num_photon = int(photons_absorbed[i])
-        energy_i = energy[i]
-        a = absorption[i]
-        W = thickness_implant[i]
-        h_0 = cce_backsurface[i]
-        cmf_i = np.cumsum(p_n[i])
-        n_i = n[i]
-        energy_pair_inf_i = energy_pair_inf[i]
-        fano_inf_i = fano_inf[i]
+                # guard against a non-absorbing medium (a == 0), where the
+                # reciprocal absorption length is undefined
+                d = 1 / a if a > 0 else 0.0
 
-        d = 1 / a
+                # every photon is absorbed within the substrate, so sample the
+                # depth from the exponential truncated to [0, z_substrate)
+                fraction_absorbed = 1 - math.exp(-a * z_substrate)
 
-        num_electron_i = 0
+                mean_inf = energy_i / energy_pair_inf_i
+                std_inf = math.sqrt(fano_inf_i * mean_inf)
 
-        mean_inf = energy_i / energy_pair_inf_i
-        std_inf = math.sqrt(fano_inf_i * mean_inf)
+                low_energy = energy_i <= 50
 
-        low_energy = energy_i <= 50
+                for j in range(num_photon):
+                    if low_energy:
+                        x_ij = random.uniform(0, 1)
 
-        for j in range(num_photon):
+                        for k_ij in range(num_n):
+                            if cmf_i[k_ij] > x_ij:
+                                break
 
-            if low_energy:
+                        n_ij = n_i[k_ij]
 
-                x_ij = random.uniform(0, 1)
+                    else:
+                        n_ij = random.normalvariate(
+                            mu=mean_inf,
+                            sigma=std_inf,
+                        )
+                        n_ij = round(n_ij)
 
-                for k_ij in range(num_n):
-                    if cmf_i[k_ij] > x_ij:
-                        break
+                    y_ij = random.uniform(0, 1)
+                    if a > 0:
+                        z_ij = -d * math.log(1 - y_ij * fraction_absorbed)
+                    else:
+                        # with no absorption the truncated-exponential depth
+                        # distribution reduces to a uniform one over [0, z_substrate)
+                        z_ij = y_ij * z_substrate
 
-                n_ij = n_i[k_ij]
+                    if z_ij < W:
+                        h_ij = h_0 + (1 - h_0) * z_ij / W
+                    else:
+                        h_ij = 1
 
-            else:
-                n_ij = random.normalvariate(
-                    mu=mean_inf,
-                    sigma=std_inf,
-                )
-                n_ij = round(n_ij)
+                    m_ij = np.random.binomial(n=n_ij, p=h_ij)
 
-            y_ij = random.uniform(0, 1)
-            z_ij = -d * math.log(1 - y_ij)
+                    u = random.uniform(-0.5, 0.5)
+                    v = random.uniform(-0.5, 0.5)
 
-            if z_ij < W:
-                h_ij = h_0 + (1 - h_0) * z_ij / W
-            else:
-                h_ij = 1
+                    for e in range(m_ij):
+                        if z_ij < z_ff and wp_x > 0 and wp_y > 0:
+                            w = z_ff * math.sqrt(1 - z_ij / z_ff)
 
-            m_ij = np.random.binomial(n=n_ij, p=h_ij)
+                            p = random.gauss(u, w / wp_x)
+                            q = random.gauss(v, w / wp_y)
 
-            num_electron_i = num_electron_i + m_ij
+                            p = round(p)
+                            q = round(q)
 
-        result[i] = num_electron_i
+                        else:
+                            p = q = 0
+
+                        x_e = x + p
+                        y_e = y + q
+
+                        if wrap:
+                            # toroidal boundary: charge re-enters the opposite edge
+                            result[i, x_e % num_x, y_e % num_y] += 1
+                        elif (0 <= x_e < num_x) and (0 <= y_e < num_y):
+                            result[i, x_e, y_e] += 1
+                        # otherwise the electron diffused off the sensor and is lost
 
     return result
