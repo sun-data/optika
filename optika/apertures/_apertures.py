@@ -533,6 +533,191 @@ class CircularSectorAperture(
 
 
 @dataclasses.dataclass(eq=False, repr=False)
+class AnnularAperture(
+    AbstractAperture,
+):
+    r"""
+    An annular (ring-shaped) aperture, optionally restricted to a sector.
+
+    Defined by an inner and outer radius.  By default it spans the full ring,
+    but the optional ``angle_start`` / ``angle_stop`` arguments restrict it to an
+    annular sector, analogous to :class:`CircularSectorAperture`.
+    Setting ``radius_inner=0`` recovers a circular sector.
+
+    Examples
+    --------
+
+    Plot an annular aperture and an annular sector
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        # Define a full annulus and a 90-degree annular sector
+        aperture = optika.apertures.AnnularAperture(
+            radius_inner=30 * u.mm,
+            radius_outer=50 * u.mm,
+            angle_start=na.ScalarArray([0, 0] * u.deg, axes="aperture"),
+            angle_stop=na.ScalarArray([360, 90] * u.deg, axes="aperture"),
+        )
+
+        # Define points to sample the aperture with
+        points = na.Cartesian3dVectorLinearSpace(
+            start=aperture.bound_lower,
+            stop=aperture.bound_upper,
+            axis=na.Cartesian3dVectorArray("x", "y", "z"),
+            num=na.Cartesian3dVectorArray(21, 21, 1),
+        )
+
+        # Compute which points are inside the aperture
+        where = aperture(points)
+
+        # Plot the apertures
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(ncols=2, figsize=(8, 4), constrained_layout=True)
+            ax = na.ScalarArray(ax, axes="aperture")
+            for a in [ax[dict(aperture=0)], ax[dict(aperture=1)]]:
+                a.ndarray.set_aspect("equal")
+            aperture.plot(ax=ax, components=("x", "y"), color="black")
+            na.plt.scatter(points.x, points.y, ax=ax, c=where.astype(float))
+    """
+
+    radius_inner: u.Quantity | na.AbstractScalar = 0 * u.mm
+    """The inner radius of the annulus."""
+
+    radius_outer: u.Quantity | na.AbstractScalar = 0 * u.mm
+    """The outer radius of the annulus."""
+
+    angle_start: u.Quantity | na.AbstractScalar = 0 * u.deg
+    r"""
+    The starting angle of the annular sector.
+    Must be between :math:`-2 \pi` and :math:`+2 \pi` radians.
+    """
+
+    angle_stop: u.Quantity | na.AbstractScalar = 360 * u.deg
+    r"""
+    The ending angle of the annular sector,
+    counterclockwise from :attr:`angle_start`.
+    The default spans the full ring.
+    """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.radius_inner),
+            optika.shape(self.radius_outer),
+            optika.shape(self.angle_start),
+            optika.shape(self.angle_stop),
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
+
+    def __call__(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        radius_inner = self.radius_inner
+        radius_outer = self.radius_outer
+        angle_start = self.angle_start
+        angle_stop = self.angle_stop
+        active = self.active
+        inverted = self.inverted
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
+
+        shape = na.shape_broadcasted(
+            radius_inner,
+            radius_outer,
+            angle_start,
+            angle_stop,
+            active,
+            inverted,
+            position,
+        )
+
+        radius_inner = na.broadcast_to(radius_inner, shape)
+        radius_outer = na.broadcast_to(radius_outer, shape)
+        angle_start = na.broadcast_to(angle_start, shape)
+        angle_stop = na.broadcast_to(angle_stop, shape)
+        active = na.broadcast_to(active, shape)
+        inverted = na.broadcast_to(inverted, shape)
+        position = na.broadcast_to(position, shape)
+
+        radius = position.xy.length
+        mask_radius = (radius_inner <= radius) & (radius <= radius_outer)
+
+        angle = np.arctan2(position.y, position.x)
+        angle_relative = (angle - angle_start) % (360 * u.deg)
+        mask_angle = angle_relative <= (angle_stop - angle_start)
+
+        mask = mask_radius & mask_angle
+
+        mask[inverted] = ~mask[inverted]
+        mask[~active] = True
+
+        return mask
+
+    @property
+    def bound_lower(self) -> na.Cartesian3dVectorArray:
+        return self.wire().min()
+
+    @property
+    def bound_upper(self) -> na.Cartesian3dVectorArray:
+        return self.wire().max()
+
+    @property
+    def vertices(self) -> None:
+        return None
+
+    def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
+        if num is None:
+            num = self.samples_wire
+
+        # split the samples between the outer and inner arcs, reserving one
+        # point to close the loop
+        num_arc = num - 1
+        num_outer = num_arc // 2
+        num_inner = num_arc - num_outer
+
+        unit_radius = na.unit(self.radius_outer)
+        z = 0 * unit_radius if unit_radius is not None else 0
+
+        azimuth_outer = na.linspace(
+            self.angle_start, self.angle_stop, axis="wire", num=num_outer
+        )
+        azimuth_inner = na.linspace(
+            self.angle_stop, self.angle_start, axis="wire", num=num_inner
+        )
+
+        outer = na.Cartesian3dVectorArray(
+            x=self.radius_outer * np.cos(azimuth_outer),
+            y=self.radius_outer * np.sin(azimuth_outer),
+            z=z,
+        )
+        inner = na.Cartesian3dVectorArray(
+            x=self.radius_inner * np.cos(azimuth_inner),
+            y=self.radius_inner * np.sin(azimuth_inner),
+            z=z,
+        )
+
+        result = np.concatenate([outer, inner], axis="wire")
+        # close the loop back to the first point
+        result = np.concatenate(
+            [result, result[dict(wire=slice(0, 1))]],
+            axis="wire",
+        )
+
+        if self.transformation is not None:
+            result = self.transformation(result)
+        return result
+
+
+@dataclasses.dataclass(eq=False, repr=False)
 class EllipticalAperture(
     AbstractAperture,
 ):
