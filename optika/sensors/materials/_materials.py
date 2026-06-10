@@ -35,6 +35,7 @@ __all__ = [
     "fano_factor",
     "fano_factor_inf",
     "absorption_effective",
+    "transmittance",
     "absorbance",
     "charge_collection_efficiency",
     "quantum_efficiency_effective",
