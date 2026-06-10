@@ -802,7 +802,9 @@ def _electrons_measured_numba(  # pragma: nocover
                 wp_x = width_pixel_x[i, x, y]
                 wp_y = width_pixel_y[i, x, y]
 
-                d = 1 / a
+                # guard against a non-absorbing medium (a == 0), where the
+                # reciprocal absorption length is undefined
+                d = 1 / a if a > 0 else 0.0
 
                 # every photon is absorbed within the substrate, so sample the
                 # depth from the exponential truncated to [0, z_substrate)
@@ -831,7 +833,12 @@ def _electrons_measured_numba(  # pragma: nocover
                         n_ij = round(n_ij)
 
                     y_ij = random.uniform(0, 1)
-                    z_ij = -d * math.log(1 - y_ij * fraction_absorbed)
+                    if a > 0:
+                        z_ij = -d * math.log(1 - y_ij * fraction_absorbed)
+                    else:
+                        # with no absorption the truncated-exponential depth
+                        # distribution reduces to a uniform one over [0, z_substrate)
+                        z_ij = y_ij * z_substrate
 
                     if z_ij < W:
                         h_ij = h_0 + (1 - h_0) * z_ij / W
