@@ -1054,6 +1054,7 @@ def signal(
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     method: Literal["monte-carlo", "expected"] = "monte-carlo",
     axis_xy: None | tuple[str, str] = None,
+    wrap: bool = False,
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
@@ -1115,6 +1116,12 @@ def signal(
         The two logical axes corresponding to the pixel grid of the sensor
         along which electrons will diffuse.
         If :obj:`None` (the default), there is no charge diffusion.
+    wrap
+        Controls how diffused charge is treated at the edges of the pixel grid.
+        If :obj:`False` (the default), charge that diffuses past the edge of the
+        grid is lost, as it would be at the physical edge of a sensor.
+        If :obj:`True`, the grid is treated as periodic and the charge re-enters
+        the opposite edge (a toroidal boundary).
     shape_random
         Additional shape used to specify the number of samples to draw.
 
@@ -1216,6 +1223,7 @@ def signal(
             cce_backsurface=cce_backsurface,
             temperature=temperature,
             axis_xy=axis_xy,
+            wrap=wrap,
             shape_random=shape_random,
         )
 
@@ -1418,6 +1426,7 @@ class AbstractSensorMaterial(
         * u.um,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
+        wrap: bool = False,
     ) -> na.AbstractScalar:
         """
         Given the photons incident on each pixel, compute the number of
@@ -1439,6 +1448,12 @@ class AbstractSensorMaterial(
             If :obj:`None` (the default), no diffusion is performed.
         noise
             Whether to add noise to the result.
+        wrap
+            Controls how diffused charge is treated at the edges of the pixel grid.
+            If :obj:`False` (the default), charge that diffuses past the edge of
+            the grid is lost, as it would be at the physical edge of a sensor.
+            If :obj:`True`, the grid is treated as periodic and the charge
+            re-enters the opposite edge (a toroidal boundary).
         """
 
     @abc.abstractmethod
@@ -1518,6 +1533,7 @@ class IdealSensorMaterial(
         * u.um,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
+        wrap: bool = False,
     ) -> na.AbstractScalar:
 
         if not photons.unit.is_equivalent(u.photon):
@@ -1973,6 +1989,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         ) = 0
         * u.um,
         axis_xy: None | tuple[str, str] = None,
+        wrap: bool = False,
     ) -> na.AbstractScalar:
         """
         Randomly sample the number of measured electrons given the number of
@@ -2000,6 +2017,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             axis_xy=axis_xy,
+            wrap=wrap,
             temperature=self.temperature,
         )
 
@@ -2014,6 +2032,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         * u.um,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
+        wrap: bool = False,
     ) -> na.AbstractScalar:
 
         if not photons.unit.is_equivalent(u.photon):
@@ -2047,6 +2066,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             temperature=self.temperature,
             method=method,
             axis_xy=axis_xy,
+            wrap=wrap,
         )
 
     def photons_incident(

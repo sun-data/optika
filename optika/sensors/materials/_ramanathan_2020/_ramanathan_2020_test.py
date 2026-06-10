@@ -229,3 +229,34 @@ def test_electrons_measured_diffusion():
     )
 
     assert np.allclose(std_measured, std_expected, rtol=0.05)
+
+
+def test_electrons_measured_wrap():
+    """
+    On a grid small compared to the diffusion width, charge that diffuses off
+    the grid is lost when ``wrap=False`` but retained (toroidally) when
+    ``wrap=True``, so the wrapped grid holds strictly more charge.
+    """
+    num = 3
+    axis_xy = ("pixel_x", "pixel_y")
+
+    photons = np.zeros((num, num))
+    photons[num // 2, num // 2] = 5000
+    photons = na.ScalarArray(photons << u.photon, axes=axis_xy).astype(int)
+
+    kwargs = dict(
+        photons_absorbed=photons,
+        wavelength=500 * u.nm,
+        absorption=1 / u.um,
+        thickness_implant=0 * u.um,
+        thickness_depletion=0 * u.um,
+        thickness_substrate=14 * u.um,
+        width_pixel=2 * u.um,
+        cce_backsurface=1,
+        axis_xy=axis_xy,
+    )
+
+    total_drop = _ramanathan_2020.electrons_measured(**kwargs, wrap=False).sum(axis_xy)
+    total_wrap = _ramanathan_2020.electrons_measured(**kwargs, wrap=True).sum(axis_xy)
+
+    assert total_wrap > total_drop

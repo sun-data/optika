@@ -478,6 +478,7 @@ def electrons_measured(
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     axis_xy: None | tuple[str, str] = None,
+    wrap: bool = False,
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
@@ -525,6 +526,12 @@ def electrons_measured(
         The two logical axes corresponding to the pixel grid of the sensor
         along which electrons will diffuse.
         If :obj:`None` (the default), there is no charge diffusion.
+    wrap
+        Controls how diffused charge is treated at the edges of the pixel grid.
+        If :obj:`False` (the default), charge that diffuses past the edge of the
+        grid is lost, as it would be at the physical edge of a sensor.
+        If :obj:`True`, the grid is treated as periodic and the charge re-enters
+        the opposite edge (a toroidal boundary).
     shape_random
         Additional shape used to specify the number of samples to draw.
 
@@ -669,6 +676,7 @@ def electrons_measured(
         n=n.ndarray,
         energy_pair_inf=energy_pair_inf.ndarray,
         fano_inf=fano_inf.ndarray,
+        wrap=wrap,
     )
 
     result = na.ScalarArray(
@@ -696,6 +704,7 @@ def _electrons_measured_quantity(
     n: np.ndarray,
     energy_pair_inf: u.Quantity,
     fano_inf: u.Quantity,
+    wrap: bool,
 ) -> u.Quantity:
 
     shape = np.broadcast_shapes(
@@ -740,6 +749,7 @@ def _electrons_measured_quantity(
         n=n.reshape(-1, num_x, num_y, n.shape[~0]),
         energy_pair_inf=energy_pair_inf.reshape(-1, num_x, num_y),
         fano_inf=fano_inf.reshape(-1, num_x, num_y),
+        wrap=wrap,
     )
 
     result = result.reshape(shape)
@@ -768,6 +778,7 @@ def _electrons_measured_numba(  # pragma: nocover
     n: np.ndarray,
     energy_pair_inf: np.ndarray,
     fano_inf: np.ndarray,
+    wrap: bool,
 ) -> np.ndarray:
 
     num_i, num_x, num_y, num_n = p_n.shape
@@ -845,6 +856,14 @@ def _electrons_measured_numba(  # pragma: nocover
                         else:
                             p = q = 0
 
-                        result[i, (x + p) % num_x, (y + q) % num_y] += 1
+                        x_e = x + p
+                        y_e = y + q
+
+                        if wrap:
+                            # toroidal boundary: charge re-enters the opposite edge
+                            result[i, x_e % num_x, y_e % num_y] += 1
+                        elif (0 <= x_e < num_x) and (0 <= y_e < num_y):
+                            result[i, x_e, y_e] += 1
+                        # otherwise the electron diffused off the sensor and is lost
 
     return result
