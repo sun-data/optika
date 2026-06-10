@@ -417,6 +417,23 @@ class AbstractTestAbstractSensorMaterial(
         assert isinstance(na.as_named_array(result), na.AbstractScalar)
         assert result.unit.is_equivalent(u.photon)
 
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    def test_direction_refracted(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ):
+        # with the default direction and normal (normal incidence) the
+        # refracted cosine is unity
+        result = a.direction_refracted(wavelength=wavelength)
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert np.all(np.real(result) > 0)
+
 
 @pytest.mark.parametrize(
     argnames="a",
