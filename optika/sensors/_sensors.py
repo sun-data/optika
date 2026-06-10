@@ -99,7 +99,8 @@ class AbstractImagingSensor(
         light-sensitive region in each pixel: the two quantities :meth:`expose`
         needs. Refracting each ray here (with its own ambient index of
         refraction) and binning the result is what lets :meth:`expose` and the
-        material's ``signal`` model be shared with systems that have no rays,
+        material's :meth:`~optika.sensors.materials.AbstractSensorMaterial.signal`
+        model be shared with systems that have no rays,
         without threading a separate ambient-index argument through them.
 
         Parameters
