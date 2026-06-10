@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -51,3 +52,36 @@ class TestConicSag(
     AbstractTestAbstractConicSag,
 ):
     pass
+
+
+def test_intercept_grazing_conic():
+    """
+    Regression test for the closed-form conic intercept: on the steep flank of
+    a grazing-incidence conic, the intercept must land on the surface and on the
+    same sheet as the vertex.  An iterative root-finder can otherwise converge to
+    the far / wrong-sheet root, which corrupts the resulting image.
+    """
+    # a steeply-curved hyperboloid, like a grazing-incidence secondary mirror
+    sag = optika.sags.ConicSag(radius=-0.7 * u.mm, conic=-1.0007)
+
+    # rays parallel to the axis, grazing the flank far from the vertex
+    azimuth = na.linspace(0, 2 * np.pi, axis="ray", num=64, endpoint=False) * u.rad
+    radius = 68 * u.mm
+    rays = optika.rays.RayVectorArray(
+        position=na.Cartesian3dVectorArray(
+            x=radius * np.cos(azimuth),
+            y=radius * np.sin(azimuth),
+            z=-2000 * u.mm,
+        ),
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+
+    position = sag.intercept(rays).position
+
+    # the intercept lies on the surface ...
+    assert np.allclose(sag(position), position.z)
+
+    # ... and on the same sheet of the conic as the vertex
+    c = 1 / sag.radius
+    r2 = np.square(position.x) + np.square(position.y)
+    assert np.all((position.z * (c * r2 - position.z)) >= 0)
