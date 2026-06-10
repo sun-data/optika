@@ -178,6 +178,53 @@ class TestCircularSectorAperture(
         assert np.all(a.radius >= 0)
 
 
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.AnnularAperture(
+            radius_inner=radius_inner,
+            radius_outer=radius_outer,
+            angle_start=angle_start,
+            angle_stop=angle_stop,
+            samples_wire=21,
+            active=active,
+            inverted=inverted,
+            transformation=transformation,
+            kwargs_plot=kwargs_plot,
+        )
+        for radius_inner, radius_outer in [
+            (50 * u.mm, 100 * u.mm),
+            (na.linspace(20, 40, axis="radius", num=4) * u.mm, 100 * u.mm),
+        ]
+        for angle_start, angle_stop in [
+            (0 * u.deg, 360 * u.deg),
+            (30 * u.deg, 120 * u.deg),
+        ]
+        for active in active_parameterization
+        for inverted in inverted_parameterization
+        for transformation in transform_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+    ],
+)
+class TestAnnularAperture(
+    AbstractTestAbstractAperture,
+):
+    def test_radius_inner(self, a: optika.apertures.AnnularAperture):
+        assert isinstance(a.radius_inner, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius_inner >= 0)
+
+    def test_radius_outer(self, a: optika.apertures.AnnularAperture):
+        assert isinstance(a.radius_outer, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius_outer >= a.radius_inner)
+
+    def test_angle_start(self, a: optika.apertures.AnnularAperture):
+        assert na.unit_normalized(a.angle_start).is_equivalent(u.deg)
+
+    def test_angle_stop(self, a: optika.apertures.AnnularAperture):
+        assert na.unit_normalized(a.angle_stop).is_equivalent(u.deg)
+        assert np.all(a.angle_stop >= a.angle_start)
+
+
 class AbstractTestAbstractPolygonalAperture(
     AbstractTestAbstractAperture,
 ):
