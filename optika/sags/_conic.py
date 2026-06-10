@@ -74,6 +74,101 @@ class AbstractConicSag(
         )
         return result / result.length
 
+    def intercept(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> optika.rays.RayVectorArray:
+        r"""
+        Compute the intercept of the given rays with this conic surface of
+        revolution.
+
+        The intersection is found in closed form by solving the ray-quadric
+        intersection, which avoids the spurious root that an iterative solver
+        can converge to on the steep flank of a grazing-incidence conic.
+
+        Parameters
+        ----------
+        rays
+            The rays to intercept with this surface.
+
+        Notes
+        -----
+        A conic of revolution about the :math:`z` axis, with its vertex at the
+        origin, satisfies the implicit equation
+
+        .. math::
+
+            c (x^2 + y^2) + (1 + k) c z^2 - 2 z = 0,
+
+        where :math:`c = 1 / R` is the vertex curvature and :math:`k` is the
+        conic constant.  Substituting the parametric ray
+        :math:`\mathbf{x} = \mathbf{o} + t \mathbf{u}` gives a quadratic
+        :math:`A t^2 + B t + C = 0` in the path length :math:`t`, with
+
+        .. math::
+
+            A &= c \left[ u_x^2 + u_y^2 + (1 + k) u_z^2 \right] \\
+            B &= 2 \left[ c (o_x u_x + o_y u_y + (1 + k) o_z u_z) - u_z \right] \\
+            C &= c \left[ o_x^2 + o_y^2 + (1 + k) o_z^2 \right] - 2 o_z.
+
+        Of the (up to two) real roots, the intercept is the one on the same
+        sheet of the conic as the vertex (identified by
+        :math:`z \, (c (x^2 + y^2) - z) \geq 0`) that is nearest the ray's
+        starting point.  An iterative solver, by contrast, can converge to the
+        far or wrong-sheet root on the steep flank of a grazing conic.
+        """
+        transformation = self.transformation
+        if transformation is not None:
+            rays = transformation.inverse(rays)
+
+        c = 1 / self.radius
+        kp1 = 1 + self.conic
+
+        o = rays.position
+        u = rays.direction
+
+        a = c * (np.square(u.x) + np.square(u.y) + kp1 * np.square(u.z))
+        b = 2 * (c * (o.x * u.x + o.y * u.y + kp1 * o.z * u.z) - u.z)
+        cc = c * (np.square(o.x) + np.square(o.y) + kp1 * np.square(o.z)) - 2 * o.z
+
+        discriminant = np.square(b) - 4 * a * cc
+        real = discriminant >= 0
+        sqrt_discriminant = np.sqrt(np.where(real, discriminant, 0))
+
+        # guard against the degenerate (nearly linear, A -> 0) case
+        unit_a = na.unit_normalized(a)
+        degenerate = np.abs(a) < (1e-12 * unit_a)
+        denominator = np.where(degenerate, 1 * unit_a, 2 * a)
+        t_linear = -cc / b
+
+        def root(sign: int) -> na.AbstractScalar:
+            t = np.where(
+                degenerate,
+                t_linear,
+                (-b + sign * sqrt_discriminant) / denominator,
+            )
+            position = o + u * t
+            r2 = np.square(position.x) + np.square(position.y)
+            on_vertex_sheet = (position.z * (c * r2 - position.z)) >= 0
+            valid = real & on_vertex_sheet
+            return np.where(valid, t, np.inf * na.unit_normalized(t))
+
+        # of the (up to two) roots, take the one on the vertex sheet nearest the
+        # ray's current position.  This selects the physical intercept and avoids
+        # the far / wrong-sheet root that an iterative solver can land on along
+        # the steep flank of a grazing conic.
+        t_a = root(-1)
+        t_b = root(+1)
+        t = np.where(np.abs(t_a) <= np.abs(t_b), t_a, t_b)
+
+        result = rays.copy_shallow()
+        result.position = o + u * t
+
+        if transformation is not None:
+            result = transformation(result)
+
+        return result
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class ConicSag(
