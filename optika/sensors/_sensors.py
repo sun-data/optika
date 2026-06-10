@@ -179,7 +179,7 @@ class AbstractImagingSensor(
         Convert a per-pixel photon image into the electrons measured by the sensor.
 
         This is the detector-physics step shared by every optical system: it
-        operates on a pixel grid (a photon image plus an incidence-cosine map),
+        operates on a pixel grid (a photon image plus a refracted-cosine map),
         so it can be driven by :meth:`collect` for a ray-traced system, or by
         any model that produces a per-pixel photon image directly.
 
@@ -196,7 +196,8 @@ class AbstractImagingSensor(
             The wavelength inputs (``image.inputs.wavelength``) must be the
             bin *edges*, not the centers.
         direction
-            The cosine of the incidence angle in each pixel.
+            The cosine of the refracted angle inside the light-sensitive region
+            in each pixel, as produced by :meth:`collect`.
         axis_wavelength
             The logical axis of `image` corresponding to changing wavelength.
             If :obj:`None` (the default), ``image.inputs.wavelength`` must have

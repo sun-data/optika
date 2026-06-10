@@ -1058,7 +1058,7 @@ def signal(
     shape_random: None | dict[str, int] = None,
 ) -> na.AbstractScalar:
     r"""
-    A random sample from the approximate distribution of measured electrons
+    A random sample from the distribution of measured electrons
     given the expected number of photons incident on the front surface of
     the sensor.
 
@@ -1439,7 +1439,8 @@ class AbstractSensorMaterial(
         wavelength
             An assumed grid of wavelengths for the incident photons.
         direction
-            The cosine of the incidence angle.
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
         width_pixel
             The physical size of each pixel, used by the charge-diffusion model.
         axis_xy
