@@ -620,27 +620,11 @@ class EllipticalAperture(
 
     @property
     def bound_lower(self) -> na.Cartesian3dVectorArray:
-        unit = na.unit(self.radius)
-        result = na.Cartesian3dVectorArray()
-        if unit is not None:
-            result = result * unit
-        if self.transformation is not None:
-            result = self.transformation(result)
-        result.x = result.x - self.radius.x
-        result.y = result.y - self.radius.y
-        return result
+        return self.wire().min()
 
     @property
     def bound_upper(self) -> na.Cartesian3dVectorArray:
-        unit = na.unit(self.radius)
-        result = na.Cartesian3dVectorArray()
-        if unit is not None:
-            result = result * unit
-        if self.transformation is not None:
-            result = self.transformation(result)
-        result.x = result.x + self.radius.x
-        result.y = result.y + self.radius.y
-        return result
+        return self.wire().max()
 
     @property
     def vertices(self) -> None:
@@ -717,11 +701,17 @@ class AbstractPolygonalAperture(
 
     @property
     def bound_lower(self) -> na.AbstractCartesian3dVectorArray:
-        return self.vertices.min(axis="vertex")
+        vertices = self.vertices
+        if self.transformation is not None:
+            vertices = self.transformation(vertices)
+        return vertices.min(axis="vertex")
 
     @property
     def bound_upper(self) -> na.AbstractCartesian3dVectorArray:
-        return self.vertices.max(axis="vertex")
+        vertices = self.vertices
+        if self.transformation is not None:
+            vertices = self.transformation(vertices)
+        return vertices.max(axis="vertex")
 
     def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
         if num is None:
@@ -874,24 +864,24 @@ class RectangularAperture(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        bound_lower = self.bound_lower
-        bound_upper = self.bound_upper
+        half_width = na.asanyarray(
+            self.half_width,
+            like=na.Cartesian2dVectorArray(),
+        )
         active = self.active
         inverted = self.inverted
         if self.transformation is not None:
             position = self.transformation.inverse(position)
+        position = position.xy
 
-        shape = na.shape_broadcasted(
-            bound_lower, bound_upper, active, inverted, position
-        )
+        shape = na.shape_broadcasted(half_width, active, inverted, position)
 
-        bound_lower = na.broadcast_to(bound_lower, shape)
-        bound_upper = na.broadcast_to(bound_upper, shape)
+        half_width = na.broadcast_to(half_width, shape)
         active = na.broadcast_to(active, shape)
         inverted = na.broadcast_to(inverted, shape)
         position = na.broadcast_to(position, shape)
 
-        mask = (bound_lower <= position) & (position <= bound_upper)
+        mask = (-half_width <= position) & (position <= half_width)
         mask = mask.x & mask.y
 
         mask[inverted] = ~mask[inverted]

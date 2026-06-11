@@ -25,6 +25,12 @@ transform_parameterization = [
 ]
 
 
+def _nominal(x: na.AbstractScalar) -> na.AbstractScalar:
+    if isinstance(x, na.AbstractUncertainScalarArray):
+        return x.nominal
+    return x
+
+
 class AbstractTestAbstractAperture(
     test_mixins.AbstractTestDxfWritable,
     test_mixins.AbstractTestPrintable,
@@ -57,6 +63,17 @@ class AbstractTestAbstractAperture(
 
         assert np.all(result[~na.as_named_array(a.active)])
 
+        # the centroid of the wire must be inside an active, non-inverted
+        # aperture (every aperture here is star-shaped about its centroid)
+        if (a.active is True) and (a.inverted is False):
+            centroid = a.wire().mean("wire")
+            centroid = na.Cartesian3dVectorArray(
+                x=_nominal(centroid.x),
+                y=_nominal(centroid.y),
+                z=_nominal(centroid.z),
+            )
+            assert np.all(_nominal(na.as_named_array(a(centroid))))
+
     @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
     def test_clip_rays(
         self,
@@ -75,12 +92,28 @@ class AbstractTestAbstractAperture(
         assert np.mean(result.unvignetted) <= np.mean(rays.unvignetted)
 
     def test_bound_lower(self, a: optika.apertures.AbstractAperture):
-        assert isinstance(a.bound_lower, na.AbstractCartesian3dVectorArray)
+        result = a.bound_lower
+        assert isinstance(result, na.AbstractCartesian3dVectorArray)
+        # compare nominal values only, since uncertain parameters may be
+        # redrawn between independent evaluations of the geometry
+        wire = a.wire()
+        for component in ("x", "y"):
+            bound = _nominal(getattr(result, component))
+            edge = _nominal(getattr(wire, component).min("wire"))
+            tolerance = 1e-9 * (np.abs(bound) + np.abs(edge))
+            assert np.all(bound <= edge + tolerance)
 
     def test_bound_upper(self, a: optika.apertures.AbstractAperture):
-        assert isinstance(a.bound_upper, na.AbstractCartesian3dVectorArray)
-        assert np.all(a.bound_upper.x != a.bound_lower.x)
-        assert np.all(a.bound_upper.y != a.bound_lower.y)
+        result = a.bound_upper
+        assert isinstance(result, na.AbstractCartesian3dVectorArray)
+        assert np.all(result.x != a.bound_lower.x)
+        assert np.all(result.y != a.bound_lower.y)
+        wire = a.wire()
+        for component in ("x", "y"):
+            bound = _nominal(getattr(result, component))
+            edge = _nominal(getattr(wire, component).max("wire"))
+            tolerance = 1e-9 * (np.abs(bound) + np.abs(edge))
+            assert np.all(bound >= edge - tolerance)
 
     def test_vertices(self, a: optika.apertures.AbstractAperture):
         if a.vertices is not None:
@@ -400,3 +433,26 @@ class TestIsoscelesTrapezoidalAperture(
     AbstractTestAbstractIsoscelesTrapezoidalAperture,
 ):
     pass
+
+
+def test_rectangular_aperture_decentered():
+    """
+    A rectangular aperture decentered by its internal transformation must
+    accept points inside the translated rectangle and reject points inside
+    the untranslated one.
+
+    Regression test: ``RectangularAperture.__call__`` used to express the
+    rectangle in terms of :attr:`bound_lower`/:attr:`bound_upper` while
+    also inverse-transforming the position, applying the internal
+    transformation twice.
+    """
+    half_width = 5 * u.mm
+    decenter = 12 * u.mm
+    a = optika.apertures.RectangularAperture(
+        half_width=half_width,
+        transformation=na.transformations.Cartesian3dTranslation(x=decenter),
+    )
+    point_inside = na.Cartesian3dVectorArray(12, 0, 0) * u.mm
+    point_outside = na.Cartesian3dVectorArray(0, 0, 0) * u.mm
+    assert np.all(na.as_named_array(a(point_inside)))
+    assert not np.any(na.as_named_array(a(point_outside)))
