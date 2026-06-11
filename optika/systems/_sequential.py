@@ -316,23 +316,63 @@ class AbstractSequentialSystem(
             else:
                 raise ValueError(f"unrecognized output grid unit, {na.unit(grid_last)}")
 
+            # The residual of the root-finding problem has the same units as
+            # the target grid, so the convergence tolerance must scale with
+            # the size of the target aperture to be achievable in floating
+            # point for systems of any physical scale.
+            scale = np.maximum(
+                grid_last.x.ptp(),
+                grid_last.y.ptp(),
+            )
+            max_abs_error = 1e-9 * np.maximum(
+                scale,
+                1 * na.unit_normalized(scale),
+            )
+
             variables = getattr(result.outputs, component_variable)
 
-            root = na.optimize.root_newton(
-                function=functools.partial(
-                    self._ray_error,
-                    rays=result.outputs,
-                    subsystem=subsystem,
-                    grid_last=grid_last,
-                    component_variable=component_variable,
-                    component_target=component_target,
-                    zfunc=zfunc,
-                ),
-                guess=na.Cartesian2dVectorArray(
-                    x=variables.x,
-                    y=variables.y,
-                ),
+            function = functools.partial(
+                self._ray_error,
+                rays=result.outputs,
+                subsystem=subsystem,
+                grid_last=grid_last,
+                component_variable=component_variable,
+                component_target=component_target,
+                zfunc=zfunc,
             )
+
+            # The default perturbation used by `na.jacobian` is an absolute
+            # 1e-10 in the units of the variable, which is below the
+            # floating-point noise floor of the raytrace for variables
+            # measured in physical units, yielding a Jacobian made of noise.
+            # Use a perturbation proportional to the scale of the problem
+            # instead.
+            dx = 1e-6
+
+            def jacobian(x, _function=function, _dx=dx):
+                return na.jacobian(function=_function, x=x, dx=_dx)
+
+            try:
+                root = na.optimize.root_newton(
+                    function=function,
+                    guess=na.Cartesian2dVectorArray(
+                        x=variables.x,
+                        y=variables.y,
+                    ),
+                    jacobian=jacobian,
+                    max_abs_error=max_abs_error,
+                )
+            except ValueError as e:  # pragma: nocover
+                raise ValueError(
+                    f"Could not solve for the rays connecting the stop "
+                    f"surfaces {surface_first.name!r} and "
+                    f"{surface_last.name!r}. "
+                    f"If the field stop is only partially reachable at a "
+                    f"single wavelength (e.g. a spectrograph sensor), "
+                    f"consider marking the object surface, with an angular "
+                    f"(dimensionless, sine of the half-angle) aperture, as "
+                    f"the field stop instead."
+                ) from e
 
             variables.x = root.x
             variables.y = root.y
