@@ -305,11 +305,13 @@ class AbstractSurface(
         direction: na.AbstractCartesian3dVectorArray,
     ) -> optika.wavefields.WavefieldVectorArray:
         """
-        Apply this surface's material to a wavefield sampled on this surface.
+        Apply this surface's material and rulings to a wavefield sampled on
+        this surface.
 
         The amplitude is multiplied by the square root of the material
-        efficiency, and the index of refraction is updated to that of the new
-        medium.
+        efficiency (and of the ruling efficiency, if rulings are present),
+        the ruling phase function is applied,
+        and the index of refraction is updated to that of the new medium.
 
         Parameters
         ----------
@@ -320,11 +322,6 @@ class AbstractSurface(
             The effective incidence direction of the light at each sample
             point, expressed in system coordinates.
         """
-        if self.rulings is not None:
-            raise NotImplementedError(
-                "rulings are not yet supported by the wave-propagation path."
-            )
-
         material = self.material
         if material is None:
             material = optika.materials.Vacuum()
@@ -333,6 +330,7 @@ class AbstractSurface(
         if sag is None:
             sag = optika.sags.NoSag()
 
+        rulings = self.rulings
         transformation = self.transformation
 
         rays = optika.rays.RayVectorArray(
@@ -346,11 +344,44 @@ class AbstractSurface(
 
         normal = sag.normal(rays.position)
 
+        amplitude = wavefield.amplitude
+
+        if rulings is not None:
+            spacing = rulings.spacing_
+            position = rays.position
+
+            # The phase shift imparted by the rulings is
+            # 2 pi m N(r), where N(r) is the groove-counting function whose
+            # gradient is the local groove density.
+            # Integrate the groove density along the chord from the local
+            # origin to each sample point using Gauss-Legendre quadrature,
+            # which is exact for constant ruling spacing.
+            nodes, weights = np.polynomial.legendre.leggauss(32)
+            nodes = (nodes + 1) / 2
+            weights = weights / 2
+
+            grooves = 0
+            for node, weight in zip(nodes, weights):
+                kappa = spacing(node * position, normal)
+                density = (position @ kappa) / np.square(kappa.length)
+                grooves = grooves + weight * density
+            grooves = grooves.to(u.dimensionless_unscaled).value
+
+            # The same orientation convention as
+            # optika.rulings.incident_effective.
+            sign = np.sign(
+                na.as_named_array(rays.direction @ normal).value
+            )
+
+            phase = 2 * np.pi * rulings.diffraction_order * grooves
+            amplitude = amplitude * np.exp(1j * sign * phase)
+            amplitude = amplitude * np.sqrt(rulings.efficiency(rays, normal))
+
         efficiency = material.efficiency(rays, normal)
 
         return dataclasses.replace(
             wavefield,
-            amplitude=wavefield.amplitude * np.sqrt(efficiency),
+            amplitude=amplitude * np.sqrt(efficiency),
             index_refraction=material.index_refraction(rays),
         )
 

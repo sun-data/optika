@@ -323,6 +323,78 @@ def test_psf_newtonian():
     assert np.abs(centroid.y - centroid_rays.y) < 5 * u.um
 
 
+def test_wavefield_grating():
+    """
+    For a concave diffraction grating used in first order, the centroid of
+    the Huygens PSF should match the centroid of a geometric raytrace.
+    This exercises the ruling phase function of the wave-propagation path,
+    including its sign convention: an incorrect sign would displace the
+    Huygens spot by twice the (millimeter-scale) dispersion offset.
+    """
+    grating = optika.surfaces.Surface(
+        name="grating",
+        sag=optika.sags.SphericalSag(radius=-400 * u.mm),
+        aperture=optika.apertures.CircularAperture(15 * u.mm),
+        material=optika.materials.Mirror(),
+        rulings=optika.rulings.Rulings(
+            spacing=20 * u.um,
+            diffraction_order=1,
+        ),
+        is_pupil_stop=True,
+        transformation=na.transformations.Cartesian3dTranslation(z=200 * u.mm),
+    )
+    sensor = optika.sensors.ImagingSensor(
+        name="sensor",
+        width_pixel=50 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        num_pixel=na.Cartesian2dVectorArray(256, 256),
+        timedelta_exposure=1 * u.s,
+        is_field_stop=True,
+    )
+    system = optika.systems.SequentialSystem(
+        surfaces=[grating],
+        sensor=sensor,
+        grid_input=optika.vectors.ObjectVectorArray(
+            wavelength=500 * u.nm,
+            field=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                num=5,
+                centers=True,
+            ),
+            pupil=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                num=5,
+                centers=True,
+            ),
+        ),
+    )
+
+    field = na.Cartesian2dVectorArray(0, 0)
+
+    wavefield = system.wavefield(
+        field=field,
+        width_sensor=0.2 * u.mm,
+        num=151**2,
+        num_sensor=51,
+        seed=4,
+    )
+    intensity = np.square(np.abs(wavefield.outputs.amplitude))
+    position = wavefield.outputs.position.xy
+    centroid = (position * intensity).sum() / intensity.sum()
+
+    rayfunction = system.rayfunction(field=field)
+    where = rayfunction.outputs.unvignetted
+    position_rays = rayfunction.outputs.position.xy
+    centroid_rays = (position_rays * where).sum() / where.sum()
+
+    assert np.abs(centroid.x - centroid_rays.x) < 2 * u.um
+    assert np.abs(centroid.y - centroid_rays.y) < 2 * u.um
+
+
 def test_wavefield_invalid():
     system = _telescope()
 
