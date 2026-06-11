@@ -7,6 +7,7 @@ The building block of an optical system.
 from typing import TypeVar, Generic
 import abc
 import dataclasses
+import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
 from astropy import units as u
@@ -196,6 +197,251 @@ class AbstractSurface(
             rays_2 = transformation(rays_2)
 
         return rays_2
+
+    def wavefield_samples(
+        self,
+        axis: tuple[str, str],
+        num: int | na.AbstractCartesian2dVectorArray = 10_000,
+        seed: None | int = None,
+        bound: None
+        | tuple[
+            na.AbstractCartesian2dVectorArray,
+            na.AbstractCartesian2dVectorArray,
+        ] = None,
+    ) -> optika.wavefields.WavefieldVectorArray:
+        """
+        Stratified-random samples of this surface's aperture, in local surface
+        coordinates, with unit amplitude on unvignetted samples and zero
+        amplitude elsewhere.
+
+        The :attr:`~optika.wavefields.WavefieldVectorArray.wavelength` and
+        :attr:`~optika.wavefields.WavefieldVectorArray.index_refraction`
+        fields are left at their defaults for the caller to fill in.
+
+        Parameters
+        ----------
+        axis
+            The two logical axes of the new grid of samples.
+        num
+            The approximate total number of samples,
+            or the number of samples along each axis.
+        seed
+            An optional seed for the random number generator.
+        bound
+            The lower and upper corners of the region to sample, in local
+            surface coordinates.
+            If :obj:`None` (the default), the bounding box of the aperture is
+            used.
+            This parameter is required for surfaces with inverted apertures
+            (obscurations), since the aperture of such surfaces does not
+            bound the beam.
+        """
+        aperture = self.aperture
+        if aperture is None:
+            raise ValueError(
+                f"surface {self.name!r} must have an aperture to be sampled "
+                f"by a wavefield."
+            )
+
+        if bound is None:
+            if aperture.inverted:
+                raise ValueError(
+                    f"the aperture of surface {self.name!r} is inverted, "
+                    f"so the sampling region must be given using the `bound` "
+                    f"parameter."
+                )
+            lower = aperture.bound_lower.xy
+            upper = aperture.bound_upper.xy
+        else:
+            lower, upper = bound
+
+        if not na.unit_normalized(lower).is_equivalent(u.mm):
+            raise ValueError(
+                f"the aperture of surface {self.name!r} must be expressed in "
+                f"physical units to be sampled by a wavefield."
+            )
+
+        if not isinstance(num, na.AbstractCartesian2dVectorArray):
+            num_x = int(np.round(np.sqrt(num)))
+            num = na.Cartesian2dVectorArray(num_x, num_x)
+
+        grid = na.Cartesian2dVectorStratifiedRandomSpace(
+            start=lower,
+            stop=upper,
+            axis=na.Cartesian2dVectorArray(*axis),
+            num=num,
+            seed=seed,
+        ).explicit
+
+        sag = self.sag
+        if sag is None:
+            sag = optika.sags.NoSag()
+
+        position = na.Cartesian3dVectorArray(
+            x=grid.x,
+            y=grid.y,
+            z=0 * na.unit_normalized(grid.x),
+        )
+        position.z = sag(position)
+
+        where = aperture(position)
+
+        normal = sag.normal(position)
+
+        area = (upper.x - lower.x) * (upper.y - lower.y) / (num.x * num.y)
+        area = area / np.abs(normal.z)
+
+        return optika.wavefields.WavefieldVectorArray(
+            position=position,
+            amplitude=np.where(where, 1 + 0j, 0j),
+            normal=normal,
+            area=area,
+            unvignetted=where,
+        )
+
+    def _interact_wavefield(
+        self,
+        wavefield: optika.wavefields.AbstractWavefieldVectorArray,
+        direction: na.AbstractCartesian3dVectorArray,
+    ) -> optika.wavefields.WavefieldVectorArray:
+        """
+        Apply this surface's material to a wavefield sampled on this surface.
+
+        The amplitude is multiplied by the square root of the material
+        efficiency, and the index of refraction is updated to that of the new
+        medium.
+
+        Parameters
+        ----------
+        wavefield
+            A wavefield sampled on this surface, expressed in system
+            coordinates.
+        direction
+            The effective incidence direction of the light at each sample
+            point, expressed in system coordinates.
+        """
+        if self.rulings is not None:
+            raise NotImplementedError(
+                "rulings are not yet supported by the wave-propagation path."
+            )
+
+        material = self.material
+        if material is None:
+            material = optika.materials.Vacuum()
+
+        sag = self.sag
+        if sag is None:
+            sag = optika.sags.NoSag()
+
+        transformation = self.transformation
+
+        rays = optika.rays.RayVectorArray(
+            wavelength=wavefield.wavelength,
+            position=wavefield.position,
+            direction=direction,
+            index_refraction=wavefield.index_refraction,
+        )
+        if transformation is not None:
+            rays = transformation.inverse(rays)
+
+        normal = sag.normal(rays.position)
+
+        efficiency = material.efficiency(rays, normal)
+
+        return dataclasses.replace(
+            wavefield,
+            amplitude=wavefield.amplitude * np.sqrt(efficiency),
+            index_refraction=material.index_refraction(rays),
+        )
+
+    def propagate_wavefield(
+        self,
+        wavefield: optika.wavefields.AbstractWavefieldVectorArray,
+        axis: tuple[str, str],
+        axis_new: tuple[str, str],
+        num: int | na.AbstractCartesian2dVectorArray = 10_000,
+        chunk_size: int = 1024,
+        seed: None | int = None,
+    ) -> optika.wavefields.WavefieldVectorArray:
+        """
+        Propagate the given wavefield to this surface by evaluating the
+        Rayleigh-Sommerfeld diffraction integral at a new set of stratified
+        random samples of this surface's aperture.
+
+        Both the given and the resulting wavefield are expressed in system
+        coordinates.
+
+        Parameters
+        ----------
+        wavefield
+            The wavefield sampled on the previous surface, expressed in
+            system coordinates.
+        axis
+            The two logical axes of the samples of the given wavefield,
+            which are summed over by the diffraction integral.
+        axis_new
+            The two logical axes of the new samples on this surface.
+            Must be distinct from `axis`.
+        num
+            The approximate total number of samples on this surface,
+            or the number of samples along each axis.
+        chunk_size
+            The maximum number of destination points considered
+            simultaneously by the diffraction integral.
+        seed
+            An optional seed for the random number generator.
+        """
+        for ax in axis_new:
+            if ax in axis:
+                raise ValueError(
+                    f"`axis_new`, {axis_new}, must be distinct from "
+                    f"`axis`, {axis}."
+                )
+
+        bound = None
+        if self.aperture is not None:
+            if self.aperture.inverted:
+                # The aperture of an obscuration does not bound the beam,
+                # so sample the footprint of the incoming wavefield instead.
+                position_local = wavefield.position
+                if self.transformation is not None:
+                    position_local = self.transformation.inverse(position_local)
+                position_local = position_local.xy
+                lower = position_local.min()
+                upper = position_local.max()
+                padding = (upper - lower) / 10
+                bound = (lower - padding, upper + padding)
+
+        target = self.wavefield_samples(
+            axis=axis_new,
+            num=num,
+            seed=seed,
+            bound=bound,
+        )
+
+        if self.transformation is not None:
+            target = self.transformation(target)
+
+        amplitude = optika.wavefields.rayleigh_sommerfeld(
+            wavefield=wavefield,
+            position=target.position,
+            axis=axis,
+            chunk_size=chunk_size,
+        )
+
+        target.amplitude = target.amplitude * amplitude
+        target.wavelength = wavefield.wavelength
+        target.index_refraction = wavefield.index_refraction
+
+        weight = np.square(np.abs(wavefield.amplitude))
+        centroid = (wavefield.position * weight).sum(axis) / weight.sum(axis)
+        direction = target.position - centroid
+        direction = direction / direction.length
+
+        return self._interact_wavefield(
+            wavefield=target,
+            direction=direction,
+        )
 
     def plot(
         self,
