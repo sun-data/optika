@@ -718,6 +718,7 @@ class AbstractSequentialSystem(
         chunk_size: int = 1024,
         normalized_field: bool = True,
         seed: None | int = None,
+        bound: None | Sequence = None,
     ) -> optika.wavefields.WavefieldFunctionArray:
         r"""
         Propagate a wavefield through this system using physical optics and
@@ -770,6 +771,33 @@ class AbstractSequentialSystem(
         seed
             An optional seed for the random number generators used to sample
             each surface.
+        bound
+            An optional sequence of sampling regions, one for each surface
+            with an aperture, where each element is either :obj:`None` (use
+            the bounding box of the surface's aperture) or a tuple of the
+            lower and upper corners of the region in local surface
+            coordinates.
+            This is important for surfaces near an intermediate focus,
+            where the wavefield is concentrated in a region much smaller than
+            the aperture and would otherwise be unresolved by the samples.
+
+        Notes
+        -----
+        The brute-force Rayleigh-Sommerfeld integral is only well-sampled if
+        the phase of its integrand varies by less than about :math:`\pi`
+        between neighboring samples.
+        This is naturally satisfied when consecutive surfaces are close to
+        conjugate (each surface is near an image of the previous one, or near
+        a focus of the light leaving it), but it is violated for plane-to-plane
+        propagation with a large Fresnel number, such as between two
+        collimated-space apertures.
+        Undersampled propagation manifests as a speckle-like noise floor
+        rather than an error in the mean, so check convergence by increasing
+        `num`.
+        Surfaces that only mask the beam in collimated space (obscurations,
+        filters) are often better excluded from the wave propagation
+        (by setting their aperture to :obj:`None` in a copy of the system)
+        than included as an undersampled propagation step.
         """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
@@ -808,6 +836,14 @@ class AbstractSequentialSystem(
                 f"{len(surfaces)} surfaces with an aperture, got {len(num)}."
             )
 
+        if bound is None:
+            bound = [None] * len(surfaces)
+        if len(bound) != len(surfaces):
+            raise ValueError(
+                f"`bound` must have one element for each of the "
+                f"{len(surfaces)} surfaces with an aperture, got {len(bound)}."
+            )
+
         axes = [
             (f"_{axis[0]}_{k % 2}", f"_{axis[1]}_{k % 2}")
             for k in range(len(surfaces))
@@ -819,8 +855,8 @@ class AbstractSequentialSystem(
 
         surface_0 = surfaces[0]
 
-        bound_0 = None
-        if surface_0.aperture.inverted:
+        bound_0 = bound[0]
+        if (bound_0 is None) and surface_0.aperture.inverted:
             # The aperture of an obscuration does not bound the beam,
             # so sample the footprint of the pupil stop instead.
             stop = self.pupil_stop
@@ -904,6 +940,7 @@ class AbstractSequentialSystem(
                 num=num[k],
                 chunk_size=chunk_size,
                 seed=seeds[k],
+                bound=bound[k],
             )
 
         axis_last = axes[len(surfaces) - 1]
