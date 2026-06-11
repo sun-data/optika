@@ -481,6 +481,25 @@ def test__anchor_surface():
     assert anchor([first, flat, last]) is last
 
 
+def test__stop_is_involutory():
+    involutory = optika.systems.SequentialSystem._stop_is_involutory
+    assert involutory(
+        optika.surfaces.Surface(material=optika.materials.Mirror()),
+    )
+    assert not involutory(
+        optika.surfaces.Surface(
+            rulings=optika.rulings.Rulings(spacing=1 * u.um, diffraction_order=1),
+        ),
+    )
+    assert not involutory(
+        optika.surfaces.Surface(material=optika.materials.MultilayerFilm()),
+    )
+    assert involutory(
+        optika.surfaces.Surface(material=optika.materials.Vacuum()),
+    )
+    assert involutory(optika.surfaces.Surface())
+
+
 # small enough that the image of the field fits on the sensor
 _radius_field_newtonian = 0.05 * u.deg
 
@@ -617,3 +636,69 @@ class TestSequentialSystemGrazingSpectrograph(
         result = a.field_max
         assert np.abs(result.x - _radius_field_grazing) < 1e-6 * u.deg
         assert np.abs(result.y - _radius_field_grazing) < 1e-6 * u.deg
+
+
+_focal_length_fzp = 100 * u.mm
+_wavelength_fzp = 500 * u.nm
+
+_sensor_fzp = optika.sensors.ImagingSensor(
+    name="sensor",
+    width_pixel=15 * u.um,
+    axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+    timedelta_exposure=1 * u.s,
+    num_pixel=na.Cartesian2dVectorArray(64, 64),
+    transformation=na.transformations.Cartesian3dTranslation(
+        z=_focal_length_fzp,
+    ),
+    is_field_stop=True,
+)
+
+_system_fzp = optika.systems.SequentialSystem(
+    object=optika.surfaces.Surface(
+        name="source",
+        aperture=optika.apertures.CircularAperture(
+            radius=np.sin(0.3 * u.deg),
+        ),
+    ),
+    surfaces=[
+        optika.surfaces.Surface(
+            name="fzp",
+            rulings=optika.rulings.Rulings(
+                spacing=optika.rulings.HolographicRulingSpacing(
+                    x1=na.Cartesian3dVectorArray(0, 0, -1) * u.AU,
+                    x2=na.Cartesian3dVectorArray(0, 0, 1) * _focal_length_fzp,
+                    wavelength=_wavelength_fzp,
+                ),
+                diffraction_order=1,
+            ),
+            aperture=optika.apertures.CircularAperture(radius=5 * u.mm),
+            is_pupil_stop=True,
+        ),
+    ],
+    sensor=_sensor_fzp,
+    grid_input=_grid_input,
+)
+
+
+@pytest.mark.parametrize(argnames="a", argvalues=[_system_fzp])
+class TestSequentialSystemFZP(
+    AbstractTestAbstractSequentialSystem,
+):
+    """
+    A telescope whose only optical element is a transmissive Fresnel zone
+    plate acting as the pupil stop. This guards against regressions in the
+    handling of non-involutory (transmissive) stop surfaces by the stop
+    root-finding problem, which previously re-applied the diffraction of the
+    stop surface and computed wildly incorrect field extents.
+    """
+
+    def test_field_max_matches_plate_scale(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        sensor = a.sensor
+        half_width = sensor.width_pixel * sensor.num_pixel / 2
+        field_expected = np.arctan2(half_width, _focal_length_fzp)
+        result = a.field_max
+        assert np.abs(result.x - field_expected.x) < 1e-3 * u.deg
+        assert np.abs(result.y - field_expected.y) < 1e-3 * u.deg
