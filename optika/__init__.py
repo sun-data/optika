@@ -5,6 +5,7 @@ A Python package for simulating and designing optical systems.
 from ._caching import memory
 from . import mixins
 from ._util import shape, direction, angles
+from . import zernikes
 from . import vectors
 from . import targets
 from . import rays
@@ -27,6 +28,7 @@ __all__ = [
     "shape",
     "direction",
     "angles",
+    "zernikes",
     "vectors",
     "targets",
     "rays",
