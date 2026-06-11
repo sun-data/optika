@@ -268,3 +268,165 @@ _grid_input = optika.vectors.ObjectVectorArray(
 )
 class TestSequentialSystem(AbstractTestAbstractSequentialSystem):
     pass
+
+
+def test__anchor_surface():
+    first = optika.surfaces.Surface(name="first")
+    last = optika.surfaces.Surface(name="last")
+    mirror = optika.surfaces.Surface(
+        name="mirror",
+        material=optika.materials.Mirror(),
+    )
+    curved = optika.surfaces.Surface(
+        name="curved",
+        sag=optika.sags.SphericalSag(radius=-100 * u.mm),
+    )
+    grating = optika.surfaces.Surface(
+        name="grating",
+        rulings=optika.rulings.Rulings(spacing=1 * u.um, diffraction_order=1),
+    )
+    flat = optika.surfaces.Surface(name="flat")
+
+    anchor = optika.systems.SequentialSystem._anchor_surface
+    assert anchor([first, flat, mirror, last]) is mirror
+    assert anchor([first, curved, last]) is curved
+    assert anchor([first, grating, last]) is grating
+    assert anchor([first, flat, last]) is last
+
+
+# small enough that the image of the field fits on the sensor
+_radius_field_newtonian = 0.05 * u.deg
+
+_system_newtonian = optika.systems.SequentialSystem(
+    object=optika.surfaces.Surface(
+        name="source",
+        aperture=optika.apertures.CircularAperture(
+            radius=np.sin(_radius_field_newtonian),
+        ),
+        is_field_stop=True,
+    ),
+    surfaces=[
+        optika.surfaces.Surface(
+            name="primary",
+            sag=optika.sags.SphericalSag(radius=-2000 * u.mm),
+            material=optika.materials.Mirror(),
+            aperture=optika.apertures.CircularAperture(radius=50 * u.mm),
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=500 * u.mm,
+            ),
+        ),
+        optika.surfaces.Surface(
+            name="aperture",
+            aperture=optika.apertures.CircularAperture(radius=10 * u.mm),
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=250 * u.mm,
+            ),
+            is_pupil_stop=True,
+        ),
+    ],
+    sensor=optika.sensors.ImagingSensor(
+        name="sensor",
+        width_pixel=15 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        timedelta_exposure=1 * u.s,
+        num_pixel=na.Cartesian2dVectorArray(128, 128),
+        transformation=na.transformations.Cartesian3dTranslation(
+            z=-500 * u.mm,
+        ),
+    ),
+    grid_input=_grid_input,
+)
+
+
+@pytest.mark.parametrize(argnames="a", argvalues=[_system_newtonian])
+class TestSequentialSystemNewtonian(
+    AbstractTestAbstractSequentialSystem,
+):
+    """
+    A Newtonian-style telescope where the pupil stop is downstream of the
+    primary mirror, so that the initial guess of the stop root-finding
+    problem must be aimed at the center of the primary instead of directly
+    at its own target on the pupil stop.
+    """
+
+    def test_field_max_matches_source_aperture(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        result = a.field_max
+        assert np.abs(result.x - _radius_field_newtonian) < 1e-6 * u.deg
+        assert np.abs(result.y - _radius_field_newtonian) < 1e-6 * u.deg
+
+
+_radius_field_grazing = 0.25 * u.deg
+
+_system_grazing = optika.systems.SequentialSystem(
+    object=optika.surfaces.Surface(
+        name="source",
+        aperture=optika.apertures.CircularAperture(
+            radius=np.sin(_radius_field_grazing),
+        ),
+        is_field_stop=True,
+    ),
+    surfaces=[
+        optika.surfaces.Surface(
+            name="paraboloid",
+            sag=optika.sags.ParabolicSag(focal_length=-2000 * u.mm),
+            material=optika.materials.Mirror(),
+            aperture=optika.apertures.CircularAperture(radius=260 * u.mm),
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=2500 * u.mm,
+            ),
+            is_pupil_stop=True,
+        ),
+        optika.surfaces.Surface(
+            name="grating",
+            rulings=optika.rulings.Rulings(
+                spacing=10 * u.um,
+                diffraction_order=1,
+            ),
+            aperture=optika.apertures.RectangularAperture(
+                half_width=60 * u.mm,
+            ),
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=1000 * u.mm,
+            ),
+        ),
+    ],
+    sensor=optika.sensors.ImagingSensor(
+        name="sensor",
+        width_pixel=15 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        # short exposure so that the Poisson lam stays representable for the
+        # large collecting area of the grazing primary
+        timedelta_exposure=1 * u.us,
+        num_pixel=na.Cartesian2dVectorArray(2048, 1024),
+        # offset by the deflection of the first diffraction order,
+        # (z_grating - z_sensor) * wavelength / spacing
+        transformation=na.transformations.Cartesian3dTranslation(
+            x=26 * u.mm,
+            z=480 * u.mm,
+        ),
+    ),
+    grid_input=_grid_input,
+)
+
+
+@pytest.mark.parametrize(argnames="a", argvalues=[_system_grazing])
+class TestSequentialSystemGrazingSpectrograph(
+    AbstractTestAbstractSequentialSystem,
+):
+    """
+    A grazing-incidence spectrograph with a transmission grating, where the
+    object surface (with an angular aperture) is the field stop. This guards
+    against regressions in the object-as-field-stop code path of the stop
+    root-finding problem.
+    """
+
+    def test_field_max_matches_source_aperture(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        result = a.field_max
+        assert np.abs(result.x - _radius_field_grazing) < 1e-6 * u.deg
+        assert np.abs(result.y - _radius_field_grazing) < 1e-6 * u.deg
