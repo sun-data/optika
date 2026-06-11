@@ -407,3 +407,42 @@ def test_wavefield_invalid():
             width_sensor=0.02 * u.mm,
             num=[100, 100],
         )
+
+
+def test_wavefield_samples_decentered_aperture():
+    """
+    The stratified samples must cover an aperture that is decentered by its
+    internal transformation.
+
+    Regression test: the polygonal-aperture bounding boxes used to ignore
+    the internal transformation, so the sampling grid covered the
+    untranslated footprint and only its overlap with the true aperture
+    received nonzero amplitude (an effective pupil far smaller than the
+    real one).
+    """
+    half_width = 5 * u.mm
+    decenter = 12 * u.mm
+    surface = optika.surfaces.Surface(
+        name="decentered",
+        aperture=optika.apertures.RectangularAperture(
+            half_width=half_width,
+            transformation=na.transformations.Cartesian3dTranslation(x=decenter),
+        ),
+    )
+
+    samples = surface.wavefield_samples(axis=("sx", "sy"), num=51**2, seed=0)
+
+    shape = na.shape_broadcasted(
+        samples.position.x,
+        samples.position.y,
+        samples.amplitude,
+    )
+    where = np.abs(na.broadcast_to(samples.amplitude, shape).ndarray) > 0
+    x = na.broadcast_to(samples.position.x, shape).ndarray[where]
+    y = na.broadcast_to(samples.position.y, shape).ndarray[where]
+
+    assert np.any(where)
+    assert x.min() < decenter - 0.9 * half_width
+    assert x.max() > decenter + 0.9 * half_width
+    assert y.min() < -0.9 * half_width
+    assert y.max() > +0.9 * half_width
