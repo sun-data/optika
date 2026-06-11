@@ -179,6 +179,28 @@ class AbstractSequentialSystem(
         return self.surfaces_all[self.index_pupil_stop]
 
     @staticmethod
+    def _stop_is_involutory(
+        surface: optika.surfaces.AbstractSurface,
+    ) -> bool:
+        """
+        Whether applying the given stop surface to its own forward output
+        exactly undoes its effect on the rays. This is true for mirrors
+        (reflection is an involution) and for surfaces that don't modify the
+        rays at all (e.g. a vacuum object surface), but false for surfaces
+        with rulings or refraction, whose effect would be applied a second
+        time instead of undone.
+        """
+        material = surface.material
+        if material is not None and material.is_mirror:
+            return True
+        if surface.rulings is not None:
+            return False
+        if material is not None:
+            if not isinstance(material, optika.materials.Vacuum):
+                return False
+        return True
+
+    @staticmethod
     def _anchor_surface(
         subsystem: list[optika.surfaces.AbstractSurface],
     ) -> optika.surfaces.AbstractSurface:
@@ -203,7 +225,8 @@ class AbstractSequentialSystem(
         cls,
         a: na.Cartesian2dVectorArray,
         rays: optika.rays.RayVectorArray,
-        subsystem: list[optika.surfaces.AbstractSurface],
+        propagators: list[optika.surfaces.AbstractSurface],
+        transformation_last: None | na.transformations.AbstractTransformation,
         grid_last: na.Cartesian2dVectorArray,
         component_variable: str,
         component_target: str,
@@ -215,11 +238,10 @@ class AbstractSequentialSystem(
         rays_component_variable.z = zfunc(a)
 
         rays = optika.propagators.propagate_rays(
-            propagators=subsystem[1:],
+            propagators=propagators,
             rays=rays,
         )
 
-        transformation_last = subsystem[~0].transformation
         if transformation_last is not None:
             rays = transformation_last.inverse(rays)
 
@@ -390,6 +412,18 @@ class AbstractSequentialSystem(
             else:
                 raise ValueError(f"unrecognized output grid unit, {na.unit(grid_last)}")
 
+            # A mirror stop reverses the rays, so the solved variable can be
+            # the post-reflection ray and the stop surface itself can be
+            # excluded from the root-finding propagators. A transmissive stop
+            # that modifies the rays (e.g. a transmission grating or Fresnel
+            # zone plate) does not reverse them, so its own diffraction or
+            # refraction must be included in the solve, and the solved
+            # variable is the pre-stop ray.
+            if self._stop_is_involutory(surface_first):
+                propagators = subsystem[1:]
+            else:
+                propagators = subsystem
+
             # The residual of the root-finding problem has the same units as
             # the target grid, so the convergence tolerance must scale with
             # the size of the target aperture to be achievable in floating
@@ -408,7 +442,8 @@ class AbstractSequentialSystem(
             function = functools.partial(
                 self._ray_error,
                 rays=result.outputs,
-                subsystem=subsystem,
+                propagators=propagators,
+                transformation_last=surface_last.transformation,
                 grid_last=grid_last,
                 component_variable=component_variable,
                 component_target=component_target,
@@ -476,6 +511,26 @@ class AbstractSequentialSystem(
         index_stop = min(index_pupil_stop, index_field_stop)
 
         subsystem = surfaces[index_stop::-1]
+
+        # This reversed trace works for a mirror stop because re-applying the
+        # stop surface reflects the rays back toward the object, and
+        # reflection is an involution (it exactly undoes itself on the second
+        # application). A transmissive stop (e.g. a transmission grating or a
+        # Fresnel zone plate) is not an involution: re-applying it would
+        # diffract/refract the rays a second time instead of undoing the
+        # first pass. (A true time-reversed trace through transmissive
+        # rulings would require negating the diffraction order, while
+        # reflective rulings are time-reversal symmetric with the same
+        # order.) So for a non-mirror stop, keep its geometry but strip its
+        # optical effect; `_calc_rayfunction_stops_only` solves for the
+        # pre-stop rays in this case.
+        surface_stop = subsystem[0]
+        if not self._stop_is_involutory(surface_stop):
+            subsystem[0] = dataclasses.replace(
+                surface_stop,
+                material=None,
+                rulings=None,
+            )
 
         rays_stop = self._calc_rayfunction_stops_only(
             wavelength_input=wavelength_input,
