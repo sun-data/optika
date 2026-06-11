@@ -393,6 +393,11 @@ class AbstractSurface(
         num: int | na.AbstractCartesian2dVectorArray = 10_000,
         chunk_size: int = 1024,
         seed: None | int = None,
+        bound: None
+        | tuple[
+            na.AbstractCartesian2dVectorArray,
+            na.AbstractCartesian2dVectorArray,
+        ] = None,
     ) -> optika.wavefields.WavefieldVectorArray:
         """
         Propagate the given wavefield to this surface by evaluating the
@@ -421,6 +426,12 @@ class AbstractSurface(
             simultaneously by the diffraction integral.
         seed
             An optional seed for the random number generator.
+        bound
+            The lower and upper corners of the region of this surface to
+            sample, in local surface coordinates.
+            If :obj:`None` (the default), the bounding box of this surface's
+            aperture is used, except for inverted apertures (obscurations),
+            where the footprint of the incoming wavefield is used instead.
         """
         for ax in axis_new:
             if ax in axis:
@@ -429,8 +440,7 @@ class AbstractSurface(
                     f"`axis`, {axis}."
                 )
 
-        bound = None
-        if self.aperture is not None:
+        if (bound is None) and (self.aperture is not None):
             if self.aperture.inverted:
                 # The aperture of an obscuration does not bound the beam,
                 # so sample the footprint of the incoming wavefield instead.
