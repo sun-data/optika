@@ -746,6 +746,80 @@ class AbstractSequentialSystem(
         """
         return self.rayfunction()
 
+    def footprint(
+        self,
+        surface: optika.surfaces.AbstractSurface,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        num: int = 101,
+        normalized_field: bool = True,
+    ) -> tuple[na.AbstractCartesian3dVectorArray, na.AbstractScalar]:
+        """
+        The beam footprint on a given surface: the positions where a dense
+        grid of rays traced through the entire system intersects the surface,
+        expressed in local surface coordinates, along with a mask selecting
+        the rays that reach the sensor unvignetted.
+
+        This identifies the used portion of each optic, which is useful for
+        restricting the sampling region of a physical-optics calculation
+        (see :meth:`wavefield`) or for constructing the effective pupil of
+        one channel of a multi-channel instrument
+        (see :func:`optika.apertures.footprint_aperture`).
+
+        Parameters
+        ----------
+        surface
+            The surface on which to evaluate the footprint.
+            Must be an element of :attr:`surfaces`, :attr:`object`,
+            or the :attr:`sensor`.
+        wavelength
+            The wavelengths of the rays.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            will be used.
+        field
+            The field positions of the rays, in either normalized or
+            physical units.
+            If :obj:`None` (the default), ``self.grid_input.field``
+            will be used.
+        num
+            The number of rays along each axis of the pupil grid.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        """
+        surfaces = self.surfaces_all
+        index = [i for i, s in enumerate(surfaces) if s is surface]
+        if not index:
+            raise ValueError(
+                f"surface {surface.name!r} is not an element of this system."
+            )
+        index = index[0]
+
+        axis = "_footprint"
+        pupil = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(f"{axis}_x", f"{axis}_y"),
+            num=num,
+            centers=True,
+        )
+
+        raytrace = self.raytrace(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            axis=axis,
+            normalized_field=normalized_field,
+        )
+
+        position = raytrace.outputs.position[{axis: index}]
+        where = raytrace.outputs.unvignetted[{axis: ~0}]
+
+        if surface.transformation is not None:
+            position = surface.transformation.inverse(position)
+
+        return position, where
+
     def wavefield(
         self,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
@@ -758,7 +832,10 @@ class AbstractSequentialSystem(
         chunk_size: int = 1024,
         normalized_field: bool = True,
         seed: None | int = None,
-        bound: None | Sequence = None,
+        bound: None | str | Sequence = None,
+        padding_relative: float = 0.1,
+        padding_absolute: u.Quantity | na.AbstractScalar = 0 * u.mm,
+        num_footprint: int = 101,
     ) -> optika.wavefields.WavefieldFunctionArray:
         r"""
         Propagate a wavefield through this system using physical optics and
@@ -814,12 +891,28 @@ class AbstractSequentialSystem(
         bound
             An optional sequence of sampling regions, one for each surface
             with an aperture, where each element is either :obj:`None` (use
-            the bounding box of the surface's aperture) or a tuple of the
-            lower and upper corners of the region in local surface
-            coordinates.
+            the bounding box of the surface's aperture), the string
+            ``"footprint"`` (use the bounding box of the beam footprint from
+            a geometric raytrace, padded by `padding_relative` and
+            `padding_absolute`), or a tuple of the lower and upper corners
+            of the region in local surface coordinates.
+            The string ``"footprint"`` may also be given for `bound` itself,
+            which applies it to every surface.
             This is important for surfaces near an intermediate focus,
             where the wavefield is concentrated in a region much smaller than
             the aperture and would otherwise be unresolved by the samples.
+        padding_relative
+            The fraction of the footprint extent by which to expand a
+            ``"footprint"`` sampling region.
+        padding_absolute
+            The minimum distance by which to expand a ``"footprint"``
+            sampling region.
+            At an intermediate focus the geometric footprint collapses to a
+            point, so this should be at least a few times the expected size
+            of the diffraction pattern there.
+        num_footprint
+            The number of rays along each axis of the pupil grid used to
+            compute the ``"footprint"`` sampling regions.
 
         Notes
         -----
@@ -838,6 +931,11 @@ class AbstractSequentialSystem(
         filters) are often better excluded from the wave propagation
         (by setting their aperture to :obj:`None` in a copy of the system)
         than included as an undersampled propagation step.
+        The effect of an excluded mask on the pupil can be retained by
+        replacing the aperture of the nearest powered surface with the
+        convex hull of its illuminated footprint,
+        using :meth:`footprint` and
+        :func:`optika.apertures.footprint_aperture`.
         """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
@@ -874,13 +972,46 @@ class AbstractSequentialSystem(
                 f"{len(surfaces)} surfaces with an aperture, got {len(num)}."
             )
 
-        if bound is None:
-            bound = [None] * len(surfaces)
+        if (bound is None) or isinstance(bound, str):
+            bound = [bound] * len(surfaces)
         if len(bound) != len(surfaces):
             raise ValueError(
                 f"`bound` must have one element for each of the "
                 f"{len(surfaces)} surfaces with an aperture, got {len(bound)}."
             )
+        bound = list(bound)
+        for k, surface in enumerate(surfaces):
+            if not isinstance(bound[k], str):
+                continue
+            if bound[k] != "footprint":
+                raise ValueError(
+                    f"the only string allowed in `bound` is 'footprint', "
+                    f"got {bound[k]!r}."
+                )
+            position_footprint, where_footprint = self.footprint(
+                surface=surface,
+                wavelength=grid.wavelength,
+                field=grid.field,
+                num=num_footprint,
+                normalized_field=False,
+            )
+            position_footprint = position_footprint.xy
+            unit = na.unit(position_footprint.x)
+            inf = np.inf if unit is None else np.inf * unit
+            axis_footprint = ("_footprint_x", "_footprint_y")
+            lower = na.Cartesian2dVectorArray(
+                x=np.where(where_footprint, position_footprint.x, +inf),
+                y=np.where(where_footprint, position_footprint.y, +inf),
+            ).min(axis_footprint)
+            upper = na.Cartesian2dVectorArray(
+                x=np.where(where_footprint, position_footprint.x, -inf),
+                y=np.where(where_footprint, position_footprint.y, -inf),
+            ).max(axis_footprint)
+            padding = np.maximum(
+                padding_relative * (upper - lower),
+                padding_absolute,
+            )
+            bound[k] = (lower - padding, upper + padding)
 
         axes = [
             (f"_{axis[0]}_{k % 2}", f"_{axis[1]}_{k % 2}") for k in range(len(surfaces))
@@ -1076,6 +1207,79 @@ class AbstractSequentialSystem(
             The two logical axes of the grid of sensor positions.
         kwargs
             Additional keyword arguments passed to :meth:`wavefield`.
+
+        Examples
+        --------
+        Compute the Huygens PSF of an ideal parabolic telescope,
+        which should be an Airy pattern with its first minimum at a radius
+        of :math:`1.22 \lambda f / D`.
+
+        .. jupyter-execute::
+
+            import matplotlib.pyplot as plt
+            import astropy.units as u
+            import astropy.visualization
+            import named_arrays as na
+            import optika
+
+            primary = optika.surfaces.Surface(
+                name="primary",
+                sag=optika.sags.ParabolicSag(focal_length=-200 * u.mm),
+                aperture=optika.apertures.CircularAperture(20 * u.mm),
+                material=optika.materials.Mirror(),
+                is_pupil_stop=True,
+                transformation=na.transformations.Cartesian3dTranslation(
+                    z=200 * u.mm,
+                ),
+            )
+
+            sensor = optika.sensors.ImagingSensor(
+                name="sensor",
+                width_pixel=10 * u.um,
+                axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+                num_pixel=na.Cartesian2dVectorArray(64, 64),
+                timedelta_exposure=1 * u.s,
+                is_field_stop=True,
+            )
+
+            system = optika.systems.SequentialSystem(
+                surfaces=[primary],
+                sensor=sensor,
+                grid_input=optika.vectors.ObjectVectorArray(
+                    wavelength=500 * u.nm,
+                    field=na.Cartesian2dVectorLinearSpace(
+                        start=-1,
+                        stop=1,
+                        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                        num=5,
+                        centers=True,
+                    ),
+                    pupil=na.Cartesian2dVectorLinearSpace(
+                        start=-1,
+                        stop=1,
+                        axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                        num=5,
+                        centers=True,
+                    ),
+                ),
+            )
+
+            psf = system.psf(
+                field=na.Cartesian2dVectorArray(0, 0),
+                width_sensor=30 * u.um,
+                num=101**2,
+                num_sensor=51,
+                bound="footprint",
+                seed=42,
+            )
+
+            with astropy.visualization.quantity_support():
+                plt.figure()
+                plt.gca().set_aspect("equal")
+                na.plt.pcolormesh(
+                    psf.inputs.position,
+                    C=psf.outputs,
+                )
         """
         wavefield = self.wavefield(axis=axis, **kwargs)
 

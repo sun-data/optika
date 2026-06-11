@@ -16,6 +16,7 @@ from ._apertures import (
     OctagonalAperture,
     AbstractIsoscelesTrapezoidalAperture,
     IsoscelesTrapezoidalAperture,
+    footprint_aperture,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "OctagonalAperture",
     "AbstractIsoscelesTrapezoidalAperture",
     "IsoscelesTrapezoidalAperture",
+    "footprint_aperture",
 ]
