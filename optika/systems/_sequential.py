@@ -746,6 +746,320 @@ class AbstractSequentialSystem(
         """
         return self.rayfunction()
 
+    def wavefield(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        position_sensor: None | na.AbstractCartesian2dVectorArray = None,
+        width_sensor: None | u.Quantity | na.AbstractScalar = None,
+        num: int | na.AbstractCartesian2dVectorArray | Sequence = 10_000,
+        num_sensor: int = 101,
+        axis: tuple[str, str] = ("wavefield_x", "wavefield_y"),
+        chunk_size: int = 1024,
+        normalized_field: bool = True,
+        seed: None | int = None,
+    ) -> optika.wavefields.WavefieldFunctionArray:
+        r"""
+        Propagate a wavefield through this system using physical optics and
+        evaluate it on a grid of sensor positions.
+
+        The wavefield is computed by sampling each surface's aperture with a
+        stratified random grid and evaluating the Rayleigh-Sommerfeld
+        diffraction integral surface by surface,
+        :func:`optika.wavefields.rayleigh_sommerfeld`.
+
+        Only surfaces with an aperture participate in the propagation,
+        all other surfaces are ignored.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the wavefield.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            will be used.
+        field
+            The field positions of the incident light, in either normalized
+            or physical units.
+            If :obj:`None` (the default), ``self.grid_input.field``
+            will be used.
+        position_sensor
+            The sensor-local positions at which to evaluate the wavefield.
+            If :obj:`None` (the default), a grid of `num_sensor` positions
+            along each axis, spanning `width_sensor` and centered on the
+            centroid of a geometric raytrace, will be used.
+        width_sensor
+            The width of the automatic grid of sensor positions.
+            Only used if `position_sensor` is :obj:`None`.
+        num
+            The approximate number of samples on each surface.
+            If a sequence, it must have the same number of elements as the
+            number of surfaces with an aperture.
+        num_sensor
+            The number of sensor positions along each axis.
+            Only used if `position_sensor` is :obj:`None`.
+        axis
+            The two logical axes of the grid of sensor positions.
+        chunk_size
+            The maximum number of destination points considered
+            simultaneously by the diffraction integral.
+            See :func:`optika.wavefields.rayleigh_sommerfeld` for a
+            description of how this parameter bounds the memory usage.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        seed
+            An optional seed for the random number generators used to sample
+            each surface.
+        """
+        if wavelength is None:
+            wavelength = self.grid_input.wavelength
+        if field is None:
+            field = self.grid_input.field
+
+        grid = optika.vectors.ObjectVectorArray(
+            wavelength=wavelength,
+            field=field,
+            pupil=na.Cartesian2dVectorArray(0, 0),
+        )
+        grid = self._denormalize_grid(
+            grid=grid,
+            normalized_field=normalized_field,
+            normalized_pupil=False,
+        )
+
+        surfaces = [s for s in self.surfaces if s.aperture is not None]
+        if not surfaces:
+            raise ValueError(
+                "at least one surface in this system must have an aperture "
+                "to propagate a wavefield."
+            )
+
+        sensor = self.sensor
+        if sensor is None:
+            raise ValueError(
+                "this system must have a sensor to propagate a wavefield."
+            )
+
+        if isinstance(num, (int, np.integer, na.AbstractCartesian2dVectorArray)):
+            num = [num] * len(surfaces)
+        if len(num) != len(surfaces):
+            raise ValueError(
+                f"`num` must have one element for each of the "
+                f"{len(surfaces)} surfaces with an aperture, got {len(num)}."
+            )
+
+        axes = [
+            (f"_{axis[0]}_{k % 2}", f"_{axis[1]}_{k % 2}")
+            for k in range(len(surfaces))
+        ]
+        seeds = [
+            seed if seed is None else seed + k
+            for k in range(len(surfaces))
+        ]
+
+        surface_0 = surfaces[0]
+
+        bound_0 = None
+        if surface_0.aperture.inverted:
+            # The aperture of an obscuration does not bound the beam,
+            # so sample the footprint of the pupil stop instead.
+            stop = self.pupil_stop
+            corner_lower = stop.aperture.bound_lower
+            corner_upper = stop.aperture.bound_upper
+            if stop.transformation is not None:
+                corner_lower = stop.transformation(corner_lower)
+                corner_upper = stop.transformation(corner_upper)
+            if surface_0.transformation is not None:
+                corner_lower = surface_0.transformation.inverse(corner_lower)
+                corner_upper = surface_0.transformation.inverse(corner_upper)
+            bound_0 = (
+                np.minimum(corner_lower.xy, corner_upper.xy),
+                np.maximum(corner_lower.xy, corner_upper.xy),
+            )
+
+        wavefield = surface_0.wavefield_samples(
+            axis=axes[0],
+            num=num[0],
+            seed=seeds[0],
+            bound=bound_0,
+        )
+        if surface_0.transformation is not None:
+            wavefield = surface_0.transformation(wavefield)
+        wavefield.wavelength = grid.wavelength
+
+        obj = self.object
+
+        if self.object_is_at_infinity:
+            rays = optika.rays.RayVectorArray(
+                position=na.Cartesian3dVectorArray() * u.mm,
+                direction=optika.direction(grid.field),
+            )
+            if obj is not None:
+                if obj.transformation is not None:
+                    rays = obj.transformation(rays)
+            if self.transformation is not None:
+                rays = self.transformation.inverse(rays)
+
+            direction = rays.direction
+
+            phase = (direction @ wavefield.position) / grid.wavelength
+            phase = phase.to(u.dimensionless_unscaled).value
+            wavefield.amplitude = wavefield.amplitude * np.exp(2j * np.pi * phase)
+        else:
+            rays = optika.rays.RayVectorArray(
+                position=na.Cartesian3dVectorArray(
+                    x=grid.field.x,
+                    y=grid.field.y,
+                    z=0 * na.unit_normalized(grid.field.x),
+                ),
+                direction=na.Cartesian3dVectorArray(0, 0, 1),
+            )
+            if obj is not None:
+                if obj.transformation is not None:
+                    rays = obj.transformation(rays)
+            if self.transformation is not None:
+                rays = self.transformation.inverse(rays)
+
+            displacement = wavefield.position - rays.position
+            distance = displacement.length
+            direction = displacement / distance
+
+            phase = distance / grid.wavelength
+            phase = phase.to(u.dimensionless_unscaled).value
+            scale = distance.mean(axes[0]) / distance
+            wavefield.amplitude = (
+                wavefield.amplitude * scale * np.exp(2j * np.pi * phase)
+            )
+
+        wavefield = surface_0._interact_wavefield(
+            wavefield=wavefield,
+            direction=direction,
+        )
+
+        for k, surface in enumerate(surfaces[1:], start=1):
+            wavefield = surface.propagate_wavefield(
+                wavefield=wavefield,
+                axis=axes[k - 1],
+                axis_new=axes[k],
+                num=num[k],
+                chunk_size=chunk_size,
+                seed=seeds[k],
+            )
+
+        axis_last = axes[len(surfaces) - 1]
+
+        if position_sensor is None:
+            if width_sensor is None:
+                raise ValueError(
+                    "either `position_sensor` or `width_sensor` must be "
+                    "specified."
+                )
+
+            rayfunction = self.rayfunction(
+                wavelength=grid.wavelength,
+                field=grid.field,
+                normalized_field=False,
+            )
+            position_spot = rayfunction.outputs.position.xy
+            where = rayfunction.outputs.unvignetted
+            axis_centroid = tuple(
+                set(na.shape(position_spot))
+                - set(na.shape(grid.wavelength))
+                - set(na.shape(grid.field))
+                - set(self.shape)
+            )
+            centroid = (position_spot * where).sum(axis_centroid)
+            centroid = centroid / where.sum(axis_centroid)
+
+            position_sensor = na.Cartesian2dVectorLinearSpace(
+                start=centroid - width_sensor / 2,
+                stop=centroid + width_sensor / 2,
+                axis=na.Cartesian2dVectorArray(*axis),
+                num=num_sensor,
+            ).explicit
+
+        sag_sensor = sensor.sag
+        if sag_sensor is None:
+            sag_sensor = optika.sags.NoSag()
+
+        position = na.Cartesian3dVectorArray(
+            x=position_sensor.x,
+            y=position_sensor.y,
+            z=0 * na.unit_normalized(position_sensor.x),
+        )
+        position.z = sag_sensor(position)
+
+        position_global = position
+        if sensor.transformation is not None:
+            position_global = sensor.transformation(position)
+
+        amplitude = optika.wavefields.rayleigh_sommerfeld(
+            wavefield=wavefield,
+            position=position_global,
+            axis=axis_last,
+            chunk_size=chunk_size,
+        )
+
+        if sensor.aperture is not None:
+            amplitude = amplitude * sensor.aperture(position)
+
+        shape_sensor = na.shape(position_sensor)
+        if (axis[0] in shape_sensor) and (axis[1] in shape_sensor):
+            num_x = shape_sensor[axis[0]]
+            num_y = shape_sensor[axis[1]]
+            area = position_sensor.x.ptp(axis[0]) / (num_x - 1)
+            area = area * position_sensor.y.ptp(axis[1]) / (num_y - 1)
+        else:
+            area = 0 * u.mm**2
+
+        outputs = optika.wavefields.WavefieldVectorArray(
+            wavelength=grid.wavelength,
+            position=position,
+            amplitude=amplitude,
+            normal=sag_sensor.normal(position),
+            area=area,
+            index_refraction=wavefield.index_refraction,
+        )
+
+        return optika.wavefields.WavefieldFunctionArray(
+            inputs=optika.vectors.ObjectVectorArray(
+                wavelength=grid.wavelength,
+                field=grid.field,
+                pupil=position_sensor,
+            ),
+            outputs=outputs,
+        )
+
+    def psf(
+        self,
+        axis: tuple[str, str] = ("wavefield_x", "wavefield_y"),
+        **kwargs,
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+        r"""
+        The Huygens point-spread function of this system: the normalized
+        intensity of the wavefield computed by :meth:`wavefield` on a grid of
+        sensor positions.
+
+        Parameters
+        ----------
+        axis
+            The two logical axes of the grid of sensor positions.
+        kwargs
+            Additional keyword arguments passed to :meth:`wavefield`.
+        """
+        wavefield = self.wavefield(axis=axis, **kwargs)
+
+        intensity = np.square(np.abs(wavefield.outputs.amplitude))
+        intensity = intensity / intensity.sum(axis)
+
+        return na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=wavefield.inputs.wavelength,
+                position=wavefield.outputs.position.xy,
+            ),
+            outputs=intensity,
+        )
+
     def _rayfunction_from_vertices(
         self,
         radiance: na.AbstractScalar,
