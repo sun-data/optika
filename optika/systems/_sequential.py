@@ -919,6 +919,7 @@ class AbstractSequentialSystem(
             rays=rayfunction.outputs,
             wavelength=wavelength,
             axis=(axis_wavelength,) + axis_field + axis_pupil,
+            axis_wavelength=axis_wavelength,
             noise=noise,
         )
 

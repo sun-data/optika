@@ -241,6 +241,7 @@ class AbstractImagingSensor(
         wavelength: na.AbstractScalar,
         axis: None | str | Sequence[str] = None,
         where: bool | na.AbstractScalar = True,
+        axis_wavelength: None | str = None,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         noise: bool = True,
     ) -> na.FunctionArray[
@@ -264,6 +265,11 @@ class AbstractImagingSensor(
             The logical axes along which to collect photons.
         where
             A boolean mask used to indicate which rays should be considered.
+        axis_wavelength
+            The logical axis of `wavelength` corresponding to changing
+            wavelength coordinate, forwarded to :meth:`expose`.
+            If :obj:`None` (the default), `wavelength` must have only one
+            logical axis.
         timedelta
             The exposure time of the measurement.
             If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
@@ -280,6 +286,7 @@ class AbstractImagingSensor(
         return self.expose(
             image,
             direction=direction,
+            axis_wavelength=axis_wavelength,
             timedelta=timedelta,
             noise=noise,
         )
