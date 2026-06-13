@@ -170,7 +170,7 @@ class PolynomialVignettingModel(
     def fit(self) -> na.PolynomialFitFunctionArray:
         """The polynomial fit mapping scene coordinates to illumination."""
         scene = self.coordinates_scene
-        return na.PolynomialFitFunctionArray(
+        return na.PolynomialFitFunctionArray.from_degree(
             inputs=scene,
             outputs=self.illumination,
             center=scene.mean(self._axis_scene),

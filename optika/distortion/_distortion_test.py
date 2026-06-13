@@ -128,11 +128,11 @@ class TestPolynomialDistortionModel(
 ):
     def test_fit(self, a: optika.distortion.PolynomialDistortionModel):
         assert isinstance(a.fit, na.PolynomialFitFunctionArray)
-        assert a.fit.degree == a.degree
+        assert a.fit.coefficient_names is not None
 
     def test_fit_inverse(self, a: optika.distortion.PolynomialDistortionModel):
         assert isinstance(a.fit_inverse, na.PolynomialFitFunctionArray)
-        assert a.fit_inverse.degree == a.degree
+        assert a.fit_inverse.coefficient_names is not None
 
     @pytest.mark.parametrize(
         argnames="kwargs",

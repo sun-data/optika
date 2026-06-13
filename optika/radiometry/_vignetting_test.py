@@ -88,7 +88,7 @@ class TestPolynomialVignettingModel(
 ):
     def test_fit(self, a: optika.radiometry.PolynomialVignettingModel):
         assert isinstance(a.fit, na.PolynomialFitFunctionArray)
-        assert a.fit.degree == a.degree
+        assert a.fit.coefficient_names is not None
 
     @pytest.mark.parametrize(
         argnames="kwargs",

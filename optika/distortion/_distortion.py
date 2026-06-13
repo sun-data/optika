@@ -353,7 +353,7 @@ class PolynomialDistortionModel(
     def fit(self) -> na.PolynomialFitFunctionArray:
         """The polynomial fit mapping scene position to sensor position."""
         scene = self.coordinates_scene
-        return na.PolynomialFitFunctionArray(
+        return na.PolynomialFitFunctionArray.from_degree(
             inputs=scene,
             outputs=self.coordinates_sensor,
             center=scene.mean(self._axis_scene),
@@ -369,7 +369,7 @@ class PolynomialDistortionModel(
             wavelength=scene.wavelength,
             position=self.coordinates_sensor,
         )
-        return na.PolynomialFitFunctionArray(
+        return na.PolynomialFitFunctionArray.from_degree(
             inputs=inputs,
             outputs=scene.position,
             center=inputs.mean(self._axis_scene),
