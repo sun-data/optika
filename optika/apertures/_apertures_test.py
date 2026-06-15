@@ -456,3 +456,44 @@ def test_rectangular_aperture_decentered():
     point_outside = na.Cartesian3dVectorArray(0, 0, 0) * u.mm
     assert np.all(na.as_named_array(a(point_inside)))
     assert not np.any(na.as_named_array(a(point_outside)))
+
+
+def test_elliptical_aperture_bounds_analytic():
+    """
+    The bounding box of a rotated, decentered elliptical aperture is computed
+    analytically and must match the true extent of the ellipse.
+
+    Regression test: the bounds used to be sampled from a coarse
+    :meth:`wire`, which underestimates the extent between samples whenever the
+    transformation rotates the ellipse off the coordinate axes.
+    """
+    a = optika.apertures.EllipticalAperture(
+        radius=na.Cartesian2dVectorArray(100, 50) * u.mm,
+        transformation=(
+            na.transformations.Cartesian3dRotationZ(30 * u.deg)
+            @ na.transformations.Cartesian3dTranslation(x=5 * u.mm, y=-2 * u.mm)
+        ),
+    )
+
+    bound_lower = a.bound_lower
+    bound_upper = a.bound_upper
+
+    # a densely-sampled wire approaches the true extent from the inside
+    wire = a.wire(num=100001)
+    for component in ("x", "y"):
+        lower = getattr(bound_lower, component)
+        upper = getattr(bound_upper, component)
+        edge_lower = getattr(wire, component).min("wire")
+        edge_upper = getattr(wire, component).max("wire")
+        scale = np.abs(upper - lower)
+
+        # the analytic bound encloses the dense wire ...
+        assert np.all(lower <= edge_lower + 1e-9 * scale)
+        assert np.all(upper >= edge_upper - 1e-9 * scale)
+        # ... and is tight: it does not overshoot it
+        assert np.all(np.abs(lower - edge_lower) < 1e-6 * scale)
+        assert np.all(np.abs(upper - edge_upper) < 1e-6 * scale)
+
+    # an in-plane rotation leaves the aperture flat in z
+    assert np.all(bound_lower.z == 0 * u.mm)
+    assert np.all(bound_upper.z == 0 * u.mm)

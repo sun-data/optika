@@ -618,13 +618,49 @@ class EllipticalAperture(
 
         return mask
 
+    def _bound_center_half(
+        self,
+    ) -> tuple[na.Cartesian3dVectorArray, na.Cartesian3dVectorArray]:
+        """
+        The center and per-component half-extent of the axis-aligned bounding
+        box, computed analytically so the bound is exact even when
+        :attr:`transformation` rotates the ellipse.
+
+        A point on the ellipse boundary is
+        :math:`p(t) = c + a\\,\\hat{e}_a \\cos t + b\\,\\hat{e}_b \\sin t`,
+        where :math:`c` is the center and :math:`\\hat{e}_a, \\hat{e}_b` are the
+        images of the local axes under the transformation.  The extent along
+        any world component is then
+        :math:`\\sqrt{(a\\,\\hat{e}_a)^2 + (b\\,\\hat{e}_b)^2}`, since
+        :math:`\\max_t (A \\cos t + B \\sin t) = \\sqrt{A^2 + B^2}`.
+        """
+        radius = self.radius
+        zero = na.Cartesian3dVectorArray() * radius.x
+        axis_a = na.Cartesian3dVectorArray(x=radius.x, y=0 * radius.x, z=0 * radius.x)
+        axis_b = na.Cartesian3dVectorArray(x=0 * radius.y, y=radius.y, z=0 * radius.y)
+
+        center = zero
+        if self.transformation is not None:
+            center = self.transformation(zero)
+            axis_a = self.transformation(axis_a) - center
+            axis_b = self.transformation(axis_b) - center
+
+        half = na.Cartesian3dVectorArray(
+            x=np.sqrt(np.square(axis_a.x) + np.square(axis_b.x)),
+            y=np.sqrt(np.square(axis_a.y) + np.square(axis_b.y)),
+            z=np.sqrt(np.square(axis_a.z) + np.square(axis_b.z)),
+        )
+        return center, half
+
     @property
     def bound_lower(self) -> na.Cartesian3dVectorArray:
-        return self.wire().min()
+        center, half = self._bound_center_half()
+        return center - half
 
     @property
     def bound_upper(self) -> na.Cartesian3dVectorArray:
-        return self.wire().max()
+        center, half = self._bound_center_half()
+        return center + half
 
     @property
     def vertices(self) -> None:
