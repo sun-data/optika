@@ -1,6 +1,7 @@
 from __future__ import annotations
 import abc
 import dataclasses
+import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -12,6 +13,7 @@ __all__ = [
     "AbstractMirror",
     "Mirror",
     "MeasuredMirror",
+    "Glass",
 ]
 
 
@@ -301,3 +303,153 @@ class MeasuredMirror(
             xp=wavelength,
             fp=efficiency,
         )
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class Glass(
+    AbstractMaterial,
+):
+    r"""
+    A transparent, refractive material whose index of refraction follows the
+    three-term Sellmeier dispersion equation,
+
+    .. math::
+
+        n^2(\lambda) = 1
+            + \frac{B_1 \lambda^2}{\lambda^2 - C_1}
+            + \frac{B_2 \lambda^2}{\lambda^2 - C_2}
+            + \frac{B_3 \lambda^2}{\lambda^2 - C_3},
+
+    where :math:`\lambda` is the vacuum wavelength of the light, and
+    :math:`B_i` (dimensionless) and :math:`C_i` (square length) are the
+    Sellmeier coefficients of the glass.
+
+    Unlike :class:`Vacuum` and :class:`Mirror`, this material changes the index
+    of refraction of a transmitted ray, so a curved surface made of it has
+    optical power and bends light according to Snell's law.
+
+    Examples
+    --------
+
+    Plot the index of refraction of N-BK7 and F2 glass across the visible
+    spectrum.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        wavelength = na.linspace(380, 750, axis="wavelength", num=101) * u.nm
+
+        glasses = {
+            "N-BK7": optika.materials.Glass.n_bk7(),
+            "F2": optika.materials.Glass.f2(),
+        }
+
+        fig, ax = plt.subplots(constrained_layout=True)
+        for name, glass in glasses.items():
+            rays = optika.rays.RayVectorArray(wavelength=wavelength)
+            na.plt.plot(
+                wavelength,
+                glass.index_refraction(rays),
+                ax=ax,
+                label=name,
+            )
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel("index of refraction");
+        ax.legend();
+    """
+
+    b1: float | na.AbstractScalar = 0
+    """The first dimensionless Sellmeier coefficient."""
+
+    b2: float | na.AbstractScalar = 0
+    """The second dimensionless Sellmeier coefficient."""
+
+    b3: float | na.AbstractScalar = 0
+    """The third dimensionless Sellmeier coefficient."""
+
+    c1: u.Quantity | na.AbstractScalar = 0 * u.um**2
+    """The first Sellmeier resonance (units of square length)."""
+
+    c2: u.Quantity | na.AbstractScalar = 0 * u.um**2
+    """The second Sellmeier resonance (units of square length)."""
+
+    c3: u.Quantity | na.AbstractScalar = 0 * u.um**2
+    """The third Sellmeier resonance (units of square length)."""
+
+    @classmethod
+    def n_bk7(cls) -> Glass:
+        """
+        SCHOTT N-BK7 borosilicate crown glass
+        (:math:`n_d \\approx 1.5168`, :math:`V_d \\approx 64.2`).
+        """
+        return cls(
+            b1=1.03961212,
+            b2=0.231792344,
+            b3=1.01046945,
+            c1=0.00600069867 * u.um**2,
+            c2=0.0200179144 * u.um**2,
+            c3=103.560653 * u.um**2,
+        )
+
+    @classmethod
+    def f2(cls) -> Glass:
+        """
+        SCHOTT F2 flint glass
+        (:math:`n_d \\approx 1.6200`, :math:`V_d \\approx 36.4`).
+        """
+        return cls(
+            b1=1.34533359,
+            b2=0.209073176,
+            b3=0.937357162,
+            c1=0.00997743871 * u.um**2,
+            c2=0.0470450767 * u.um**2,
+            c3=111.886764 * u.um**2,
+        )
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.b1),
+            optika.shape(self.b2),
+            optika.shape(self.b3),
+            optika.shape(self.c1),
+            optika.shape(self.c2),
+            optika.shape(self.c3),
+        )
+
+    @property
+    def transformation(self) -> None:
+        return None
+
+    def index_refraction(
+        self,
+        rays: optika.rays.RayVectorArray,
+    ) -> na.ScalarLike:
+        w2 = np.square(rays.wavelength)
+        n2 = 1 + (
+            self.b1 * w2 / (w2 - self.c1)
+            + self.b2 * w2 / (w2 - self.c2)
+            + self.b3 * w2 / (w2 - self.c3)
+        )
+        return np.sqrt(n2)
+
+    def attenuation(
+        self,
+        rays: optika.rays.RayVectorArray,
+    ) -> na.ScalarLike:
+        return 0 / u.mm
+
+    def efficiency(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.ScalarLike:
+        return 1
+
+    @property
+    def is_mirror(self) -> bool:
+        return False
