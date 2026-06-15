@@ -4,7 +4,6 @@ import astropy.units as u
 import named_arrays as na
 import optika
 
-
 wavefields = [
     optika.wavefields.WavefieldVectorArray(
         wavelength=500 * u.nm,
@@ -34,9 +33,7 @@ class TestWavefieldVectorArray:
     def test_amplitude(self, array: optika.wavefields.AbstractWavefieldVectorArray):
         amplitude = na.as_named_array(array.amplitude)
         assert isinstance(amplitude, na.AbstractScalar)
-        assert na.unit_normalized(amplitude).is_equivalent(
-            u.dimensionless_unscaled
-        )
+        assert na.unit_normalized(amplitude).is_equivalent(u.dimensionless_unscaled)
 
     def test_normal(self, array: optika.wavefields.AbstractWavefieldVectorArray):
         normal = array.normal

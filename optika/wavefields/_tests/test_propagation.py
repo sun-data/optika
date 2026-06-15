@@ -127,9 +127,7 @@ def test_gaussian_apodization():
 
     intensity = np.square(np.abs(amplitude_detector))
 
-    sigma_measured = np.sqrt(
-        (intensity * np.square(x)).sum() / intensity.sum()
-    )
+    sigma_measured = np.sqrt((intensity * np.square(x)).sum() / intensity.sum())
 
     assert np.abs(sigma_measured - sigma) < 0.03 * sigma
 
@@ -179,9 +177,7 @@ def test_energy_conservation():
         axis=("sx", "sy"),
     )
 
-    energy_detector = (
-        np.square(np.abs(amplitude_detector)) * area_detector
-    ).sum()
+    energy_detector = (np.square(np.abs(amplitude_detector)) * area_detector).sum()
 
     assert np.abs(energy_detector / energy_source - 1) < 0.01
 

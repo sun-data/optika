@@ -203,11 +203,13 @@ class AbstractSurface(
         axis: tuple[str, str],
         num: int | na.AbstractCartesian2dVectorArray = 10_000,
         seed: None | int = None,
-        bound: None
-        | tuple[
-            na.AbstractCartesian2dVectorArray,
-            na.AbstractCartesian2dVectorArray,
-        ] = None,
+        bound: (
+            None
+            | tuple[
+                na.AbstractCartesian2dVectorArray,
+                na.AbstractCartesian2dVectorArray,
+            ]
+        ) = None,
     ) -> optika.wavefields.WavefieldVectorArray:
         """
         Stratified-random samples of this surface's aperture, in local surface
@@ -369,9 +371,7 @@ class AbstractSurface(
 
             # The same orientation convention as
             # optika.rulings.incident_effective.
-            sign = np.sign(
-                na.as_named_array(rays.direction @ normal).value
-            )
+            sign = np.sign(na.as_named_array(rays.direction @ normal).value)
 
             phase = 2 * np.pi * rulings.diffraction_order * grooves
             amplitude = amplitude * np.exp(1j * sign * phase)
@@ -393,11 +393,13 @@ class AbstractSurface(
         num: int | na.AbstractCartesian2dVectorArray = 10_000,
         chunk_size: int = 1024,
         seed: None | int = None,
-        bound: None
-        | tuple[
-            na.AbstractCartesian2dVectorArray,
-            na.AbstractCartesian2dVectorArray,
-        ] = None,
+        bound: (
+            None
+            | tuple[
+                na.AbstractCartesian2dVectorArray,
+                na.AbstractCartesian2dVectorArray,
+            ]
+        ) = None,
     ) -> optika.wavefields.WavefieldVectorArray:
         """
         Propagate the given wavefield to this surface by evaluating the
@@ -436,8 +438,7 @@ class AbstractSurface(
         for ax in axis_new:
             if ax in axis:
                 raise ValueError(
-                    f"`axis_new`, {axis_new}, must be distinct from "
-                    f"`axis`, {axis}."
+                    f"`axis_new`, {axis_new}, must be distinct from " f"`axis`, {axis}."
                 )
 
         if (bound is None) and (self.aperture is not None):

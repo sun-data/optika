@@ -98,9 +98,7 @@ def test_psf_airy():
     cut = intensity[dict(wavefield_y=51 // 2)].ndarray
     cut = cut / cut.max()
     minima = [
-        i
-        for i in range(51 // 2 + 1, 50)
-        if cut[i] < cut[i - 1] and cut[i] < cut[i + 1]
+        i for i in range(51 // 2 + 1, 50) if cut[i] < cut[i - 1] and cut[i] < cut[i + 1]
     ]
     assert minima
 
@@ -161,7 +159,7 @@ def test_psf_zernike_defocus():
     c = 0.5 * u.um
 
     sag = optika.sags.ZernikeSag(
-        sag=optika.sags.ParabolicSag(focal_length=-focal_length),
+        base=optika.sags.ParabolicSag(focal_length=-focal_length),
         coefficients=[0 * u.um, 0 * u.um, 0 * u.um, -c],
         radius=radius,
     )
@@ -249,10 +247,12 @@ def test_psf_newtonian():
         name="fold_mirror",
         aperture=optika.apertures.RectangularAperture(25 * u.mm),
         material=optika.materials.Mirror(),
-        transformation=na.transformations.TransformationList([
-            na.transformations.Cartesian3dRotationY((90 + 45) * u.deg),
-            na.transformations.Cartesian3dTranslation(z=fold_mirror_z),
-        ]),
+        transformation=na.transformations.TransformationList(
+            [
+                na.transformations.Cartesian3dRotationY((90 + 45) * u.deg),
+                na.transformations.Cartesian3dTranslation(z=fold_mirror_z),
+            ]
+        ),
     )
     obscuration = optika.surfaces.Surface(
         name="obscuration",
@@ -265,13 +265,15 @@ def test_psf_newtonian():
         axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
         num_pixel=na.Cartesian2dVectorArray(128, 128),
         timedelta_exposure=1 * u.s,
-        transformation=na.transformations.TransformationList([
-            na.transformations.Cartesian3dRotationY(-90 * u.deg),
-            na.transformations.Cartesian3dTranslation(
-                x=-sensor_x,
-                z=fold_mirror_z,
-            ),
-        ]),
+        transformation=na.transformations.TransformationList(
+            [
+                na.transformations.Cartesian3dRotationY(-90 * u.deg),
+                na.transformations.Cartesian3dTranslation(
+                    x=-sensor_x,
+                    z=fold_mirror_z,
+                ),
+            ]
+        ),
         is_field_stop=True,
     )
     system = optika.systems.SequentialSystem(

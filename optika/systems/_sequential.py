@@ -864,9 +864,7 @@ class AbstractSequentialSystem(
 
         sensor = self.sensor
         if sensor is None:
-            raise ValueError(
-                "this system must have a sensor to propagate a wavefield."
-            )
+            raise ValueError("this system must have a sensor to propagate a wavefield.")
 
         if isinstance(num, (int, np.integer, na.AbstractCartesian2dVectorArray)):
             num = [num] * len(surfaces)
@@ -885,13 +883,9 @@ class AbstractSequentialSystem(
             )
 
         axes = [
-            (f"_{axis[0]}_{k % 2}", f"_{axis[1]}_{k % 2}")
-            for k in range(len(surfaces))
+            (f"_{axis[0]}_{k % 2}", f"_{axis[1]}_{k % 2}") for k in range(len(surfaces))
         ]
-        seeds = [
-            seed if seed is None else seed + k
-            for k in range(len(surfaces))
-        ]
+        seeds = [seed if seed is None else seed + k for k in range(len(surfaces))]
 
         surface_0 = surfaces[0]
 
@@ -988,8 +982,7 @@ class AbstractSequentialSystem(
         if position_sensor is None:
             if width_sensor is None:
                 raise ValueError(
-                    "either `position_sensor` or `width_sensor` must be "
-                    "specified."
+                    "either `position_sensor` or `width_sensor` must be " "specified."
                 )
 
             rayfunction = self.rayfunction(
