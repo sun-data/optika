@@ -14,12 +14,12 @@ from ._abc_test import AbstractTestAbstractSag
             radius=50 * u.mm,
         ),
         optika.sags.ZernikeSag(
-            sag=optika.sags.SphericalSag(radius=500 * u.mm),
+            base=optika.sags.SphericalSag(radius=500 * u.mm),
             coefficients=[100, 50, 50, 200, 30, 30, 10, 10, 5, 5, 20] * u.nm,
             radius=50 * u.mm,
         ),
         optika.sags.ZernikeSag(
-            sag=optika.sags.ParabolicSag(focal_length=1000 * u.mm),
+            base=optika.sags.ParabolicSag(focal_length=1000 * u.mm),
             coefficients=na.ScalarArray(
                 ndarray=[0, 0, 0, 100, 0, 50] * u.nm,
                 axes="zernike",
@@ -87,7 +87,7 @@ def test_defocus_focal_shift():
     c = 1 * u.um
 
     sag = optika.sags.ZernikeSag(
-        sag=optika.sags.ParabolicSag(focal_length=f),
+        base=optika.sags.ParabolicSag(focal_length=f),
         coefficients=[0 * u.um, 0 * u.um, 0 * u.um, c],
         radius=radius,
     )

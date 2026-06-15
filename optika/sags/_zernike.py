@@ -39,28 +39,29 @@ class ZernikeSag(
         import optika
 
         sag = optika.sags.ZernikeSag(
-            sag=optika.sags.ParabolicSag(focal_length=500 * u.mm),
+            base=optika.sags.ParabolicSag(focal_length=500 * u.mm),
             coefficients=[0, 0, 0, 0, 0, 0, 0, 1] * u.mm,
             radius=50 * u.mm,
         )
 
+        # the coma term (Noll index 8) varies along x, so slice along x
         position = na.Cartesian3dVectorArray(
-            x=0 * u.mm,
-            y=na.linspace(-50, 50, axis="y", num=101) * u.mm,
+            x=na.linspace(-50, 50, axis="x", num=101) * u.mm,
+            y=0 * u.mm,
             z=0 * u.mm,
         )
 
         z = sag(position)
-        z_base = sag.sag(position)
+        z_base = sag.base(position)
 
         with astropy.visualization.quantity_support():
             plt.figure()
-            na.plt.plot(position.y, z, axis="y", label="perturbed")
-            na.plt.plot(position.y, z_base, axis="y", label="base")
+            na.plt.plot(position.x, z, axis="x", label="perturbed")
+            na.plt.plot(position.x, z_base, axis="x", label="base")
             plt.legend()
     """
 
-    sag: None | AbstractSag = None
+    base: None | AbstractSag = None
     """
     The base sag profile to be perturbed.
     If :obj:`None` (the default), a flat profile, :class:`optika.sags.NoSag`,
@@ -85,8 +86,8 @@ class ZernikeSag(
     """The logical axis of `coefficients` indexing the Noll terms."""
 
     def __post_init__(self):
-        if self.sag is None:
-            self.sag = NoSag()
+        if self.base is None:
+            self.base = NoSag()
 
     @property
     def _coefficients_normalized(self) -> na.AbstractScalar:
@@ -107,7 +108,7 @@ class ZernikeSag(
         shape_coefficients = dict(self._coefficients_normalized.shape)
         shape_coefficients.pop(self.axis, None)
         return na.broadcast_shapes(
-            optika.shape(self.sag),
+            optika.shape(self.base),
             shape_coefficients,
             optika.shape(self.radius),
             optika.shape(self.transformation),
@@ -124,7 +125,7 @@ class ZernikeSag(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        result = self.sag(position)
+        result = self.base(position)
 
         coefficients = self._coefficients_normalized
         position_normalized = position.xy / self.radius
@@ -132,8 +133,8 @@ class ZernikeSag(
         for i in range(coefficients.shape[self.axis]):
             c = coefficients[{self.axis: i}]
             result = result + c * optika.zernikes.zernike(
-                j=i + 1,
                 position=position_normalized,
+                j=i + 1,
             )
 
         return result
@@ -146,7 +147,7 @@ class ZernikeSag(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        normal_base = self.sag.normal(position)
+        normal_base = self.base.normal(position)
 
         gradient_x = normal_base.x / -normal_base.z
         gradient_y = normal_base.y / -normal_base.z
@@ -158,8 +159,8 @@ class ZernikeSag(
         for i in range(coefficients.shape[self.axis]):
             c = coefficients[{self.axis: i}]
             gradient = optika.zernikes.zernike_gradient(
-                j=i + 1,
                 position=position_normalized,
+                j=i + 1,
             )
             gradient_x = gradient_x + c * gradient.x / radius
             gradient_y = gradient_y + c * gradient.y / radius
