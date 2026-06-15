@@ -81,8 +81,8 @@ def _coefficients_radial(n: int, m: int) -> list[tuple[float, int]]:
 
 
 def zernike(
-    j: int,
     position: na.AbstractCartesian2dVectorArray,
+    j: int,
 ) -> na.AbstractScalar:
     r"""
     Evaluate the Zernike polynomial with the given Noll index at the given
@@ -90,14 +90,14 @@ def zernike(
 
     Parameters
     ----------
-    j
-        The Noll index of the Zernike polynomial.
-        Must be greater than or equal to one.
     position
         The normalized, dimensionless points at which to evaluate the
         polynomial.
         Points satisfying :math:`|\text{position}| \leq 1` are inside
         the unit disk.
+    j
+        The Noll index of the Zernike polynomial.
+        Must be greater than or equal to one.
 
     Examples
     --------
@@ -118,7 +118,7 @@ def zernike(
             num=101,
         ).explicit
 
-        z4 = optika.zernikes.zernike(4, position)
+        z4 = optika.zernikes.zernike(position, 4)
         z4[position.length > 1] = np.nan
 
         fig, ax = plt.subplots(constrained_layout=True)
@@ -166,8 +166,8 @@ def zernike(
 
 
 def zernike_gradient(
-    j: int,
     position: na.AbstractCartesian2dVectorArray,
+    j: int,
 ) -> na.Cartesian2dVectorArray:
     r"""
     Evaluate the gradient of the Zernike polynomial with the given Noll index
@@ -175,12 +175,12 @@ def zernike_gradient(
 
     Parameters
     ----------
-    j
-        The Noll index of the Zernike polynomial.
-        Must be greater than or equal to one.
     position
         The normalized, dimensionless points at which to evaluate the
         gradient.
+    j
+        The Noll index of the Zernike polynomial.
+        Must be greater than or equal to one.
 
     Notes
     -----
