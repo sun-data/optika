@@ -60,19 +60,12 @@ class AbstractTestAbstractImagingSensor(
         assert a.axis_pixel.x in result.outputs.shape
         assert a.axis_pixel.y in result.outputs.shape
 
-    def test_measure_axis_wavelength(
-        self,
-        a: optika.sensors.AbstractImagingSensor,
-    ):
-        """
-        Test measuring rays whose wavelength varies along more than one axis,
-        for example a scene composed of several disjoint spectral lines, each
-        sampled by its own set of wavelength bins.
-        """
+        # Also measure rays whose wavelength varies along more than one axis,
+        # for example a scene composed of several disjoint spectral lines, each
+        # sampled by its own set of wavelength bins.
         line = na.ScalarArray([500, 600] * u.nm, axes="line")
-        wavelength = line + na.linspace(-1, 1, axis="wavelength", num=3) * u.nm
-
-        rays = optika.rays.RayVectorArray(
+        wavelength_lines = line + na.linspace(-1, 1, axis="wavelength", num=3) * u.nm
+        rays_lines = optika.rays.RayVectorArray(
             intensity=100 * u.photon / u.s,
             wavelength=line + na.linspace(-0.5, 0.5, axis="wavelength", num=2) * u.nm,
             position=na.Cartesian3dVectorArray(
@@ -83,18 +76,17 @@ class AbstractTestAbstractImagingSensor(
             * u.mm,
             direction=na.Cartesian3dVectorArray(0, 0, 1),
         )
-
-        result = a.measure(
-            rays,
-            wavelength,
+        result_lines = a.measure(
+            rays_lines,
+            wavelength_lines,
             axis=("wavelength", "t"),
             axis_wavelength="wavelength",
         )
-        assert isinstance(result, na.FunctionArray)
-        assert result.outputs.unit.is_equivalent(u.electron)
-        assert "line" in result.outputs.shape
-        assert a.axis_pixel.x in result.outputs.shape
-        assert a.axis_pixel.y in result.outputs.shape
+        assert isinstance(result_lines, na.FunctionArray)
+        assert result_lines.outputs.unit.is_equivalent(u.electron)
+        assert "line" in result_lines.outputs.shape
+        assert a.axis_pixel.x in result_lines.outputs.shape
+        assert a.axis_pixel.y in result_lines.outputs.shape
 
 
 @pytest.mark.parametrize(
