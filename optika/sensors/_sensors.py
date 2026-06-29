@@ -240,6 +240,7 @@ class AbstractImagingSensor(
         rays: optika.rays.RayVectorArray,
         wavelength: na.AbstractScalar,
         axis: None | str | Sequence[str] = None,
+        axis_wavelength: None | str = None,
         where: bool | na.AbstractScalar = True,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         noise: bool = True,
@@ -262,6 +263,11 @@ class AbstractImagingSensor(
             The edges of the wavelength bins to sample.
         axis
             The logical axes along which to collect photons.
+        axis_wavelength
+            The logical axis of `wavelength` corresponding to changing
+            wavelength coordinate, forwarded to :meth:`expose`.
+            If :obj:`None` (the default), `wavelength` must have only one
+            logical axis.
         where
             A boolean mask used to indicate which rays should be considered.
         timedelta
@@ -280,6 +286,7 @@ class AbstractImagingSensor(
         return self.expose(
             image,
             direction=direction,
+            axis_wavelength=axis_wavelength,
             timedelta=timedelta,
             noise=noise,
         )
