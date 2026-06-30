@@ -178,6 +178,20 @@ class TestCircularSectorAperture(
         assert np.all(a.radius >= 0)
 
 
+def test_circular_sector_wire_samples_radial_arms():
+    # The sector boundary has two straight radial arms in addition to the arc;
+    # the wire must sample them, not just the arc.
+    aperture = optika.apertures.CircularSectorAperture(
+        radius=125 * u.mm,
+        angle_start=90 * u.deg,
+        angle_stop=180 * u.deg,
+    )
+    wire = aperture.wire(num=21)
+    radius = np.sqrt(wire.x**2 + wire.y**2)
+    on_arm = (radius > 1 * u.mm) & (radius < (125 * u.mm - 1 * u.mm))
+    assert np.any(on_arm)
+
+
 class AbstractTestAbstractPolygonalAperture(
     AbstractTestAbstractAperture,
 ):

@@ -504,29 +504,47 @@ class CircularSectorAperture(
     def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
         if num is None:
             num = self.samples_wire
-        az = na.linspace(
-            start=self.angle_start,
-            stop=self.angle_stop,
-            axis="wire",
-            num=num - 2,
-        )
-        unit_radius = na.unit(self.radius)
-        result = na.Cartesian3dVectorArray(
-            x=self.radius * np.cos(az),
-            y=self.radius * np.sin(az),
-            z=0 * unit_radius if unit_radius is not None else 0,
-        )
 
-        vertex = na.Cartesian3dVectorArray().add_axes("wire")
-        vertex = vertex * unit_radius if unit_radius is not None else vertex
-        result = np.concatenate(
-            [
-                vertex,
-                result,
-                vertex,
-            ],
-            axis="wire",
-        )
+        unit_radius = na.unit(self.radius)
+        z = 0 * unit_radius if unit_radius is not None else 0
+
+        # The boundary of a circular sector has three segments: the two straight
+        # radial arms (from the vertex out to the arc) and the arc itself.
+        # Distribute the points evenly across all three segments -- like the
+        # polygonal apertures -- so the entire boundary is sampled.  Sampling
+        # only the arc would leave the radial arms unsampled.
+        num_segments = 3
+        num_per_segment = num / num_segments
+        segments = []
+        num_cumulative = 0
+        for s in range(num_segments):
+            num_s = int((s + 1) * num_per_segment - num_cumulative)
+            num_cumulative += num_s
+            t = na.linspace(
+                start=0,
+                stop=1,
+                axis="wire",
+                num=num_s,
+                endpoint=num_cumulative == num,
+            )
+            if s == 0:  # radial arm from the vertex out to the start of the arc
+                radius = self.radius * t
+                angle = self.angle_start
+            elif s == 1:  # the arc, from angle_start to angle_stop
+                radius = self.radius
+                angle = self.angle_start + (self.angle_stop - self.angle_start) * t
+            else:  # radial arm from the end of the arc back to the vertex
+                radius = self.radius * (1 - t)
+                angle = self.angle_stop
+            segments.append(
+                na.Cartesian3dVectorArray(
+                    x=radius * np.cos(angle),
+                    y=radius * np.sin(angle),
+                    z=z,
+                )
+            )
+
+        result = na.concatenate(segments, axis="wire")
         if self.transformation is not None:
             result = self.transformation(result)
         return result
