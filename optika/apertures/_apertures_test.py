@@ -373,6 +373,27 @@ class TestRectangularAperture(
         assert not np.any(b(point_outside))
 
 
+def test_grid_transformation():
+    # grid() must apply the aperture's transformation to the sampled points
+    shift = na.transformations.Cartesian3dTranslation(x=5 * u.mm)
+    center = na.Cartesian2dVectorArray(x=0.0, y=0.0)
+    for aperture in (
+        optika.apertures.RectangularAperture(
+            half_width=na.Cartesian2dVectorArray(10, 4) * u.mm,
+            transformation=shift,
+        ),
+        optika.apertures.CircularSectorAperture(
+            radius=125 * u.mm,
+            angle_start=90 * u.deg,
+            angle_stop=180 * u.deg,
+            transformation=shift,
+        ),
+    ):
+        grid = aperture.grid(center)
+        assert isinstance(grid, na.AbstractCartesian3dVectorArray)
+        assert np.all(aperture(grid))
+
+
 class AbstractTestAbstractRegularPolygonalAperture(
     AbstractTestAbstractPolygonalAperture,
 ):
