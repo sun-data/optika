@@ -2,6 +2,7 @@ import abc
 import dataclasses
 import numpy as np
 import numpy.typing as npt
+import scipy.spatial
 import matplotlib.axes
 import matplotlib.lines
 import matplotlib.pyplot as plt
@@ -24,7 +25,78 @@ __all__ = [
     "OctagonalAperture",
     "AbstractIsoscelesTrapezoidalAperture",
     "IsoscelesTrapezoidalAperture",
+    "footprint_aperture",
 ]
+
+
+def footprint_aperture(
+    position: na.AbstractCartesian2dVectorArray | na.AbstractCartesian3dVectorArray,
+    where: None | bool | na.AbstractScalar = None,
+) -> "PolygonalAperture":
+    """
+    Construct a polygonal aperture from the convex hull of a beam footprint.
+
+    This is useful for building the effective pupil of one channel of a
+    multi-channel instrument: trace rays through the full system (including
+    any obscurations) with :meth:`optika.systems.SequentialSystem.footprint`,
+    then convert the illuminated portion of a surface into an explicit
+    aperture for a physical-optics model of that channel.
+
+    Parameters
+    ----------
+    position
+        The positions of the rays intersecting the surface,
+        expressed in local surface coordinates.
+    where
+        An optional boolean mask selecting the unvignetted rays.
+
+    Notes
+    -----
+    The footprint is approximated by its convex hull, which is exact only
+    for convex footprints.
+    Where an edge of the hull comes from the projection of a downstream
+    aperture (instead of a physical edge on this surface), light diffracted
+    past that projection is clipped, which slightly underestimates the
+    diffraction pattern of the downstream aperture.
+    """
+    position = position.xy
+
+    if where is None:
+        where = True
+    where = na.broadcast_to(
+        na.as_named_array(where),
+        na.shape_broadcasted(position.x, position.y, where),
+    )
+
+    shape = where.shape
+    x = na.broadcast_to(position.x, shape).ndarray.ravel()
+    y = na.broadcast_to(position.y, shape).ndarray.ravel()
+    mask = where.ndarray.ravel()
+
+    x = x[mask]
+    y = y[mask]
+
+    unit = na.unit(x)
+    if unit is not None:
+        x = x.to_value(unit)
+        y = y.to(unit).value
+
+    points = np.stack([x, y], axis=~0)
+    hull = scipy.spatial.ConvexHull(points)
+
+    x = x[hull.vertices]
+    y = y[hull.vertices]
+    z = np.zeros_like(x)
+    if unit is not None:
+        x, y, z = x << unit, y << unit, z << unit
+
+    return PolygonalAperture(
+        vertices=na.Cartesian3dVectorArray(
+            x=na.ScalarArray(x, axes=("vertex",)),
+            y=na.ScalarArray(y, axes=("vertex",)),
+            z=na.ScalarArray(z, axes=("vertex",)),
+        ),
+    )
 
 
 @dataclasses.dataclass(eq=False, repr=False)

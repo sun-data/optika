@@ -448,3 +448,90 @@ def test_wavefield_samples_decentered_aperture():
     assert x.max() > decenter + 0.9 * half_width
     assert y.min() < -0.9 * half_width
     assert y.max() > +0.9 * half_width
+
+
+def test_footprint():
+    """
+    The beam footprint on the primary of the test telescope must fill its
+    aperture, and the footprint must be expressed in local coordinates.
+    """
+    system = _telescope()
+    primary = system.surfaces[0]
+
+    position, where = system.footprint(
+        surface=primary,
+        field=na.Cartesian2dVectorArray(0, 0),
+        num=21,
+    )
+
+    shape = na.shape_broadcasted(position.x, position.y, where)
+    x = na.broadcast_to(position.x, shape).ndarray
+    y = na.broadcast_to(position.y, shape).ndarray
+    mask = na.broadcast_to(where, shape).ndarray
+
+    assert np.any(mask)
+    radius = np.sqrt(np.square(x[mask]) + np.square(y[mask]))
+    assert np.all(radius <= primary.aperture.radius)
+    assert radius.max() > 0.9 * primary.aperture.radius
+
+    with pytest.raises(ValueError, match="not an element"):
+        system.footprint(surface=optika.surfaces.Surface(name="other"))
+
+
+def test_footprint_aperture():
+    """
+    The convex hull of the footprint on the primary must accept points
+    inside the beam and reject points outside it.
+    """
+    system = _telescope()
+    primary = system.surfaces[0]
+
+    position, where = system.footprint(
+        surface=primary,
+        field=na.Cartesian2dVectorArray(0, 0),
+        num=21,
+    )
+    aperture = optika.apertures.footprint_aperture(position, where)
+
+    assert isinstance(aperture, optika.apertures.PolygonalAperture)
+    point_inside = na.Cartesian3dVectorArray(0, 0, 0) * u.mm
+    point_outside = na.Cartesian3dVectorArray(100, 0, 0) * u.mm
+    assert np.all(na.as_named_array(aperture(point_inside)))
+    assert not np.any(na.as_named_array(aperture(point_outside)))
+
+    # Omitting `where` should use every sample point.
+    aperture_unmasked = optika.apertures.footprint_aperture(position)
+    assert isinstance(aperture_unmasked, optika.apertures.PolygonalAperture)
+    assert np.all(na.as_named_array(aperture_unmasked(point_inside)))
+
+
+def test_psf_footprint_bound():
+    """
+    The Huygens PSF computed with automatic footprint sampling regions must
+    match the PSF computed with the aperture bounding box.
+    """
+    system = _telescope()
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0),
+        width_sensor=0.05 * u.mm,
+        num=51**2,
+        num_sensor=33,
+        seed=0,
+    )
+
+    psf_default = system.psf(**kwargs)
+    psf_footprint = system.psf(bound="footprint", **kwargs)
+
+    def _ee50(psf):
+        return optika.wavefields.encircled_energy_radius(
+            intensity=psf.outputs,
+            position=psf.inputs.position,
+            axis=("wavefield_x", "wavefield_y"),
+        )
+
+    ee50_default = _ee50(psf_default)
+    ee50_footprint = _ee50(psf_footprint)
+    assert np.abs(ee50_footprint - ee50_default) < 0.2 * ee50_default
+
+    with pytest.raises(ValueError, match="footprint"):
+        system.psf(bound="banana", **kwargs)

@@ -19,6 +19,7 @@ dependencies = [
     "pymupdf",
     "joblib",
     "ezdxf",
+    "scipy",
 ]
 dynamic = ["version"]
 
