@@ -87,6 +87,64 @@ def test_ensquared_energy():
     assert np.abs(float(na.as_named_array(result).ndarray) - expected) < 2e-2
 
 
+def test_metrics_position_3d():
+    """
+    Each metric must accept a 3D position (e.g. from a wavefield sampled on
+    a curved sensor) and give the same result as its 2D projection.
+    """
+    sigma = 5 * u.um
+    intensity, position = _gaussian_psf(sigma=sigma)
+    position_3d = na.Cartesian3dVectorArray(
+        x=position.x,
+        y=position.y,
+        z=1 * u.um,
+    )
+    axis = ("psf_x", "psf_y")
+
+    result = optika.wavefields.encircled_energy_radius(
+        intensity=intensity,
+        position=position_3d,
+        axis=axis,
+    )
+    expected = optika.wavefields.encircled_energy_radius(
+        intensity=intensity,
+        position=position,
+        axis=axis,
+    )
+    assert u.isclose(result, expected)
+
+    width = 15 * u.um
+    result = optika.wavefields.ensquared_energy(
+        intensity=intensity,
+        position=position_3d,
+        axis=axis,
+        width=width,
+    )
+    expected = optika.wavefields.ensquared_energy(
+        intensity=intensity,
+        position=position,
+        axis=axis,
+        width=width,
+    )
+    assert u.isclose(
+        na.as_named_array(result).ndarray,
+        na.as_named_array(expected).ndarray,
+    )
+
+    result = optika.wavefields.fwhm(
+        intensity=intensity,
+        position=position_3d,
+        axis=axis,
+    )
+    expected = optika.wavefields.fwhm(
+        intensity=intensity,
+        position=position,
+        axis=axis,
+    )
+    assert u.isclose(result.x, expected.x)
+    assert u.isclose(result.y, expected.y)
+
+
 def test_fwhm():
     """
     The full width at half maximum of a Gaussian is

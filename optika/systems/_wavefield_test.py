@@ -499,6 +499,11 @@ def test_footprint_aperture():
     assert np.all(na.as_named_array(aperture(point_inside)))
     assert not np.any(na.as_named_array(aperture(point_outside)))
 
+    # Omitting `where` should use every sample point.
+    aperture_unmasked = optika.apertures.footprint_aperture(position)
+    assert isinstance(aperture_unmasked, optika.apertures.PolygonalAperture)
+    assert np.all(na.as_named_array(aperture_unmasked(point_inside)))
+
 
 def test_psf_footprint_bound():
     """
