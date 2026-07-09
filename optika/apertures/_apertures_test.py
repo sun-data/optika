@@ -1,3 +1,4 @@
+import dataclasses
 import pytest
 import numpy as np
 import matplotlib.axes
@@ -83,24 +84,32 @@ class AbstractTestAbstractAperture(
     def test_bound_lower(self, a: optika.apertures.AbstractAperture):
         result = a.bound_lower
         assert isinstance(result, na.AbstractCartesian3dVectorArray)
-        wire = a.wire()
+        # a densely-sampled wire approaches the true extent from the inside
+        wire = a.wire(num=10001)
         for component in ("x", "y"):
             bound = getattr(result, component)
             edge = getattr(wire, component).min("wire")
-            tolerance = 1e-9 * (np.abs(bound) + np.abs(edge))
-            assert np.all(bound <= edge + tolerance)
+            scale = np.abs(getattr(a.bound_upper, component) - bound)
+            # the bound must enclose the wire ...
+            assert np.all(bound <= edge + 1e-9 * scale)
+            # ... and be tight: it must not undershoot the true extent
+            assert np.all(np.abs(bound - edge) < 1e-6 * scale)
 
     def test_bound_upper(self, a: optika.apertures.AbstractAperture):
         result = a.bound_upper
         assert isinstance(result, na.AbstractCartesian3dVectorArray)
         assert np.all(result.x != a.bound_lower.x)
         assert np.all(result.y != a.bound_lower.y)
-        wire = a.wire()
+        # a densely-sampled wire approaches the true extent from the inside
+        wire = a.wire(num=10001)
         for component in ("x", "y"):
             bound = getattr(result, component)
             edge = getattr(wire, component).max("wire")
-            tolerance = 1e-9 * (np.abs(bound) + np.abs(edge))
-            assert np.all(bound >= edge - tolerance)
+            scale = np.abs(bound - getattr(a.bound_lower, component))
+            # the bound must enclose the wire ...
+            assert np.all(bound >= edge - 1e-9 * scale)
+            # ... and be tight: it must not overshoot the true extent
+            assert np.all(np.abs(bound - edge) < 1e-6 * scale)
 
     def test_vertices(self, a: optika.apertures.AbstractAperture):
         if a.vertices is not None:
@@ -311,6 +320,37 @@ class TestRectangularAperture(
         assert isinstance(a.half_width, types_valid)
         assert np.all(a.half_width >= 0)
 
+    def test_decentered(self, a: optika.apertures.RectangularAperture):
+        """
+        A rectangular aperture decentered by more than its width must accept
+        the center of the translated rectangle and reject the center of the
+        untranslated one.
+
+        Regression test: ``RectangularAperture.__call__`` used to express the
+        rectangle in terms of :attr:`bound_lower`/:attr:`bound_upper` while
+        also inverse-transforming the position, applying the internal
+        transformation twice.
+        """
+        if (a.active is not True) or (a.inverted is not False):
+            return
+        half_width = a.half_width
+        if isinstance(half_width, na.AbstractCartesian2dVectorArray):
+            half_width = half_width.x
+        decenter = 3 * half_width
+        zero = 0 * decenter
+        b = dataclasses.replace(
+            a,
+            transformation=na.transformations.Cartesian3dTranslation(
+                x=decenter,
+                y=zero,
+                z=zero,
+            ),
+        )
+        point_inside = na.Cartesian3dVectorArray(x=decenter, y=zero, z=zero)
+        point_outside = na.Cartesian3dVectorArray(x=zero, y=zero, z=zero)
+        assert np.all(b(point_inside))
+        assert not np.any(b(point_outside))
+
 
 class AbstractTestAbstractRegularPolygonalAperture(
     AbstractTestAbstractPolygonalAperture,
@@ -420,67 +460,3 @@ class TestIsoscelesTrapezoidalAperture(
     AbstractTestAbstractIsoscelesTrapezoidalAperture,
 ):
     pass
-
-
-def test_rectangular_aperture_decentered():
-    """
-    A rectangular aperture decentered by its internal transformation must
-    accept points inside the translated rectangle and reject points inside
-    the untranslated one.
-
-    Regression test: ``RectangularAperture.__call__`` used to express the
-    rectangle in terms of :attr:`bound_lower`/:attr:`bound_upper` while
-    also inverse-transforming the position, applying the internal
-    transformation twice.
-    """
-    half_width = 5 * u.mm
-    decenter = 12 * u.mm
-    a = optika.apertures.RectangularAperture(
-        half_width=half_width,
-        transformation=na.transformations.Cartesian3dTranslation(x=decenter),
-    )
-    point_inside = na.Cartesian3dVectorArray(12, 0, 0) * u.mm
-    point_outside = na.Cartesian3dVectorArray(0, 0, 0) * u.mm
-    assert np.all(na.as_named_array(a(point_inside)))
-    assert not np.any(na.as_named_array(a(point_outside)))
-
-
-def test_elliptical_aperture_bounds_analytic():
-    """
-    The bounding box of a rotated, decentered elliptical aperture is computed
-    analytically and must match the true extent of the ellipse.
-
-    Regression test: the bounds used to be sampled from a coarse
-    :meth:`wire`, which underestimates the extent between samples whenever the
-    transformation rotates the ellipse off the coordinate axes.
-    """
-    a = optika.apertures.EllipticalAperture(
-        radius=na.Cartesian2dVectorArray(100, 50) * u.mm,
-        transformation=(
-            na.transformations.Cartesian3dRotationZ(30 * u.deg)
-            @ na.transformations.Cartesian3dTranslation(x=5 * u.mm, y=-2 * u.mm)
-        ),
-    )
-
-    bound_lower = a.bound_lower
-    bound_upper = a.bound_upper
-
-    # a densely-sampled wire approaches the true extent from the inside
-    wire = a.wire(num=100001)
-    for component in ("x", "y"):
-        lower = getattr(bound_lower, component)
-        upper = getattr(bound_upper, component)
-        edge_lower = getattr(wire, component).min("wire")
-        edge_upper = getattr(wire, component).max("wire")
-        scale = np.abs(upper - lower)
-
-        # the analytic bound encloses the dense wire ...
-        assert np.all(lower <= edge_lower + 1e-9 * scale)
-        assert np.all(upper >= edge_upper - 1e-9 * scale)
-        # ... and is tight: it does not overshoot it
-        assert np.all(np.abs(lower - edge_lower) < 1e-6 * scale)
-        assert np.all(np.abs(upper - edge_upper) < 1e-6 * scale)
-
-    # an in-plane rotation leaves the aperture flat in z
-    assert np.all(bound_lower.z == 0 * u.mm)
-    assert np.all(bound_upper.z == 0 * u.mm)

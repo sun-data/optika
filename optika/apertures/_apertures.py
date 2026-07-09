@@ -1,5 +1,6 @@
 import abc
 import dataclasses
+import functools
 import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
@@ -489,13 +490,71 @@ class CircularSectorAperture(
 
         return mask
 
+    def _bound_extrema(
+        self,
+    ) -> tuple[na.Cartesian3dVectorArray, na.Cartesian3dVectorArray]:
+        """
+        Compute the axis-aligned bounding box of this aperture analytically.
+
+        The extremum of the sector along a given world axis is attained
+        either at the apex, at one of the two endpoints of the arc, or at an
+        interior point of the arc where the boundary is tangent to the world
+        axis, if that point lies within the angular range of the sector.
+        """
+        radius = self.radius
+        angle_start = self.angle_start
+        angle_stop = self.angle_stop
+
+        zero = 0 * radius
+        apex = na.Cartesian3dVectorArray(x=zero, y=zero, z=zero)
+        axis_a = na.Cartesian3dVectorArray(x=radius, y=zero, z=zero)
+        axis_b = na.Cartesian3dVectorArray(x=zero, y=radius, z=zero)
+        if self.transformation is not None:
+            apex = self.transformation(apex)
+            axis_a = self.transformation(axis_a) - apex
+            axis_b = self.transformation(axis_b) - apex
+
+        span = (angle_stop - angle_start) % (360 * u.deg)
+
+        result_lower = na.Cartesian3dVectorArray()
+        result_upper = na.Cartesian3dVectorArray()
+        for c in ("x", "y", "z"):
+            center = getattr(apex, c)
+            coeff_a = getattr(axis_a, c)
+            coeff_b = getattr(axis_b, c)
+
+            point_start = center + coeff_a * np.cos(angle_start)
+            point_start = point_start + coeff_b * np.sin(angle_start)
+            point_stop = center + coeff_a * np.cos(angle_stop)
+            point_stop = point_stop + coeff_b * np.sin(angle_stop)
+
+            candidates = [center, point_start, point_stop]
+
+            # interior extrema of the arc along this axis, kept only if they
+            # lie within the angular range of the sector
+            angle_critical = np.arctan2(coeff_b, coeff_a)
+            if na.unit(angle_critical) is None:
+                angle_critical = angle_critical * u.rad
+            for angle in (angle_critical, angle_critical + 180 * u.deg):
+                point_angle = center + coeff_a * np.cos(angle)
+                point_angle = point_angle + coeff_b * np.sin(angle)
+                where = ((angle - angle_start) % (360 * u.deg)) <= span
+                candidates.append(np.where(where, point_angle, point_start))
+
+            setattr(result_lower, c, functools.reduce(np.minimum, candidates))
+            setattr(result_upper, c, functools.reduce(np.maximum, candidates))
+
+        return result_lower, result_upper
+
     @property
     def bound_lower(self) -> na.Cartesian3dVectorArray:
-        return self.wire().min()
+        lower, upper = self._bound_extrema()
+        return lower
 
     @property
     def bound_upper(self) -> na.Cartesian3dVectorArray:
-        return self.wire().max()
+        lower, upper = self._bound_extrema()
+        return upper
 
     @property
     def vertices(self) -> None:
@@ -635,21 +694,16 @@ class EllipticalAperture(
         :math:`\\max_t (A \\cos t + B \\sin t) = \\sqrt{A^2 + B^2}`.
         """
         radius = self.radius
-        zero = na.Cartesian3dVectorArray() * radius.x
-        axis_a = na.Cartesian3dVectorArray(x=radius.x, y=0 * radius.x, z=0 * radius.x)
-        axis_b = na.Cartesian3dVectorArray(x=0 * radius.y, y=radius.y, z=0 * radius.y)
+        center = na.Cartesian3dVectorArray() << radius.x.unit
+        axis_a = na.Cartesian3dVectorArray(x=radius.x) << radius.x.unit
+        axis_b = na.Cartesian3dVectorArray(y=radius.y) << radius.y.unit
 
-        center = zero
         if self.transformation is not None:
-            center = self.transformation(zero)
+            center = self.transformation(center)
             axis_a = self.transformation(axis_a) - center
             axis_b = self.transformation(axis_b) - center
 
-        half = na.Cartesian3dVectorArray(
-            x=np.sqrt(np.square(axis_a.x) + np.square(axis_b.x)),
-            y=np.sqrt(np.square(axis_a.y) + np.square(axis_b.y)),
-            z=np.sqrt(np.square(axis_a.z) + np.square(axis_b.z)),
-        )
+        half = np.sqrt(np.square(axis_a) + np.square(axis_b))
         return center, half
 
     @property
