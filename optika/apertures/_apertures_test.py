@@ -25,12 +25,6 @@ transform_parameterization = [
 ]
 
 
-def _nominal(x: na.AbstractScalar) -> na.AbstractScalar:
-    if isinstance(x, na.AbstractUncertainScalarArray):
-        return x.nominal
-    return x
-
-
 class AbstractTestAbstractAperture(
     test_mixins.AbstractTestDxfWritable,
     test_mixins.AbstractTestPrintable,
@@ -67,12 +61,7 @@ class AbstractTestAbstractAperture(
         # aperture (every aperture here is star-shaped about its centroid)
         if (a.active is True) and (a.inverted is False):
             centroid = a.wire().mean("wire")
-            centroid = na.Cartesian3dVectorArray(
-                x=_nominal(centroid.x),
-                y=_nominal(centroid.y),
-                z=_nominal(centroid.z),
-            )
-            assert np.all(_nominal(na.as_named_array(a(centroid))))
+            assert np.all(na.as_named_array(a(centroid)))
 
     @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
     def test_clip_rays(
@@ -94,12 +83,10 @@ class AbstractTestAbstractAperture(
     def test_bound_lower(self, a: optika.apertures.AbstractAperture):
         result = a.bound_lower
         assert isinstance(result, na.AbstractCartesian3dVectorArray)
-        # compare nominal values only, since uncertain parameters may be
-        # redrawn between independent evaluations of the geometry
         wire = a.wire()
         for component in ("x", "y"):
-            bound = _nominal(getattr(result, component))
-            edge = _nominal(getattr(wire, component).min("wire"))
+            bound = getattr(result, component)
+            edge = getattr(wire, component).min("wire")
             tolerance = 1e-9 * (np.abs(bound) + np.abs(edge))
             assert np.all(bound <= edge + tolerance)
 
@@ -110,8 +97,8 @@ class AbstractTestAbstractAperture(
         assert np.all(result.y != a.bound_lower.y)
         wire = a.wire()
         for component in ("x", "y"):
-            bound = _nominal(getattr(result, component))
-            edge = _nominal(getattr(wire, component).max("wire"))
+            bound = getattr(result, component)
+            edge = getattr(wire, component).max("wire")
             tolerance = 1e-9 * (np.abs(bound) + np.abs(edge))
             assert np.all(bound >= edge - tolerance)
 
