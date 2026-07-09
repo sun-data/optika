@@ -1,5 +1,6 @@
 import abc
 import dataclasses
+import functools
 import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
@@ -489,13 +490,71 @@ class CircularSectorAperture(
 
         return mask
 
+    def _bound_extrema(
+        self,
+    ) -> tuple[na.Cartesian3dVectorArray, na.Cartesian3dVectorArray]:
+        """
+        Compute the axis-aligned bounding box of this aperture analytically.
+
+        The extremum of the sector along a given world axis is attained
+        either at the apex, at one of the two endpoints of the arc, or at an
+        interior point of the arc where the boundary is tangent to the world
+        axis, if that point lies within the angular range of the sector.
+        """
+        radius = self.radius
+        angle_start = self.angle_start
+        angle_stop = self.angle_stop
+
+        zero = 0 * radius
+        apex = na.Cartesian3dVectorArray(x=zero, y=zero, z=zero)
+        axis_a = na.Cartesian3dVectorArray(x=radius, y=zero, z=zero)
+        axis_b = na.Cartesian3dVectorArray(x=zero, y=radius, z=zero)
+        if self.transformation is not None:
+            apex = self.transformation(apex)
+            axis_a = self.transformation(axis_a) - apex
+            axis_b = self.transformation(axis_b) - apex
+
+        span = (angle_stop - angle_start) % (360 * u.deg)
+
+        result_lower = na.Cartesian3dVectorArray()
+        result_upper = na.Cartesian3dVectorArray()
+        for c in ("x", "y", "z"):
+            center = getattr(apex, c)
+            coeff_a = getattr(axis_a, c)
+            coeff_b = getattr(axis_b, c)
+
+            point_start = center + coeff_a * np.cos(angle_start)
+            point_start = point_start + coeff_b * np.sin(angle_start)
+            point_stop = center + coeff_a * np.cos(angle_stop)
+            point_stop = point_stop + coeff_b * np.sin(angle_stop)
+
+            candidates = [center, point_start, point_stop]
+
+            # interior extrema of the arc along this axis, kept only if they
+            # lie within the angular range of the sector
+            angle_critical = np.arctan2(coeff_b, coeff_a)
+            if na.unit(angle_critical) is None:
+                angle_critical = angle_critical * u.rad
+            for angle in (angle_critical, angle_critical + 180 * u.deg):
+                point_angle = center + coeff_a * np.cos(angle)
+                point_angle = point_angle + coeff_b * np.sin(angle)
+                where = ((angle - angle_start) % (360 * u.deg)) <= span
+                candidates.append(np.where(where, point_angle, point_start))
+
+            setattr(result_lower, c, functools.reduce(np.minimum, candidates))
+            setattr(result_upper, c, functools.reduce(np.maximum, candidates))
+
+        return result_lower, result_upper
+
     @property
     def bound_lower(self) -> na.Cartesian3dVectorArray:
-        return self.wire().min()
+        lower, upper = self._bound_extrema()
+        return lower
 
     @property
     def bound_upper(self) -> na.Cartesian3dVectorArray:
-        return self.wire().max()
+        lower, upper = self._bound_extrema()
+        return upper
 
     @property
     def vertices(self) -> None:
@@ -618,29 +677,44 @@ class EllipticalAperture(
 
         return mask
 
+    def _bound_center_half(
+        self,
+    ) -> tuple[na.Cartesian3dVectorArray, na.Cartesian3dVectorArray]:
+        """
+        The center and per-component half-extent of the axis-aligned bounding
+        box, computed analytically so the bound is exact even when
+        :attr:`transformation` rotates the ellipse.
+
+        A point on the ellipse boundary is
+        :math:`p(t) = c + a\\,\\hat{e}_a \\cos t + b\\,\\hat{e}_b \\sin t`,
+        where :math:`c` is the center and :math:`\\hat{e}_a, \\hat{e}_b` are the
+        images of the local axes under the transformation.  The extent along
+        any world component is then
+        :math:`\\sqrt{(a\\,\\hat{e}_a)^2 + (b\\,\\hat{e}_b)^2}`, since
+        :math:`\\max_t (A \\cos t + B \\sin t) = \\sqrt{A^2 + B^2}`.
+        """
+        radius = self.radius
+        center = na.Cartesian3dVectorArray() << radius.x.unit
+        axis_a = na.Cartesian3dVectorArray(x=radius.x) << radius.x.unit
+        axis_b = na.Cartesian3dVectorArray(y=radius.y) << radius.y.unit
+
+        if self.transformation is not None:
+            center = self.transformation(center)
+            axis_a = self.transformation(axis_a) - center
+            axis_b = self.transformation(axis_b) - center
+
+        half = np.sqrt(np.square(axis_a) + np.square(axis_b))
+        return center, half
+
     @property
     def bound_lower(self) -> na.Cartesian3dVectorArray:
-        unit = na.unit(self.radius)
-        result = na.Cartesian3dVectorArray()
-        if unit is not None:
-            result = result * unit
-        if self.transformation is not None:
-            result = self.transformation(result)
-        result.x = result.x - self.radius.x
-        result.y = result.y - self.radius.y
-        return result
+        center, half = self._bound_center_half()
+        return center - half
 
     @property
     def bound_upper(self) -> na.Cartesian3dVectorArray:
-        unit = na.unit(self.radius)
-        result = na.Cartesian3dVectorArray()
-        if unit is not None:
-            result = result * unit
-        if self.transformation is not None:
-            result = self.transformation(result)
-        result.x = result.x + self.radius.x
-        result.y = result.y + self.radius.y
-        return result
+        center, half = self._bound_center_half()
+        return center + half
 
     @property
     def vertices(self) -> None:
@@ -717,11 +791,17 @@ class AbstractPolygonalAperture(
 
     @property
     def bound_lower(self) -> na.AbstractCartesian3dVectorArray:
-        return self.vertices.min(axis="vertex")
+        vertices = self.vertices
+        if self.transformation is not None:
+            vertices = self.transformation(vertices)
+        return vertices.min(axis="vertex")
 
     @property
     def bound_upper(self) -> na.AbstractCartesian3dVectorArray:
-        return self.vertices.max(axis="vertex")
+        vertices = self.vertices
+        if self.transformation is not None:
+            vertices = self.transformation(vertices)
+        return vertices.max(axis="vertex")
 
     def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
         if num is None:
@@ -874,24 +954,24 @@ class RectangularAperture(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        bound_lower = self.bound_lower
-        bound_upper = self.bound_upper
+        half_width = na.asanyarray(
+            self.half_width,
+            like=na.Cartesian2dVectorArray(),
+        )
         active = self.active
         inverted = self.inverted
         if self.transformation is not None:
             position = self.transformation.inverse(position)
+        position = position.xy
 
-        shape = na.shape_broadcasted(
-            bound_lower, bound_upper, active, inverted, position
-        )
+        shape = na.shape_broadcasted(half_width, active, inverted, position)
 
-        bound_lower = na.broadcast_to(bound_lower, shape)
-        bound_upper = na.broadcast_to(bound_upper, shape)
+        half_width = na.broadcast_to(half_width, shape)
         active = na.broadcast_to(active, shape)
         inverted = na.broadcast_to(inverted, shape)
         position = na.broadcast_to(position, shape)
 
-        mask = (bound_lower <= position) & (position <= bound_upper)
+        mask = (-half_width <= position) & (position <= half_width)
         mask = mask.x & mask.y
 
         mask[inverted] = ~mask[inverted]

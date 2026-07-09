@@ -1,3 +1,4 @@
+import dataclasses
 import pytest
 import numpy as np
 import matplotlib.axes
@@ -57,6 +58,12 @@ class AbstractTestAbstractAperture(
 
         assert np.all(result[~na.as_named_array(a.active)])
 
+        # the centroid of the wire must be inside an active, non-inverted
+        # aperture (every aperture here is star-shaped about its centroid)
+        if (a.active is True) and (a.inverted is False):
+            centroid = a.wire().mean("wire")
+            assert np.all(na.as_named_array(a(centroid)))
+
     @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
     def test_clip_rays(
         self,
@@ -75,12 +82,34 @@ class AbstractTestAbstractAperture(
         assert np.mean(result.unvignetted) <= np.mean(rays.unvignetted)
 
     def test_bound_lower(self, a: optika.apertures.AbstractAperture):
-        assert isinstance(a.bound_lower, na.AbstractCartesian3dVectorArray)
+        result = a.bound_lower
+        assert isinstance(result, na.AbstractCartesian3dVectorArray)
+        # a densely-sampled wire approaches the true extent from the inside
+        wire = a.wire(num=10001)
+        for component in ("x", "y"):
+            bound = getattr(result, component)
+            edge = getattr(wire, component).min("wire")
+            scale = np.abs(getattr(a.bound_upper, component) - bound)
+            # the bound must enclose the wire ...
+            assert np.all(bound <= edge + 1e-9 * scale)
+            # ... and be tight: it must not undershoot the true extent
+            assert np.all(np.abs(bound - edge) < 1e-6 * scale)
 
     def test_bound_upper(self, a: optika.apertures.AbstractAperture):
-        assert isinstance(a.bound_upper, na.AbstractCartesian3dVectorArray)
-        assert np.all(a.bound_upper.x != a.bound_lower.x)
-        assert np.all(a.bound_upper.y != a.bound_lower.y)
+        result = a.bound_upper
+        assert isinstance(result, na.AbstractCartesian3dVectorArray)
+        assert np.all(result.x != a.bound_lower.x)
+        assert np.all(result.y != a.bound_lower.y)
+        # a densely-sampled wire approaches the true extent from the inside
+        wire = a.wire(num=10001)
+        for component in ("x", "y"):
+            bound = getattr(result, component)
+            edge = getattr(wire, component).max("wire")
+            scale = np.abs(bound - getattr(a.bound_lower, component))
+            # the bound must enclose the wire ...
+            assert np.all(bound >= edge - 1e-9 * scale)
+            # ... and be tight: it must not overshoot the true extent
+            assert np.all(np.abs(bound - edge) < 1e-6 * scale)
 
     def test_vertices(self, a: optika.apertures.AbstractAperture):
         if a.vertices is not None:
@@ -290,6 +319,37 @@ class TestRectangularAperture(
         )
         assert isinstance(a.half_width, types_valid)
         assert np.all(a.half_width >= 0)
+
+    def test_decentered(self, a: optika.apertures.RectangularAperture):
+        """
+        A rectangular aperture decentered by more than its width must accept
+        the center of the translated rectangle and reject the center of the
+        untranslated one.
+
+        Regression test: ``RectangularAperture.__call__`` used to express the
+        rectangle in terms of :attr:`bound_lower`/:attr:`bound_upper` while
+        also inverse-transforming the position, applying the internal
+        transformation twice.
+        """
+        if (a.active is not True) or (a.inverted is not False):
+            return
+        half_width = a.half_width
+        if isinstance(half_width, na.AbstractCartesian2dVectorArray):
+            half_width = half_width.x
+        decenter = 3 * half_width
+        zero = 0 * decenter
+        b = dataclasses.replace(
+            a,
+            transformation=na.transformations.Cartesian3dTranslation(
+                x=decenter,
+                y=zero,
+                z=zero,
+            ),
+        )
+        point_inside = na.Cartesian3dVectorArray(x=decenter, y=zero, z=zero)
+        point_outside = na.Cartesian3dVectorArray(x=zero, y=zero, z=zero)
+        assert np.all(b(point_inside))
+        assert not np.any(b(point_outside))
 
 
 class AbstractTestAbstractRegularPolygonalAperture(
