@@ -1114,6 +1114,32 @@ class AbstractSequentialSystem(
             noise=noise,
         )
 
+    def distortion(
+        self,
+        degree: int,
+    ) -> optika.distortion.PolynomialDistortionModel:
+        """
+        Fit a polynomial distortion function to the rays in :attr:`rayfunction_default`.
+
+        Parameters
+        ----------
+        degree
+            The degree of the polynomial distortion model.
+        """
+
+        rays = self.rayfunction_default
+
+        coordinates_scene = na.SpectralPositionalVectorArray(
+            wavelength=rays.inputs.wavelength,
+            position=rays.inputs.field,
+        )
+
+        return optika.distortion.PolynomialDistortionModel(
+            coordinates_scene=coordinates_scene,
+            coordinates_sensor=rays.outputs.
+        )
+
+
     def plot(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
