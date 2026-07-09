@@ -130,6 +130,168 @@ class AbstractSequentialSystem(
         """
 
     @property
+    @abc.abstractmethod
+    def axis_wavelength(self) -> None | str:
+        """
+        The logical axis of :attr:`grid_input` corresponding to changing wavelength.
+
+        If :obj:`None` (the default),
+        ``grid_input.wavelength`` should have at most one logical
+        axis other than the axes in :attr:`shape`.
+        """
+
+    @property
+    @abc.abstractmethod
+    def axis_field(self) -> None | tuple[str, str]:
+        """
+        The logical axes of :attr:`grid_input` corresponding to changing field coordinate.
+
+        If :obj:`None` (the default),
+        ``grid_input.field`` should have only two axes other than those
+        in :attr:`shape` and :attr:`axis_wavelength`.
+        """
+
+    @property
+    @abc.abstractmethod
+    def axis_pupil(self) -> None | tuple[str, str]:
+        """
+        The logical axes of :attr:`grid_input` corresponding to changing pupil coordinate.
+
+        If :obj:`None` (the default),
+        ``grid_input.pupil`` should have only two axes other than those
+        in :attr:`shape`, :attr:`axis_wavelength`, and :attr:`axis_field`.
+        """
+
+    def _normalize_axis_wavelength(
+        self,
+        axis_wavelength: None | str,
+        wavelength: na.AbstractScalar,
+    ) -> tuple[str, ...]:
+        """
+        Normalize the wavelength axis to a :obj:`tuple` of :obj:`str`
+        with at most one element.
+
+        Parameters
+        ----------
+        axis_wavelength
+            The wavelength axis to be normalized.
+            If :obj:`None`, `wavelength` should have at most one logical axis
+            other than those in :attr:`shape`, and the result is an empty
+            :obj:`tuple` if it has none.
+        wavelength
+            A grid of wavelength coordinates.
+        """
+        if axis_wavelength is None:
+            axis_wavelength = set(wavelength.shape) - set(self.shape)
+            axis_wavelength = tuple(axis_wavelength)
+            if len(axis_wavelength) > 1:  # pragma: nocover
+                raise ValueError(
+                    "if `axis_wavelength` is `None`, "
+                    f"the wavelength axis must be unambiguous, "
+                    f"got {axis_wavelength} as possibilities."
+                )
+        else:
+            axis_wavelength = (axis_wavelength,)
+        return axis_wavelength
+
+    def _normalize_axis_field(
+        self,
+        axis_field: None | tuple[str, str],
+        axis_wavelength: tuple[str, ...],
+        field: na.AbstractCartesian2dVectorArray,
+    ) -> tuple[str, str]:
+        """
+        Normalize the field axes to a :obj:`tuple` of :obj:`str`.
+
+        Parameters
+        ----------
+        axis_field
+            The field axes to be normalized.
+            If :obj:`None`, `field` should have only two axes other
+            than those in :attr:`shape` and `axis_wavelength`.
+        axis_wavelength
+            The normalized logical axis representing changes in wavelength.
+        field
+            A grid of field coordinates.
+        """
+        if axis_field is None:
+            axis_field = set(field.shape) - set(self.shape)
+            axis_field = tuple(axis_field - set(axis_wavelength))
+            if len(axis_field) != 2:  # pragma: nocover
+                raise ValueError(
+                    "if `axis_field` is `None`, "
+                    "the two field axes must be unambiguous, "
+                    f"got {axis_field} as possibilities."
+                )
+        return axis_field
+
+    def _normalize_axis_pupil(
+        self,
+        axis_pupil: None | tuple[str, str],
+        axis_field: tuple[str, str],
+        axis_wavelength: tuple[str, ...],
+        pupil: na.AbstractCartesian2dVectorArray,
+    ) -> tuple[str, str]:
+        """
+        Normalize the pupil axes to a :obj:`tuple` of :obj:`str`.
+
+        Parameters
+        ----------
+        axis_pupil
+            The pupil axes to be normalized.
+            If :obj:`None`, `pupil` should have only two axes other
+            than those in :attr:`shape`, `axis_field`, and `axis_wavelength`.
+        axis_field
+            The logical axes representing changing field coordinates.
+        axis_wavelength
+            The normalized logical axis representing changes in wavelength.
+        pupil
+            A grid of pupil coordinates.
+        """
+        if axis_pupil is None:
+            axis_pupil = set(pupil.shape) - set(self.shape)
+            axis_pupil = tuple(axis_pupil - set(axis_wavelength) - set(axis_field))
+            if len(axis_pupil) != 2:  # pragma: nocover
+                raise ValueError(
+                    "if `axis_pupil` is `None`, "
+                    "the two pupil axes must be unambiguous, "
+                    f"got {axis_pupil} as possibilities."
+                )
+        return axis_pupil
+
+    @property
+    def axis_wavelength_(self) -> tuple[str, ...]:
+        """
+        Normalized version of :attr:`axis_wavelength`.
+
+        An empty :obj:`tuple` if ``grid_input.wavelength`` does not vary
+        along its own logical axis.
+        """
+        return self._normalize_axis_wavelength(
+            axis_wavelength=self.axis_wavelength,
+            wavelength=self.grid_input.wavelength,
+        )
+
+    @property
+    def axis_field_(self) -> tuple[str, str]:
+        """Normalized version of :attr:`axis_field`."""
+        return self._normalize_axis_field(
+            axis_field=self.axis_field,
+            axis_wavelength=self.axis_wavelength_,
+            field=self.grid_input.field,
+        )
+
+    @property
+    def axis_pupil_(self) -> tuple[str, str]:
+        """Normalized version of :attr:`axis_pupil`."""
+        return self._normalize_axis_pupil(
+            axis_pupil=self.axis_pupil,
+            axis_field=self.axis_field_,
+            axis_wavelength=self.axis_wavelength_,
+            pupil=self.grid_input.pupil,
+        )
+
+    @property
     def _indices_field_stop(self) -> list[int]:
         return [i for i, s in enumerate(self.surfaces_all) if s.is_field_stop]
 
@@ -881,8 +1043,6 @@ class AbstractSequentialSystem(
             Whether to add noise to the result.
         """
 
-        shape = self.shape
-
         scene = scene.explicit
 
         wavelength = scene.inputs.wavelength
@@ -903,36 +1063,27 @@ class AbstractSequentialSystem(
         normalized_field = unit_field.is_equivalent(u.dimensionless_unscaled)
         normalized_pupil = unit_pupil.is_equivalent(u.dimensionless_unscaled)
 
-        if axis_wavelength is None:
-            axis_wavelength = set(wavelength.shape) - set(shape)
-            axis_wavelength = tuple(axis_wavelength)
-            if len(axis_wavelength) != 1:  # pragma: nocover
-                raise ValueError(
-                    "if `axis_wavelength` is `None`, "
-                    f"the wavelength axis must be unambiguous, "
-                    f"got {axis_wavelength} as possibilities."
-                )
-            (axis_wavelength,) = axis_wavelength
-
-        if axis_field is None:
-            axis_field = set(field.shape) - set(shape)
-            axis_field = tuple(axis_field - {axis_wavelength})
-            if len(axis_field) != 2:  # pragma: nocover
-                raise ValueError(
-                    "if `axis_field` is `None`, "
-                    "the two field axes must be unambiguous, "
-                    f"got {axis_field} as possibilities."
-                )
-
-        if axis_pupil is None:
-            axis_pupil = set(pupil.shape) - set(shape)
-            axis_pupil = tuple(axis_pupil - {axis_wavelength} - set(axis_field))
-            if len(axis_pupil) != 2:  # pragma: nocover
-                raise ValueError(
-                    "if `axis_pupil` is `None`, "
-                    "the two pupil axes must be unambiguous, "
-                    f"got {axis_pupil} as possibilities."
-                )
+        axis_wavelength = self._normalize_axis_wavelength(
+            axis_wavelength=axis_wavelength,
+            wavelength=wavelength,
+        )
+        if len(axis_wavelength) != 1:  # pragma: nocover
+            raise ValueError(
+                "`scene` must vary along exactly one wavelength axis, "
+                f"got {axis_wavelength} as possibilities."
+            )
+        axis_field = self._normalize_axis_field(
+            axis_field=axis_field,
+            axis_wavelength=axis_wavelength,
+            field=field,
+        )
+        axis_pupil = self._normalize_axis_pupil(
+            axis_pupil=axis_pupil,
+            axis_field=axis_field,
+            axis_wavelength=axis_wavelength,
+            pupil=pupil,
+        )
+        (axis_wavelength,) = axis_wavelength
 
         rayfunction = self._rayfunction_from_vertices(
             radiance=scene.outputs,
@@ -1064,20 +1215,13 @@ class AbstractSequentialSystem(
         cmap
             The colormap used to map scalar data to colors.
         """
-        shape = self.shape
-
         grid = self.grid_input
 
         wavelength = na.as_named_array(grid.wavelength)
         field = grid.field
         pupil = grid.pupil
 
-        axis_wavelength = set(wavelength.shape) - set(shape)
-        axis_wavelength = tuple(axis_wavelength)
-        if len(axis_wavelength) > 1:  # pragma: nocover
-            raise ValueError(
-                f"Expected one or zero wavelength axes, got {len(axis_wavelength)}."
-            )
+        axis_wavelength = self.axis_wavelength_
 
         axis_field_x = tuple(field.x.shape)
         if len(axis_field_x) != 1:  # pragma: nocover
@@ -1097,8 +1241,12 @@ class AbstractSequentialSystem(
 
         axis_field = (axis_field_x, axis_field_y)
 
-        axis_pupil = set(pupil.shape) - set(shape)
-        axis_pupil = axis_pupil - set(axis_wavelength) - set(axis_field)
+        axis_pupil = self._normalize_axis_pupil(
+            axis_pupil=self.axis_pupil,
+            axis_field=axis_field,
+            axis_wavelength=axis_wavelength,
+            pupil=pupil,
+        )
 
         rays = self.rayfunction_default.outputs
         position = rays.position.to(u.um)
@@ -1445,11 +1593,6 @@ class SequentialSystem(
     This is the last surface in the optical system.
     """
 
-    axis_surface: str = "surface"
-    """
-    The name of the logical axis representing the sequence of surfaces.
-    """
-
     grid_input: optika.vectors.ObjectVectorArray = None
     """
     The input grid to sample with rays.
@@ -1464,6 +1607,38 @@ class SequentialSystem(
 
     If positions are specified in absolute units, they are measured in the
     coordinate system of the corresponding stop surface.
+    """
+
+    axis_surface: str = "surface"
+    """
+    The name of the logical axis representing the sequence of surfaces.
+    """
+
+    axis_wavelength: None | str = None
+    """
+    The logical axis of :attr:`grid_input` corresponding to changing wavelength.
+
+    If :obj:`None` (the default),
+    ``grid_input.wavelength`` should have at most one logical
+    axis other than the axes in :attr:`shape`.
+    """
+
+    axis_field: None | tuple[str, str] = None
+    """
+    The logical axes of :attr:`grid_input` corresponding to changing field coordinate.
+
+    If :obj:`None` (the default),
+    ``grid_input.field`` should have only two axes other than those
+    in :attr:`shape` and :attr:`axis_wavelength`.
+    """
+
+    axis_pupil: None | tuple[str, str] = None
+    """
+    The logical axes of :attr:`grid_input` corresponding to changing pupil coordinate.
+
+    If :obj:`None` (the default),
+    ``grid_input.pupil`` should have only two axes other than those
+    in :attr:`shape`, :attr:`axis_wavelength`, and :attr:`axis_field`.
     """
 
     transformation: None | na.transformations.AbstractTransformation = None

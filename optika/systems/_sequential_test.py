@@ -38,6 +38,56 @@ class AbstractTestAbstractSequentialSystem(
     def test_grid_input(self, a: optika.systems.AbstractSequentialSystem):
         assert isinstance(a.grid_input, optika.vectors.ObjectVectorArray)
 
+    def test_axis_wavelength(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.axis_wavelength
+        if result is not None:
+            assert isinstance(result, str)
+
+    def test_axis_field(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.axis_field
+        if result is not None:
+            assert len(result) == 2
+            for axis in result:
+                assert isinstance(axis, str)
+
+    def test_axis_pupil(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.axis_pupil
+        if result is not None:
+            assert len(result) == 2
+            for axis in result:
+                assert isinstance(axis, str)
+
+    def test_axis_wavelength_(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.axis_wavelength_
+        assert isinstance(result, tuple)
+        assert len(result) <= 1
+        for axis in result:
+            assert isinstance(axis, str)
+            assert axis in a.grid_input.wavelength.shape
+        if a.axis_wavelength is not None:
+            assert result == (a.axis_wavelength,)
+
+    def test_axis_field_(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.axis_field_
+        assert len(result) == 2
+        for axis in result:
+            assert isinstance(axis, str)
+            assert axis in a.grid_input.field.shape
+        if a.axis_field is not None:
+            assert result == a.axis_field
+        assert not set(result) & set(a.axis_wavelength_)
+
+    def test_axis_pupil_(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.axis_pupil_
+        assert len(result) == 2
+        for axis in result:
+            assert isinstance(axis, str)
+            assert axis in a.grid_input.pupil.shape
+        if a.axis_pupil is not None:
+            assert result == a.axis_pupil
+        assert not set(result) & set(a.axis_wavelength_)
+        assert not set(result) & set(a.axis_field_)
+
     def test_index_field_stop(self, a: optika.systems.AbstractSequentialSystem):
         assert isinstance(a.index_field_stop, int)
         assert a.surfaces_all[a.index_field_stop].is_field_stop
@@ -252,6 +302,17 @@ _grid_input = optika.vectors.ObjectVectorArray(
     ),
 )
 
+_grid_input_wavelength = optika.vectors.ObjectVectorArray(
+    wavelength=na.linspace(
+        start=500 * u.nm,
+        stop=600 * u.nm,
+        axis="wavelength",
+        num=3,
+    ),
+    field=_grid_input.field,
+    pupil=_grid_input.pupil,
+)
+
 
 @pytest.mark.parametrize(
     argnames="a",
@@ -264,6 +325,21 @@ _grid_input = optika.vectors.ObjectVectorArray(
             transformation=transform,
         )
         for obj, transform in zip(_objects, _transformations)
+    ]
+    + [
+        optika.systems.SequentialSystem(
+            surfaces=_surfaces,
+            sensor=_sensor,
+            grid_input=_grid_input_wavelength,
+        ),
+        optika.systems.SequentialSystem(
+            surfaces=_surfaces,
+            sensor=_sensor,
+            grid_input=_grid_input_wavelength,
+            axis_wavelength="wavelength",
+            axis_field=("field_x", "field_y"),
+            axis_pupil=("pupil_x", "pupil_y"),
+        ),
     ],
 )
 class TestSequentialSystem(AbstractTestAbstractSequentialSystem):
