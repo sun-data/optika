@@ -1147,7 +1147,6 @@ class AbstractSequentialSystem(
             where=rays.outputs.unvignetted.any(axis_pupil),
         )
 
-
     def plot(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
