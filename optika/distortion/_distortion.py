@@ -473,9 +473,11 @@ class PolynomialDistortionModel(
                 ),
             )
 
+            residual[~self.where] = np.nan * unit
+
             na.plt.pcolormesh(
                 position,
-                C=residual,
+                C=residual.value,
                 ax=ax,
                 colorizer=colorizer,
                 **kwargs,

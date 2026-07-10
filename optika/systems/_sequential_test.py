@@ -238,6 +238,15 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(rayfunction.outputs, optika.rays.RayVectorArray)
         assert a.axis_surface not in rayfunction.shape
 
+    def test_distortion(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        degree: int,
+    ):
+        result = a.distortion(degree=degree)
+        assert isinstance(result, optika.distortion.PolynomialDistortionModel)
+        assert result.degree == degree
+
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
         assert isinstance(fig, plt.Figure)

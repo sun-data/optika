@@ -1134,9 +1134,17 @@ class AbstractSequentialSystem(
             position=rays.inputs.field,
         )
 
+        (axis_wavelength,) = self.axis_wavelength_
+        axis_field = self.axis_field_
+        axis_pupil = self.axis_pupil_
+
         return optika.distortion.PolynomialDistortionModel(
             coordinates_scene=coordinates_scene,
-            coordinates_sensor=rays.outputs.
+            coordinates_sensor=rays.outputs.position.xy.mean(axis_pupil),
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            degree=degree,
+            where=rays.outputs.unvignetted.any(axis_pupil),
         )
 
 
