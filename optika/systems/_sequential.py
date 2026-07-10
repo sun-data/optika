@@ -1152,34 +1152,13 @@ class AbstractSequentialSystem(
         degree
             The degree of the polynomial distortion model.
         """
-        if wavelength is None and field is None and pupil is None:
-            rays = self.rayfunction_default
-            axis_wavelength = self.axis_wavelength_
-            axis_field = self.axis_field_
-            axis_pupil = self.axis_pupil_
-        else:
-            rays = self.rayfunction(
-                wavelength=wavelength,
-                field=field,
-                pupil=pupil,
-                normalized_field=normalized_field,
-                normalized_pupil=normalized_pupil,
-            )
-            axis_wavelength = self._normalize_axis_wavelength(
-                axis_wavelength=None,
-                wavelength=rays.inputs.wavelength,
-            )
-            axis_field = self._normalize_axis_field(
-                axis_field=None,
-                axis_wavelength=axis_wavelength,
-                field=rays.inputs.field,
-            )
-            axis_pupil = self._normalize_axis_pupil(
-                axis_pupil=None,
-                axis_field=axis_field,
-                axis_wavelength=axis_wavelength,
-                pupil=rays.inputs.pupil,
-            )
+        rays, axis_wavelength, axis_field, axis_pupil = self._rayfunction_and_axes(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
 
         if not axis_wavelength:
             raise ValueError(
@@ -1213,6 +1192,149 @@ class AbstractSequentialSystem(
             degree=degree,
             where=where,
         )
+
+    def vignetting(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+        degree: int = 2,
+    ) -> optika.radiometry.PolynomialVignettingModel:
+        """
+        Fit a polynomial vignetting model to the rays traced through this
+        system.
+
+        The relative illumination at each scene coordinate is estimated from
+        the fraction of unvignetted rays in the pupil, normalized to its
+        maximum over the field of view.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths of the input rays.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            will be used.
+        field
+            The field positions of the input rays, in either normalized or
+            physical units.
+            If :obj:`None` (the default), ``self.grid_input.field``
+            will be used.
+        pupil
+            The pupil positions of the input rays, in either normalized or
+            physical units.
+            If :obj:`None` (the default), ``self.grid_input.pupil``
+            will be used.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
+        degree
+            The degree of the polynomial vignetting model.
+        """
+        rays, axis_wavelength, axis_field, axis_pupil = self._rayfunction_and_axes(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+
+        if not axis_wavelength:
+            raise ValueError(
+                "fitting a vignetting model requires the wavelength grid "
+                "to vary along its own logical axis."
+            )
+        (axis_wavelength,) = axis_wavelength
+
+        coordinates_scene = na.SpectralPositionalVectorArray(
+            wavelength=rays.inputs.wavelength,
+            position=rays.inputs.field,
+        )
+
+        illumination = rays.outputs.unvignetted.mean(axis_pupil)
+        illumination = illumination / illumination.max(axis_field)
+
+        return optika.radiometry.PolynomialVignettingModel(
+            coordinates_scene=coordinates_scene,
+            illumination=illumination,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            degree=degree,
+        )
+
+    def _rayfunction_and_axes(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+    ) -> tuple[
+        optika.rays.RayFunctionArray,
+        tuple[str, ...],
+        tuple[str, str],
+        tuple[str, str],
+    ]:
+        """
+        Trace the given grids through this system and return the resulting
+        rays along with the normalized wavelength, field, and pupil axes.
+
+        If all of the grids are :obj:`None`, :attr:`rayfunction_default` and
+        the normalized axes of :attr:`grid_input` are used.
+        Otherwise, the rays are computed with :meth:`rayfunction` and the
+        axes are inferred from the resulting inputs, so that grids left as
+        :obj:`None` inherit the corresponding component of :attr:`grid_input`.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths of the input rays.
+        field
+            The field positions of the input rays, in either normalized or
+            physical units.
+        pupil
+            The pupil positions of the input rays, in either normalized or
+            physical units.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
+        """
+        if wavelength is None and field is None and pupil is None:
+            rays = self.rayfunction_default
+            axis_wavelength = self.axis_wavelength_
+            axis_field = self.axis_field_
+            axis_pupil = self.axis_pupil_
+        else:
+            rays = self.rayfunction(
+                wavelength=wavelength,
+                field=field,
+                pupil=pupil,
+                normalized_field=normalized_field,
+                normalized_pupil=normalized_pupil,
+            )
+            axis_wavelength = self._normalize_axis_wavelength(
+                axis_wavelength=None,
+                wavelength=rays.inputs.wavelength,
+            )
+            axis_field = self._normalize_axis_field(
+                axis_field=None,
+                axis_wavelength=axis_wavelength,
+                field=rays.inputs.field,
+            )
+            axis_pupil = self._normalize_axis_pupil(
+                axis_pupil=None,
+                axis_field=axis_field,
+                axis_wavelength=axis_wavelength,
+                pupil=rays.inputs.pupil,
+            )
+        return rays, axis_wavelength, axis_field, axis_pupil
 
     def plot(
         self,
