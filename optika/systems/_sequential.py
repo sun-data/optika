@@ -1116,28 +1116,77 @@ class AbstractSequentialSystem(
 
     def distortion(
         self,
-        degree: int,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+        degree: int = 2,
     ) -> optika.distortion.PolynomialDistortionModel:
         """
-        Fit a polynomial distortion function to the rays in :attr:`rayfunction_default`.
+        Fit a polynomial distortion model to the rays traced through this
+        system.
 
         Parameters
         ----------
+        wavelength
+            The wavelengths of the input rays.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            will be used.
+        field
+            The field positions of the input rays, in either normalized or
+            physical units.
+            If :obj:`None` (the default), ``self.grid_input.field``
+            will be used.
+        pupil
+            The pupil positions of the input rays, in either normalized or
+            physical units.
+            If :obj:`None` (the default), ``self.grid_input.pupil``
+            will be used.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
         degree
             The degree of the polynomial distortion model.
         """
+        if wavelength is None and field is None and pupil is None:
+            rays = self.rayfunction_default
+            axis_wavelength = self.axis_wavelength_
+            axis_field = self.axis_field_
+            axis_pupil = self.axis_pupil_
+        else:
+            rays = self.rayfunction(
+                wavelength=wavelength,
+                field=field,
+                pupil=pupil,
+                normalized_field=normalized_field,
+                normalized_pupil=normalized_pupil,
+            )
+            axis_wavelength = self._normalize_axis_wavelength(
+                axis_wavelength=None,
+                wavelength=rays.inputs.wavelength,
+            )
+            axis_field = self._normalize_axis_field(
+                axis_field=None,
+                axis_wavelength=axis_wavelength,
+                field=rays.inputs.field,
+            )
+            axis_pupil = self._normalize_axis_pupil(
+                axis_pupil=None,
+                axis_field=axis_field,
+                axis_wavelength=axis_wavelength,
+                pupil=rays.inputs.pupil,
+            )
 
-        axis_wavelength = self.axis_wavelength_
         if not axis_wavelength:
             raise ValueError(
-                "fitting a distortion model requires `grid_input.wavelength` "
+                "fitting a distortion model requires the wavelength grid "
                 "to vary along its own logical axis."
             )
         (axis_wavelength,) = axis_wavelength
-        axis_field = self.axis_field_
-        axis_pupil = self.axis_pupil_
-
-        rays = self.rayfunction_default
 
         coordinates_scene = na.SpectralPositionalVectorArray(
             wavelength=rays.inputs.wavelength,

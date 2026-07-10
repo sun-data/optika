@@ -238,17 +238,55 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(rayfunction.outputs, optika.rays.RayVectorArray)
         assert a.axis_surface not in rayfunction.shape
 
+    @pytest.mark.parametrize(
+        argnames="wavelength,field,pupil",
+        argvalues=[
+            (
+                None,
+                None,
+                None,
+            ),
+            (
+                na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=5,
+                ),
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                    num=5,
+                ),
+            ),
+        ],
+    )
     @pytest.mark.parametrize("degree", [1, 2])
     def test_distortion(
         self,
         a: optika.systems.AbstractSequentialSystem,
+        wavelength: None | u.Quantity | na.AbstractScalar,
+        field: None | na.AbstractCartesian2dVectorArray,
+        pupil: None | na.AbstractCartesian2dVectorArray,
         degree: int,
     ):
-        if not a.axis_wavelength_:
+        if wavelength is None and not a.axis_wavelength_:
             with pytest.raises(ValueError):
-                a.distortion(degree=degree)
+                a.distortion(
+                    wavelength=wavelength,
+                    field=field,
+                    pupil=pupil,
+                    degree=degree,
+                )
             return
-        result = a.distortion(degree=degree)
+        result = a.distortion(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            degree=degree,
+        )
         assert isinstance(result, optika.distortion.PolynomialDistortionModel)
         assert result.degree == degree
 
