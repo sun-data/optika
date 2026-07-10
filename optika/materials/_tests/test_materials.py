@@ -107,3 +107,44 @@ class TestMeasuredMirror(
     AbstractTestAbstractMirror,
 ):
     pass
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.materials.Glass(),
+        optika.materials.Glass.n_bk7(),
+        optika.materials.Glass.f2(),
+    ],
+)
+class TestGlass(
+    AbstractTestAbstractMaterial,
+):
+    pass
+
+
+@pytest.mark.parametrize(
+    argnames="glass,n_d",
+    argvalues=[
+        (optika.materials.Glass.n_bk7(), 1.5168),
+        (optika.materials.Glass.f2(), 1.6200),
+    ],
+)
+def test_glass_dispersion(
+    glass: optika.materials.Glass,
+    n_d: float,
+):
+    # index of refraction at the helium d Fraunhofer line should match the
+    # published value of the glass.
+    rays_d = optika.rays.RayVectorArray(wavelength=587.5618 * u.nm)
+    n = glass.index_refraction(rays_d)
+    assert np.isclose(float(n), n_d, atol=1e-3)
+
+    # the glass must be dispersive: a higher index toward the blue end of the
+    # spectrum (normal dispersion).
+    rays_F = optika.rays.RayVectorArray(wavelength=486.1327 * u.nm)
+    rays_C = optika.rays.RayVectorArray(wavelength=656.2725 * u.nm)
+    assert glass.index_refraction(rays_F) > glass.index_refraction(rays_C)
+
+    # a glass transmits rather than reflects.
+    assert not glass.is_mirror

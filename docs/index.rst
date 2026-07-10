@@ -36,6 +36,7 @@ Features
 * Spherical, conical, and toroidal surface sag profiles
 * Circular, rectangular, and polygonal apertures
 * Support for mirrors and arbitrary multilayer coatings
+* Refractive glass materials with Sellmeier dispersion (e.g. N-BK7, F2)
 * Diffraction grating support
 
   * Constant, polynomial and holographic ruling spacing
@@ -54,10 +55,11 @@ Limitations
   system.
 * **Physical Optics**. Only geometric optics is supported right now, but adding
   a Fourier optics propagator is a longstanding goal of the project.
-* **Glass Optical Constants**. :mod:`optika` has a wide array of optical
+* **Glass Catalog**. :mod:`optika` has a wide array of optical
   constants from sources such as :cite:t:`Palik1997` and :cite:t:`Henke1993`,
-  but it does not yet have a database for different types of glass like Zemax
-  does.
+  and the :class:`~optika.materials.Glass` material provides Sellmeier dispersion
+  for a few common glasses (e.g. N-BK7, F2), but it does not yet have a
+  comprehensive glass database like Zemax does.
 
 Differences from Zemax
 ----------------------
