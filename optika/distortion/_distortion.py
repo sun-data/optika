@@ -437,10 +437,13 @@ class PolynomialDistortionModel(
         residual = (self.coordinates_sensor - self.fit.predictions).length
         unit = na.unit(residual)
 
+        # exclude the calibration points that were not used by the fit
+        residual = np.where(self.where, residual, np.nan * unit)
+
         if vmin is None:
             vmin = 0 * unit
         if vmax is None:
-            vmax = residual.max()
+            vmax = np.nanmax(residual)
 
         ncols = na.shape(wavelength).get(axis_wavelength, 1)
 
@@ -472,8 +475,6 @@ class PolynomialDistortionModel(
                     vmax=na.as_named_array(vmax).ndarray.to_value(unit),
                 ),
             )
-
-            residual[~self.where] = np.nan * unit
 
             na.plt.pcolormesh(
                 position,

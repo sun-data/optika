@@ -238,11 +238,16 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(rayfunction.outputs, optika.rays.RayVectorArray)
         assert a.axis_surface not in rayfunction.shape
 
+    @pytest.mark.parametrize("degree", [1, 2])
     def test_distortion(
         self,
         a: optika.systems.AbstractSequentialSystem,
         degree: int,
     ):
+        if not a.axis_wavelength_:
+            with pytest.raises(ValueError):
+                a.distortion(degree=degree)
+            return
         result = a.distortion(degree=degree)
         assert isinstance(result, optika.distortion.PolynomialDistortionModel)
         assert result.degree == degree

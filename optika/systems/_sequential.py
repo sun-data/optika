@@ -1127,6 +1127,16 @@ class AbstractSequentialSystem(
             The degree of the polynomial distortion model.
         """
 
+        axis_wavelength = self.axis_wavelength_
+        if not axis_wavelength:
+            raise ValueError(
+                "fitting a distortion model requires `grid_input.wavelength` "
+                "to vary along its own logical axis."
+            )
+        (axis_wavelength,) = axis_wavelength
+        axis_field = self.axis_field_
+        axis_pupil = self.axis_pupil_
+
         rays = self.rayfunction_default
 
         coordinates_scene = na.SpectralPositionalVectorArray(
@@ -1134,17 +1144,25 @@ class AbstractSequentialSystem(
             position=rays.inputs.field,
         )
 
-        (axis_wavelength,) = self.axis_wavelength_
-        axis_field = self.axis_field_
-        axis_pupil = self.axis_pupil_
+        unvignetted = rays.outputs.unvignetted
+        where = unvignetted.any(axis_pupil)
+
+        # average only the unvignetted rays, falling back to all of the rays
+        # for field points excluded from the fit so that the mean is never
+        # empty
+        coordinates_sensor = np.mean(
+            rays.outputs.position.xy,
+            axis=axis_pupil,
+            where=unvignetted | ~where,
+        )
 
         return optika.distortion.PolynomialDistortionModel(
             coordinates_scene=coordinates_scene,
-            coordinates_sensor=rays.outputs.position.xy.mean(axis_pupil),
+            coordinates_sensor=coordinates_sensor,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             degree=degree,
-            where=rays.outputs.unvignetted.any(axis_pupil),
+            where=where,
         )
 
     def plot(
