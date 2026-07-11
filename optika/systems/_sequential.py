@@ -1207,8 +1207,8 @@ class AbstractSequentialSystem(
         system.
 
         The relative illumination at each scene coordinate is estimated from
-        the fraction of unvignetted rays in the pupil, normalized to its
-        maximum over the field of view.
+        the fraction of unvignetted rays in the pupil, normalized so that its
+        average over the field of view is unity.
 
         Parameters
         ----------
@@ -1256,7 +1256,7 @@ class AbstractSequentialSystem(
         )
 
         illumination = rays.outputs.unvignetted.mean(axis_pupil)
-        illumination = illumination / illumination.max(axis_field)
+        illumination = illumination / illumination.mean(axis_field)
 
         return optika.radiometry.PolynomialVignettingModel(
             coordinates_scene=coordinates_scene,
