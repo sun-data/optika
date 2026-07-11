@@ -342,7 +342,7 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(result, optika.radiometry.PolynomialVignettingModel)
         assert result.degree == degree
         assert np.all(result.illumination >= 0)
-        assert np.all(result.illumination <= 1)
+        assert np.allclose(result.illumination.mean(result.axis_field), 1)
 
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
