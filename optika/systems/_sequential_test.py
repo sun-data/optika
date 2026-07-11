@@ -290,6 +290,65 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(result, optika.distortion.PolynomialDistortionModel)
         assert result.degree == degree
 
+    @pytest.mark.parametrize(
+        argnames="wavelength,field,pupil",
+        argvalues=[
+            (
+                None,
+                None,
+                None,
+            ),
+            (
+                na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=5,
+                ),
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                    num=5,
+                ),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("degree", [1, 2])
+    def test_vignetting(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        wavelength: None | u.Quantity | na.AbstractScalar,
+        field: None | na.AbstractCartesian2dVectorArray,
+        pupil: None | na.AbstractCartesian2dVectorArray,
+        degree: int,
+    ):
+        if wavelength is None and not a.axis_wavelength_:
+            with pytest.raises(ValueError):
+                a.vignetting(
+                    wavelength=wavelength,
+                    field=field,
+                    pupil=pupil,
+                    degree=degree,
+                )
+            return
+        result = a.vignetting(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            degree=degree,
+        )
+        assert isinstance(result, optika.radiometry.PolynomialVignettingModel)
+        assert result.degree == degree
+        assert np.all(result.illumination >= 0)
+        mean = np.mean(
+            result.illumination,
+            axis=result.axis_field,
+            where=result.where,
+        )
+        assert np.allclose(mean, 1)
+
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
         assert isinstance(fig, plt.Figure)
