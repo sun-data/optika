@@ -15,8 +15,8 @@ active_parameterization = [
 ]
 
 inverted_parameterization = [
-    True,
     False,
+    True,
     na.linspace(-1, 1, "inverted", 4) >= 0,
 ]
 
