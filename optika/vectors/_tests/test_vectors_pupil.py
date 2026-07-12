@@ -65,6 +65,12 @@ class AbstractTestAbstractPupilVectorArray(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions
     ):
         @pytest.mark.parametrize("array_2", vectors_pupil)
+        class TestStackLikeFunctions(
+            test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions.TestStackLikeFunctions,
+        ):
+            pass
+
+        @pytest.mark.parametrize("array_2", vectors_pupil)
         class TestAsArrayLikeFunctions(
             test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions.TestAsArrayLikeFunctions
         ):
