@@ -26,6 +26,20 @@ transform_parameterization = [
 ]
 
 
+def _spanning_parameters(**parameters: list) -> list[dict]:
+    """
+    Generate a list of parameter dictionaries in which every value of every
+    parameter appears at least once, by varying one parameter at a time from
+    a base combination, instead of taking the full Cartesian product.
+    """
+    base = {name: values[0] for name, values in parameters.items()}
+    result = [base]
+    for name, values in parameters.items():
+        for value in values[1:]:
+            result.append(base | {name: value})
+    return result
+
+
 class AbstractTestAbstractAperture(
     test_mixins.AbstractTestDxfWritable,
     test_mixins.AbstractTestPrintable,
@@ -151,18 +165,20 @@ radius_parameterization = [
     argnames="a",
     argvalues=[
         optika.apertures.CircularAperture(
-            radius=radius,
+            radius=p["radius"],
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in radius_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            radius=radius_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestCircularAperture(
@@ -177,18 +193,20 @@ class TestCircularAperture(
     argnames="a",
     argvalues=[
         optika.apertures.CircularSectorAperture(
-            radius=radius,
+            radius=p["radius"],
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in radius_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            radius=radius_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestCircularSectorAperture(
@@ -231,18 +249,19 @@ class AbstractTestAbstractPolygonalAperture(
     argnames="a",
     argvalues=[
         optika.apertures.EllipticalAperture(
-            radius=radius,
+            radius=na.Cartesian2dVectorArray(50, 100) * u.mm,
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in [na.Cartesian2dVectorArray(50, 100) * u.mm]
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestEllipticalAperture(
@@ -263,15 +282,17 @@ class TestEllipticalAperture(
                 z=0 * u.mm,
             ),
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestPolygonalAperture(
@@ -293,18 +314,20 @@ half_width_parameterization = [
     argnames="a",
     argvalues=[
         optika.apertures.RectangularAperture(
-            half_width=half_width,
+            half_width=p["half_width"],
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for half_width in half_width_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            half_width=half_width_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestRectangularAperture(
@@ -366,19 +389,21 @@ class AbstractTestAbstractRegularPolygonalAperture(
     argnames="a",
     argvalues=[
         optika.apertures.RegularPolygonalAperture(
-            radius=radius,
+            radius=p["radius"],
             num_vertices=6,
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in radius_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            radius=radius_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestRegularPolygonalAperture(
@@ -397,18 +422,20 @@ class AbstractTestAbstractOctagonalAperture(
     argnames="a",
     argvalues=[
         optika.apertures.OctagonalAperture(
-            radius=radius,
+            radius=p["radius"],
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in radius_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            radius=radius_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestOctagonalAperture(
@@ -440,20 +467,22 @@ x_left_parameterization = [
     argnames="a",
     argvalues=[
         optika.apertures.IsoscelesTrapezoidalAperture(
-            x_left=x_left,
+            x_left=p["x_left"],
             x_right=50 * u.mm,
             angle=45 * u.deg,
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for x_left in x_left_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            x_left=x_left_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestIsoscelesTrapezoidalAperture(
