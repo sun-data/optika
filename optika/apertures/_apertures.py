@@ -95,7 +95,7 @@ class AbstractAperture(
             mask = self(rays.position)
         elif unit.is_equivalent(u.dimensionless_unscaled):
             mask = self(rays.direction)
-        else:
+        else:  # pragma: nocover
             raise ValueError(f"aperture with unit {unit} is not supported")
         rays = rays.copy_shallow()
         rays.unvignetted = rays.unvignetted & mask
@@ -700,10 +700,6 @@ class EllipticalAperture(
     def bound_upper(self) -> na.Cartesian3dVectorArray:
         center, half = self._bound_center_half()
         return center + half
-
-    @property
-    def vertices(self) -> None:
-        return None
 
     def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
         if num is None:
