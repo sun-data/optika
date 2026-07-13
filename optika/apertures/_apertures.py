@@ -593,6 +593,40 @@ class CircularSectorAperture(
             result = self.transformation(result)
         return result
 
+    def grid(
+        self,
+        normalized: na.AbstractCartesian2dVectorArray,
+    ) -> na.Cartesian3dVectorArray:
+        """
+        Map a grid of normalized coordinates in :math:`[-1, 1]` onto points
+        filling the interior of the aperture.
+
+        Unlike :meth:`wire`, which samples the boundary, this samples the
+        interior, and is useful for filling the aperture with rays.  The
+        ``x`` component is mapped to the radius (vertex to rim) and the ``y``
+        component to the polar angle (``angle_start`` to ``angle_stop``).
+
+        Parameters
+        ----------
+        normalized
+            A grid of normalized coordinates, where each component is in the
+            interval :math:`[-1, 1]`.
+        """
+        unit_radius = na.unit(self.radius)
+        radius = self.radius * (normalized.x + 1) / 2
+        angle = (
+            self.angle_start
+            + (self.angle_stop - self.angle_start) * (normalized.y + 1) / 2
+        )
+        result = na.Cartesian3dVectorArray(
+            x=radius * np.cos(angle),
+            y=radius * np.sin(angle),
+            z=0 * unit_radius if unit_radius is not None else 0,
+        )
+        if self.transformation is not None:
+            result = self.transformation(result)
+        return result
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class EllipticalAperture(
@@ -983,6 +1017,34 @@ class RectangularAperture(
         unit = na.unit(half_width.x)
         if unit is not None:
             result.z = result.z * unit
+        return result
+
+    def grid(
+        self,
+        normalized: na.AbstractCartesian2dVectorArray,
+    ) -> na.Cartesian3dVectorArray:
+        """
+        Map a grid of normalized coordinates in :math:`[-1, 1]` onto points
+        filling the interior of the aperture.
+
+        Unlike :meth:`wire`, which samples the boundary, this samples the
+        interior, and is useful for filling the aperture with rays.
+
+        Parameters
+        ----------
+        normalized
+            A grid of normalized coordinates, where each component is in the
+            interval :math:`[-1, 1]`.
+        """
+        half_width = na.asanyarray(self.half_width, like=na.Cartesian2dVectorArray())
+        unit = na.unit(half_width.x)
+        result = na.Cartesian3dVectorArray(
+            x=half_width.x * normalized.x,
+            y=half_width.y * normalized.y,
+            z=0 * unit if unit is not None else 0,
+        )
+        if self.transformation is not None:
+            result = self.transformation(result)
         return result
 
 
