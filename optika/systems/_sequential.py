@@ -340,6 +340,26 @@ class AbstractSequentialSystem(
         """
         return self.surfaces_all[self.index_pupil_stop]
 
+    @staticmethod
+    def _anchor_surface(
+        subsystem: list[optika.surfaces.AbstractSurface],
+    ) -> optika.surfaces.AbstractSurface:
+        """
+        The first surface after the start of the given subsystem with optical
+        power (a mirror, a curved sag, or rulings), used to aim the initial
+        guess of the stop root-finding problem.
+        """
+        for surface in subsystem[1:]:
+            material = surface.material
+            if material is not None and material.is_mirror:
+                return surface
+            sag = surface.sag
+            if sag is not None and not isinstance(sag, optika.sags.NoSag):
+                return surface
+            if surface.rulings is not None:
+                return surface
+        return subsystem[~0]
+
     @classmethod
     def _ray_error(
         cls,
@@ -450,7 +470,7 @@ class AbstractSequentialSystem(
                 result.outputs.direction = na.Cartesian3dVectorArray(0, 0, 1)
                 component_variable = "direction"
 
-                def zfunc(xy: na.AbstractCartesian3dVectorArray):
+                def zfunc(xy: na.AbstractCartesian2dVectorArray):
                     return np.sqrt(1 - np.square(xy.length))
 
             elif na.unit(grid_first).is_equivalent(u.dimensionless_unscaled):
@@ -462,11 +482,65 @@ class AbstractSequentialSystem(
                 result.outputs.position = na.Cartesian3dVectorArray() * u.mm
                 component_variable = "position"
 
-                def zfunc(xy: na.AbstractCartesian3dVectorArray):
-                    return surface_first.sag(xy)
+                def zfunc(xy: na.AbstractCartesian2dVectorArray):
+                    position = na.Cartesian3dVectorArray(
+                        x=xy.x,
+                        y=xy.y,
+                        z=0 * na.unit_normalized(xy.x),
+                    )
+                    return surface_first.sag(position)
 
             else:
                 raise ValueError(f"unrecognized input grid unit, {na.unit(grid_first)}")
+
+            # Seed the free ray component by aiming each ray at its own
+            # target point on the last stop surface when no surface with
+            # optical power lies between the two stops (the seed is then
+            # nearly exact), and otherwise at the center of the first powered
+            # surface, so that the root-finding starts inside its basin of
+            # convergence even for surfaces far from the axis of the first
+            # stop (e.g. an off-axis fold or feed mirror).
+            anchor = self._anchor_surface(subsystem)
+            if anchor is surface_last and na.unit(grid_last).is_equivalent(u.mm):
+                aim = na.Cartesian3dVectorArray(
+                    x=grid_last.x,
+                    y=grid_last.y,
+                    z=0 * na.unit_normalized(grid_last.x),
+                )
+                aim.z = surface_last.sag(aim)
+                if surface_last.transformation is not None:
+                    aim = surface_last.transformation(aim)
+            else:
+                aim = na.Cartesian3dVectorArray() * u.mm
+                if anchor.transformation is not None:
+                    aim = anchor.transformation(aim)
+            if surface_first.transformation is not None:
+                aim = surface_first.transformation.inverse(aim)
+
+            if component_variable == "direction":
+                d = aim - result.outputs.position
+                d = d / d.length
+                # the sign of the seed direction is irrelevant to the
+                # root-finding problem (surface intercepts may have negative
+                # distance), but the z-component must be positive to be
+                # consistent with `zfunc`
+                flip = np.sign(d.z)
+                where = d.z != 0
+                result.outputs.direction = na.Cartesian3dVectorArray(
+                    x=np.where(where, flip * d.x, 0),
+                    y=np.where(where, flip * d.y, 0),
+                    z=np.where(where, flip * d.z, 1),
+                )
+            else:
+                d = result.outputs.direction
+                t = aim.z / d.z
+                position_seed = na.Cartesian3dVectorArray(
+                    x=aim.x - d.x * t,
+                    y=aim.y - d.y * t,
+                    z=0 * u.mm,
+                )
+                position_seed.z = surface_first.sag(position_seed)
+                result.outputs.position = position_seed
 
             if surface_first.transformation is not None:
                 result.outputs = surface_first.transformation(result.outputs)
@@ -509,7 +583,13 @@ class AbstractSequentialSystem(
             # measured in physical units, yielding a Jacobian made of noise.
             # Use a perturbation proportional to the scale of the problem
             # instead.
-            dx = 1e-6
+            if component_variable == "direction":
+                dx = 1e-6
+            else:
+                dx = 1e-6 * np.maximum(
+                    scale,
+                    1 * na.unit_normalized(scale),
+                )
 
             def jacobian(x, _function=function, _dx=dx):
                 return na.jacobian(function=_function, x=x, dx=_dx)
@@ -580,6 +660,17 @@ class AbstractSequentialSystem(
 
         where = rays.direction @ obj.sag.normal(rays.position) > 0
         result.outputs.direction[where] = -result.outputs.direction[where]
+
+        # If the first stop is the object surface, the solved variable is the
+        # position and the direction retains only the field-stop axis, so
+        # broadcast both components against each other to guarantee that
+        # reductions over both stop axes are well-defined downstream.
+        shape = na.shape_broadcasted(
+            result.outputs.position,
+            result.outputs.direction,
+        )
+        result.outputs.position = result.outputs.position.broadcast_to(shape)
+        result.outputs.direction = result.outputs.direction.broadcast_to(shape)
 
         if self.transformation is not None:
             result.outputs = self.transformation(result.outputs)
