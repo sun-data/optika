@@ -76,12 +76,12 @@ class AbstractAperture(
         Parameters
         ----------
         position
-            the points to check
+            Points in surface coordinates.
         """
 
     def clip_rays(self, rays: optika.rays.RayVectorArray):
         """
-        Given a set of input rays,
+        Given a set of input rays in surface coordinates,
         update the :attr:`~optika.rays.RayVectorArray.unvignetted` to be
         :obj:`False` if the ray is blocked by the aperture.
 
@@ -106,6 +106,7 @@ class AbstractAperture(
     def bound_lower(self) -> na.AbstractCartesian3dVectorArray:
         """
         The lower-left corner of the aperture's rectangular footprint
+        in surface coordinates.
         """
 
     @property
@@ -113,19 +114,13 @@ class AbstractAperture(
     def bound_upper(self) -> na.AbstractCartesian3dVectorArray:
         """
         The upper-right corner of the aperture's rectangular footprint
-        """
-
-    @property
-    @abc.abstractmethod
-    def vertices(self) -> None | na.AbstractCartesian3dVectorArray:
-        """
-        The vertices of the polygon representing this aperture
+        in surface coordinates.
         """
 
     @abc.abstractmethod
     def wire(self, num: None | int = None) -> na.AbstractCartesian3dVectorArray:
         """
-        The sequence of points representing this aperture
+        A sequence of points representing this aperture in surface coordinates.
 
         Parameters
         ----------
@@ -326,8 +321,7 @@ class CircularAperture(
             result = result * unit
         if self.transformation is not None:
             result = self.transformation(result)
-        result.x = result.x - self.radius
-        result.y = result.y - self.radius
+        result = result - self.radius
         return result
 
     @property
@@ -338,13 +332,8 @@ class CircularAperture(
             result = result * unit
         if self.transformation is not None:
             result = self.transformation(result)
-        result.x = result.x + self.radius
-        result.y = result.y + self.radius
+        result = result + self.radius
         return result
-
-    @property
-    def vertices(self) -> None:
-        return None
 
     def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
         if num is None:
@@ -556,10 +545,6 @@ class CircularSectorAperture(
         lower, upper = self._bound_extrema()
         return upper
 
-    @property
-    def vertices(self) -> None:
-        return None
-
     def wire(self, num: None | int = None) -> na.Cartesian3dVectorArray:
         if num is None:
             num = self.samples_wire
@@ -748,6 +733,13 @@ class AbstractPolygonalAperture(
     An interface describing a generalized polygonal aperture.
     """
 
+    @property
+    @abc.abstractmethod
+    def vertices(self) -> None | na.AbstractCartesian3dVectorArray:
+        """
+        The vertices of the polygon in local coordinates.
+        """
+
     def __call__(
         self,
         position: na.AbstractCartesian3dVectorArray,
@@ -854,7 +846,7 @@ class PolygonalAperture(
     """A polygonal aperture or obstruction."""
 
     vertices: na.Cartesian3dVectorArray = 0 * u.mm
-    """The vertices of the polygon."""
+    """The vertices of the polygon in local coordinates."""
 
     @property
     def shape(self) -> dict[str, int]:
@@ -1015,7 +1007,7 @@ class AbstractRegularPolygonalAperture(
     @abc.abstractmethod
     def num_vertices(self) -> int:
         """
-        Number of vertices in this polygon.
+        Number of vertices in this regular polygon.
         """
 
     @property
@@ -1100,12 +1092,18 @@ class AbstractIsoscelesTrapezoidalAperture(
     @property
     @abc.abstractmethod
     def x_left(self) -> na.ScalarLike:
-        """The :math:`x` coordinate of the left base of the trapezoid."""
+        """
+        The :math:`x` coordinate of the left base of the trapezoid
+        in local coordinates.
+        """
 
     @property
     @abc.abstractmethod
     def x_right(self) -> na.ScalarLike:
-        """The :math:`x` coordinate of the right base of the trapezoid."""
+        """
+        The :math:`x` coordinate of the right base of the trapezoid
+        in local coordinates.
+        """
 
     @property
     @abc.abstractmethod

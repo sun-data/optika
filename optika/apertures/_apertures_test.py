@@ -125,11 +125,6 @@ class AbstractTestAbstractAperture(
             # ... and be tight: it must not overshoot the true extent
             assert np.all(np.abs(bound - edge) < 1e-6 * scale)
 
-    def test_vertices(self, a: optika.apertures.AbstractAperture):
-        if a.vertices is not None:
-            assert isinstance(a.vertices, na.AbstractCartesian3dVectorArray)
-            assert "vertex" in a.vertices.shape
-
     def test_wire(self, a: optika.apertures.AbstractAperture):
         wire = a.wire()
         assert isinstance(wire, na.AbstractCartesian3dVectorArray)
@@ -242,7 +237,10 @@ def test_circular_sector_wire_samples_radial_arms():
 class AbstractTestAbstractPolygonalAperture(
     AbstractTestAbstractAperture,
 ):
-    pass
+    def test_vertices(self, a: optika.apertures.AbstractAperture):
+        if a.vertices is not None:
+            assert isinstance(a.vertices, na.AbstractCartesian3dVectorArray)
+            assert "vertex" in a.vertices.shape
 
 
 @pytest.mark.parametrize(
