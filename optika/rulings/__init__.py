@@ -8,6 +8,7 @@ from ._spacing import (
     ConstantRulingSpacing,
     Polynomial1dRulingSpacing,
     HolographicRulingSpacing,
+    FZPRulingSpacing,
 )
 from ._rulings import (
     incident_effective,
@@ -27,6 +28,7 @@ __all__ = [
     "ConstantRulingSpacing",
     "Polynomial1dRulingSpacing",
     "HolographicRulingSpacing",
+    "FZPRulingSpacing",
     "AbstractRulings",
     "Rulings",
     "MeasuredRulings",
