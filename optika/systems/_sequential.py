@@ -117,6 +117,10 @@ class AbstractSequentialSystem(
         """
         The input grid to sample with rays.
 
+        The components of this grid are interpreted as cell vertices,
+        and the rays of the system are traced at the corresponding cell
+        centers.
+
         This grid is simultaneously projected onto both the field stop and the
         pupil stop.
 
@@ -829,8 +833,32 @@ class AbstractSequentialSystem(
 
     @functools.cached_property
     def _rayfunction_input(self) -> optika.rays.RayFunctionArray:
-        return self._calc_rayfunction_input(
-            grid_input=self.grid_input,
+        result = self._calc_rayfunction_input(
+            grid_input=self._grid_input_centers,
+            normalized_field=False,
+            normalized_pupil=False,
+        )
+        result.inputs = self._grid_input_physical
+        return result
+
+    @functools.cached_property
+    def _grid_input_physical(self) -> optika.vectors.ObjectVectorArray:
+        """The vertices of :attr:`grid_input` in physical units."""
+        return self._denormalize_grid(
+            grid=self.grid_input,
+        )
+
+    @functools.cached_property
+    def _grid_input_centers(self) -> optika.vectors.ObjectVectorArray:
+        """
+        The cell centers of :attr:`grid_input` in physical units.
+
+        The components of :attr:`grid_input` are interpreted as cell vertices,
+        and the rays of the system are traced at the corresponding cell
+        centers.
+        """
+        return self._grid_input_physical.cell_centers(
+            axis=self.axis_wavelength_ + self.axis_field_ + self.axis_pupil_,
         )
 
     def raytrace(
@@ -992,6 +1020,11 @@ class AbstractSequentialSystem(
         """
         Computes the rays in local coordinates at the last surface in the system
         as a function of input wavelength and position using :attr:`grid_input`.
+
+        The components of :attr:`grid_input` are interpreted as cell vertices,
+        and the rays are traced at the corresponding cell centers, so the
+        inputs of this rayfunction are defined on cell vertices while the
+        outputs are defined on cell centers.
 
         This property is cached to increase performance.
         If :attr:`grid_input` is updated, the cache must be cleared with
@@ -1221,16 +1254,16 @@ class AbstractSequentialSystem(
         Parameters
         ----------
         wavelength
-            The wavelengths of the input rays.
+            The vertices of the wavelength grid.
             If :obj:`None` (the default), ``self.grid_input.wavelength``
             will be used.
         field
-            The field positions of the input rays, in either normalized or
+            The vertices of the field grid, in either normalized or
             physical units.
             If :obj:`None` (the default), ``self.grid_input.field``
             will be used.
         pupil
-            The pupil positions of the input rays, in either normalized or
+            The vertices of the pupil grid, in either normalized or
             physical units.
             If :obj:`None` (the default), ``self.grid_input.pupil``
             will be used.
@@ -1256,11 +1289,15 @@ class AbstractSequentialSystem(
                 "fitting a distortion model requires the wavelength grid "
                 "to vary along its own logical axis."
             )
+
+        grid = rays.inputs.cell_centers(
+            axis=axis_wavelength + axis_field,
+        )
         (axis_wavelength,) = axis_wavelength
 
         coordinates_scene = na.SpectralPositionalVectorArray(
-            wavelength=rays.inputs.wavelength,
-            position=rays.inputs.field,
+            wavelength=grid.wavelength,
+            position=grid.field,
         )
 
         unvignetted = rays.outputs.unvignetted
@@ -1306,16 +1343,16 @@ class AbstractSequentialSystem(
         Parameters
         ----------
         wavelength
-            The wavelengths of the input rays.
+            The vertices of the wavelength grid.
             If :obj:`None` (the default), ``self.grid_input.wavelength``
             will be used.
         field
-            The field positions of the input rays, in either normalized or
+            The vertices of the field grid, in either normalized or
             physical units.
             If :obj:`None` (the default), ``self.grid_input.field``
             will be used.
         pupil
-            The pupil positions of the input rays, in either normalized or
+            The vertices of the pupil grid, in either normalized or
             physical units.
             If :obj:`None` (the default), ``self.grid_input.pupil``
             will be used.
@@ -1341,11 +1378,15 @@ class AbstractSequentialSystem(
                 "fitting a vignetting model requires the wavelength grid "
                 "to vary along its own logical axis."
             )
+
+        grid = rays.inputs.cell_centers(
+            axis=axis_wavelength + axis_field,
+        )
         (axis_wavelength,) = axis_wavelength
 
         coordinates_scene = na.SpectralPositionalVectorArray(
-            wavelength=rays.inputs.wavelength,
-            position=rays.inputs.field,
+            wavelength=grid.wavelength,
+            position=grid.field,
         )
 
         unvignetted = rays.outputs.unvignetted
@@ -1384,21 +1425,23 @@ class AbstractSequentialSystem(
         Trace the given grids through this system and return the resulting
         rays along with the normalized wavelength, field, and pupil axes.
 
+        The grids are interpreted as cell vertices, and the rays are traced
+        at the corresponding cell centers, so that the inputs of the
+        resulting rayfunction are defined on cell vertices while the outputs
+        are defined on cell centers.
         If all of the grids are :obj:`None`, :attr:`rayfunction_default` and
-        the normalized axes of :attr:`grid_input` are used.
-        Otherwise, the rays are computed with :meth:`rayfunction` and the
-        axes are inferred from the resulting inputs, so that grids left as
+        the normalized axes of :attr:`grid_input` are used, and grids left as
         :obj:`None` inherit the corresponding component of :attr:`grid_input`.
 
         Parameters
         ----------
         wavelength
-            The wavelengths of the input rays.
+            The vertices of the wavelength grid.
         field
-            The field positions of the input rays, in either normalized or
+            The vertices of the field grid, in either normalized or
             physical units.
         pupil
-            The pupil positions of the input rays, in either normalized or
+            The vertices of the pupil grid, in either normalized or
             physical units.
         normalized_field
             A boolean flag indicating whether the `field` parameter is given
@@ -1413,28 +1456,53 @@ class AbstractSequentialSystem(
             axis_field = self.axis_field_
             axis_pupil = self.axis_pupil_
         else:
-            rays = self.rayfunction(
+            if wavelength is None:
+                wavelength = self.grid_input.wavelength
+            if field is None:
+                field = self.grid_input.field
+            if pupil is None:
+                pupil = self.grid_input.pupil
+
+            grid = optika.vectors.ObjectVectorArray(
                 wavelength=wavelength,
                 field=field,
                 pupil=pupil,
-                normalized_field=normalized_field,
-                normalized_pupil=normalized_pupil,
             )
+
             axis_wavelength = self._normalize_axis_wavelength(
                 axis_wavelength=None,
-                wavelength=rays.inputs.wavelength,
+                wavelength=grid.wavelength,
             )
             axis_field = self._normalize_axis_field(
                 axis_field=None,
                 axis_wavelength=axis_wavelength,
-                field=rays.inputs.field,
+                field=grid.field,
             )
             axis_pupil = self._normalize_axis_pupil(
                 axis_pupil=None,
                 axis_field=axis_field,
                 axis_wavelength=axis_wavelength,
-                pupil=rays.inputs.pupil,
+                pupil=grid.pupil,
             )
+
+            grid = self._denormalize_grid(
+                grid=grid,
+                normalized_field=normalized_field,
+                normalized_pupil=normalized_pupil,
+            )
+
+            grid_centers = grid.cell_centers(
+                axis=axis_wavelength + axis_field + axis_pupil,
+            )
+
+            rays = self.rayfunction(
+                wavelength=grid_centers.wavelength,
+                field=grid_centers.field,
+                pupil=grid_centers.pupil,
+                normalized_field=False,
+                normalized_pupil=False,
+            )
+            rays.inputs = grid
         return rays, axis_wavelength, axis_field, axis_pupil
 
     def plot(
@@ -1538,7 +1606,7 @@ class AbstractSequentialSystem(
         cmap
             The colormap used to map scalar data to colors.
         """
-        grid = self.grid_input
+        grid = self._grid_input_centers
 
         wavelength = na.as_named_array(grid.wavelength)
         field = grid.field
@@ -1602,7 +1670,7 @@ class AbstractSequentialSystem(
                 ax=ax,
                 s=s,
                 where=rays.unvignetted,
-                c=self.grid_input.wavelength.value,
+                c=na.value(wavelength),
                 colorizer=colorizer,
             )
 
@@ -1614,7 +1682,7 @@ class AbstractSequentialSystem(
             na.plt.set_xlabel(f"$x$ ({position.x.unit:latex_inline})", ax=ax_lower)
             na.plt.set_ylabel(f"$y$ ({position.y.unit:latex_inline})", ax=ax_left)
 
-            angle = self.rayfunction_default.inputs.field
+            angle = field
 
             angle_x = angle.x
             angle_y = angle.y
@@ -1919,6 +1987,10 @@ class SequentialSystem(
     grid_input: optika.vectors.ObjectVectorArray = None
     """
     The input grid to sample with rays.
+
+    The components of this grid are interpreted as cell vertices,
+    and the rays of the system are traced at the corresponding cell
+    centers.
 
     This grid is simultaneously projected onto both the field stop and the
     pupil stop.
