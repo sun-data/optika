@@ -19,12 +19,19 @@ class AbstractLinearSystem(
     AbstractSystem,
 ):
     """
-    Approximate an exact optical system using a linear forward model.
+    An interface for a linear forward model of an optical system.
 
-    Subclasses must define a `distortion` method which maps coordinates on the
-    object plane to positions on the detector.
-    Subclasses must also define a `vignetting` method which controls how bright
-    the scene appears.
+    A linear system approximates an exact
+    :class:`~optika.systems.SequentialSystem` by characterizing it with a set
+    of precomputed models instead of raytracing each scene: a
+    :attr:`distortion` model mapping object-plane coordinates onto the detector,
+    an :attr:`area_effective` model, and optional :attr:`vignetting` and
+    :attr:`field_stop` models, together with a :attr:`sensor`.
+    The forward model, :meth:`image`, conservatively regrids the scene through
+    the distortion model, weighting each cell by the effective area, vignetting,
+    and field stop, and converts the result into detector electrons.
+
+    Concrete subclasses supply these models as attributes.
     """
 
     @property
@@ -87,6 +94,10 @@ class AbstractLinearSystem(
 
     @property
     def shape(self) -> dict[str, int]:
+        """
+        The broadcasted shape of the component models, which is the shape of
+        any array-valued parametrization of this system.
+        """
         return na.broadcast_shapes(
             optika.shape(self.distortion),
             optika.shape(self.area_effective),
@@ -225,8 +236,9 @@ class AbstractLinearSystem(
         Parameters
         ----------
         scene
-            The spectral radiance of the observed scene, sampled on the
-            vertices of each pixel on the object plane.
+            The energy spectral radiance of the observed scene (in units such
+            as :math:`W / cm^2 / arcsec^2 / nm`), sampled on the vertices of
+            each pixel on the object plane.
         axis_wavelength
             The logical axis of `scene` corresponding to changing wavelength.
             If :obj:`None` (the default), the single axis of
@@ -308,6 +320,110 @@ class AbstractLinearSystem(
 class LinearSystem(
     AbstractLinearSystem,
 ):
+    """
+    A linear forward model of an optical system, assembled from precomputed
+    distortion, effective area, and (optionally) vignetting and field stop
+    models.
+
+    This is a fast approximation to
+    :class:`~optika.systems.SequentialSystem`. Once a sequential system has been
+    characterized (for example, its :meth:`~optika.systems.SequentialSystem.distortion`,
+    :meth:`~optika.systems.SequentialSystem.vignetting`, and
+    :meth:`~optika.systems.SequentialSystem.area_effective` models have been fit),
+    those models can be reused here to image many scenes without raytracing each
+    one.
+
+    Examples
+    --------
+
+    Simulate an image of an airforce target using a simple spectrograph model.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        # The distortion, effective area, and sensor models that
+        # define the system.
+        distortion = optika.distortion.SimpleDistortionModel(
+            plate_scale=50 * u.arcsec / u.mm,
+            dispersion=250 * u.nm / u.mm,
+            angle=0 * u.deg,
+            reference=na.SpectralPositionalVectorArray(
+                wavelength=550 * u.nm,
+                position=na.Cartesian2dVectorArray(0, 0) * u.mm,
+            ),
+        )
+        area_effective = optika.radiometry.InterpolatedEffectiveAreaModel(
+            wavelength=na.linspace(500, 600, axis="wavelength", num=10) * u.nm,
+            area=na.linspace(1, 2, axis="wavelength", num=10) * u.cm ** 2,
+            axis_wavelength="wavelength",
+        )
+        sensor = optika.sensors.ImagingSensor(
+            width_pixel=15 * u.um,
+            axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+            timedelta_exposure=1 * u.s,
+            num_pixel=na.Cartesian2dVectorArray(64, 64),
+        )
+
+        # Assemble the linear system from the component models.
+        system = optika.systems.LinearSystem(
+            area_effective=area_effective,
+            distortion=distortion,
+            sensor=sensor,
+        )
+
+        # Define the number of field points to sample.
+        num_field = 2 * system.sensor.num_pixel
+
+        # Define the scene as an airforce target. The coordinates (inputs)
+        # are defined on cell vertices and the spectral radiance (outputs)
+        # on cell centers.
+        scene = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.linspace(549, 551, axis="wavelength", num=4) * u.nm,
+                position=na.Cartesian2dVectorLinearSpace(
+                    start=-15 * u.arcsec,
+                    stop=+15 * u.arcsec,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=num_field + 1,
+                ),
+            ),
+            outputs=optika.targets.airforce(
+                axis_x="field_x",
+                axis_y="field_y",
+                num_x=num_field.x,
+                num_y=num_field.y,
+            ) * 1e-16 * u.W / u.cm ** 2 / u.arcsec ** 2 / u.nm,
+        )
+
+        # Simulate an image of the scene using the linear forward model.
+        image = system.image(scene, noise=False)
+
+        # Plot the original scene and the simulated image.
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(
+                ncols=2,
+                figsize=(8, 5),
+                constrained_layout=True,
+            )
+            na.plt.pcolormesh(
+                scene.inputs.position,
+                C=scene.outputs.value,
+                ax=ax[0],
+            )
+            na.plt.pcolormesh(
+                image.inputs.position,
+                C=image.outputs.value.sum("wavelength"),
+                ax=ax[1],
+            )
+            ax[0].set_title("scene")
+            ax[1].set_title("image")
+    """
+
     area_effective: optika.radiometry.AbstractEffectiveAreaModel = dataclasses.MISSING
     """A model of the effective area of the system's entrance aperture."""
 
