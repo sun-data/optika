@@ -26,6 +26,7 @@ def _illumination() -> na.AbstractScalar:
 
 class AbstractTestAbstractVignettingModel(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
 ):
     def test__call__(self, a: optika.radiometry.AbstractVignettingModel):
         scene = _scene()

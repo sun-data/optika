@@ -12,6 +12,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractEffectiveAreaModel(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     An interface describing the effective area of an optical system as a
@@ -89,6 +90,14 @@ class InterpolatedEffectiveAreaModel(
 
     axis_wavelength: str = dataclasses.MISSING
     """The logical axis corresponding to changing wavelength."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        shape = na.broadcast_shapes(
+            optika.shape(self.wavelength),
+            optika.shape(self.area),
+        )
+        return {ax: n for ax, n in shape.items() if ax != self.axis_wavelength}
 
     def __call__(
         self,

@@ -12,8 +12,6 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSystem(
-    optika.mixins.DxfWritable,
-    optika.mixins.Plottable,
     optika.mixins.Printable,
     optika.mixins.Transformable,
     optika.mixins.Shaped,

@@ -24,6 +24,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractDistortionModel(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     An interface describing an arbitrary distortion model,
@@ -189,6 +190,15 @@ class SimpleDistortionModel(
     """The reference wavelength and the sensor position that the field center
     maps to at that wavelength."""
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.plate_scale),
+            optika.shape(self.dispersion),
+            optika.shape(self.angle),
+            optika.shape(self.reference),
+        )
+
     @functools.cached_property
     def matrix(self) -> na.SpectralPositionalMatrixArray:
         cos = np.cos(self.angle)
@@ -343,6 +353,14 @@ class PolynomialDistortionModel(
 
     where: bool | na.AbstractScalar = True
     """A boolean mask selecting which calibration points to use for fitting."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        shape = na.broadcast_shapes(
+            optika.shape(self.coordinates_scene),
+            optika.shape(self.coordinates_sensor),
+        )
+        return {ax: n for ax, n in shape.items() if ax not in self._axis_scene}
 
     @property
     def _axis_scene(self) -> tuple[str, ...]:

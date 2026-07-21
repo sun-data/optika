@@ -20,6 +20,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractVignettingModel(
     optika.mixins.Printable,
+    optika.mixins.Shaped,
 ):
     """
     An interface describing an arbitrary vignetting model, which maps scene
@@ -160,6 +161,14 @@ class PolynomialVignettingModel(
 
     where: bool | na.AbstractScalar = True
     """A boolean mask selecting which calibration points to use for fitting."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        shape = na.broadcast_shapes(
+            optika.shape(self.coordinates_scene),
+            optika.shape(self.illumination),
+        )
+        return {ax: n for ax, n in shape.items() if ax not in self._axis_scene}
 
     @property
     def _axis_scene(self) -> tuple[str, ...]:

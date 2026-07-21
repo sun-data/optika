@@ -23,6 +23,8 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSequentialSystem(
+    optika.mixins.DxfWritable,
+    optika.mixins.Plottable,
     AbstractSystem,
 ):
     """

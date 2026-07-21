@@ -68,6 +68,42 @@ class AbstractLinearSystem(
     def direction(self):
         """The cosine of the incidence angle on the sensor surface."""
 
+    @property
+    def coordinates_sensor(self) -> na.AbstractCartesian2dVectorArray:
+        """
+        The vertices of the sensor pixel grid onto which the scene is
+        regridded, derived from :attr:`sensor`.
+
+        This is the same grid of pixel edges that
+        :meth:`~optika.sensors.AbstractImagingSensor.collect` bins onto.
+        """
+        sensor = self.sensor
+        return na.Cartesian2dVectorLinearSpace(
+            start=sensor.aperture.bound_lower.xy,
+            stop=sensor.aperture.bound_upper.xy,
+            axis=sensor.axis_pixel,
+            num=sensor.num_pixel + 1,
+        )
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.distortion),
+            optika.shape(self.area_effective),
+            optika.shape(self.vignetting),
+            optika.shape(self.field_stop),
+            optika.shape(self.sensor),
+            optika.shape(self.direction),
+        )
+
+    @property
+    def transformation(self) -> None:
+        """
+        A linear system has no geometric placement, so it has no
+        transformation into the global coordinate system.
+        """
+        return None
+
     def weights(
         self,
         coordinates: na.SpectralPositionalVectorArray,
@@ -97,24 +133,34 @@ class AbstractLinearSystem(
         # factors at the field cell centers (one fewer point along each axis).
         coordinates_cell = coordinates.cell_centers(axis_field)
 
-        weights_vignetting = self.vignetting(coordinates_cell)
+        vignetting = self.vignetting
+        if vignetting is not None:
+            weights_vignetting = vignetting(coordinates_cell)
+        else:
+            weights_vignetting = 1
 
-        weights_stop = self.field_stop(
-            position=na.Cartesian3dVectorArray(
-                x=coordinates_cell.position.x,
-                y=coordinates_cell.position.y,
-            ),
-        )
+        field_stop = self.field_stop
+        if field_stop is not None:
+            weights_stop = field_stop(
+                position=na.Cartesian3dVectorArray(
+                    x=coordinates_cell.position.x,
+                    y=coordinates_cell.position.y,
+                ),
+            )
+        else:
+            weights_stop = 1
 
         weights_area = self.area_effective(coordinates_cell.wavelength)
 
         weights_input = weights_vignetting * weights_stop * weights_area.value
 
+        axis_pixel = self.sensor.axis_pixel
+
         result = na.regridding.weights(
             coordinates_input=position_sensor,
             coordinates_output=self.coordinates_sensor,
             axis_input=axis_field,
-            axis_output=axis_field,
+            axis_output=(axis_pixel.x, axis_pixel.y),
             weights_input=weights_input,
             method="conservative",
         )
@@ -124,7 +170,7 @@ class AbstractLinearSystem(
     @property
     def weights_unit(self):
         """The units associated with :attr:`weights`."""
-        return u.cm ** 2
+        return u.cm**2
 
     def image_from_weights(
         self,
@@ -199,6 +245,7 @@ class AbstractLinearSystem(
             as `timedelta`.
         """
 
+        scene = scene.explicit
         coordinates = scene.inputs
 
         if axis_field is None:
@@ -250,6 +297,7 @@ class AbstractLinearSystem(
 
         return self.sensor.expose(
             image,
+            direction=self.direction,
             axis_wavelength=axis_wavelength,
             noise=noise,
             **kwargs,
@@ -268,7 +316,7 @@ class LinearSystem(
     A distortion model which maps coordinates on the object plane to
     positions on the detector plane.
     """
-    
+
     sensor: optika.sensors.AbstractImagingSensor = dataclasses.MISSING
     """
     A model of the sensor which converts incident light intensity to an
@@ -286,7 +334,7 @@ class LinearSystem(
     function of coordinates on the object plane.
     If :obj:`None` (the default), the system will have no vignetting.
     """
-    
+
     field_stop: None | optika.apertures.AbstractAperture = None
     """
     A model of the field stop which blocks light on the object plane.

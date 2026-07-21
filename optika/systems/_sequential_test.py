@@ -10,6 +10,7 @@ from ._systems_test import AbstractTestAbstractSystem
 
 class AbstractTestAbstractSequentialSystem(
     test_mixins.AbstractTestDxfWritable,
+    test_mixins.AbstractTestPlottable,
     AbstractTestAbstractSystem,
 ):
     def test_object(self, a: optika.systems.AbstractSequentialSystem):
