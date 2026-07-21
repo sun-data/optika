@@ -349,6 +349,58 @@ class AbstractTestAbstractSequentialSystem(
         )
         assert np.allclose(mean, 1)
 
+    @pytest.mark.parametrize(
+        argnames="wavelength,field,pupil",
+        argvalues=[
+            (
+                None,
+                None,
+                None,
+            ),
+            (
+                na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=5,
+                ),
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                    num=5,
+                ),
+            ),
+        ],
+    )
+    def test_area_effective(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        wavelength: None | u.Quantity | na.AbstractScalar,
+        field: None | na.AbstractCartesian2dVectorArray,
+        pupil: None | na.AbstractCartesian2dVectorArray,
+    ):
+        if wavelength is None and not a.axis_wavelength_:
+            with pytest.raises(ValueError):
+                a.area_effective(
+                    wavelength=wavelength,
+                    field=field,
+                    pupil=pupil,
+                )
+            return
+        result = a.area_effective(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+        )
+        assert isinstance(result, optika.radiometry.InterpolatedEffectiveAreaModel)
+        if a.object_is_at_infinity:
+            assert na.unit(result.area).is_equivalent(u.cm**2)
+        else:
+            assert na.unit(result.area).is_equivalent(u.deg**2)
+        assert np.all(result.area >= 0)
+
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
         assert isinstance(fig, plt.Figure)
