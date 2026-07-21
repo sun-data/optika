@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from typing import Sequence, Callable, Any, ClassVar
 import abc
 import dataclasses
@@ -101,11 +102,24 @@ class AbstractSequentialSystem(
         else:
             result = []
 
-        result += list(self.surfaces)
+        surfaces = list(self.surfaces)
 
         sensor = self.sensor
         if sensor is not None:
-            result += [sensor]
+            surfaces += [sensor]
+
+        transformation = self.transformation
+
+        result += [
+            dataclasses.replace(
+                surface,
+                transformation=na.transformations.compose(
+                    transformation,
+                    surface.transformation,
+                ),
+            )
+            for surface in surfaces
+        ]
 
         if not any(s.is_field_stop for s in result):
             result[0] = dataclasses.replace(result[0], is_field_stop=True)
@@ -376,6 +390,10 @@ class AbstractSequentialSystem(
         rays_component_variable.y = a.y
         rays_component_variable.z = zfunc(a)
 
+        surface_first = subsystem[0]
+        if surface_first.transformation is not None:
+            rays = surface_first.transformation(rays)
+
         rays = optika.propagators.propagate_rays(
             propagators=subsystem[1:],
             rays=rays,
@@ -392,6 +410,230 @@ class AbstractSequentialSystem(
         )
         result = grid_last_trial - grid_last
         return result
+
+    def _shoot_rays(
+        self,
+        subsystem: Sequence[optika.surfaces.AbstractSurface],
+        wavelength: u.Quantity | na.AbstractScalar,
+        grid_first: na.AbstractCartesian2dVectorArray,
+        grid_last: na.AbstractCartesian2dVectorArray,
+    ) -> optika.rays.RayVectorArray:
+        """
+        Find the position or direction needed for rays launched from `grid_first`
+        on the first surface of `subsystem` to land at `grid_last` on the
+        last surface of `subsystem`.
+
+        Both grids must be given in physical units; denormalizing normalized
+        stop coordinates against a surface's aperture is the responsibility of
+        the caller.
+
+        Parameters
+        ----------
+        subsystem
+            A sequence of surfaces to trace rays through.
+        wavelength
+            The vacuum wavelength of the rays.
+        grid_first
+            The physical position or direction of the rays launched from the
+            first surface of `subsystem`.
+            If in length units, `grid_first` represents positions on the first
+            surface, and this function solves for the starting direction of the
+            rays.
+            If in angular units, or dimensionless direction cosines,
+            `grid_first` represents directions on the first surface, and this
+            function solves for the starting position of the rays.
+        grid_last
+            The target physical position or direction of the rays incident on
+            the last surface of `subsystem`.
+            If in length units, `grid_last` represents target positions on the
+            last surface.
+            If in angular units, or dimensionless direction cosines, `grid_last`
+            represents target directions on the last surface.
+
+        Returns
+        -------
+        The rays launched from the first surface of `subsystem`, with both the
+        given `grid_first` coordinate and the solved-for complementary
+        coordinate filled in, so that propagating them through `subsystem`
+        lands them at `grid_last` on the last surface.
+        These rays are in global coordinates.
+        """
+        surface_first = subsystem[0]
+        surface_last = subsystem[~0]
+
+        # Fold angular grids into direction cosines, so that below the solve
+        # only needs to distinguish positions (length units) from directions
+        # (dimensionless direction cosines).
+        if na.unit_normalized(grid_first).is_equivalent(u.deg):
+            grid_first = optika.direction(grid_first).xy
+        if na.unit_normalized(grid_last).is_equivalent(u.deg):
+            grid_last = optika.direction(grid_last).xy
+
+        rays = optika.rays.RayVectorArray(wavelength=wavelength)
+
+        if na.unit_normalized(grid_first).is_equivalent(u.mm):
+            # `grid_first` is a position on the first surface, so solve for the
+            # starting direction of the rays.
+            grid_first = na.Cartesian3dVectorArray(
+                x=grid_first.x,
+                y=grid_first.y,
+                z=0 * u.mm,
+            )
+            rays.position = grid_first.replace(z=surface_first.sag(grid_first))
+            rays.direction = na.Cartesian3dVectorArray(0, 0, 1)
+            component_variable = "direction"
+
+            def zfunc(xy: na.AbstractCartesian2dVectorArray):
+                return np.sqrt(1 - np.square(xy.length))
+
+        else:
+            # `grid_first` is a direction cosine on the first surface, so solve
+            # for the starting position of the rays.
+            rays.direction = na.Cartesian3dVectorArray(
+                x=grid_first.x,
+                y=grid_first.y,
+                z=np.sqrt(1 - np.square(grid_first.length)),
+            )
+            rays.position = na.Cartesian3dVectorArray() * u.mm
+            component_variable = "position"
+
+            def zfunc(xy: na.AbstractCartesian2dVectorArray):
+                position = na.Cartesian3dVectorArray(
+                    x=xy.x,
+                    y=xy.y,
+                    z=0 * na.unit_normalized(xy.x),
+                )
+                return surface_first.sag(position)
+
+        # Seed the free ray component by aiming each ray at its own target
+        # point on the last surface when no surface with optical power lies
+        # between the two ends (the seed is then nearly exact), and otherwise
+        # at the center of the first powered surface, so that the root-finding
+        # starts inside its basin of convergence even for surfaces far from the
+        # axis of the first surface (e.g. an off-axis fold or feed mirror).
+        anchor = self._anchor_surface(subsystem)
+        if anchor is surface_last and na.unit_normalized(grid_last).is_equivalent(u.mm):
+            aim = na.Cartesian3dVectorArray(
+                x=grid_last.x,
+                y=grid_last.y,
+                z=0 * na.unit_normalized(grid_last.x),
+            )
+            aim.z = surface_last.sag(aim)
+            if surface_last.transformation is not None:
+                aim = surface_last.transformation(aim)
+        else:
+            aim = na.Cartesian3dVectorArray() * u.mm
+            if anchor.transformation is not None:
+                aim = anchor.transformation(aim)
+        if surface_first.transformation is not None:
+            aim = surface_first.transformation.inverse(aim)
+
+        if component_variable == "direction":
+            d = aim - rays.position
+            d = d / d.length
+            # the sign of the seed direction is irrelevant to the root-finding
+            # problem (surface intercepts may have negative distance), but the
+            # z-component must be positive to be consistent with `zfunc`
+            flip = np.sign(d.z)
+            where = d.z != 0
+            rays.direction = na.Cartesian3dVectorArray(
+                x=np.where(where, flip * d.x, 0),
+                y=np.where(where, flip * d.y, 0),
+                z=np.where(where, flip * d.z, 1),
+            )
+        else:
+            d = rays.direction
+            t = aim.z / d.z
+            position_seed = na.Cartesian3dVectorArray(
+                x=aim.x - d.x * t,
+                y=aim.y - d.y * t,
+                z=0 * u.mm,
+            )
+            position_seed.z = surface_first.sag(position_seed)
+            rays.position = position_seed
+
+        # if surface_first.transformation is not None:
+        #     rays = surface_first.transformation(rays)
+
+        if na.unit_normalized(grid_last).is_equivalent(u.mm):
+            component_target = "position"
+        else:
+            component_target = "direction"
+
+        # The residual of the root-finding problem has the same units as the
+        # target grid, so the convergence tolerance must scale with the size of
+        # the target aperture to be achievable in floating point for systems of
+        # any physical scale.
+        scale = np.maximum(
+            grid_last.x.ptp(),
+            grid_last.y.ptp(),
+        )
+        max_abs_error = 1e-9 * np.maximum(
+            scale,
+            1 * na.unit_normalized(scale),
+        )
+
+        variables = getattr(rays, component_variable)
+
+        # The internal seed only carries the axes it was built from (the "rough"
+        # seed, aimed at a powered surface, has the field axes but no target-grid
+        # axis), so broadcast it to the full solution shape. Otherwise the solve
+        # is under-determined (one unknown per seed axis, but a residual over the
+        # combined grid), which cannot converge.
+        guess = na.Cartesian2dVectorArray(x=variables.x, y=variables.y)
+        guess = guess.broadcast_to(na.shape_broadcasted(guess, grid_last))
+
+        function = functools.partial(
+            self._ray_error,
+            rays=rays,
+            subsystem=subsystem,
+            grid_last=grid_last,
+            component_variable=component_variable,
+            component_target=component_target,
+            zfunc=zfunc,
+        )
+
+        # The default perturbation used by `na.jacobian` is an absolute 1e-10
+        # in the units of the variable, which is below the floating-point noise
+        # floor of the raytrace for variables measured in physical units,
+        # yielding a Jacobian made of noise. Use a perturbation proportional to
+        # the scale of the problem instead.
+        if component_variable == "direction":
+            dx = 1e-6
+        else:
+            dx = 1e-6 * np.maximum(
+                scale,
+                1 * na.unit_normalized(scale),
+            )
+
+        def jacobian(x, _function=function, _dx=dx):
+            return na.jacobian(function=_function, x=x, dx=_dx)
+
+        try:
+            root = na.optimize.root_newton(
+                function=function,
+                guess=guess,
+                jacobian=jacobian,
+                max_abs_error=max_abs_error,
+            )
+        except ValueError as e:  # pragma: nocover
+            raise ValueError(
+                f"Could not solve for the rays connecting surfaces "
+                f"{surface_first.name!r} and {surface_last.name!r}. "
+                f"If the target surface is only partially reachable at a "
+                f"single wavelength (e.g. a spectrograph sensor), consider "
+                f"marking the object surface, with an angular (dimensionless, "
+                f"sine of the half-angle) aperture, as the field stop instead."
+            ) from e
+
+        variables.x = root.x
+        variables.y = root.y
+        variables.z = zfunc(root)
+
+        if surface_first.transformation is not None:
+            rays = surface_first.transformation(rays)
+
+        return rays
 
     def _calc_rayfunction_stops_only(
         self,
@@ -458,167 +700,12 @@ class AbstractSequentialSystem(
                 result.inputs.field = grid_first
                 result.inputs.pupil = grid_last
 
-            if na.unit(grid_first).is_equivalent(u.mm):
-                grid_first = na.Cartesian3dVectorArray(
-                    x=grid_first.x,
-                    y=grid_first.y,
-                    z=0 * u.mm,
-                )
-                result.outputs.position = grid_first.replace(
-                    z=surface_first.sag(grid_first)
-                )
-                result.outputs.direction = na.Cartesian3dVectorArray(0, 0, 1)
-                component_variable = "direction"
-
-                def zfunc(xy: na.AbstractCartesian2dVectorArray):
-                    return np.sqrt(1 - np.square(xy.length))
-
-            elif na.unit(grid_first).is_equivalent(u.dimensionless_unscaled):
-                result.outputs.direction = na.Cartesian3dVectorArray(
-                    x=grid_first.x,
-                    y=grid_first.y,
-                    z=np.sqrt(1 - np.square(grid_first.length)),
-                )
-                result.outputs.position = na.Cartesian3dVectorArray() * u.mm
-                component_variable = "position"
-
-                def zfunc(xy: na.AbstractCartesian2dVectorArray):
-                    position = na.Cartesian3dVectorArray(
-                        x=xy.x,
-                        y=xy.y,
-                        z=0 * na.unit_normalized(xy.x),
-                    )
-                    return surface_first.sag(position)
-
-            else:
-                raise ValueError(f"unrecognized input grid unit, {na.unit(grid_first)}")
-
-            # Seed the free ray component by aiming each ray at its own
-            # target point on the last stop surface when no surface with
-            # optical power lies between the two stops (the seed is then
-            # nearly exact), and otherwise at the center of the first powered
-            # surface, so that the root-finding starts inside its basin of
-            # convergence even for surfaces far from the axis of the first
-            # stop (e.g. an off-axis fold or feed mirror).
-            anchor = self._anchor_surface(subsystem)
-            if anchor is surface_last and na.unit(grid_last).is_equivalent(u.mm):
-                aim = na.Cartesian3dVectorArray(
-                    x=grid_last.x,
-                    y=grid_last.y,
-                    z=0 * na.unit_normalized(grid_last.x),
-                )
-                aim.z = surface_last.sag(aim)
-                if surface_last.transformation is not None:
-                    aim = surface_last.transformation(aim)
-            else:
-                aim = na.Cartesian3dVectorArray() * u.mm
-                if anchor.transformation is not None:
-                    aim = anchor.transformation(aim)
-            if surface_first.transformation is not None:
-                aim = surface_first.transformation.inverse(aim)
-
-            if component_variable == "direction":
-                d = aim - result.outputs.position
-                d = d / d.length
-                # the sign of the seed direction is irrelevant to the
-                # root-finding problem (surface intercepts may have negative
-                # distance), but the z-component must be positive to be
-                # consistent with `zfunc`
-                flip = np.sign(d.z)
-                where = d.z != 0
-                result.outputs.direction = na.Cartesian3dVectorArray(
-                    x=np.where(where, flip * d.x, 0),
-                    y=np.where(where, flip * d.y, 0),
-                    z=np.where(where, flip * d.z, 1),
-                )
-            else:
-                d = result.outputs.direction
-                t = aim.z / d.z
-                position_seed = na.Cartesian3dVectorArray(
-                    x=aim.x - d.x * t,
-                    y=aim.y - d.y * t,
-                    z=0 * u.mm,
-                )
-                position_seed.z = surface_first.sag(position_seed)
-                result.outputs.position = position_seed
-
-            if surface_first.transformation is not None:
-                result.outputs = surface_first.transformation(result.outputs)
-
-            if na.unit(grid_last).is_equivalent(u.mm):
-                component_target = "position"
-            elif na.unit(grid_last).is_equivalent(u.dimensionless_unscaled):
-                component_target = "direction"
-            else:
-                raise ValueError(f"unrecognized output grid unit, {na.unit(grid_last)}")
-
-            # The residual of the root-finding problem has the same units as
-            # the target grid, so the convergence tolerance must scale with
-            # the size of the target aperture to be achievable in floating
-            # point for systems of any physical scale.
-            scale = np.maximum(
-                grid_last.x.ptp(),
-                grid_last.y.ptp(),
-            )
-            max_abs_error = 1e-9 * np.maximum(
-                scale,
-                1 * na.unit_normalized(scale),
-            )
-
-            variables = getattr(result.outputs, component_variable)
-
-            function = functools.partial(
-                self._ray_error,
-                rays=result.outputs,
+            result.outputs = self._shoot_rays(
                 subsystem=subsystem,
+                wavelength=wavelength_input,
+                grid_first=grid_first,
                 grid_last=grid_last,
-                component_variable=component_variable,
-                component_target=component_target,
-                zfunc=zfunc,
             )
-
-            # The default perturbation used by `na.jacobian` is an absolute
-            # 1e-10 in the units of the variable, which is below the
-            # floating-point noise floor of the raytrace for variables
-            # measured in physical units, yielding a Jacobian made of noise.
-            # Use a perturbation proportional to the scale of the problem
-            # instead.
-            if component_variable == "direction":
-                dx = 1e-6
-            else:
-                dx = 1e-6 * np.maximum(
-                    scale,
-                    1 * na.unit_normalized(scale),
-                )
-
-            def jacobian(x, _function=function, _dx=dx):
-                return na.jacobian(function=_function, x=x, dx=_dx)
-
-            try:
-                root = na.optimize.root_newton(
-                    function=function,
-                    guess=na.Cartesian2dVectorArray(
-                        x=variables.x,
-                        y=variables.y,
-                    ),
-                    jacobian=jacobian,
-                    max_abs_error=max_abs_error,
-                )
-            except ValueError as e:  # pragma: nocover
-                raise ValueError(
-                    f"Could not solve for the rays connecting the stop "
-                    f"surfaces {surface_first.name!r} and "
-                    f"{surface_last.name!r}. "
-                    f"If the field stop is only partially reachable at a "
-                    f"single wavelength (e.g. a spectrograph sensor), "
-                    f"consider marking the object surface, with an angular "
-                    f"(dimensionless, sine of the half-angle) aperture, as "
-                    f"the field stop instead."
-                ) from e
-
-            variables.x = root.x
-            variables.y = root.y
-            variables.z = zfunc(root)
 
         return result
 
@@ -627,8 +714,8 @@ class AbstractSequentialSystem(
         wavelength_input: na.ScalarLike,
         axis_pupil_stop: str,
         axis_field_stop: str,
-        samples_pupil_stop: int = 101,
-        samples_field_stop: int = 101,
+        samples_pupil_stop: int = 21,
+        samples_field_stop: int = 21,
     ) -> optika.rays.RayFunctionArray:
         surfaces = self.surfaces_all
 
@@ -659,7 +746,8 @@ class AbstractSequentialSystem(
             rays = obj.transformation.inverse(rays)
 
         where = rays.direction @ obj.sag.normal(rays.position) > 0
-        result.outputs.direction[where] = -result.outputs.direction[where]
+        rays.direction[where] = -rays.direction[where]
+        result.outputs = rays
 
         # If the first stop is the object surface, the solved variable is the
         # position and the direction retains only the field-stop axis, so
@@ -672,13 +760,17 @@ class AbstractSequentialSystem(
         result.outputs.position = result.outputs.position.broadcast_to(shape)
         result.outputs.direction = result.outputs.direction.broadcast_to(shape)
 
-        if self.transformation is not None:
-            result.outputs = self.transformation(result.outputs)
-
         return result
 
     _axis_pupil_stop: ClassVar[str] = "_stop_pupil"
     _axis_field_stop: ClassVar[str] = "_stop_field"
+
+    @property
+    def _axis_stops(self) -> tuple[str, str]:
+        """
+        Tuple of :attr:`_axis_pupil_stop` and :attr:`_axis_field_stop`.
+        """
+        return (self._axis_field_stop, self._axis_pupil_stop)
 
     @functools.cached_property
     def rayfunction_stops(self) -> optika.rays.RayFunctionArray:
@@ -695,55 +787,331 @@ class AbstractSequentialSystem(
             samples_field_stop=21,
         )
 
+    def _fit_vs_wavelength(
+        self,
+        a: na.AbstractCartesian2dVectorArray,
+    ) -> na.PolynomialFitFunctionArray:
+        """
+        Fit an array of values, as a function of wavelength,
+        using at most a second-order polynomial.
+
+        Parameters
+        ----------
+        a
+            The array of values to fit.
+        """
+        rays = self.rayfunction_stops.outputs
+
+        axis_wavelength = self.axis_wavelength_
+        if axis_wavelength:
+            (axis,) = axis_wavelength
+            degree = int(np.minimum(2, rays.wavelength.shape[axis] - 1))
+        else:
+            axis = None
+            degree = 0
+
+        return na.PolynomialFitFunctionArray.from_degree(
+            inputs=rays.wavelength,
+            outputs=a,
+            degree=degree,
+            axis_polynomial=axis,
+        )
+
+    @property
+    def _field_min(self) -> na.PolynomialFitFunctionArray:
+        rays = self.rayfunction_stops.outputs
+        if self.object_is_at_infinity:
+            a = rays.direction.xy.min(self._axis_stops)
+        else:
+            a = rays.position.xy.min(self._axis_stops)
+        return self._fit_vs_wavelength(a)
+
+    @property
+    def _field_max(self) -> na.PolynomialFitFunctionArray:
+        rays = self.rayfunction_stops.outputs
+        if self.object_is_at_infinity:
+            a = rays.direction.xy.max(self._axis_stops)
+        else:
+            a = rays.position.xy.max(self._axis_stops)
+        return self._fit_vs_wavelength(a)
+
     @property
     def field_min(self) -> na.AbstractCartesian2dVectorArray:
         """
         The lower left corner of this optical system's field of view.
         """
-        axis = (self._axis_field_stop, self._axis_pupil_stop)
+        wavelength = self.grid_input.wavelength
         if self.object_is_at_infinity:
-            angles = optika.angles(self.rayfunction_stops.outputs.direction)
-            return angles.min(axis)
-        else:
-            return self.rayfunction_stops.outputs.position.xy.min(axis)
+            # `optika.angles` reverses the sign of each direction cosine, so the
+            # minimum-angle corner of the field of view is the maximum-cosine
+            # corner: evaluate the `_field_max` fit here (and `_field_min` in
+            # `field_max`).
+            return optika.angles(self._field_max(wavelength).outputs)
+        return self._field_min(wavelength).outputs
 
     @property
     def field_max(self) -> na.AbstractCartesian2dVectorArray:
         """
         The upper right corner of this optical system's field of view.
         """
-        axis = (self._axis_field_stop, self._axis_pupil_stop)
+        wavelength = self.grid_input.wavelength
         if self.object_is_at_infinity:
-            angles = optika.angles(self.rayfunction_stops.outputs.direction)
-            return angles.max(axis)
-        else:
-            return self.rayfunction_stops.outputs.position.xy.max(axis)
+            return optika.angles(self._field_min(wavelength).outputs)
+        return self._field_max(wavelength).outputs
+
+    def _denormalize_field(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Convert normalized field coordinates to physical units.
+
+        If :attr:`object_is_at_infinitiy`, the result is in terms of
+        direction cosines, otherwise the result is in length units.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum.
+        field
+            An array of normalized 2D field coordinates.
+        """
+        field_min = self._field_min(wavelength).outputs
+        field_max = self._field_max(wavelength).outputs
+        field_ptp = field_max - field_min
+
+        result = field_ptp * (field + 1) / 2 + field_min
+
+        return result
 
     @property
-    def pupil_min(self) -> na.AbstractCartesian2dVectorArray:
+    def field_(self) -> na.AbstractCartesian2dVectorArray:
         """
-        The lower left corner of this optical system's entrance pupil in
-        physical units.
+        Normalized version of ``grid_input.field``.
         """
-        axis = (self._axis_field_stop, self._axis_pupil_stop)
-        if self.object_is_at_infinity:
-            return self.rayfunction_stops.outputs.position.xy.min(axis)
+        wavelength = self.grid_input.wavelength
+        field = self.grid_input.field
+
+        if na.unit_normalized(field).is_equivalent(u.dimensionless_unscaled):
+
+            field = self._denormalize_field(wavelength, field)
+
+            if self.object_is_at_infinity:
+                field = optika.angles(field)
+
+        return field
+
+    def _calc_rayfunction_pupil(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+        # samples_field: int = 5,
+        samples_pupil: int = 21,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        Trace a grid of rays from the object plane to the wire of the pupil
+        stop, in order to measure how the entrance pupil depends on field.
+
+        Unlike :attr:`rayfunction_stops`, which samples the field only on the
+        *border* of the field stop, this samples the field on a coarse grid
+        across the interior of the object's aperture (the field of view), so
+        that the field dependence of the entrance pupil (the pupil distortion)
+        can be captured. Only the *wire* of the pupil stop is sampled, since its
+        image on the entrance pupil is the boundary of the entrance pupil, whose
+        minimum and maximum are all that is needed.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum.
+        field
+            The field coordinates in physical units.
+        samples_pupil
+            The number of samples along the wire of the pupil stop.
+        """
+        subsystem = self.surfaces_all[: self.index_pupil_stop + 1]
+
+        pupil_stop = subsystem[~0]
+
+        aperture_pupil = pupil_stop.aperture
+
+        # the wire (border) of the pupil stop
+        wire = np.moveaxis(
+            a=aperture_pupil.wire(num=samples_pupil),
+            source="wire",
+            destination=self._axis_pupil_stop,
+        )
+        pupil = wire.xy
+
+        # solve for the launch coordinate on the object plane (the entrance-pupil
+        # footprint) connecting each field to each point of the pupil-stop wire
+        rays = self._shoot_rays(
+            subsystem=subsystem,
+            wavelength=wavelength,
+            grid_first=field,
+            grid_last=pupil,
+        )
+
+        obj = subsystem[0]
+        if obj.transformation is not None:
+            rays = obj.transformation.inverse(rays)
+
+        return optika.rays.RayFunctionArray(
+            inputs=optika.vectors.ObjectVectorArray(
+                wavelength=wavelength,
+                field=field,
+            ),
+            outputs=rays,
+        )
+
+    @functools.cached_property
+    def _rayfunction_pupil(self) -> optika.rays.RayFunctionArray:
+        """
+        Trace a grid of rays from the object plane to the wire of the pupil
+        stop, using the default wavelength and field grids.
+        """
+        return self._calc_rayfunction_pupil(
+            wavelength=self.grid_input.wavelength,
+            field=self.field_,
+        )
+
+    def _fit_vs_wavelength_and_field(
+        self,
+        a: na.AbstractCartesian2dVectorArray,
+    ) -> na.PolynomialFitFunctionArray:
+        """
+        Fit an array of values, as a function of wavelength and field coordinate,
+        using at most a second-order polynomial.
+
+        Parameters
+        ----------
+        a
+            The array of values to fit.
+        """
+        rays = self._rayfunction_pupil.outputs
+
+        axis_wavelength = self.axis_wavelength_
+        axis_field = self.axis_field_
+
+        if axis_wavelength:
+            axis = axis_wavelength
+            components = ("wavelength",)
         else:
-            angles = optika.angles(self.rayfunction_stops.outputs.direction)
-            return angles.min(axis)
+            axis = ()
+            components = ()
+
+        axis = axis + axis_field
+        components = components + ("field.x", "field.y")
+
+        if self.object_is_at_infinity:
+            field = rays.direction.xy
+        else:
+            field = rays.position.xy
+
+        inputs = optika.vectors.SceneVectorArray(rays.wavelength, field)
+
+        shape = inputs.shape
+        shape = [shape[ax] for ax in axis]
+        degree = int(np.minimum(2, min(shape) - 1))
+
+        return na.PolynomialFitFunctionArray.from_degree(
+            inputs=inputs,
+            outputs=a,
+            degree=degree,
+            components=components,
+            axis_polynomial=axis,
+        )
 
     @property
-    def pupil_max(self):
-        """
-        The upper right corner of this optical system's entrance pupil in
-        physical units.
-        """
-        axis = (self._axis_field_stop, self._axis_pupil_stop)
+    def _pupil_min(self) -> na.PolynomialFitFunctionArray:
+        rays = self._rayfunction_pupil.outputs
         if self.object_is_at_infinity:
-            return self.rayfunction_stops.outputs.position.xy.max(axis)
+            a = rays.position.xy.min(self._axis_pupil_stop)
         else:
-            angles = optika.angles(self.rayfunction_stops.outputs.direction)
-            return angles.max(axis)
+            a = rays.direction.xy.min(self._axis_pupil_stop)
+        return self._fit_vs_wavelength_and_field(a)
+
+    @property
+    def _pupil_max(self) -> na.PolynomialFitFunctionArray:
+        rays = self._rayfunction_pupil.outputs
+        if self.object_is_at_infinity:
+            a = rays.position.xy.max(self._axis_pupil_stop)
+        else:
+            a = rays.direction.xy.max(self._axis_pupil_stop)
+        return self._fit_vs_wavelength_and_field(a)
+
+    # @property
+    # def pupil_min(self) -> na.AbstractCartesian2dVectorArray:
+    #     """
+    #     The lower left corner of this optical system's entrance pupil in
+    #     physical units.
+    #     """
+    #     axis = (self._axis_field_stop, self._axis_pupil_stop)
+    #     if self.object_is_at_infinity:
+    #         return self.rayfunction_stops.outputs.position.xy.min(axis)
+    #     else:
+    #         angles = optika.angles(self.rayfunction_stops.outputs.direction)
+    #         return angles.min(axis)
+    #
+    # @property
+    # def pupil_max(self):
+    #     """
+    #     The upper right corner of this optical system's entrance pupil in
+    #     physical units.
+    #     """
+    #     axis = (self._axis_field_stop, self._axis_pupil_stop)
+    #     if self.object_is_at_infinity:
+    #         return self.rayfunction_stops.outputs.position.xy.max(axis)
+    #     else:
+    #         angles = optika.angles(self.rayfunction_stops.outputs.direction)
+    #         return angles.max(axis)
+
+    def _denormalize_pupil(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+        pupil: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Convert normalized field coordinates to physical units.
+
+        If :attr:`object_is_at_infinitiy`, the result is in terms of
+        direction cosines, otherwise the result is in length units.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the incident light in vacuum.
+        field
+            An array of 2D field coordinates in terms of direction cosines.
+        """
+        x = optika.vectors.SceneVectorArray(wavelength, field)
+        pupil_min = self._pupil_min(x).outputs
+        pupil_max = self._pupil_max(x).outputs
+        pupil_ptp = pupil_max - pupil_min
+
+        result = pupil_ptp * (pupil + 1) / 2 + pupil_min
+
+        return result
+
+    @property
+    def pupil_(self) -> na.AbstractCartesian2dVectorArray:
+        """
+        Normalized version of ``grid_input.pupil``.
+        """
+        wavelength = self.grid_input.wavelength
+        field = self.field_
+        pupil = self.grid_input.pupil
+
+        if na.unit_normalized(field).is_equivalent(u.dimensionless_unscaled):
+
+            pupil = self._denormalize_pupil(wavelength, field, pupil)
+
+            if not self.object_is_at_infinity:
+                pupil = optika.angles(pupil)
+
+        return pupil
 
     def _denormalize_grid(
         self,
@@ -752,41 +1120,63 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
     ) -> optika.vectors.ObjectVectorArray:
 
-        if (not normalized_field) and (not normalized_pupil):
-            return grid
-
-        axis_field = self._axis_field_stop
-        axis_pupil = self._axis_pupil_stop
-
-        rayfunction_stops = self._calc_rayfunction_stops(
-            wavelength_input=grid.wavelength,
-            axis_pupil_stop=axis_pupil,
-            axis_field_stop=axis_field,
-            samples_pupil_stop=21,
-            samples_field_stop=21,
-        )
-
-        result = grid.copy_shallow()
-
-        object_is_at_infinity = self.object_is_at_infinity
-        if object_is_at_infinity:
-            field = optika.angles(rayfunction_stops.outputs.direction)
-            pupil = rayfunction_stops.outputs.position.xy
-        else:
-            field = rayfunction_stops.outputs.position.xy
-            pupil = optika.angles(rayfunction_stops.outputs.direction)
+        grid = grid.copy_shallow()
 
         if normalized_field:
-            min_field = field.min(axis=(axis_field, axis_pupil))
-            ptp_field = field.ptp(axis=(axis_field, axis_pupil))
-            result.field = ptp_field * (result.field + 1) / 2 + min_field
+            field = self._denormalize_field(
+                wavelength=grid.wavelength,
+                field=grid.field,
+            )
+            grid.field = field
+            if self.object_is_at_infinity:
+                grid.field = optika.angles(grid.field)
 
         if normalized_pupil:
-            min_pupil = pupil.min(axis=(axis_field, axis_pupil))
-            ptp_pupil = pupil.ptp(axis=(axis_field, axis_pupil))
-            result.pupil = ptp_pupil * (result.pupil + 1) / 2 + min_pupil
+            grid.pupil = self._denormalize_pupil(
+                wavelength=grid.wavelength,
+                field=field,
+                pupil=grid.pupil,
+            )
+            if not self.object_is_at_infinity:
+                grid.pupil = optika.angles(grid.pupil)
 
-        return result
+        return grid
+
+        # if (not normalized_field) and (not normalized_pupil):
+        #     return grid
+        #
+        # axis_field = self._axis_field_stop
+        # axis_pupil = self._axis_pupil_stop
+        #
+        # rayfunction_stops = self._calc_rayfunction_stops(
+        #     wavelength_input=grid.wavelength,
+        #     axis_pupil_stop=axis_pupil,
+        #     axis_field_stop=axis_field,
+        #     samples_pupil_stop=21,
+        #     samples_field_stop=21,
+        # )
+        #
+        # result = grid.copy_shallow()
+        #
+        # object_is_at_infinity = self.object_is_at_infinity
+        # if object_is_at_infinity:
+        #     field = optika.angles(rayfunction_stops.outputs.direction)
+        #     pupil = rayfunction_stops.outputs.position.xy
+        # else:
+        #     field = rayfunction_stops.outputs.position.xy
+        #     pupil = optika.angles(rayfunction_stops.outputs.direction)
+        #
+        # if normalized_field:
+        #     min_field = field.min(axis=(axis_field, axis_pupil))
+        #     ptp_field = field.ptp(axis=(axis_field, axis_pupil))
+        #     result.field = ptp_field * (result.field + 1) / 2 + min_field
+        #
+        # if normalized_pupil:
+        #     min_pupil = pupil.min(axis=(axis_field, axis_pupil))
+        #     ptp_pupil = pupil.ptp(axis=(axis_field, axis_pupil))
+        #     result.pupil = ptp_pupil * (result.pupil + 1) / 2 + min_pupil
+        #
+        # return result
 
     def _calc_rayfunction_input(
         self,
@@ -905,8 +1295,6 @@ class AbstractSequentialSystem(
         rays = result.outputs
         if intensity is not None:
             rays.intensity = intensity
-        if self.transformation is not None:
-            rays = self.transformation.inverse(rays)
 
         surfaces = self.surfaces_all
 
@@ -980,8 +1368,12 @@ class AbstractSequentialSystem(
         rayfunction = raytrace[{axis: ~0}]
         rays = rayfunction.outputs
 
-        if self.sensor.transformation is not None:
-            rays = self.sensor.transformation.inverse(rays)
+        # `raytrace` returns rays in the object frame, and the sensor sits at
+        # its composed position there, so invert the composed sensor
+        # transformation to reach the sensor's local frame.
+        sensor = self.surfaces_all[~0]
+        if sensor.transformation is not None:
+            rays = sensor.transformation.inverse(rays)
 
         rayfunction.outputs = rays
 
@@ -1469,14 +1861,7 @@ class AbstractSequentialSystem(
         """
 
         surfaces = self.surfaces_all
-        transformation_self = self.transformation
         kwargs_plot = self.kwargs_plot
-
-        if transformation is not None:
-            if transformation_self is not None:
-                transformation = transformation @ transformation_self
-        else:
-            transformation = transformation_self
 
         if kwargs_plot is not None:
             kwargs = kwargs | kwargs_plot
@@ -1653,12 +2038,6 @@ class AbstractSequentialSystem(
         transformation: None | na.transformations.AbstractTransformation = None,
         **kwargs,
     ) -> None:
-
-        if self.transformation is not None:
-            if transformation is not None:
-                transformation = transformation @ self.transformation
-            else:
-                transformation = self.transformation
 
         surfaces = self.surfaces_all
 

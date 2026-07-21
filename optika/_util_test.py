@@ -36,6 +36,11 @@ def test_direction(angles: na.AbstractCartesian2dVectorArray):
     argnames="direction",
     argvalues=[
         na.Cartesian3dVectorArray(1, 2, 5).normalized,
+        na.Cartesian3dVectorArray(
+            x=na.linspace(-0.4, 0.4, axis="x", num=5),
+            y=na.linspace(-0.4, 0.4, axis="y", num=5),
+            z=1,
+        ).normalized,
     ],
 )
 def test_angles(direction: na.AbstractCartesian3dVectorArray):
@@ -46,3 +51,9 @@ def test_angles(direction: na.AbstractCartesian3dVectorArray):
 
     assert isinstance(result, na.AbstractCartesian2dVectorArray)
     assert np.allclose(direction, optika.direction(result))
+
+    # a 2D vector of direction cosines reconstructs the same (positive) z from
+    # the unit-length constraint, so it yields the same angles as the 3D vector
+    result_from_cosines = optika.angles(direction.xy)
+    assert isinstance(result_from_cosines, na.AbstractCartesian2dVectorArray)
+    assert np.allclose(result_from_cosines, result)

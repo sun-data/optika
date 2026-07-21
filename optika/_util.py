@@ -74,21 +74,29 @@ def direction(
 
 
 def angles(
-    direction: na.AbstractCartesian3dVectorArray,
+    direction: na.AbstractCartesian2dVectorArray | na.AbstractCartesian3dVectorArray,
 ) -> na.Cartesian2dVectorArray:
-    """
-    Convert a 3D vector of direction cosines to a 2D vector of azimuth and
+    r"""
+    Convert a vector of direction cosines to a 2D vector of azimuth and
     elevation angles.
 
     Parameters
     ----------
     direction
         A vector of direction cosines.
+        If a 2D vector is given, the :math:`z` component is reconstructed from
+        the unit-length constraint, :math:`d_z = \sqrt{1 - d_x^2 - d_y^2}`.
 
     See Also
     --------
     :func:`direction` : Inverse of this function
     """
+    if not isinstance(direction, na.AbstractCartesian3dVectorArray):
+        direction = na.Cartesian3dVectorArray(
+            x=direction.x,
+            y=direction.y,
+            z=np.sqrt(1 - np.square(direction.length)),
+        )
     if na.unit(direction) is None:
         direction = direction << u.dimensionless_unscaled
     return na.Cartesian2dVectorArray(

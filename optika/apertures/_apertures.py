@@ -129,6 +129,30 @@ class AbstractAperture(
             wire.
         """
 
+    def denormalize(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.Cartesian2dVectorArray:
+        """
+        Convert a point in normalized (-1, 1) coordinates on the plane of the
+        aperture to physical coordinates.
+
+        Parameters
+        ----------
+        position
+            Points in normalized coordinates on the plane of the aperture.
+        """
+        lower = self.bound_lower.xy
+        upper = self.bound_upper.xy
+
+        ptp = upper - lower
+
+        x = (position + 1) / 2
+
+        result = ptp * x + lower
+
+        return result
+
     def plot(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
