@@ -1367,6 +1367,150 @@ class AbstractSequentialSystem(
             where=where,
         )
 
+    def area_effective(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+    ) -> optika.radiometry.InterpolatedEffectiveAreaModel:
+        """
+        Estimate the wavelength-dependent effective area of this system by
+        tracing rays through it.
+
+        For each wavelength and field position, rays are traced across the
+        pupil and the throughput of each ray (the product of the efficiency of
+        every surface it encounters: reflectivity, transmissivity, diffraction
+        efficiency, and the absorbance of the sensor) is weighted by the area
+        of its pupil cell and summed, giving the effective area at that field
+        position. Rays blocked by an aperture are excluded from the sum. The
+        result is then averaged over the field of view and returned as an
+        :class:`~optika.radiometry.InterpolatedEffectiveAreaModel`, which
+        linearly interpolates in wavelength.
+
+        The components of `pupil` are interpreted as the vertices of a grid of
+        cells, and the rays are traced at the corresponding cell centers, so
+        that each ray can be weighted by the physical area of its cell.
+
+        The throughput includes the absorbance of the sensor but not its charge
+        collection efficiency, which is applied separately, so this is the
+        effective area up to the absorption of photons in the detector.
+
+        If the object is at infinity, the pupil is measured in units of length
+        and the effective area has units of area (such as :math:`cm^2`). If the
+        object is at a finite distance, the pupil is measured in units of angle
+        and the result instead has units of solid angle (such as
+        :math:`deg^2`).
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to evaluate the effective area, which must
+            vary along a single logical axis.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            will be used.
+        field
+            The field positions at which the effective area is sampled before
+            averaging over the field of view, in either normalized or physical
+            units.
+            If :obj:`None` (the default), ``self.grid_input.field``
+            will be used.
+        pupil
+            The **vertices** of the pupil grid, in either normalized or physical
+            units. The area of each pupil cell is computed from these vertices
+            and used to weight the throughput, and the rays are traced at the
+            cell centers.
+            If :obj:`None` (the default), an :math:`11 \\times 11` grid spanning
+            the normalized pupil is used.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
+
+        Raises
+        ------
+        ValueError
+            If the wavelength grid does not vary along a single logical axis.
+        """
+        if wavelength is None:
+            wavelength = self.grid_input.wavelength
+        if field is None:
+            field = self.grid_input.field
+        if pupil is None:
+            pupil = na.Cartesian2dVectorArray(
+                x=na.linspace(-1, 1, axis="_pupil_x", num=11),
+                y=na.linspace(-1, 1, axis="_pupil_y", num=11),
+            )
+
+        grid = optika.vectors.ObjectVectorArray(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+        )
+
+        grid = self._denormalize_grid(
+            grid=grid,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+
+        wavelength = grid.wavelength
+        field = grid.field
+        pupil = grid.pupil
+
+        axis_wavelength = self._normalize_axis_wavelength(
+            axis_wavelength=None,
+            wavelength=wavelength,
+        )
+        axis_field = self._normalize_axis_field(
+            axis_field=None,
+            axis_wavelength=axis_wavelength,
+            field=field,
+        )
+        axis_pupil = self._normalize_axis_pupil(
+            axis_pupil=None,
+            axis_field=axis_field,
+            axis_wavelength=axis_wavelength,
+            pupil=pupil,
+        )
+
+        if len(axis_wavelength) != 1:
+            raise ValueError(
+                "Computing the effective area requires that there be only "
+                f"one wavelength axis, got {axis_wavelength}"
+            )
+        (axis_wavelength,) = axis_wavelength
+
+        shape = grid.shape
+
+        area = np.abs(pupil.volume_cell(axis=axis_pupil))
+        pupil = pupil.broadcast_to(shape).cell_centers(axis=axis_pupil, random=True)
+
+        rays = self.rayfunction(
+            intensity=area,
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=False,
+            normalized_pupil=False,
+        )
+
+        area_eff = rays.outputs.intensity.sum(
+            axis=axis_pupil,
+            where=rays.outputs.unvignetted,
+        )
+
+        area_eff = area_eff.mean(axis_field)
+
+        return optika.radiometry.InterpolatedEffectiveAreaModel(
+            wavelength=wavelength,
+            area=area_eff,
+            axis_wavelength=axis_wavelength,
+        )
+
     def _rayfunction_and_axes(
         self,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
