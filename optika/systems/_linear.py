@@ -265,7 +265,7 @@ class AbstractLinearSystem(
 
         if axis_wavelength is None:
             axis = set(na.shape(coordinates.wavelength)) - set(axis_field)
-            if len(axis) != 1:
+            if len(axis) != 1:  # pragma: nocover
                 raise ValueError(
                     f"unable to infer `axis_wavelength`: expected exactly one "
                     f"axis of `scene.inputs.wavelength` "
