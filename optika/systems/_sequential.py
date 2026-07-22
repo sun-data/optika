@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import Sequence, Callable, Any, ClassVar
 import abc
 import dataclasses
@@ -14,6 +13,7 @@ import matplotlib.pyplot as plt
 import named_arrays as na
 import optika
 from . import AbstractSystem
+from . import LinearSystem
 
 __all__ = [
     "AbstractSequentialSystem",
@@ -1511,6 +1511,79 @@ class AbstractSequentialSystem(
             wavelength=wavelength,
             area=area_eff,
             axis_wavelength=axis_wavelength,
+        )
+
+    def linearize(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+        degree: int = 2,
+    ) -> LinearSystem:
+        """
+        Construct a linear approximation of this system by fitting its
+        distortion, vignetting, and effective area models.
+
+        The result is an :class:`~optika.systems.LinearSystem`, a fast forward
+        model which images scenes by conservative regridding instead of
+        raytracing each one.
+
+        The resulting system's
+        :attr:`~optika.systems.LinearSystem.field_stop` is left as :obj:`None`;
+        the field stop is not modeled here, since field points outside it are
+        excluded when fitting the vignetting model rather than represented as a
+        falloff.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to sample the system.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            will be used.
+        field
+            The field positions at which to sample the system, in either
+            normalized or physical units.
+            If :obj:`None` (the default), ``self.grid_input.field``
+            will be used.
+        pupil
+            The **vertices** of the pupil grid, in either normalized or physical
+            units. The effective area fit uses these vertices to compute the
+            pupil cell areas, while the distortion and vignetting fits trace at
+            the corresponding cell centers.
+            If :obj:`None` (the default), the effective area fit uses its own
+            default pupil grid and the distortion and vignetting fits use
+            ``self.grid_input.pupil``.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
+        degree
+            The degree of the polynomial distortion and vignetting models.
+        """
+
+        # `area_effective` interprets `pupil` as cell vertices (it needs them to
+        # compute the pupil cell areas), while `distortion` and `vignetting`
+        # trace at sample points, so give them the cell centers of the vertices.
+        if pupil is not None:
+            pupil_centers = pupil.cell_centers(axis=tuple(na.shape(pupil)))
+        else:
+            pupil_centers = None
+
+        kwargs = dict(
+            wavelength=wavelength,
+            field=field,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+        return LinearSystem(
+            area_effective=self.area_effective(pupil=pupil, **kwargs),
+            distortion=self.distortion(pupil=pupil_centers, degree=degree, **kwargs),
+            sensor=self.sensor,
+            vignetting=self.vignetting(pupil=pupil_centers, degree=degree, **kwargs),
         )
 
     def _rayfunction_and_axes(

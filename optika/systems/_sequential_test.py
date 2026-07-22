@@ -402,6 +402,52 @@ class AbstractTestAbstractSequentialSystem(
             assert na.unit(result.area).is_equivalent(u.deg**2)
         assert np.all(result.area >= 0)
 
+    @pytest.mark.parametrize(
+        argnames="wavelength,field,pupil",
+        argvalues=[
+            (
+                None,
+                None,
+                None,
+            ),
+            (
+                na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=5,
+                ),
+                na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=1,
+                    axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                    num=5,
+                ),
+            ),
+        ],
+    )
+    def test_linearize(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        wavelength: None | u.Quantity | na.AbstractScalar,
+        field: None | na.AbstractCartesian2dVectorArray,
+        pupil: None | na.AbstractCartesian2dVectorArray,
+    ):
+        if wavelength is None and not a.axis_wavelength_:
+            with pytest.raises(ValueError):
+                a.linearize(wavelength=wavelength, field=field, pupil=pupil)
+            return
+        result = a.linearize(wavelength=wavelength, field=field, pupil=pupil)
+        assert isinstance(result, optika.systems.LinearSystem)
+        assert isinstance(result.distortion, optika.distortion.AbstractDistortionModel)
+        assert isinstance(result.vignetting, optika.radiometry.AbstractVignettingModel)
+        assert isinstance(
+            result.area_effective, optika.radiometry.AbstractEffectiveAreaModel
+        )
+        assert result.sensor is a.sensor
+        assert result.field_stop is None
+
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
         assert isinstance(fig, plt.Figure)
