@@ -86,6 +86,17 @@ Jupyter notebook examples on how to use :mod:`optika`.
     tutorials/prime_focus
 
 
+Guides
+======
+
+In-depth explanations of how :mod:`optika` works.
+
+.. toctree::
+    :maxdepth: 1
+
+    stop_finding
+
+
 API Reference
 =============
 
