@@ -54,7 +54,7 @@ def _sensor() -> optika.sensors.ImagingSensor:
     )
 
 
-def _scene() -> na.FunctionArray:
+def _scene(radiance: u.Quantity | na.AbstractScalar) -> na.FunctionArray:
     return na.FunctionArray(
         inputs=na.SpectralPositionalVectorArray(
             wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
@@ -66,8 +66,8 @@ def _scene() -> na.FunctionArray:
             ),
         ),
         outputs=na.random.uniform(
-            low=0 * u.W / u.cm**2 / u.arcsec**2 / u.nm,
-            high=1e-18 * u.W / u.cm**2 / u.arcsec**2 / u.nm,
+            low=0 * radiance,
+            high=radiance,
             shape_random=dict(field_x=10, field_y=10),
         ),
     )
@@ -93,9 +93,21 @@ class AbstractTestAbstractLinearSystem(
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
         assert na.unit_normalized(result).is_equivalent(u.mm)
 
+    @pytest.mark.parametrize(
+        argnames="radiance",
+        argvalues=[
+            1e-18 * u.W / u.cm**2 / u.arcsec**2 / u.nm,
+            1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm,
+        ],
+    )
     @pytest.mark.parametrize("noise", [False, True])
-    def test_image(self, a: optika.systems.AbstractLinearSystem, noise: bool):
-        scene = _scene()
+    def test_image(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        noise: bool,
+        radiance: u.Quantity,
+    ):
+        scene = _scene(radiance)
         result = a.image(scene, noise=noise)
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)

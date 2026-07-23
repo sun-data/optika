@@ -1579,10 +1579,27 @@ class AbstractSequentialSystem(
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
         )
+        # the cosine of the refracted angle at which light strikes the sensor,
+        # computed the same way as
+        # :meth:`~optika.sensors.AbstractImagingSensor.collect` and averaged
+        # over the grid.
+        rays = self.rayfunction_default.outputs
+        direction = self.sensor.material.direction_refracted(
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            n=rays.n,
+            normal=self.sensor.sag.normal(rays.position),
+        )
+        axis_grid = self.axis_wavelength_ + self.axis_field_ + self.axis_pupil_
+        direction = direction.mean(
+            axis=tuple(ax for ax in axis_grid if ax in na.shape(direction)),
+        )
+
         return LinearSystem(
             area_effective=self.area_effective(pupil=pupil, **kwargs),
             distortion=self.distortion(pupil=pupil_centers, degree=degree, **kwargs),
             sensor=self.sensor,
+            direction=direction,
             vignetting=self.vignetting(pupil=pupil_centers, degree=degree, **kwargs),
         )
 
