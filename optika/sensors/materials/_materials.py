@@ -1513,6 +1513,33 @@ class AbstractSensorMaterial(
             The vector perpendicular to the surface of the sensor.
         """
 
+    @abc.abstractmethod
+    def photons_absorbed(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        """
+        Given the number of electrons measured by the sensor, compute the
+        expected number of photons *absorbed* by the light-sensitive region.
+
+        This is the inverse of :meth:`signal`: it divides out only the quantum
+        yield and the charge collection efficiency, not the absorbance. The
+        absorbance is deliberately excluded because it is usually accounted for
+        elsewhere (for example in the effective area of the optical system).
+
+        Parameters
+        ----------
+        electrons
+            The number of electrons measured by each pixel.
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        """
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class IdealSensorMaterial(
@@ -1572,6 +1599,14 @@ class IdealSensorMaterial(
         wavelength: u.Quantity | na.AbstractScalar,
         direction: na.AbstractCartesian3dVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        return electrons * u.photon / u.electron
+
+    def photons_absorbed(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
     ) -> na.AbstractScalar:
         return electrons * u.photon / u.electron
 
@@ -2105,6 +2140,37 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         )
 
         return electrons / qe
+
+    def photons_absorbed(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        # `direction` is the cosine of the refracted angle *inside* the
+        # substrate (as passed to `signal`), so compute the substrate
+        # absorption directly from it and divide out only the quantum yield and
+        # charge collection efficiency, matching `signal` at ``absorbance=1``.
+        n_substrate = self._chemical.n(wavelength)
+
+        absorption = absorption_effective(
+            wavelength=wavelength,
+            n_substrate=n_substrate,
+            direction_substrate=direction,
+        )
+
+        iqy = quantum_yield_ideal(
+            wavelength=wavelength,
+            temperature=self.temperature,
+        )
+
+        cce = charge_collection_efficiency(
+            absorption=absorption,
+            thickness_implant=self.thickness_implant,
+            cce_backsurface=self.cce_backsurface,
+        )
+
+        return electrons / (iqy * cce)
 
     def efficiency(
         self,

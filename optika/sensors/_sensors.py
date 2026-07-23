@@ -235,6 +235,69 @@ class AbstractImagingSensor(
 
         return dataclasses.replace(image, outputs=electrons)
 
+    def photons_absorbed(
+        self,
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        direction: float | na.AbstractScalar = 1,
+        axis_wavelength: None | str = None,
+        timedelta: None | u.Quantity | na.AbstractScalar = None,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """
+        Invert :meth:`expose`, mapping the electrons measured in each pixel back
+        into a photon flux absorbed by the light-sensitive region.
+
+        The absorbance is *not* restored, since :meth:`expose` runs the
+        detector with an absorbance of one (the absorbance is usually accounted
+        for elsewhere, such as in the effective area of an optical system), so
+        this only divides out the quantum yield, the charge collection
+        efficiency, and the exposure time. It is the deterministic inverse of
+        :meth:`expose`; the sensor noise is not undone.
+
+        Parameters
+        ----------
+        image
+            The electrons measured in each pixel, as a function of wavelength
+            and pixel position.
+            The wavelength inputs (``image.inputs.wavelength``) must be the
+            bin *edges*, not the centers.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            matching the value passed to :meth:`expose`.
+        axis_wavelength
+            The logical axis of `image` corresponding to changing wavelength.
+            If :obj:`None` (the default), ``image.inputs.wavelength`` must have
+            only one logical axis.
+        timedelta
+            The exposure time of the measurement.
+            If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
+            will be used.
+        """
+        if axis_wavelength is None:
+            shape_wavelength = na.shape(image.inputs.wavelength)
+            if len(shape_wavelength) != 1:  # pragma: nocover
+                raise ValueError(
+                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
+                    f"must have exactly one logical axis, got {shape_wavelength}."
+                )
+            (axis_wavelength,) = shape_wavelength
+
+        if timedelta is None:
+            timedelta = self.timedelta_exposure
+
+        photons = self.material.photons_absorbed(
+            electrons=image.outputs,
+            wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
+            direction=direction,
+        )
+
+        return dataclasses.replace(image, outputs=photons / timedelta)
+
     def measure(
         self,
         rays: optika.rays.RayVectorArray,
