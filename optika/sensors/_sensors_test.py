@@ -88,6 +88,44 @@ class AbstractTestAbstractImagingSensor(
         assert a.axis_pixel.x in result_lines.outputs.shape
         assert a.axis_pixel.y in result_lines.outputs.shape
 
+    def test_photons_absorbed(self, a: optika.sensors.AbstractImagingSensor):
+        # a photon rate incident on a few pixels, as a function of the
+        # wavelength bin edges
+        wavelength = na.linspace(500, 600, axis="wavelength", num=4) * u.nm
+        position = na.Cartesian2dVectorArray(
+            x=na.arange(0, 5, axis=a.axis_pixel.x) * u.pix,
+            y=na.arange(0, 5, axis=a.axis_pixel.y) * u.pix,
+        )
+        rate = (
+            na.random.uniform(
+                low=0,
+                high=100,
+                shape_random={"wavelength": 3, a.axis_pixel.x: 5, a.axis_pixel.y: 5},
+            )
+            * u.photon
+            / u.s
+        )
+        image = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=wavelength,
+                position=position,
+            ),
+            outputs=rate,
+        )
+
+        # `photons_absorbed` is the deterministic inverse of `expose`
+        timedelta = 10 * u.s
+        electrons = a.expose(image, timedelta=timedelta, noise=False)
+        result = a.photons_absorbed(electrons, timedelta=timedelta)
+
+        assert isinstance(result, na.FunctionArray)
+        assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
+        assert result.outputs.unit.is_equivalent(u.photon / u.s)
+        assert np.allclose(
+            result.outputs.to_value(u.photon / u.s),
+            rate.to_value(u.photon / u.s),
+        )
+
 
 @pytest.mark.parametrize(
     argnames="a",
