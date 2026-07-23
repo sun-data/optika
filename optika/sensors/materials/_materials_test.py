@@ -466,6 +466,41 @@ class AbstractTestAbstractSensorMaterial(
         )
 
     @pytest.mark.parametrize(
+        argnames="electrons",
+        argvalues=[
+            1000 * u.electron,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
+        ],
+    )
+    def test_uncertainty(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
+    ):
+        result = a.uncertainty(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+        )
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert result.unit.is_equivalent(u.electron)
+        assert np.all(result >= 0 * u.electron)
+
+    @pytest.mark.parametrize(
         argnames="wavelength",
         argvalues=[
             100 * u.AA,

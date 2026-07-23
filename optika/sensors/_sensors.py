@@ -298,6 +298,59 @@ class AbstractImagingSensor(
 
         return dataclasses.replace(image, outputs=photons / timedelta)
 
+    def uncertainty(
+        self,
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        direction: float | na.AbstractScalar = 1,
+        axis_wavelength: None | str = None,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """
+        Compute the standard deviation of the noise in an image of electrons
+        measured by the sensor.
+
+        This uses the material's analytic noise model
+        (:meth:`~optika.sensors.materials.AbstractSensorMaterial.uncertainty`),
+        which accounts for shot, Fano, and partial-charge-collection noise, and
+        so is the deterministic counterpart of the noise added by :meth:`expose`.
+
+        Parameters
+        ----------
+        image
+            The electrons measured in each pixel, as a function of wavelength
+            and pixel position.
+            The wavelength inputs (``image.inputs.wavelength``) must be the
+            bin *edges*, not the centers.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            matching the value passed to :meth:`expose`.
+        axis_wavelength
+            The logical axis of `image` corresponding to changing wavelength.
+            If :obj:`None` (the default), ``image.inputs.wavelength`` must have
+            only one logical axis.
+        """
+        if axis_wavelength is None:
+            shape_wavelength = na.shape(image.inputs.wavelength)
+            if len(shape_wavelength) != 1:  # pragma: nocover
+                raise ValueError(
+                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
+                    f"must have exactly one logical axis, got {shape_wavelength}."
+                )
+            (axis_wavelength,) = shape_wavelength
+
+        uncertainty = self.material.uncertainty(
+            electrons=image.outputs,
+            wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
+            direction=direction,
+        )
+
+        return dataclasses.replace(image, outputs=uncertainty)
+
     def measure(
         self,
         rays: optika.rays.RayVectorArray,

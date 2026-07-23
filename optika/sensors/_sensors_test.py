@@ -129,6 +129,37 @@ class AbstractTestAbstractImagingSensor(
             rate.to_value(u.photon / u.s),
         )
 
+    def test_uncertainty(self, a: optika.sensors.AbstractImagingSensor):
+        # electrons measured in a few pixels, as a function of the wavelength
+        # bin edges
+        wavelength = na.linspace(500, 600, axis="wavelength", num=4) * u.nm
+        position = na.Cartesian2dVectorArray(
+            x=na.arange(0, 5, axis=a.axis_pixel.x) * u.pix,
+            y=na.arange(0, 5, axis=a.axis_pixel.y) * u.pix,
+        )
+        electrons = (
+            na.random.uniform(
+                low=0,
+                high=1000,
+                shape_random={"wavelength": 3, a.axis_pixel.x: 5, a.axis_pixel.y: 5},
+            )
+            * u.electron
+        )
+        image = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=wavelength,
+                position=position,
+            ),
+            outputs=electrons,
+        )
+
+        result = a.uncertainty(image)
+
+        assert isinstance(result, na.FunctionArray)
+        assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
+        assert result.outputs.unit.is_equivalent(u.electron)
+        assert np.all(result.outputs >= 0 * u.electron)
+
 
 @pytest.mark.parametrize(
     argnames="a",
