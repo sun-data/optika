@@ -238,72 +238,200 @@ class AbstractLinearSystem(
     def image_from_weights(
         self,
         weights: tuple[na.AbstractScalar, dict[str, int], dict[str, int]],
-        values_input: na.AbstractScalar,
-    ) -> na.AbstractScalar:
+        scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        axis_wavelength: None | str = None,
+        axis_field: None | tuple[str, str] = None,
+        noise: bool = True,
+        **kwargs: Any,
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
-        Apply a precomputed set of regridding weights to the photon rate of a
-        scene, mapping it onto the sensor plane.
+        Apply a precomputed set of regridding weights to a scene, returning the
+        electrons measured by the sensor.
 
-        This is the cheap linear part of the forward model: :meth:`weights`
-        builds the (expensive) conservative-regridding operator once, and this
-        method reuses it for any scene.
+        This reuses the (expensive) conservative-regridding operator built by
+        :meth:`weights` for any scene: it integrates the spectral radiance over
+        each object-plane voxel, regrids onto the sensor plane, and applies the
+        sensor response
+        (:meth:`~optika.sensors.AbstractImagingSensor.expose`).
+        :meth:`image` is the special case that builds `weights` on the fly.
 
         Parameters
         ----------
         weights
             The conservative-regridding weights computed by :meth:`weights`.
-        values_input
-            The photon rate within each pixel of the object plane.
+        scene
+            The spectral radiance of the observed scene, sampled on the
+            vertices of each pixel on the object plane.
+            The radiance may be given in either energy or photon units; the
+            sensor converts energy to photons if necessary.
+        axis_wavelength
+            The logical axis of `scene` corresponding to changing wavelength.
+            If :obj:`None` (the default), the single axis of
+            ``scene.inputs.wavelength`` that is not a field axis is used; a
+            :class:`ValueError` is raised if there is more than one.
+        axis_field
+            The logical axes of `scene` corresponding to changing position on
+            the object plane.
+            If :obj:`None` (the default), the axes of ``scene.inputs.position``
+            are used.
+        noise
+            Whether to include sensor noise in the result.
+        kwargs
+            Additional keyword arguments passed to the sensor's
+            :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
+            as `timedelta`.
         """
 
-        values_output = na.regridding.regrid_from_weights(
+        scene = scene.explicit
+        coordinates = scene.inputs
+
+        if axis_field is None:
+            axis_field = tuple(na.shape(coordinates.position))
+
+        if axis_wavelength is None:
+            axis = set(na.shape(coordinates.wavelength)) - set(axis_field)
+            if len(axis) != 1:  # pragma: nocover
+                raise ValueError(
+                    f"unable to infer `axis_wavelength`: expected exactly one "
+                    f"axis of `scene.inputs.wavelength` "
+                    f"({na.shape(coordinates.wavelength)}) that is not a field "
+                    f"axis ({axis_field}), got {axis}."
+                )
+            (axis_wavelength,) = axis
+
+        # volume of each voxel on the object plane: the spectral bin width
+        # times the solid angle (or area) subtended by each field pixel.
+        volume_wavelength = coordinates.wavelength.volume_cell(axis_wavelength)
+        volume_field = coordinates.position.volume_cell(axis_field)
+        volume_field = na.as_named_array(volume_field).cell_centers(axis_wavelength)
+        volume = volume_wavelength * volume_field
+
+        # integrate the spectral radiance over each voxel into a flux per unit
+        # collecting area.
+        rate = scene.outputs * volume
+
+        rate_sensor = na.regridding.regrid_from_weights(
             *weights,
-            values_input=values_input,
+            values_input=rate,
         )
 
         # restore the unit stripped from `weights_input` inside `weights`
-        # (the effective collecting area), turning the photon rate per unit
-        # area into a photon rate per sensor pixel.
-        values_output = values_output * self.weights_unit
+        # (the effective collecting area), turning the rate per unit area into
+        # a rate per sensor pixel.
+        rate_sensor = rate_sensor * self.weights_unit
 
-        # photon counts cannot be negative
-        values_output = np.maximum(values_output, 0)
+        # the flux incident on the sensor cannot be negative
+        rate_sensor = np.maximum(rate_sensor, 0)
 
-        return values_output
+        image = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=coordinates.wavelength,
+                position=self.coordinates_sensor,
+            ),
+            outputs=rate_sensor,
+        )
+
+        return self.sensor.expose(
+            image=image,
+            direction=self.direction,
+            axis_wavelength=axis_wavelength,
+            noise=noise,
+            **kwargs,
+        )
 
     def backproject_from_weights(
         self,
         weights: tuple[na.AbstractScalar, dict[str, int], dict[str, int]],
-        values_input: na.AbstractScalar,
-    ) -> na.AbstractScalar:
+        image: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        coordinates: na.SpectralPositionalVectorArray,
+        axis_wavelength: None | str = None,
+        axis_field: None | tuple[str, str] = None,
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Apply a precomputed set of transposed regridding weights to a
-        detector-plane image, spreading it back onto the object plane.
+        detector-plane image of electrons, returning the backprojected spectral
+        radiance.
 
         This is the transpose of :meth:`image_from_weights`:
         :meth:`weights_transposed` builds the (expensive) transposed operator
-        once, and this method reuses it for any image.
+        once, and this method reuses it to invert the sensor response
+        (:meth:`~optika.sensors.AbstractImagingSensor.photons_absorbed`),
+        spread the result back onto the object plane, and divide out the voxel
+        volume. :meth:`backproject` is the special case that builds the weights
+        on the fly.
 
         Parameters
         ----------
         weights
             The transposed regridding weights computed by
             :meth:`weights_transposed`.
-        values_input
-            The rate within each pixel of the detector plane.
+        image
+            The detector-plane image of electrons to project onto the object
+            plane, as produced by :meth:`image`.
+        coordinates
+            The vertices of each pixel on the object plane to project onto.
+        axis_wavelength
+            The logical axis of `coordinates` corresponding to changing
+            wavelength.
+            If :obj:`None` (the default), the single axis of
+            ``coordinates.wavelength`` that is not a field axis is used; a
+            :class:`ValueError` is raised if there is more than one.
+        axis_field
+            The logical axes of `coordinates` corresponding to changing position
+            on the object plane.
+            If :obj:`None` (the default), the axes of ``coordinates.position``
+            are used.
         """
 
-        values_output = na.regridding.regrid_from_weights(
+        coordinates = coordinates.explicit
+
+        if axis_field is None:
+            axis_field = tuple(na.shape(coordinates.position))
+
+        if axis_wavelength is None:
+            axis = set(na.shape(coordinates.wavelength)) - set(axis_field)
+            if len(axis) != 1:  # pragma: nocover
+                raise ValueError(
+                    f"unable to infer `axis_wavelength`: expected exactly one "
+                    f"axis of `coordinates.wavelength` "
+                    f"({na.shape(coordinates.wavelength)}) that is not a field "
+                    f"axis ({axis_field}), got {axis}."
+                )
+            (axis_wavelength,) = axis
+
+        # volume of each voxel on the object plane: the spectral bin width
+        # times the solid angle (or area) subtended by each field pixel.
+        volume_wavelength = coordinates.wavelength.volume_cell(axis_wavelength)
+        volume_field = coordinates.position.volume_cell(axis_field)
+        volume_field = na.as_named_array(volume_field).cell_centers(axis_wavelength)
+        volume = volume_wavelength * volume_field
+
+        # invert the detector response, mapping the measured electrons back into
+        # the photon rate per pixel produced by `image_from_weights`.
+        image = self.sensor.photons_absorbed(
+            image,
+            direction=self.direction,
+            axis_wavelength=axis_wavelength,
+        )
+
+        radiance = na.regridding.regrid_from_weights(
             *weights,
-            values_input=values_input,
+            values_input=image.outputs,
         )
 
         # divide out the effective collecting area, the inverse of the
         # multiplication performed by `image_from_weights`, converting the
         # per-pixel rate back into a rate per unit collecting area.
-        values_output = values_output / self.weights_unit
+        radiance = radiance / self.weights_unit
 
-        return values_output
+        # recover the spectral radiance by undoing the integration over each
+        # object-plane voxel performed by `image`.
+        radiance = radiance / volume
+
+        return na.FunctionArray(
+            inputs=coordinates,
+            outputs=radiance,
+        )
 
     def image(
         self,
@@ -363,40 +491,20 @@ class AbstractLinearSystem(
                 )
             (axis_wavelength,) = axis
 
-        # volume of each voxel on the object plane: the spectral bin width
-        # times the solid angle (or area) subtended by each field pixel.
-        volume_wavelength = coordinates.wavelength.volume_cell(axis_wavelength)
-        volume_field = coordinates.position.volume_cell(axis_field)
-        volume_field = na.as_named_array(volume_field).cell_centers(axis_wavelength)
-        volume = volume_wavelength * volume_field
-
-        # integrate the spectral radiance over each voxel into a flux per unit
-        # collecting area. The radiance may be given in either energy or photon
-        # units; the sensor converts energy to photons if necessary. `weights`
-        # folds in the effective area, vignetting, and field stop during
-        # regridding.
-        rate = scene.outputs * volume
-
+        # `weights` folds in the effective area, vignetting, and field stop and
+        # is the expensive part of the forward model; `image_from_weights`
+        # reuses it to integrate the radiance, regrid, and expose the sensor.
         weights = self.weights(
             coordinates=coordinates,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
         )
 
-        rate_sensor = self.image_from_weights(weights, rate)
-
-        image = na.FunctionArray(
-            inputs=na.SpectralPositionalVectorArray(
-                wavelength=coordinates.wavelength,
-                position=self.coordinates_sensor,
-            ),
-            outputs=rate_sensor,
-        )
-
-        return self.sensor.expose(
-            image=image,
-            direction=self.direction,
+        return self.image_from_weights(
+            weights,
+            scene,
             axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
             noise=noise,
             **kwargs,
         )
@@ -464,13 +572,9 @@ class AbstractLinearSystem(
                 )
             (axis_wavelength,) = axis
 
-        # volume of each voxel on the object plane: the spectral bin width
-        # times the solid angle (or area) subtended by each field pixel.
-        volume_wavelength = coordinates.wavelength.volume_cell(axis_wavelength)
-        volume_field = coordinates.position.volume_cell(axis_field)
-        volume_field = na.as_named_array(volume_field).cell_centers(axis_wavelength)
-        volume = volume_wavelength * volume_field
-
+        # `weights_transposed` is the expensive transposed operator;
+        # `backproject_from_weights` reuses it to invert the sensor response,
+        # regrid onto the object plane, and recover the spectral radiance.
         if weights is None:
             weights = self.weights(
                 coordinates=coordinates,
@@ -484,23 +588,12 @@ class AbstractLinearSystem(
             axis_field=axis_field,
         )
 
-        # invert the detector response, mapping the measured electrons back into
-        # the photon rate per pixel produced by :meth:`image_from_weights`.
-        image = self.sensor.photons_absorbed(
+        return self.backproject_from_weights(
+            weights_transposed,
             image,
-            direction=self.direction,
+            coordinates=coordinates,
             axis_wavelength=axis_wavelength,
-        )
-
-        radiance = self.backproject_from_weights(weights_transposed, image.outputs)
-
-        # recover the spectral radiance by undoing the integration over each
-        # object-plane voxel performed by :meth:`image`.
-        radiance = radiance / volume
-
-        return na.FunctionArray(
-            inputs=coordinates,
-            outputs=radiance,
+            axis_field=axis_field,
         )
 
 
