@@ -242,6 +242,7 @@ class AbstractLinearSystem(
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         noise: bool = True,
+        uncertainty: bool = False,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -276,6 +277,11 @@ class AbstractLinearSystem(
             are used.
         noise
             Whether to include sensor noise in the result.
+        uncertainty
+            Whether to attach the standard deviation of the measurement noise
+            to the result, as a
+            :class:`~named_arrays.NormalUncertainScalarArray`, using the
+            sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -331,13 +337,28 @@ class AbstractLinearSystem(
             outputs=rate_sensor,
         )
 
-        return self.sensor.expose(
+        image = self.sensor.expose(
             image=image,
             direction=self.direction,
             axis_wavelength=axis_wavelength,
             noise=noise,
             **kwargs,
         )
+
+        if uncertainty:
+            width = self.sensor.uncertainty(
+                image,
+                direction=self.direction,
+                axis_wavelength=axis_wavelength,
+            )
+            image = image.replace(
+                outputs=na.NormalUncertainScalarArray(
+                    nominal=image.outputs,
+                    width=width.outputs,
+                ),
+            )
+
+        return image
 
     def backproject_from_weights(
         self,
@@ -439,6 +460,7 @@ class AbstractLinearSystem(
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         noise: bool = True,
+        uncertainty: bool = False,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -468,6 +490,11 @@ class AbstractLinearSystem(
             are used.
         noise
             Whether to include sensor noise in the result.
+        uncertainty
+            Whether to attach the standard deviation of the measurement noise
+            to the result, as a
+            :class:`~named_arrays.NormalUncertainScalarArray`, using the
+            sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -506,6 +533,7 @@ class AbstractLinearSystem(
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             noise=noise,
+            uncertainty=uncertainty,
             **kwargs,
         )
 

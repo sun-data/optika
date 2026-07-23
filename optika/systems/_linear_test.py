@@ -146,6 +146,16 @@ class AbstractTestAbstractLinearSystem(
         assert np.all(np.isfinite(result.outputs.value))
         assert result.outputs.sum() > 0 * na.unit(radiance)
 
+    def test_image_uncertainty(self, a: optika.systems.AbstractLinearSystem):
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        result = a.image(scene, noise=False, uncertainty=True)
+
+        # the measurement noise is attached as a normal uncertain array
+        assert isinstance(result.outputs, na.NormalUncertainScalarArray)
+        assert na.unit(result.outputs.nominal).is_equivalent(u.electron)
+        assert na.unit(result.outputs.width).is_equivalent(u.electron)
+        assert np.all(result.outputs.width >= 0 * u.electron)
+
 
 @pytest.mark.parametrize(
     argnames="a",
