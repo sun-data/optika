@@ -45,3 +45,6 @@ Homepage = "https://github.com/sun-data/optika"
 Documentation = "https://optika.readthedocs.io/en/latest"
 
 [tool.setuptools_scm]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
