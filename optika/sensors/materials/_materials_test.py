@@ -418,6 +418,54 @@ class AbstractTestAbstractSensorMaterial(
         assert result.unit.is_equivalent(u.photon)
 
     @pytest.mark.parametrize(
+        argnames="photons",
+        argvalues=[
+            100 * u.photon,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
+        ],
+    )
+    def test_photons_absorbed(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        photons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
+    ):
+        # `photons_absorbed` inverts the noiseless `signal` (which uses unit
+        # absorbance), recovering the number of absorbed photons.
+        electrons = a.signal(
+            photons=photons,
+            wavelength=wavelength,
+            direction=direction,
+            noise=False,
+        )
+        result = a.photons_absorbed(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+        )
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert result.unit.is_equivalent(u.photon)
+        assert np.allclose(
+            na.as_named_array(result / photons).ndarray.to_value(
+                u.dimensionless_unscaled
+            ),
+            1,
+        )
+
+    @pytest.mark.parametrize(
         argnames="wavelength",
         argvalues=[
             100 * u.AA,
