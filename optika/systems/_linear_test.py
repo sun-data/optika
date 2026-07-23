@@ -123,6 +123,29 @@ class AbstractTestAbstractLinearSystem(
             assert np.all(result.outputs >= 0 * u.electron)
             assert result.outputs.sum() > 0 * u.electron
 
+    @pytest.mark.parametrize(
+        argnames="radiance",
+        argvalues=[
+            1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm,
+        ],
+    )
+    def test_backproject(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        radiance: u.Quantity,
+    ):
+        scene = _scene(radiance)
+        image = a.image(scene, noise=False)
+        result = a.backproject(image, scene.inputs)
+        assert isinstance(result, na.FunctionArray)
+        assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
+
+        # the detector response is inverted, so the backprojection recovers a
+        # spectral radiance with the same units as the original scene.
+        assert na.unit(result.outputs).is_equivalent(na.unit(radiance))
+        assert np.all(np.isfinite(result.outputs.value))
+        assert result.outputs.sum() > 0 * na.unit(radiance)
+
 
 @pytest.mark.parametrize(
     argnames="a",

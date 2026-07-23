@@ -415,20 +415,19 @@ class AbstractLinearSystem(
         """
         Transpose of the linear forward model, :meth:`image`.
 
-        Projects a detector-plane image back onto the object plane by spreading
-        each pixel's value across every object-plane cell that could have
-        contributed to it.
-        This is the transpose of the optical forward model, the regridding
-        performed by :meth:`image` before
-        :meth:`~optika.sensors.AbstractImagingSensor.expose`, and not its
-        inverse.
+        Inverts the detector response (:meth:`~optika.sensors.AbstractImagingSensor.expose`)
+        and then applies the transpose of the optical regridding, projecting a
+        detector-plane image of electrons back onto the object plane by
+        spreading each pixel's value across every object-plane cell that could
+        have contributed to it. This is the transpose of :meth:`image`, not its
+        inverse (the geometric spreading is not undone, and the sensor noise is
+        not recovered).
 
         Parameters
         ----------
         image
-            The detector-plane image to project onto the object plane, given as
-            a rate per sensor pixel (the quantity produced by
-            :meth:`image_from_weights`).
+            The detector-plane image of electrons to project onto the object
+            plane, as produced by :meth:`image`.
         coordinates
             The vertices of each pixel on the object plane to project onto.
         weights
@@ -485,10 +484,15 @@ class AbstractLinearSystem(
             axis_field=axis_field,
         )
 
-        if isinstance(image, na.AbstractFunctionArray):
-            image = image.outputs
+        # invert the detector response, mapping the measured electrons back into
+        # the photon rate per pixel produced by :meth:`image_from_weights`.
+        image = self.sensor.photons_absorbed(
+            image,
+            direction=self.direction,
+            axis_wavelength=axis_wavelength,
+        )
 
-        radiance = self.backproject_from_weights(weights_transposed, image)
+        radiance = self.backproject_from_weights(weights_transposed, image.outputs)
 
         # recover the spectral radiance by undoing the integration over each
         # object-plane voxel performed by :meth:`image`.
