@@ -1,4 +1,5 @@
 import pytest
+import dataclasses
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -87,6 +88,46 @@ class AbstractTestAbstractImagingSensor(
         assert "line" in result_lines.outputs.shape
         assert a.axis_pixel.x in result_lines.outputs.shape
         assert a.axis_pixel.y in result_lines.outputs.shape
+
+    def test_photons_absorbed(self, a: optika.sensors.AbstractImagingSensor):
+        # use a nonzero exposure time so the default `timedelta` is invertible
+        a = dataclasses.replace(a, timedelta_exposure=10 * u.s)
+
+        # a photon rate incident on a few pixels, as a function of the
+        # wavelength bin edges
+        wavelength = na.linspace(500, 600, axis="wavelength", num=4) * u.nm
+        position = na.Cartesian2dVectorArray(
+            x=na.arange(0, 5, axis=a.axis_pixel.x) * u.pix,
+            y=na.arange(0, 5, axis=a.axis_pixel.y) * u.pix,
+        )
+        rate = (
+            na.random.uniform(
+                low=0,
+                high=100,
+                shape_random={"wavelength": 3, a.axis_pixel.x: 5, a.axis_pixel.y: 5},
+            )
+            * u.photon
+            / u.s
+        )
+        image = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=wavelength,
+                position=position,
+            ),
+            outputs=rate,
+        )
+
+        # `photons_absorbed` is the deterministic inverse of `expose`
+        electrons = a.expose(image, noise=False)
+        result = a.photons_absorbed(electrons)
+
+        assert isinstance(result, na.FunctionArray)
+        assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
+        assert result.outputs.unit.is_equivalent(u.photon / u.s)
+        assert np.allclose(
+            result.outputs.to_value(u.photon / u.s),
+            rate.to_value(u.photon / u.s),
+        )
 
 
 @pytest.mark.parametrize(
