@@ -1,4 +1,5 @@
 import pytest
+import dataclasses
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -89,6 +90,9 @@ class AbstractTestAbstractImagingSensor(
         assert a.axis_pixel.y in result_lines.outputs.shape
 
     def test_photons_absorbed(self, a: optika.sensors.AbstractImagingSensor):
+        # use a nonzero exposure time so the default `timedelta` is invertible
+        a = dataclasses.replace(a, timedelta_exposure=10 * u.s)
+
         # a photon rate incident on a few pixels, as a function of the
         # wavelength bin edges
         wavelength = na.linspace(500, 600, axis="wavelength", num=4) * u.nm
@@ -114,9 +118,8 @@ class AbstractTestAbstractImagingSensor(
         )
 
         # `photons_absorbed` is the deterministic inverse of `expose`
-        timedelta = 10 * u.s
-        electrons = a.expose(image, timedelta=timedelta, noise=False)
-        result = a.photons_absorbed(electrons, timedelta=timedelta)
+        electrons = a.expose(image, noise=False)
+        result = a.photons_absorbed(electrons)
 
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
