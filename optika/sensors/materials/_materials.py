@@ -1540,6 +1540,28 @@ class AbstractSensorMaterial(
             as produced by :meth:`direction_refracted`.
         """
 
+    @abc.abstractmethod
+    def uncertainty(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        """
+        Given the number of electrons measured by the sensor, compute the
+        standard deviation of the measurement noise, in electrons.
+
+        Parameters
+        ----------
+        electrons
+            The number of electrons measured by each pixel.
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        """
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class IdealSensorMaterial(
@@ -1609,6 +1631,16 @@ class IdealSensorMaterial(
         direction: float | na.AbstractScalar = 1,
     ) -> na.AbstractScalar:
         return electrons * u.photon / u.electron
+
+    def uncertainty(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        # an ideal sensor has only shot noise, so the electrons are
+        # Poisson-distributed and the variance equals the mean.
+        return np.sqrt(electrons * u.electron)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -2171,6 +2203,30 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         )
 
         return electrons / (iqy * cce)
+
+    def uncertainty(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        # `direction` is the cosine of the refracted angle *inside* the
+        # substrate (as passed to `signal`); pass ``n == n_substrate`` so
+        # `vmr_signal` uses it directly as the substrate direction. The
+        # variance-to-mean ratio then gives the variance per measured electron.
+        n_substrate = self._chemical.n(wavelength)
+
+        vmr = vmr_signal(
+            wavelength=wavelength,
+            direction=direction,
+            n=n_substrate,
+            n_substrate=n_substrate,
+            thickness_implant=self.thickness_implant,
+            cce_backsurface=self.cce_backsurface,
+            temperature=self.temperature,
+        )
+
+        return np.sqrt(vmr * electrons)
 
     def efficiency(
         self,
