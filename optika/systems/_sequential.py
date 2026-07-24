@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import Sequence, Callable, Any, ClassVar
 import abc
 import dataclasses
@@ -14,6 +13,7 @@ import matplotlib.pyplot as plt
 import named_arrays as na
 import optika
 from . import AbstractSystem
+from . import LinearSystem
 
 __all__ = [
     "AbstractSequentialSystem",
@@ -23,6 +23,8 @@ __all__ = [
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSequentialSystem(
+    optika.mixins.DxfWritable,
+    optika.mixins.Plottable,
     AbstractSystem,
 ):
     """
@@ -1088,12 +1090,12 @@ class AbstractSequentialSystem(
     def image(
         self,
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
-        pupil: None | na.AbstractCartesian2dVectorArray = None,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
-        axis_pupil: None | tuple[str, str] = None,
         integrate: bool = True,
         noise: bool = True,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        axis_pupil: None | tuple[str, str] = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Forward model of the optical system.
@@ -1105,10 +1107,6 @@ class AbstractSequentialSystem(
             The spectral radiance of the scene as a function of wavelength
             and field position.
             The inputs must be cell vertices.
-        pupil
-            The vertices of the pupil grid in either normalized or physical
-            coordinates.
-            If :obj:`None` (the default), the pupil grid will only have one cell.
         axis_wavelength
             The logical axis of `scene` corresponding to changing wavelength coordinate.
             If :obj:`None`,
@@ -1119,12 +1117,6 @@ class AbstractSequentialSystem(
             If :obj:`None`,
             ``set(scene.inputs.position.shape) - set(self.shape) - {axis_wavelength}``,
             should have exactly two elements.
-        axis_pupil
-            The two logical axes of `pupil` corresponding to changing pupil coordinate.
-            If :obj:`None`,
-            ``set(pupil.shape) - set(self.shape) - {axis_wavelength,} - set(axis_field)``,
-            should have exactly two elements.
-            If `pupil` is :obj:`None`, this parameter is ignored.
         integrate
             Whether to integrate the wavelength axis.
             Real images usually have the wavelength axis integrated since they use
@@ -1132,6 +1124,16 @@ class AbstractSequentialSystem(
             separate for introspective purposes.
         noise
             Whether to add noise to the result.
+        pupil
+            The vertices of the pupil grid in either normalized or physical
+            coordinates.
+            If :obj:`None` (the default), the pupil grid will only have one cell.
+        axis_pupil
+            The two logical axes of `pupil` corresponding to changing pupil coordinate.
+            If :obj:`None`,
+            ``set(pupil.shape) - set(self.shape) - {axis_wavelength,} - set(axis_field)``,
+            should have exactly two elements.
+            If `pupil` is :obj:`None`, this parameter is ignored.
         """
 
         scene = scene.explicit
@@ -1188,21 +1190,33 @@ class AbstractSequentialSystem(
             normalized_pupil=normalized_pupil,
         )
 
-        if integrate:
-            wavelength = na.stack(
-                arrays=[
-                    wavelength.min(axis_wavelength),
-                    wavelength.max(axis_wavelength),
-                ],
-                axis=axis_wavelength,
-            )
-
         return self.sensor.measure(
             rays=rayfunction.outputs,
             wavelength=wavelength,
             axis=(axis_wavelength,) + axis_field + axis_pupil,
             axis_wavelength=axis_wavelength,
             noise=noise,
+            integrate=integrate,
+        )
+
+    def backproject(
+        self,
+        image: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        coordinates: na.SpectralPositionalVectorArray,
+        axis_wavelength: None | str = None,
+        axis_field: None | tuple[str, str] = None,
+        integrate: bool = True,
+        **kwargs: Any,
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+        """
+        Not implemented: a ray-traced :class:`SequentialSystem` is not a linear
+        operator, so it has no transpose. Build a
+        :class:`~optika.systems.LinearSystem` (for example with
+        :meth:`linearize`) to backproject.
+        """
+        raise NotImplementedError(  # pragma: nocover
+            "`SequentialSystem` does not support backprojection; "
+            "use a `LinearSystem` instead."
         )
 
     def distortion(
@@ -1268,9 +1282,10 @@ class AbstractSequentialSystem(
 
         # average only the unvignetted rays, falling back to all of the rays
         # for field points excluded from the fit so that the mean is never
-        # empty
+        # empty. The sensor-plane positions are expressed in pixel coordinates,
+        # so the fitted distortion maps the scene onto the pixel grid.
         coordinates_sensor = np.mean(
-            rays.outputs.position.xy,
+            self.sensor.pixels(rays.outputs.position.xy),
             axis=axis_pupil,
             where=unvignetted | ~where,
         )
@@ -1509,6 +1524,96 @@ class AbstractSequentialSystem(
             wavelength=wavelength,
             area=area_eff,
             axis_wavelength=axis_wavelength,
+        )
+
+    def linearize(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+        degree: int = 2,
+    ) -> LinearSystem:
+        """
+        Construct a linear approximation of this system by fitting its
+        distortion, vignetting, and effective area models.
+
+        The result is an :class:`~optika.systems.LinearSystem`, a fast forward
+        model which images scenes by conservative regridding instead of
+        raytracing each one.
+
+        The resulting system's
+        :attr:`~optika.systems.LinearSystem.field_stop` is left as :obj:`None`;
+        the field stop is not modeled here, since field points outside it are
+        excluded when fitting the vignetting model rather than represented as a
+        falloff.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to sample the system.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            will be used.
+        field
+            The field positions at which to sample the system, in either
+            normalized or physical units.
+            If :obj:`None` (the default), ``self.grid_input.field``
+            will be used.
+        pupil
+            The **vertices** of the pupil grid, in either normalized or physical
+            units. The effective area fit uses these vertices to compute the
+            pupil cell areas, while the distortion and vignetting fits trace at
+            the corresponding cell centers.
+            If :obj:`None` (the default), the effective area fit uses its own
+            default pupil grid and the distortion and vignetting fits use
+            ``self.grid_input.pupil``.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
+        degree
+            The degree of the polynomial distortion and vignetting models.
+        """
+
+        # `area_effective` interprets `pupil` as cell vertices (it needs them to
+        # compute the pupil cell areas), while `distortion` and `vignetting`
+        # trace at sample points, so give them the cell centers of the vertices.
+        if pupil is not None:
+            pupil_centers = pupil.cell_centers(axis=tuple(na.shape(pupil)))
+        else:
+            pupil_centers = None
+
+        kwargs = dict(
+            wavelength=wavelength,
+            field=field,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+        # the cosine of the refracted angle at which light strikes the sensor,
+        # computed the same way as
+        # :meth:`~optika.sensors.AbstractImagingSensor.collect` and averaged
+        # over the grid.
+        rays = self.rayfunction_default.outputs
+        direction = self.sensor.material.direction_refracted(
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            n=rays.n,
+            normal=self.sensor.sag.normal(rays.position),
+        )
+        axis_grid = self.axis_wavelength_ + self.axis_field_ + self.axis_pupil_
+        direction = direction.mean(
+            axis=tuple(ax for ax in axis_grid if ax in na.shape(direction)),
+        )
+
+        return LinearSystem(
+            area_effective=self.area_effective(pupil=pupil, **kwargs),
+            distortion=self.distortion(pupil=pupil_centers, degree=degree, **kwargs),
+            sensor=self.sensor,
+            direction=direction,
+            vignetting=self.vignetting(pupil=pupil_centers, degree=degree, **kwargs),
         )
 
     def _rayfunction_and_axes(

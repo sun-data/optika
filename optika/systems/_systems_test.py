@@ -7,7 +7,6 @@ from .._tests import test_mixins
 
 
 class AbstractTestAbstractSystem(
-    test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestTransformable,
     test_mixins.AbstractTestShaped,

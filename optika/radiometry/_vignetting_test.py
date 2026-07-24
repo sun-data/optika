@@ -26,6 +26,7 @@ def _illumination() -> na.AbstractScalar:
 
 class AbstractTestAbstractVignettingModel(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
 ):
     def test__call__(self, a: optika.radiometry.AbstractVignettingModel):
         scene = _scene()
@@ -125,3 +126,28 @@ class TestPolynomialVignettingModel(
         assert isinstance(ax, na.ScalarArray)
         assert a.axis_wavelength in na.shape(ax)
         plt.close(fig)
+
+
+def test_polynomial_vignetting_model_channel():
+    """
+    Calibration points that vary along an axis orthogonal to the scene axes
+    (e.g. the channel axis of a multi-channel instrument) must be fit with an
+    independent polynomial per channel, not one polynomial averaged over all
+    the channels.
+    """
+    scene = _scene()
+
+    coefficient = na.ScalarArray([0.1, 0.2, 0.05] / u.deg**2, axes="channel")
+    illumination = 1 - coefficient * scene.position.length**2
+
+    a = optika.radiometry.PolynomialVignettingModel(
+        coordinates_scene=scene,
+        illumination=illumination,
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=2,
+    )
+
+    result = a(scene)
+    assert "channel" in result.shape
+    assert np.all(np.abs(result - illumination) < 1e-9)

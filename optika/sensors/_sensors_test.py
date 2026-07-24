@@ -24,6 +24,15 @@ class AbstractTestAbstractImagingSensor(
         result = a.read_noise
         assert result >= 0 * u.electron
 
+    def test_pixels(self, a: optika.sensors.AbstractImagingSensor):
+        # the corners of the light-sensitive area map to pixel 0 and
+        # `num_pixel`
+        pixels_lower = a.pixels(a.aperture.bound_lower.xy)
+        pixels_upper = a.pixels(a.aperture.bound_upper.xy)
+        assert na.unit(pixels_lower).is_equivalent(u.pix)
+        assert np.allclose(pixels_lower, 0 * u.pix)
+        assert np.allclose(pixels_upper, a.num_pixel * u.pix)
+
     @pytest.mark.parametrize(
         argnames="rays",
         argvalues=[
@@ -121,9 +130,9 @@ class AbstractTestAbstractImagingSensor(
             outputs=rate,
         )
 
-        # `photons_absorbed` is the deterministic inverse of `expose`
-        electrons = a.expose(image, noise=False)
-        result = a.photons_absorbed(electrons)
+        # per wavelength, `photons_absorbed` is the exact inverse of `expose`
+        electrons = a.expose(image, noise=False, integrate=False)
+        result = a.photons_absorbed(electrons, integrate=False)
 
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
@@ -132,6 +141,23 @@ class AbstractTestAbstractImagingSensor(
             result.outputs.to_value(u.photon / u.s),
             rate.to_value(u.photon / u.s),
         )
+
+        # an integrated readout is spread back over the wavelength bins
+        integrated = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=wavelength,
+                position=position,
+            ),
+            outputs=na.random.uniform(
+                low=0,
+                high=1000,
+                shape_random={a.axis_pixel.x: 5, a.axis_pixel.y: 5},
+            )
+            * u.electron,
+        )
+        result = a.photons_absorbed(integrated, integrate=True)
+        assert result.outputs.unit.is_equivalent(u.photon / u.s)
+        assert np.all(np.isfinite(result.outputs.to_value(u.photon / u.s)))
 
     def test_uncertainty(self, a: optika.sensors.AbstractImagingSensor):
         # electrons measured in a few pixels, as a function of the wavelength
@@ -157,13 +183,21 @@ class AbstractTestAbstractImagingSensor(
             outputs=electrons,
         )
 
+        # integrated over wavelength (the default), with read noise once
         result = a.uncertainty(image)
 
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert result.outputs.unit.is_equivalent(u.electron)
+        assert "wavelength" not in na.shape(result.outputs)
         # the total noise is at least the read noise (added in quadrature)
         assert np.all(result.outputs >= a.read_noise)
+
+        # per wavelength (no integration, no read noise)
+        result = a.uncertainty(image, integrate=False)
+        assert result.outputs.unit.is_equivalent(u.electron)
+        assert "wavelength" in na.shape(result.outputs)
+        assert np.all(result.outputs >= 0 * u.electron)
 
 
 @pytest.mark.parametrize(

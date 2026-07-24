@@ -16,6 +16,7 @@ def _area() -> na.AbstractScalar:
 
 class AbstractTestAbstractEffectiveAreaModel(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
 ):
     def test__call__(self, a: optika.radiometry.AbstractEffectiveAreaModel):
         wavelength = na.linspace(200, 900, axis="wavelength", num=5) * u.AA
