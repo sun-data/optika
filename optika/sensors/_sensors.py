@@ -170,6 +170,43 @@ class AbstractImagingSensor(
 
         return image, direction
 
+    @staticmethod
+    def _collapse_wavelength(
+        inputs: na.SpectralPositionalVectorArray,
+        axis_wavelength: str,
+    ) -> na.SpectralPositionalVectorArray:
+        """Collapse a wavelength axis to its two band edges."""
+        wavelength = inputs.wavelength
+        return inputs.replace(
+            wavelength=na.stack(
+                arrays=[
+                    wavelength[{axis_wavelength: +0}],
+                    wavelength[{axis_wavelength: ~0}],
+                ],
+                axis=axis_wavelength,
+            )
+        )
+
+    def _integrate(
+        self,
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        axis_wavelength: str,
+        noise: bool,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """Sum electrons over wavelength into one readout, adding read noise."""
+        electrons = image.outputs.sum(axis_wavelength)
+        if noise:
+            # add zero-mean Gaussian read noise once per readout
+            electrons = na.random.normal(loc=electrons, scale=self.read_noise)
+        inputs = self._collapse_wavelength(image.inputs, axis_wavelength)
+        return dataclasses.replace(image, inputs=inputs, outputs=electrons)
+
     def expose(
         self,
         image: na.FunctionArray[
@@ -180,6 +217,8 @@ class AbstractImagingSensor(
         axis_wavelength: None | str = None,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         noise: bool = True,
+        integrate: bool = True,
+        uncertainty: bool = False,
     ) -> na.FunctionArray[
         na.SpectralPositionalVectorArray,
         na.AbstractScalar,
@@ -195,7 +234,10 @@ class AbstractImagingSensor(
         The photon flux is multiplied by the exposure time and converted to
         electrons using
         :meth:`~optika.sensors.materials.AbstractSensorMaterial.signal`, which
-        applies the quantum efficiency, noise, and charge-diffusion models.
+        applies the quantum efficiency and the shot, Fano, and charge-diffusion
+        noise per wavelength. If `integrate` is :obj:`True`, the electrons are
+        then summed over wavelength into a single readout and the sensor's
+        :attr:`read_noise` is added once.
 
         Parameters
         ----------
@@ -216,8 +258,21 @@ class AbstractImagingSensor(
             If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
             will be used.
         noise
-            Whether to add shot noise, intrinsic sensor noise, and read noise
-            to the result.
+            Whether to add shot, Fano, and charge-diffusion noise per wavelength
+            and (if `integrate`) read noise once per readout.
+        integrate
+            Whether to integrate the electrons over wavelength into a single
+            readout, applying :attr:`read_noise` once.
+            A real imaging sensor cannot resolve the individual wavelengths, so
+            this defaults to :obj:`True`; :obj:`False` keeps the wavelengths
+            separate for demonstration.
+        uncertainty
+            Whether to attach the standard deviation of the measurement noise to
+            the result as a
+            :class:`~named_arrays.NormalUncertainScalarArray`, computed with
+            :meth:`uncertainty`.
+            The width uses the *expected* electrons, so the noiseless signal
+            model is only re-evaluated when `noise` is also :obj:`True`.
         """
         if axis_wavelength is None:
             shape_wavelength = na.shape(image.inputs.wavelength)
@@ -232,24 +287,44 @@ class AbstractImagingSensor(
             timedelta = self.timedelta_exposure
 
         photons = image.outputs * timedelta
+        wavelength = image.inputs.wavelength.cell_centers(axis_wavelength)
 
-        electrons = self.material.signal(
-            photons=photons,
-            wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
-            direction=direction,
-            width_pixel=self.width_pixel,
-            axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
-            noise=noise,
-        )
-
-        if noise:
-            # add zero-mean Gaussian read noise to each pixel
-            electrons = na.random.normal(
-                loc=electrons,
-                scale=self.read_noise,
+        def signal(noise: bool) -> na.AbstractScalar:
+            return self.material.signal(
+                photons=photons,
+                wavelength=wavelength,
+                direction=direction,
+                width_pixel=self.width_pixel,
+                axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
+                noise=noise,
             )
 
-        return dataclasses.replace(image, outputs=electrons)
+        result = dataclasses.replace(image, outputs=signal(noise))
+
+        if uncertainty:
+            # the width uses the expected electrons, which are the same as the
+            # nominal result unless `noise` added a realization
+            expected = result if not noise else image.replace(outputs=signal(False))
+            width = self.uncertainty(
+                expected,
+                direction=direction,
+                axis_wavelength=axis_wavelength,
+                integrate=integrate,
+            )
+
+        if integrate:
+            # a real sensor reads out all wavelengths at once
+            result = self._integrate(result, axis_wavelength, noise)
+
+        if uncertainty:
+            result = result.replace(
+                outputs=na.NormalUncertainScalarArray(
+                    nominal=result.outputs,
+                    width=width.outputs,
+                ),
+            )
+
+        return result
 
     def photons_absorbed(
         self,
@@ -260,6 +335,7 @@ class AbstractImagingSensor(
         direction: float | na.AbstractScalar = 1,
         axis_wavelength: None | str = None,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
+        integrate: bool = True,
     ) -> na.FunctionArray[
         na.SpectralPositionalVectorArray,
         na.AbstractScalar,
@@ -293,6 +369,12 @@ class AbstractImagingSensor(
             The exposure time of the measurement.
             If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
             will be used.
+        integrate
+            Whether `image` is a single wavelength-integrated readout (as
+            produced by :meth:`expose` with ``integrate=True``).
+            If :obj:`True` (the default), the readout is spread uniformly across
+            the wavelength bins before the per-wavelength inverse, mirroring the
+            integration performed by :meth:`expose`.
         """
         if axis_wavelength is None:
             shape_wavelength = na.shape(image.inputs.wavelength)
@@ -306,8 +388,15 @@ class AbstractImagingSensor(
         if timedelta is None:
             timedelta = self.timedelta_exposure
 
+        electrons = image.outputs
+
+        if integrate:
+            # spread the integrated readout uniformly across the wavelength bins
+            num_wavelength = na.shape(image.inputs.wavelength)[axis_wavelength] - 1
+            electrons = electrons / num_wavelength
+
         photons = self.material.photons_absorbed(
-            electrons=image.outputs,
+            electrons=electrons,
             wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
             direction=direction,
         )
@@ -322,6 +411,7 @@ class AbstractImagingSensor(
         ],
         direction: float | na.AbstractScalar = 1,
         axis_wavelength: None | str = None,
+        integrate: bool = True,
     ) -> na.FunctionArray[
         na.SpectralPositionalVectorArray,
         na.AbstractScalar,
@@ -330,10 +420,11 @@ class AbstractImagingSensor(
         Compute the standard deviation of the noise in an image of electrons
         measured by the sensor.
 
-        This combines the material's analytic noise model
+        This uses the material's analytic per-wavelength noise model
         (:meth:`~optika.sensors.materials.AbstractSensorMaterial.uncertainty`),
-        which accounts for shot, Fano, and partial-charge-collection noise, with
-        the sensor's :attr:`read_noise` (added in quadrature), and so is the
+        which accounts for shot, Fano, and partial-charge-collection noise. If
+        `integrate` is :obj:`True`, the per-wavelength variances are summed in
+        quadrature and the sensor's :attr:`read_noise` is added once, giving the
         deterministic counterpart of the noise added by :meth:`expose`.
 
         Parameters
@@ -350,6 +441,11 @@ class AbstractImagingSensor(
             The logical axis of `image` corresponding to changing wavelength.
             If :obj:`None` (the default), ``image.inputs.wavelength`` must have
             only one logical axis.
+        integrate
+            Whether to integrate the noise over wavelength into a single
+            readout: the per-wavelength variances are summed in quadrature and
+            :attr:`read_noise` is added once.
+            Defaults to :obj:`True`, matching :meth:`expose`.
         """
         if axis_wavelength is None:
             shape_wavelength = na.shape(image.inputs.wavelength)
@@ -366,10 +462,16 @@ class AbstractImagingSensor(
             direction=direction,
         )
 
-        # add the read noise in quadrature
-        uncertainty = np.sqrt(np.square(uncertainty) + np.square(self.read_noise))
+        inputs = image.inputs
 
-        return dataclasses.replace(image, outputs=uncertainty)
+        if integrate:
+            # sum the per-wavelength variances and add the read noise once
+            variance = np.square(uncertainty).sum(axis_wavelength)
+            variance = variance + np.square(self.read_noise)
+            uncertainty = np.sqrt(variance)
+            inputs = self._collapse_wavelength(inputs, axis_wavelength)
+
+        return dataclasses.replace(image, inputs=inputs, outputs=uncertainty)
 
     def measure(
         self,
@@ -380,6 +482,7 @@ class AbstractImagingSensor(
         where: bool | na.AbstractScalar = True,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         noise: bool = True,
+        integrate: bool = True,
     ) -> na.FunctionArray[
         na.SpectralPositionalVectorArray,
         na.AbstractScalar,
@@ -425,6 +528,7 @@ class AbstractImagingSensor(
             axis_wavelength=axis_wavelength,
             timedelta=timedelta,
             noise=noise,
+            integrate=integrate,
         )
 
 

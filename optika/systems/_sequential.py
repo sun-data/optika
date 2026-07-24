@@ -1190,21 +1190,13 @@ class AbstractSequentialSystem(
             normalized_pupil=normalized_pupil,
         )
 
-        if integrate:
-            wavelength = na.stack(
-                arrays=[
-                    wavelength.min(axis_wavelength),
-                    wavelength.max(axis_wavelength),
-                ],
-                axis=axis_wavelength,
-            )
-
         return self.sensor.measure(
             rays=rayfunction.outputs,
             wavelength=wavelength,
             axis=(axis_wavelength,) + axis_field + axis_pupil,
             axis_wavelength=axis_wavelength,
             noise=noise,
+            integrate=integrate,
         )
 
     def distortion(

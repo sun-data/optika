@@ -243,6 +243,7 @@ class AbstractLinearSystem(
         axis_field: None | tuple[str, str] = None,
         noise: bool = True,
         uncertainty: bool = False,
+        integrate: bool = True,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -282,6 +283,11 @@ class AbstractLinearSystem(
             to the result, as a
             :class:`~named_arrays.NormalUncertainScalarArray`, using the
             sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
+        integrate
+            Whether to integrate the electrons over wavelength into a single
+            sensor readout, applying the read noise once
+            (see :meth:`~optika.sensors.AbstractImagingSensor.expose`).
+            Defaults to :obj:`True`.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -337,28 +343,15 @@ class AbstractLinearSystem(
             outputs=rate_sensor,
         )
 
-        image = self.sensor.expose(
+        return self.sensor.expose(
             image=image,
             direction=self.direction,
             axis_wavelength=axis_wavelength,
             noise=noise,
+            integrate=integrate,
+            uncertainty=uncertainty,
             **kwargs,
         )
-
-        if uncertainty:
-            width = self.sensor.uncertainty(
-                image,
-                direction=self.direction,
-                axis_wavelength=axis_wavelength,
-            )
-            image = image.replace(
-                outputs=na.NormalUncertainScalarArray(
-                    nominal=image.outputs,
-                    width=width.outputs,
-                ),
-            )
-
-        return image
 
     def backproject_from_weights(
         self,
@@ -367,6 +360,7 @@ class AbstractLinearSystem(
         coordinates: na.SpectralPositionalVectorArray,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
+        integrate: bool = True,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Apply a precomputed set of transposed regridding weights to a
@@ -402,6 +396,10 @@ class AbstractLinearSystem(
             on the object plane.
             If :obj:`None` (the default), the axes of ``coordinates.position``
             are used.
+        integrate
+            Whether `image` is a single wavelength-integrated readout, to be
+            spread back over the wavelength bins before the transpose.
+            Defaults to :obj:`True`.
         """
 
         coordinates = coordinates.explicit
@@ -433,6 +431,7 @@ class AbstractLinearSystem(
             image,
             direction=self.direction,
             axis_wavelength=axis_wavelength,
+            integrate=integrate,
         )
 
         radiance = na.regridding.regrid_from_weights(
@@ -461,6 +460,7 @@ class AbstractLinearSystem(
         axis_field: None | tuple[str, str] = None,
         noise: bool = True,
         uncertainty: bool = False,
+        integrate: bool = True,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -495,6 +495,11 @@ class AbstractLinearSystem(
             to the result, as a
             :class:`~named_arrays.NormalUncertainScalarArray`, using the
             sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
+        integrate
+            Whether to integrate the electrons over wavelength into a single
+            sensor readout, applying the read noise once
+            (see :meth:`~optika.sensors.AbstractImagingSensor.expose`).
+            Defaults to :obj:`True`.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -534,6 +539,7 @@ class AbstractLinearSystem(
             axis_field=axis_field,
             noise=noise,
             uncertainty=uncertainty,
+            integrate=integrate,
             **kwargs,
         )
 
@@ -547,6 +553,7 @@ class AbstractLinearSystem(
         weights: None | tuple[na.AbstractScalar, dict[str, int], dict[str, int]] = None,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
+        integrate: bool = True,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Transpose of the linear forward model, :meth:`image`.
@@ -582,6 +589,10 @@ class AbstractLinearSystem(
             on the object plane.
             If :obj:`None` (the default), the axes of ``coordinates.position``
             are used.
+        integrate
+            Whether `image` is a single wavelength-integrated readout, to be
+            spread back over the wavelength bins before the transpose.
+            Defaults to :obj:`True`.
         """
 
         coordinates = coordinates.explicit
@@ -622,6 +633,7 @@ class AbstractLinearSystem(
             coordinates=coordinates,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
+            integrate=integrate,
         )
 
 
