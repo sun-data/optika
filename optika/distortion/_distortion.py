@@ -376,6 +376,7 @@ class PolynomialDistortionModel(
             outputs=self.coordinates_sensor,
             center=scene.mean(self._axis_scene),
             degree=self.degree,
+            axis_polynomial=self._axis_scene,
             where_polynomial=self.where,
         )
 
@@ -392,6 +393,7 @@ class PolynomialDistortionModel(
             outputs=scene.position,
             center=inputs.mean(self._axis_scene),
             degree=self.degree,
+            axis_polynomial=self._axis_scene,
             where_polynomial=self.where,
         )
 

@@ -184,6 +184,7 @@ class PolynomialVignettingModel(
             outputs=self.illumination,
             center=scene.mean(self._axis_scene),
             degree=self.degree,
+            axis_polynomial=self._axis_scene,
             where_polynomial=self.where,
         )
 
