@@ -8,12 +8,12 @@ from ._systems_test import AbstractTestAbstractSystem
 
 def _distortion() -> optika.distortion.SimpleDistortionModel:
     return optika.distortion.SimpleDistortionModel(
-        plate_scale=50 * u.arcsec / u.mm,
-        dispersion=250 * u.nm / u.mm,
+        plate_scale=0.75 * u.arcsec / u.pix,
+        dispersion=3.75 * u.nm / u.pix,
         angle=0 * u.deg,
         reference=na.SpectralPositionalVectorArray(
             wavelength=550 * u.nm,
-            position=na.Cartesian2dVectorArray(0, 0) * u.mm,
+            position=na.Cartesian2dVectorArray(16, 16) * u.pix,
         ),
     )
 
@@ -91,7 +91,7 @@ class AbstractTestAbstractLinearSystem(
     def test_coordinates_sensor(self, a: optika.systems.AbstractLinearSystem):
         result = a.coordinates_sensor
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
-        assert na.unit_normalized(result).is_equivalent(u.mm)
+        assert na.unit_normalized(result).is_equivalent(u.pix)
 
     @pytest.mark.parametrize(
         argnames="radiance",

@@ -24,6 +24,15 @@ class AbstractTestAbstractImagingSensor(
         result = a.read_noise
         assert result >= 0 * u.electron
 
+    def test_pixels(self, a: optika.sensors.AbstractImagingSensor):
+        # the corners of the light-sensitive area map to pixel 0 and
+        # `num_pixel`
+        pixels_lower = a.pixels(a.aperture.bound_lower.xy)
+        pixels_upper = a.pixels(a.aperture.bound_upper.xy)
+        assert na.unit(pixels_lower).is_equivalent(u.pix)
+        assert np.allclose(pixels_lower, 0 * u.pix)
+        assert np.allclose(pixels_upper, a.num_pixel * u.pix)
+
     @pytest.mark.parametrize(
         argnames="rays",
         argvalues=[

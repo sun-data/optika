@@ -89,6 +89,27 @@ class AbstractImagingSensor(
             half_width=self.width_pixel * self.num_pixel / 2,
         )
 
+    def pixels(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Convert an in-plane position on the sensor plane into fractional pixel
+        coordinates.
+
+        Pixel ``0`` is the lower edge of the light-sensitive area (the same grid
+        that :meth:`collect` bins onto), so an integer value lands on a pixel
+        boundary and a half-integer on a pixel center.
+
+        Parameters
+        ----------
+        position
+            The in-plane (``xy``) position on the sensor plane, in physical
+            units.
+        """
+        lower = self.aperture.bound_lower.xy
+        return (position - lower) / self.width_pixel * u.pix
+
     def collect(
         self,
         rays: optika.rays.RayVectorArray,

@@ -1282,9 +1282,10 @@ class AbstractSequentialSystem(
 
         # average only the unvignetted rays, falling back to all of the rays
         # for field points excluded from the fit so that the mean is never
-        # empty
+        # empty. The sensor-plane positions are expressed in pixel coordinates,
+        # so the fitted distortion maps the scene onto the pixel grid.
         coordinates_sensor = np.mean(
-            rays.outputs.position.xy,
+            self.sensor.pixels(rays.outputs.position.xy),
             axis=axis_pupil,
             where=unvignetted | ~where,
         )

@@ -80,13 +80,14 @@ class AbstractLinearSystem(
         The vertices of the sensor pixel grid onto which the scene is
         regridded, derived from :attr:`sensor`.
 
-        This is the same grid of pixel edges that
-        :meth:`~optika.sensors.AbstractImagingSensor.collect` bins onto.
+        These are the pixel edges in fractional pixel coordinates
+        (:meth:`~optika.sensors.AbstractImagingSensor.pixels`), matching the
+        pixel units of :attr:`distortion`.
         """
         sensor = self.sensor
         return na.Cartesian2dVectorLinearSpace(
-            start=sensor.aperture.bound_lower.xy,
-            stop=sensor.aperture.bound_upper.xy,
+            start=sensor.pixels(sensor.aperture.bound_lower.xy),
+            stop=sensor.pixels(sensor.aperture.bound_upper.xy),
             axis=sensor.axis_pixel,
             num=sensor.num_pixel + 1,
         )
