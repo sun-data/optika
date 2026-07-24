@@ -241,9 +241,9 @@ class AbstractLinearSystem(
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
+        integrate: bool = True,
         noise: bool = True,
         uncertainty: bool = False,
-        integrate: bool = True,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -276,6 +276,11 @@ class AbstractLinearSystem(
             the object plane.
             If :obj:`None` (the default), the axes of ``scene.inputs.position``
             are used.
+        integrate
+            Whether to integrate the electrons over wavelength into a single
+            sensor readout, applying the read noise once
+            (see :meth:`~optika.sensors.AbstractImagingSensor.expose`).
+            Defaults to :obj:`True`.
         noise
             Whether to include sensor noise in the result.
         uncertainty
@@ -283,11 +288,6 @@ class AbstractLinearSystem(
             to the result, as a
             :class:`~named_arrays.NormalUncertainScalarArray`, using the
             sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
-        integrate
-            Whether to integrate the electrons over wavelength into a single
-            sensor readout, applying the read noise once
-            (see :meth:`~optika.sensors.AbstractImagingSensor.expose`).
-            Defaults to :obj:`True`.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -458,9 +458,9 @@ class AbstractLinearSystem(
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
+        integrate: bool = True,
         noise: bool = True,
         uncertainty: bool = False,
-        integrate: bool = True,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -488,6 +488,11 @@ class AbstractLinearSystem(
             the object plane.
             If :obj:`None` (the default), the axes of ``scene.inputs.position``
             are used.
+        integrate
+            Whether to integrate the electrons over wavelength into a single
+            sensor readout, applying the read noise once
+            (see :meth:`~optika.sensors.AbstractImagingSensor.expose`).
+            Defaults to :obj:`True`.
         noise
             Whether to include sensor noise in the result.
         uncertainty
@@ -495,11 +500,6 @@ class AbstractLinearSystem(
             to the result, as a
             :class:`~named_arrays.NormalUncertainScalarArray`, using the
             sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
-        integrate
-            Whether to integrate the electrons over wavelength into a single
-            sensor readout, applying the read noise once
-            (see :meth:`~optika.sensors.AbstractImagingSensor.expose`).
-            Defaults to :obj:`True`.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -550,10 +550,10 @@ class AbstractLinearSystem(
             | na.AbstractScalar
         ),
         coordinates: na.SpectralPositionalVectorArray,
-        weights: None | tuple[na.AbstractScalar, dict[str, int], dict[str, int]] = None,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
+        weights: None | tuple[na.AbstractScalar, dict[str, int], dict[str, int]] = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Transpose of the linear forward model, :meth:`image`.
@@ -573,11 +573,6 @@ class AbstractLinearSystem(
             plane, as produced by :meth:`image`.
         coordinates
             The vertices of each pixel on the object plane to project onto.
-        weights
-            The forward regridding weights computed by :meth:`weights`.
-            If :obj:`None` (the default), they are computed from `coordinates`.
-            Supplying a precomputed value (for example one already built for
-            :meth:`image`) avoids rebuilding the expensive regridding operator.
         axis_wavelength
             The logical axis of `coordinates` corresponding to changing
             wavelength.
@@ -593,6 +588,11 @@ class AbstractLinearSystem(
             Whether `image` is a single wavelength-integrated readout, to be
             spread back over the wavelength bins before the transpose.
             Defaults to :obj:`True`.
+        weights
+            The forward regridding weights computed by :meth:`weights`.
+            If :obj:`None` (the default), they are computed from `coordinates`.
+            Supplying a precomputed value (for example one already built for
+            :meth:`image`) avoids rebuilding the expensive regridding operator.
         """
 
         coordinates = coordinates.explicit

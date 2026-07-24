@@ -1090,12 +1090,12 @@ class AbstractSequentialSystem(
     def image(
         self,
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
-        pupil: None | na.AbstractCartesian2dVectorArray = None,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
-        axis_pupil: None | tuple[str, str] = None,
         integrate: bool = True,
         noise: bool = True,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        axis_pupil: None | tuple[str, str] = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Forward model of the optical system.
@@ -1107,10 +1107,6 @@ class AbstractSequentialSystem(
             The spectral radiance of the scene as a function of wavelength
             and field position.
             The inputs must be cell vertices.
-        pupil
-            The vertices of the pupil grid in either normalized or physical
-            coordinates.
-            If :obj:`None` (the default), the pupil grid will only have one cell.
         axis_wavelength
             The logical axis of `scene` corresponding to changing wavelength coordinate.
             If :obj:`None`,
@@ -1121,12 +1117,6 @@ class AbstractSequentialSystem(
             If :obj:`None`,
             ``set(scene.inputs.position.shape) - set(self.shape) - {axis_wavelength}``,
             should have exactly two elements.
-        axis_pupil
-            The two logical axes of `pupil` corresponding to changing pupil coordinate.
-            If :obj:`None`,
-            ``set(pupil.shape) - set(self.shape) - {axis_wavelength,} - set(axis_field)``,
-            should have exactly two elements.
-            If `pupil` is :obj:`None`, this parameter is ignored.
         integrate
             Whether to integrate the wavelength axis.
             Real images usually have the wavelength axis integrated since they use
@@ -1134,6 +1124,16 @@ class AbstractSequentialSystem(
             separate for introspective purposes.
         noise
             Whether to add noise to the result.
+        pupil
+            The vertices of the pupil grid in either normalized or physical
+            coordinates.
+            If :obj:`None` (the default), the pupil grid will only have one cell.
+        axis_pupil
+            The two logical axes of `pupil` corresponding to changing pupil coordinate.
+            If :obj:`None`,
+            ``set(pupil.shape) - set(self.shape) - {axis_wavelength,} - set(axis_field)``,
+            should have exactly two elements.
+            If `pupil` is :obj:`None`, this parameter is ignored.
         """
 
         scene = scene.explicit
@@ -1197,6 +1197,26 @@ class AbstractSequentialSystem(
             axis_wavelength=axis_wavelength,
             noise=noise,
             integrate=integrate,
+        )
+
+    def backproject(
+        self,
+        image: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        coordinates: na.SpectralPositionalVectorArray,
+        axis_wavelength: None | str = None,
+        axis_field: None | tuple[str, str] = None,
+        integrate: bool = True,
+        **kwargs: Any,
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+        """
+        Not implemented: a ray-traced :class:`SequentialSystem` is not a linear
+        operator, so it has no transpose. Build a
+        :class:`~optika.systems.LinearSystem` (for example with
+        :meth:`linearize`) to backproject.
+        """
+        raise NotImplementedError(  # pragma: nocover
+            "`SequentialSystem` does not support backprojection; "
+            "use a `LinearSystem` instead."
         )
 
     def distortion(
