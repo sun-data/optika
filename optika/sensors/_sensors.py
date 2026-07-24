@@ -73,6 +73,14 @@ class AbstractImagingSensor(
         """
 
     @property
+    @abc.abstractmethod
+    def read_noise(self) -> u.Quantity | na.AbstractScalar:
+        """
+        The standard deviation of the Gaussian read noise added to each pixel
+        during readout, in electrons.
+        """
+
+    @property
     def aperture(self):
         """
         The light-sensitive aperture of the sensor.
@@ -208,7 +216,8 @@ class AbstractImagingSensor(
             If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
             will be used.
         noise
-            Whether to add shot noise and intrinsic sensor noise to the result.
+            Whether to add shot noise, intrinsic sensor noise, and read noise
+            to the result.
         """
         if axis_wavelength is None:
             shape_wavelength = na.shape(image.inputs.wavelength)
@@ -232,6 +241,13 @@ class AbstractImagingSensor(
             axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
             noise=noise,
         )
+
+        if noise:
+            # add zero-mean Gaussian read noise to each pixel
+            electrons = na.random.normal(
+                loc=electrons,
+                scale=self.read_noise,
+            )
 
         return dataclasses.replace(image, outputs=electrons)
 
@@ -314,10 +330,11 @@ class AbstractImagingSensor(
         Compute the standard deviation of the noise in an image of electrons
         measured by the sensor.
 
-        This uses the material's analytic noise model
+        This combines the material's analytic noise model
         (:meth:`~optika.sensors.materials.AbstractSensorMaterial.uncertainty`),
-        which accounts for shot, Fano, and partial-charge-collection noise, and
-        so is the deterministic counterpart of the noise added by :meth:`expose`.
+        which accounts for shot, Fano, and partial-charge-collection noise, with
+        the sensor's :attr:`read_noise` (added in quadrature), and so is the
+        deterministic counterpart of the noise added by :meth:`expose`.
 
         Parameters
         ----------
@@ -348,6 +365,9 @@ class AbstractImagingSensor(
             wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
             direction=direction,
         )
+
+        # add the read noise in quadrature
+        uncertainty = np.sqrt(np.square(uncertainty) + np.square(self.read_noise))
 
         return dataclasses.replace(image, outputs=uncertainty)
 
@@ -435,6 +455,12 @@ class ImagingSensor(
     timedelta_exposure: u.Quantity | na.AbstractScalar = 0 * u.s
     """The exposure time of the sensor."""
 
+    read_noise: u.Quantity | na.AbstractScalar = 0 * u.electron
+    """
+    The standard deviation of the Gaussian read noise added to each pixel
+    during readout, in electrons.
+    """
+
     material: AbstractSensorMaterial = None
     """
     A model of the light-sensitive material composing this sensor.
@@ -469,5 +495,6 @@ class ImagingSensor(
             optika.shape(self.width_pixel),
             optika.shape(self.num_pixel),
             optika.shape(self.timedelta_exposure),
+            optika.shape(self.read_noise),
             optika.shape(self.transformation),
         )
