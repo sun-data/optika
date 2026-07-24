@@ -73,14 +73,12 @@ class AbstractImagingSensor(
         """
 
     @property
+    @abc.abstractmethod
     def read_noise(self) -> u.Quantity | na.AbstractScalar:
         """
         The standard deviation of the Gaussian read noise added to each pixel
         during readout, in electrons.
-
-        Defaults to zero; concrete sensors may override it.
         """
-        return 0 * u.electron
 
     @property
     def aperture(self):
