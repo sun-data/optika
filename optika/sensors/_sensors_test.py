@@ -20,6 +20,10 @@ class AbstractTestAbstractImagingSensor(
         result = a.timedelta_exposure
         assert result >= 0 * u.s
 
+    def test_read_noise(self, a: optika.sensors.AbstractImagingSensor):
+        result = a.read_noise
+        assert result >= 0 * u.electron
+
     @pytest.mark.parametrize(
         argnames="rays",
         argvalues=[
@@ -158,7 +162,8 @@ class AbstractTestAbstractImagingSensor(
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert result.outputs.unit.is_equivalent(u.electron)
-        assert np.all(result.outputs >= 0 * u.electron)
+        # the total noise is at least the read noise (added in quadrature)
+        assert np.all(result.outputs >= a.read_noise)
 
 
 @pytest.mark.parametrize(
@@ -169,6 +174,7 @@ class AbstractTestAbstractImagingSensor(
             width_pixel=15 * u.um,
             axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
             num_pixel=na.Cartesian2dVectorArray(2048, 1024),
+            read_noise=4 * u.electron,
             transformation=na.transformations.Cartesian3dTranslation(x=1 * u.mm),
         ),
     ],
