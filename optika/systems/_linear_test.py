@@ -146,6 +146,32 @@ class AbstractTestAbstractLinearSystem(
         assert np.all(np.isfinite(result.outputs.value))
         assert result.outputs.sum() > 0 * na.unit(radiance)
 
+    def test_from_weights_infer_axes(self, a: optika.systems.AbstractLinearSystem):
+        # `image_from_weights`/`backproject_from_weights` infer `axis_wavelength`
+        # and `axis_field` from the scene when they are not given explicitly.
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        axis_wavelength = "wavelength"
+        axis_field = ("field_x", "field_y")
+
+        weights = a.weights(scene.inputs, axis_wavelength, axis_field)
+
+        image = a.image_from_weights(weights, scene, noise=False, integrate=False)
+        assert isinstance(image, na.FunctionArray)
+        assert na.unit(image.outputs).is_equivalent(u.electron)
+        assert np.all(np.isfinite(image.outputs.value))
+
+        weights_transposed = a.weights_transposed(
+            weights, scene.inputs, axis_wavelength, axis_field
+        )
+        result = a.backproject_from_weights(
+            weights_transposed, image, scene.inputs, integrate=False
+        )
+        assert isinstance(result, na.FunctionArray)
+        assert na.unit(result.outputs).is_equivalent(
+            u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm
+        )
+        assert np.all(np.isfinite(result.outputs.value))
+
     def test_image_uncertainty(self, a: optika.systems.AbstractLinearSystem):
         scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
         result = a.image(scene, noise=False, uncertainty=True)
