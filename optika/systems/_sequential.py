@@ -2117,7 +2117,7 @@ class SequentialSystem(
             )
             mappable_image = na.plt.pcolormesh(
                 image.inputs.position,
-                C=image.outputs.value.sum("wavelength"),
+                C=image.outputs.value,
                 ax=ax[1],
             )
             cbar_0 = fig.colorbar(

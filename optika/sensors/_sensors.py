@@ -108,7 +108,7 @@ class AbstractImagingSensor(
             units.
         """
         lower = self.aperture.bound_lower.xy
-        return (position - lower) / self.width_pixel * u.pix
+        return (position - lower) / self.width_pixel * u.pix << u.pix
 
     def collect(
         self,

@@ -135,6 +135,11 @@ class AbstractLinearSystem(
             The logical axes corresponding to changing field coordinate.
         """
 
+        coordinates = na.SpectralPositionalVectorArray(
+            wavelength=coordinates.wavelength,
+            position=coordinates.position,
+        )
+
         coordinates = coordinates.cell_centers(axis_wavelength)
 
         position_sensor = self.distortion.distort(coordinates).position
@@ -198,6 +203,11 @@ class AbstractLinearSystem(
         axis_field
             The logical axes corresponding to changing field coordinate.
         """
+
+        coordinates = na.SpectralPositionalVectorArray(
+            wavelength=coordinates.wavelength,
+            position=coordinates.position,
+        )
 
         coordinates = coordinates.cell_centers(axis_wavelength)
 
@@ -671,12 +681,12 @@ class LinearSystem(
         # The distortion, effective area, and sensor models that
         # define the system.
         distortion = optika.distortion.SimpleDistortionModel(
-            plate_scale=50 * u.arcsec / u.mm,
-            dispersion=250 * u.nm / u.mm,
+            plate_scale=0.75 * u.arcsec / u.pix,
+            dispersion=3.75 * u.nm / u.pix,
             angle=0 * u.deg,
             reference=na.SpectralPositionalVectorArray(
                 wavelength=550 * u.nm,
-                position=na.Cartesian2dVectorArray(0, 0) * u.mm,
+                position=na.Cartesian2dVectorArray(32, 32) * u.pix,
             ),
         )
         area_effective = optika.radiometry.InterpolatedEffectiveAreaModel(
@@ -739,7 +749,7 @@ class LinearSystem(
             )
             na.plt.pcolormesh(
                 image.inputs.position,
-                C=image.outputs.value.sum("wavelength"),
+                C=image.outputs.value,
                 ax=ax[1],
             )
             ax[0].set_title("scene")
