@@ -131,6 +131,29 @@ class AbstractTestAbstractAperture(
         assert "wire" in wire.shape
         assert wire.shape["wire"] == a.samples_wire
 
+    @pytest.mark.parametrize(
+        argnames="position",
+        argvalues=[
+            na.Cartesian2dVectorArray(0, 0),
+            na.Cartesian2dVectorArray(
+                x=na.linspace(-1, 1, axis="x", num=5),
+                y=na.linspace(-1, 1, axis="y", num=5),
+            ),
+        ],
+    )
+    def test_denormalize(
+        self,
+        a: optika.apertures.AbstractAperture,
+        position: na.AbstractCartesian2dVectorArray,
+    ):
+        result = a.denormalize(position)
+
+        assert isinstance(result, na.AbstractCartesian2dVectorArray)
+
+        unit = na.unit_normalized(a.wire())
+
+        assert na.unit_normalized(result).is_equivalent(unit)
+
     class TestPlot(
         test_mixins.AbstractTestPlottable.TestPlot,
     ):
