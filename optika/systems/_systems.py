@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any
 import abc
 import dataclasses
+import astropy.units as u
 import named_arrays as na
 import optika
 
@@ -64,6 +65,7 @@ class AbstractSystem(
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
+        unit: None | u.UnitBase = None,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -85,6 +87,11 @@ class AbstractSystem(
             position.
         integrate
             Whether `image` is a single wavelength-integrated readout.
+        unit
+            The unit of the backprojected spectral radiance.
+            The forward model accepts a scene in either photon or energy units,
+            so the backprojection is expressed in whichever the caller requests.
+            If :obj:`None` (the default), the radiance is not converted.
         kwargs
             Additional keyword arguments used by subclass implementations
             of this method.

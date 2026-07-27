@@ -3,6 +3,7 @@ import abc
 import dataclasses
 import numpy as np
 import astropy.units as u
+import astropy.constants
 import named_arrays as na
 import optika
 from . import AbstractSystem
@@ -11,6 +12,31 @@ __all__ = [
     "AbstractLinearSystem",
     "LinearSystem",
 ]
+
+
+def _radiance_to_unit(
+    radiance: na.AbstractScalar,
+    wavelength: na.AbstractScalar,
+    unit: None | u.UnitBase,
+) -> na.AbstractScalar:
+    """
+    Express a photon spectral radiance in `unit`, scaling by the energy per
+    photon (:math:`hc/\\lambda`) when `unit` is an energy rather than a photon
+    unit. A `unit` compatible with neither raises a
+    :class:`~astropy.units.UnitConversionError`.
+    """
+    if unit is None:
+        return radiance
+
+    if unit.is_equivalent(na.unit_normalized(radiance)):
+        return radiance.to(unit)
+
+    # the natural (photon) radiance is scaled by the energy per photon to
+    # express it in energy units.
+    energy_per_photon = (
+        astropy.constants.h * astropy.constants.c / wavelength / u.photon
+    )
+    return (radiance * energy_per_photon).to(unit)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -372,6 +398,7 @@ class AbstractLinearSystem(
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
+        unit: None | u.UnitBase = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Apply a precomputed set of transposed regridding weights to a
@@ -411,6 +438,14 @@ class AbstractLinearSystem(
             Whether `image` is a single wavelength-integrated readout, to be
             spread back over the wavelength bins before the transpose.
             Defaults to :obj:`True`.
+        unit
+            The unit of the backprojected spectral radiance.
+            :meth:`image_from_weights` accepts a scene in either photon or
+            energy units, so the backprojection is expressed in whichever the
+            caller requests, converting between photon and energy units using
+            the energy per photon (:math:`hc/\\lambda`).
+            If :obj:`None` (the default), the radiance is left in the natural
+            (photon) units of the backprojection and is not converted.
         """
 
         coordinates = coordinates.explicit
@@ -458,6 +493,14 @@ class AbstractLinearSystem(
         # recover the spectral radiance by undoing the integration over each
         # object-plane voxel performed by `image`.
         radiance = radiance / volume
+
+        # express the (photon) radiance in the requested unit, converting to
+        # energy units with the energy per photon if necessary.
+        radiance = _radiance_to_unit(
+            radiance=radiance,
+            wavelength=coordinates.wavelength.cell_centers(axis_wavelength),
+            unit=unit,
+        )
 
         return na.FunctionArray(
             inputs=coordinates,
@@ -564,6 +607,7 @@ class AbstractLinearSystem(
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
+        unit: None | u.UnitBase = None,
         weights: None | tuple[na.AbstractScalar, dict[str, int], dict[str, int]] = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -599,6 +643,14 @@ class AbstractLinearSystem(
             Whether `image` is a single wavelength-integrated readout, to be
             spread back over the wavelength bins before the transpose.
             Defaults to :obj:`True`.
+        unit
+            The unit of the backprojected spectral radiance.
+            :meth:`image` accepts a scene in either photon or energy units, so
+            the backprojection is expressed in whichever the caller requests,
+            converting between photon and energy units using the energy per
+            photon (:math:`hc/\\lambda`).
+            If :obj:`None` (the default), the radiance is left in the natural
+            (photon) units of the backprojection and is not converted.
         weights
             The forward regridding weights computed by :meth:`weights`.
             If :obj:`None` (the default), they are computed from `coordinates`.
@@ -645,6 +697,7 @@ class AbstractLinearSystem(
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             integrate=integrate,
+            unit=unit,
         )
 
 

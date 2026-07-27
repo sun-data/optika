@@ -146,6 +146,25 @@ class AbstractTestAbstractLinearSystem(
         assert np.all(np.isfinite(result.outputs.value))
         assert result.outputs.sum() > 0 * na.unit(radiance)
 
+    def test_backproject_unit(self, a: optika.systems.AbstractLinearSystem):
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        image = a.image(scene, noise=False)
+
+        # the backprojection can be expressed in photon or energy units
+        unit_photon = u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm
+        unit_energy = u.W / u.cm**2 / u.arcsec**2 / u.nm
+
+        result_photon = a.backproject(image, scene.inputs, unit=unit_photon)
+        result_energy = a.backproject(image, scene.inputs, unit=unit_energy)
+
+        assert na.unit_normalized(result_photon.outputs).is_equivalent(unit_photon)
+        assert na.unit_normalized(result_energy.outputs).is_equivalent(unit_energy)
+        assert np.all(np.isfinite(result_energy.outputs.value))
+
+        # a unit compatible with neither is rejected
+        with pytest.raises(u.UnitConversionError):
+            a.backproject(image, scene.inputs, unit=u.s)
+
     def test_from_weights_infer_axes(self, a: optika.systems.AbstractLinearSystem):
         # `image_from_weights`/`backproject_from_weights` infer `axis_wavelength`
         # and `axis_field` from the scene when they are not given explicitly.
