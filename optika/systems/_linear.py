@@ -350,10 +350,7 @@ class AbstractLinearSystem(
 
         # volume of each voxel on the object plane: the spectral bin width
         # times the solid angle (or area) subtended by each field pixel.
-        volume_wavelength = coordinates.wavelength.volume_cell(axis_wavelength)
-        volume_field = coordinates.position.volume_cell(axis_field)
-        volume_field = na.as_named_array(volume_field).cell_centers(axis_wavelength)
-        volume = volume_wavelength * volume_field
+        volume = coordinates.volume_cell((axis_wavelength, *axis_field))
 
         # integrate the spectral radiance over each voxel into a flux per unit
         # collecting area.
@@ -466,10 +463,7 @@ class AbstractLinearSystem(
 
         # volume of each voxel on the object plane: the spectral bin width
         # times the solid angle (or area) subtended by each field pixel.
-        volume_wavelength = coordinates.wavelength.volume_cell(axis_wavelength)
-        volume_field = coordinates.position.volume_cell(axis_field)
-        volume_field = na.as_named_array(volume_field).cell_centers(axis_wavelength)
-        volume = volume_wavelength * volume_field
+        volume = coordinates.volume_cell((axis_wavelength, *axis_field))
 
         # invert the detector response, mapping the measured electrons back into
         # the photon rate per pixel produced by `image_from_weights`.
