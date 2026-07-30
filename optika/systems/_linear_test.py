@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 import numpy as np
 import astropy.units as u
@@ -190,6 +192,25 @@ class AbstractTestAbstractLinearSystem(
             u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm
         )
         assert np.all(np.isfinite(result.outputs.value))
+
+    def test_image_area_unit_invariance(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+    ):
+        # the result must not depend on the unit the effective area model
+        # happens to be expressed in, since `weights` strips the unit and
+        # `image_from_weights` restores it as `weights_unit`
+        area = a.area_effective
+        if not hasattr(area, "area"):  # pragma: nocover
+            pytest.skip("requires an area model with an `area` attribute")
+        b = dataclasses.replace(
+            a,
+            area_effective=dataclasses.replace(area, area=area.area.to(u.mm**2)),
+        )
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        result_a = a.image(scene, noise=False)
+        result_b = b.image(scene, noise=False)
+        assert np.allclose(result_a.outputs, result_b.outputs)
 
     def test_image_uncertainty(self, a: optika.systems.AbstractLinearSystem):
         scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
