@@ -349,8 +349,14 @@ class AbstractLinearSystem(
             (axis_wavelength,) = axis
 
         # volume of each voxel on the object plane: the spectral bin width
-        # times the solid angle (or area) subtended by each field pixel.
-        volume = coordinates.volume_cell((axis_wavelength, *axis_field))
+        # times the solid angle (or area) subtended by each field pixel. Coerce
+        # to a plain spectral-positional vector so a scene defined on a Doppler
+        # grid (as produced by the ctis `IdealInstrument`) is accepted; only the
+        # observed wavelength and position of each voxel are needed.
+        volume = na.SpectralPositionalVectorArray(
+            wavelength=coordinates.wavelength,
+            position=coordinates.position,
+        ).volume_cell((axis_wavelength, *axis_field))
 
         # integrate the spectral radiance over each voxel into a flux per unit
         # collecting area.
@@ -462,8 +468,14 @@ class AbstractLinearSystem(
             (axis_wavelength,) = axis
 
         # volume of each voxel on the object plane: the spectral bin width
-        # times the solid angle (or area) subtended by each field pixel.
-        volume = coordinates.volume_cell((axis_wavelength, *axis_field))
+        # times the solid angle (or area) subtended by each field pixel. Coerce
+        # to a plain spectral-positional vector so a Doppler grid (as used by
+        # the ctis `IdealInstrument`) is accepted; the radiance is returned on
+        # the original grid.
+        volume = na.SpectralPositionalVectorArray(
+            wavelength=coordinates.wavelength,
+            position=coordinates.position,
+        ).volume_cell((axis_wavelength, *axis_field))
 
         # invert the detector response, mapping the measured electrons back into
         # the photon rate per pixel produced by `image_from_weights`.

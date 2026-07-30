@@ -73,6 +73,26 @@ def _scene(radiance: u.Quantity | na.AbstractScalar) -> na.FunctionArray:
     )
 
 
+def _scene_doppler(radiance: u.Quantity | na.AbstractScalar) -> na.FunctionArray:
+    return na.FunctionArray(
+        inputs=na.DopplerPositionalVectorArray(
+            wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
+            wavelength_rest=550 * u.nm,
+            position=na.Cartesian2dVectorLinearSpace(
+                start=-10 * u.arcsec,
+                stop=+10 * u.arcsec,
+                axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                num=11,
+            ),
+        ),
+        outputs=na.random.uniform(
+            low=0 * radiance,
+            high=radiance,
+            shape_random=dict(field_x=10, field_y=10),
+        ),
+    )
+
+
 class AbstractTestAbstractLinearSystem(
     AbstractTestAbstractSystem,
 ):
@@ -123,6 +143,17 @@ class AbstractTestAbstractLinearSystem(
             assert np.all(result.outputs >= 0 * u.electron)
             assert result.outputs.sum() > 0 * u.electron
 
+    def test_image_doppler(self, a: optika.systems.AbstractLinearSystem):
+        # a scene defined on a Doppler grid (as produced by the ctis
+        # `IdealInstrument`) is accepted and imaged onto the sensor.
+        scene = _scene_doppler(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        result = a.image(scene, noise=False)
+        assert isinstance(result, na.FunctionArray)
+        assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
+        assert na.unit(result.outputs).is_equivalent(u.electron)
+        assert np.all(np.isfinite(result.outputs.value))
+        assert result.outputs.sum() > 0 * u.electron
+
     @pytest.mark.parametrize(
         argnames="radiance",
         argvalues=[
@@ -145,6 +176,19 @@ class AbstractTestAbstractLinearSystem(
         assert na.unit(result.outputs).is_equivalent(na.unit(radiance))
         assert np.all(np.isfinite(result.outputs.value))
         assert result.outputs.sum() > 0 * na.unit(radiance)
+
+    def test_backproject_doppler(self, a: optika.systems.AbstractLinearSystem):
+        # a Doppler object-plane grid is accepted, and the backprojected
+        # radiance is returned on that same Doppler grid.
+        scene = _scene_doppler(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        image = a.image(scene, noise=False)
+        result = a.backproject(image, scene.inputs)
+        assert isinstance(result, na.FunctionArray)
+        assert isinstance(result.inputs, na.DopplerPositionalVectorArray)
+        assert na.unit(result.outputs).is_equivalent(
+            u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm
+        )
+        assert np.all(np.isfinite(result.outputs.value))
 
     def test_backproject_unit(self, a: optika.systems.AbstractLinearSystem):
         scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
