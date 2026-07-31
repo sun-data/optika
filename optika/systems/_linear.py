@@ -191,7 +191,9 @@ class AbstractLinearSystem(
 
         weights_area = self.area_effective(coordinates_cell.wavelength)
 
-        weights_input = weights_vignetting * weights_stop * weights_area.value
+        weights_input = (
+            weights_vignetting * weights_stop * weights_area.to_value(self.weights_unit)
+        )
 
         axis_pixel = self.sensor.axis_pixel
 
@@ -246,7 +248,7 @@ class AbstractLinearSystem(
 
         weights_area = self.area_effective(coordinates_cell.wavelength)
 
-        weights_input = weights_vignetting * weights_area.value
+        weights_input = weights_vignetting * weights_area.to_value(self.weights_unit)
 
         axis_pixel = self.sensor.axis_pixel
 
