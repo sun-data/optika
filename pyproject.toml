@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "astropy!=6.1.5",
-    "named-arrays~=2.3",
+    "named-arrays~=2.4",
     "pymupdf",
     "joblib",
     "ezdxf",
