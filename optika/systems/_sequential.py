@@ -1090,6 +1090,7 @@ class AbstractSequentialSystem(
     def image(
         self,
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        *,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
@@ -1203,6 +1204,7 @@ class AbstractSequentialSystem(
         self,
         image: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
         coordinates: na.SpectralPositionalVectorArray,
+        *,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,

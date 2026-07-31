@@ -272,6 +272,7 @@ class AbstractLinearSystem(
         self,
         weights: tuple[na.AbstractScalar, dict[str, int], dict[str, int]],
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        *,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
@@ -392,6 +393,7 @@ class AbstractLinearSystem(
         weights: tuple[na.AbstractScalar, dict[str, int], dict[str, int]],
         image: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
         coordinates: na.SpectralPositionalVectorArray,
+        *,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
@@ -469,6 +471,18 @@ class AbstractLinearSystem(
             (axis_wavelength, *axis_field)
         )
 
+        # an integrated readout only carries the two band edges, but the sensor
+        # inverse spreads it across the wavelength bins it is reconstructed
+        # onto; give it the full target grid so it spreads over the right number
+        # of bins (and evaluates the quantum efficiency per bin) instead of
+        # treating the readout as a single bin.
+        if integrate:
+            image = image.replace(
+                inputs=image.inputs.replace(
+                    wavelength=coordinates.spectral_positional.wavelength,
+                ),
+            )
+
         # invert the detector response, mapping the measured electrons back into
         # the photon rate per pixel produced by `image_from_weights`.
         image = self.sensor.photons_absorbed(
@@ -508,6 +522,7 @@ class AbstractLinearSystem(
     def image(
         self,
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        *,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
@@ -602,6 +617,7 @@ class AbstractLinearSystem(
             | na.AbstractScalar
         ),
         coordinates: na.SpectralPositionalVectorArray,
+        *,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,

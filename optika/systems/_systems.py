@@ -27,6 +27,7 @@ class AbstractSystem(
     def image(
         self,
         scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        *,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
@@ -57,11 +58,11 @@ class AbstractSystem(
             of this method.
         """
 
-    @abc.abstractmethod
     def backproject(
         self,
         image: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
         coordinates: na.SpectralPositionalVectorArray,
+        *,
         axis_wavelength: None | str = None,
         axis_field: None | tuple[str, str] = None,
         integrate: bool = True,
@@ -71,6 +72,11 @@ class AbstractSystem(
         """
         Transpose of the forward model, :meth:`image`.
         Maps an image of measured electrons back onto the object plane.
+
+        Backprojection is an optional capability: only systems that are linear
+        operators support it, so the base implementation raises
+        :class:`NotImplementedError`. Subclasses that support it (such as
+        :class:`~optika.systems.LinearSystem`) override this method.
 
         Parameters
         ----------
@@ -96,3 +102,6 @@ class AbstractSystem(
             Additional keyword arguments used by subclass implementations
             of this method.
         """
+        raise NotImplementedError(  # pragma: nocover
+            f"{type(self).__name__} does not support backprojection."
+        )

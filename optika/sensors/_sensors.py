@@ -201,8 +201,8 @@ class AbstractImagingSensor(
         return inputs.replace(
             wavelength=na.stack(
                 arrays=[
-                    wavelength[{axis_wavelength: +0}],
-                    wavelength[{axis_wavelength: ~0}],
+                    wavelength.min(axis_wavelength),
+                    wavelength.max(axis_wavelength),
                 ],
                 axis=axis_wavelength,
             )
