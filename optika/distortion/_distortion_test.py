@@ -22,6 +22,7 @@ def _scene() -> na.SpectralPositionalVectorArray:
 
 class AbstractTestAbstractDistortionModel(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestShaped,
 ):
     def test_distort(self, a: optika.distortion.AbstractDistortionModel):
         coordinates = _scene()
@@ -151,3 +152,43 @@ class TestPolynomialDistortionModel(
         assert isinstance(ax, na.ScalarArray)
         assert a.axis_wavelength in na.shape(ax)
         plt.close(fig)
+
+
+def test_polynomial_distortion_model_channel():
+    """
+    Calibration points that vary along an axis orthogonal to the scene axes
+    (e.g. the channel axis of a multi-channel instrument) must be fit with an
+    independent polynomial per channel, not one polynomial averaged over all
+    the channels.
+    """
+    scene = _scene()
+
+    scale = na.ScalarArray([10, 12, 8] * u.mm / u.deg, axes="channel")
+    angle = na.ScalarArray([0, 10, -15] * u.deg, axes="channel")
+
+    cos, sin = np.cos(angle), np.sin(angle)
+    sensor = na.Cartesian2dVectorArray(
+        x=scale * (cos * scene.position.x - sin * scene.position.y),
+        y=scale * (sin * scene.position.x + cos * scene.position.y),
+    )
+
+    a = optika.distortion.PolynomialDistortionModel(
+        coordinates_scene=scene,
+        coordinates_sensor=sensor,
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+    )
+
+    distorted = a.distort(scene).position
+    assert "channel" in distorted.shape
+    assert np.all((distorted - sensor).length < 1e-9 * u.mm)
+
+    undistorted = a.undistort(
+        na.SpectralPositionalVectorArray(
+            wavelength=scene.wavelength,
+            position=sensor,
+        )
+    ).position
+    assert "channel" in undistorted.shape
+    assert np.all((undistorted - scene.position).length < 1e-9 * u.deg)

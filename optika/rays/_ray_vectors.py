@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TypeVar, Generic
+from collections.abc import Sequence
 import abc
 import dataclasses
 import numpy as np
@@ -96,6 +97,13 @@ class AbstractRayVectorArray(
 
     @property
     def type_matrix(self) -> type[na.AbstractMatrixArray]:
+        raise NotImplementedError
+
+    def volume_cell(self, axis: None | str | Sequence[str]) -> na.AbstractScalar:
+        """
+        A ray bundle is a scattered collection of rays rather than a
+        logically-rectangular grid, so the per-voxel volume is undefined.
+        """
         raise NotImplementedError
 
     @property

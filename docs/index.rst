@@ -33,6 +33,8 @@ Features
 * Sequential raytrace modeling of an optical system
 * Stratified random sampling of input rays for faster convergence
 * Image simulation of a given scene using an optical system
+* Fast linear forward model approximating a raytraced system, for imaging many
+  scenes without raytracing each one
 * Spherical, conical, and toroidal surface sag profiles
 * Circular, rectangular, and polygonal apertures
 * Support for mirrors and arbitrary multilayer coatings
