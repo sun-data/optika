@@ -658,10 +658,15 @@ class AbstractSequentialSystem(
         obj = subsystem[~0]
         rays = result.outputs
         if obj.transformation is not None:
+            # express the stop rays in the local coordinates of the object
+            # surface, since that is the frame in which the field and pupil
+            # coordinates of the input grid are interpreted by
+            # `_calc_rayfunction_input`
             rays = obj.transformation.inverse(rays)
 
         where = rays.direction @ obj.sag.normal(rays.position) > 0
-        result.outputs.direction[where] = -result.outputs.direction[where]
+        rays.direction[where] = -rays.direction[where]
+        result.outputs = rays
 
         # If the first stop is the object surface, the solved variable is the
         # position and the direction retains only the field-stop axis, so
