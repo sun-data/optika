@@ -333,6 +333,49 @@ def test_vmr_signal(
     assert np.all(result >= 0 * u.electron)
 
 
+def test_vmr_signal_diffusion():
+    wavelength = 304 * u.AA
+    thickness_depletion = 2 * u.um
+    axis_xy = ("detector_x", "detector_y")
+
+    photons_expected = na.broadcast_to(
+        100 * u.photon,
+        shape=dict(detector_x=16, detector_y=16),
+    )
+
+    signal = optika.sensors.signal(
+        photons_expected=photons_expected,
+        wavelength=wavelength,
+        thickness_depletion=thickness_depletion,
+        axis_xy=axis_xy,
+        wrap=True,
+        shape_random=dict(experiment=500),
+    )
+
+    vmr_measured = signal.vmr(("experiment",) + axis_xy)
+
+    result = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        thickness_depletion=thickness_depletion,
+    )
+    result_no_diffusion = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        thickness_depletion=thickness_depletion,
+        diffusion=False,
+    )
+
+    assert np.all(result > 0 * u.electron)
+    assert np.all(result < result_no_diffusion)
+    assert np.abs(vmr_measured - result) < 0.1 * result
+
+    result_default = optika.sensors.vmr_signal(wavelength=wavelength)
+    result_default_no_diffusion = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        diffusion=False,
+    )
+    assert np.all(result_default == result_default_no_diffusion)
+
+
 class AbstractTestAbstractSensorMaterial(
     AbstractTestAbstractMaterial,
 ):
@@ -499,6 +542,14 @@ class AbstractTestAbstractSensorMaterial(
         assert isinstance(na.as_named_array(result), na.AbstractScalar)
         assert result.unit.is_equivalent(u.electron)
         assert np.all(result >= 0 * u.electron)
+
+        result_diffusion = a.uncertainty(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+            width_pixel=15 * u.um,
+        )
+        assert np.all(result_diffusion <= result)
 
     @pytest.mark.parametrize(
         argnames="wavelength",
