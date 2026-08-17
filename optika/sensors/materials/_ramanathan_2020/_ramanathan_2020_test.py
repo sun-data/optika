@@ -260,3 +260,71 @@ def test_electrons_measured_wrap():
     total_wrap = _ramanathan_2020.electrons_measured(**kwargs, wrap=True).sum(axis_xy)
 
     assert total_wrap > total_drop
+
+
+@pytest.mark.parametrize(
+    argnames="factor_multinomial",
+    argvalues=[
+        0,
+        np.inf,
+    ],
+)
+def test_electrons_measured_factor_multinomial(
+    factor_multinomial: float,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    The per-electron and multinomial paths of :func:`_diffuse_electrons`
+    sample the same distribution, so forcing either one should reproduce the
+    analytic charge-diffusion width.
+    """
+    monkeypatch.setattr(
+        _ramanathan_2020,
+        "_factor_multinomial",
+        factor_multinomial,
+    )
+
+    num = 41
+    axis_xy = ("pixel_x", "pixel_y")
+
+    absorption = 1 / u.um
+    thickness_substrate = 14 * u.um
+    thickness_depletion = 2 * u.um
+    width_pixel = 5 * u.um
+
+    photons = np.zeros((num, num))
+    photons[num // 2, num // 2] = 3000
+    photons = na.ScalarArray(photons << u.photon, axes=axis_xy).astype(int)
+
+    # A short wavelength, so that each photon liberates enough electrons
+    # (~680 pairs) to exercise the large-count regime of both paths.
+    electrons = _ramanathan_2020.electrons_measured(
+        photons_absorbed=photons,
+        wavelength=5 * u.AA,
+        absorption=absorption,
+        thickness_implant=0 * u.um,
+        thickness_depletion=thickness_depletion,
+        thickness_substrate=thickness_substrate,
+        width_pixel=width_pixel,
+        cce_backsurface=1,
+        axis_xy=axis_xy,
+        wrap=True,
+    )
+
+    offset_x = (na.arange(0, num, axis=axis_xy[0]) - num // 2) * width_pixel
+    offset_y = (na.arange(0, num, axis=axis_xy[1]) - num // 2) * width_pixel
+
+    total = electrons.sum(axis_xy)
+    mean_x = (electrons * offset_x).sum(axis_xy) / total
+    mean_y = (electrons * offset_y).sum(axis_xy) / total
+    var_x = (electrons * np.square(offset_x - mean_x)).sum(axis_xy) / total
+    var_y = (electrons * np.square(offset_y - mean_y)).sum(axis_xy) / total
+    std_measured = np.sqrt((var_x + var_y) / 2)
+
+    std_expected = optika.sensors.charge_diffusion(
+        absorption=absorption,
+        thickness_substrate=thickness_substrate,
+        thickness_depletion=thickness_depletion,
+    )
+
+    assert np.allclose(std_measured, std_expected, rtol=0.05)
