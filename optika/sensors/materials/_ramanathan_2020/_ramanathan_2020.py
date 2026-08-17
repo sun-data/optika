@@ -1,3 +1,4 @@
+import functools
 import pathlib
 import math
 import random
@@ -45,10 +46,17 @@ def _probability_of_n_pairs_from_file(
     )
 
 
+@functools.cache
 def _probability_of_n_pairs_ramanathan() -> na.FunctionArray[
     na.CartesianNdVectorArray,
     na.ScalarArray,
 ]:
+    """
+    Load the tabulated pair-creation PMF of :cite:t:`Ramanathan2020`.
+
+    The result is cached and shared between calls, so it should be treated
+    as read-only.
+    """
 
     directory = pathlib.Path(__file__).parent
     pn_000K = _probability_of_n_pairs_from_file(directory / "p0K.dat")
@@ -445,11 +453,35 @@ def probability_of_n_pairs(
     _temperature = pn.inputs.components["temperature"]
     _probability = pn.outputs
 
-    probability = na.interp(
-        x=temperature,
-        xp=_temperature,
-        fp=_probability,
+    # Interpolate over temperature by gathering the two bracketing samples
+    # and blending them, rather than with `na.interp`, which loops over the
+    # ~20,000 elements of the non-interpolated axes in Python.
+    # Rename the tabulated temperature axis so that it cannot collide with
+    # an axis of the same name on the `temperature` argument.
+    axis = "_temperature_interp"
+    _temperature = na.ScalarArray(_temperature.ndarray, axes=axis)
+    _probability = na.ScalarArray(
+        ndarray=_probability.ndarray,
+        axes=tuple(axis if ax == "temperature" else ax for ax in _probability.axes),
     )
+
+    num_temperature = _temperature.shape[axis]
+    index_upper = np.clip(
+        (temperature > _temperature).sum(axis),
+        a_min=1,
+        a_max=num_temperature - 1,
+    )
+    index_lower = index_upper - 1
+    t_lower = _temperature[{axis: index_lower}]
+    t_upper = _temperature[{axis: index_upper}]
+    weight = np.clip(
+        (temperature - t_lower) / (t_upper - t_lower),
+        a_min=0,
+        a_max=1,
+    )
+    p_lower = _probability[{axis: index_lower}]
+    p_upper = _probability[{axis: index_upper}]
+    probability = p_lower + weight * (p_upper - p_lower)
 
     probability = na.interp(
         x=energy,
@@ -750,6 +782,7 @@ def _electrons_measured_quantity(
         energy_pair_inf=energy_pair_inf.reshape(-1, num_x, num_y),
         fano_inf=fano_inf.reshape(-1, num_x, num_y),
         wrap=wrap,
+        factor_multinomial=_factor_multinomial,
     )
 
     result = result.reshape(shape)
@@ -757,6 +790,184 @@ def _electrons_measured_quantity(
     result = result << u.electron
 
     return result
+
+
+_factor_multinomial = 0.25
+"""
+The multinomial path in :func:`_diffuse_electrons` is used when the electron
+count exceeds this factor times the number of cells in the offset window.
+Both paths sample the same distribution; this only selects whichever is
+faster. Larger values favor the per-electron path, :obj:`math.inf` forces it,
+and ``0`` forces the multinomial path.
+"""
+
+_num_sigma_window = 6.0
+"""
+Half-width, in standard deviations, of the bounded offset window used by the
+multinomial path of :func:`_diffuse_electrons`. Probability mass beyond the
+window (~1e-9) is folded into the edge bins, so the total is still conserved
+exactly.
+"""
+
+_sqrt2 = math.sqrt(2.0)
+
+
+@numba.njit(cache=True, inline="always")
+def _normal_cdf(  # pragma: nocover
+    edge: float,
+    origin: float,
+    scale: float,
+) -> float:
+    """Gaussian CDF at `edge` for mean `origin`, where ``scale = 1/(sigma*sqrt2)``."""
+    return 0.5 * (1.0 + math.erf((edge - origin) * scale))
+
+
+@numba.njit(cache=True)
+def _diffuse_electrons(  # pragma: nocover
+    result: np.ndarray,
+    i: int,
+    x: int,
+    y: int,
+    m: int,
+    u: float,
+    v: float,
+    sigma_x: float,
+    sigma_y: float,
+    num_x: int,
+    num_y: int,
+    wrap: bool,
+    factor_multinomial: float,
+) -> None:
+    """
+    Diffuse `m` electrons originating in pixel ``(x, y)`` of image
+    ``result[i]`` and deposit the (integer) counts in place.
+
+    Each electron lands in exactly one pixel, at an integer offset distributed
+    as ``round(gauss(u, sigma_x)), round(gauss(v, sigma_y))``, so the counts
+    are marginally multinomial and the total charge is conserved exactly
+    (up to electrons diffusing off the sensor when `wrap` is :obj:`False`).
+
+    For small `m` the offsets are sampled per electron. For large `m` the
+    electrons are partitioned across a bounded window of integer offsets via
+    conditional binomials, with per-bin probabilities given by the Gaussian
+    integrated over each pixel (an :func:`math.erf` difference). The two paths
+    sample the same distribution, but for photons that liberate many electrons
+    the partition costs ``O(window)`` rather than ``O(m)``.
+
+    Parameters
+    ----------
+    result
+        The output image stack, indexed ``result[i, x, y]``. Modified in place.
+    i
+        Index of the image within the stack.
+    x, y
+        The pixel the electrons originate from.
+    m
+        The number of electrons to diffuse.
+    u, v
+        The sub-pixel origin of the electrons within pixel ``(x, y)``, each in
+        ``[-0.5, 0.5]``. Shared by all `m` electrons of one photon.
+    sigma_x, sigma_y
+        The standard deviation of the diffusion kernel along each axis,
+        in pixels.
+    num_x, num_y
+        The shape of the image.
+    wrap
+        Whether charge diffusing off the sensor re-enters the opposite edge.
+        If :obj:`False`, it is lost.
+    factor_multinomial
+        See :obj:`_factor_multinomial`.
+    """
+
+    if m <= 0:
+        return
+
+    half_x = int(math.ceil(_num_sigma_window * sigma_x)) + 1
+    half_y = int(math.ceil(_num_sigma_window * sigma_y)) + 1
+    num_window_x = 2 * half_x + 1
+    num_window_y = 2 * half_y + 1
+
+    # For few electrons, per-electron sampling is cheaper than partitioning
+    # the window.
+    if m < factor_multinomial * num_window_x * num_window_y:
+        for _ in range(m):
+            p = round(random.gauss(u, sigma_x))
+            q = round(random.gauss(v, sigma_y))
+            x_e = x + p
+            y_e = y + q
+            if wrap:
+                result[i, x_e % num_x, y_e % num_y] += 1
+            elif (0 <= x_e < num_x) and (0 <= y_e < num_y):
+                result[i, x_e, y_e] += 1
+        return
+
+    # Many electrons: partition them across x offsets, then partition each
+    # occupied column across y offsets, via conditional binomials. This
+    # samples the multinomial distribution with product probabilities
+    # P_x(k_x) * P_y(k_y), renormalized over the bounded window.
+    scale_x = 1.0 / (sigma_x * _sqrt2)
+    scale_y = 1.0 / (sigma_y * _sqrt2)
+
+    rem_x = m
+    c_hi_x = _normal_cdf(half_x + 0.5, u, scale_x)
+    c_left = _normal_cdf(-half_x - 0.5, u, scale_x)
+    for kx in range(-half_x, half_x + 1):
+        if rem_x == 0:
+            break
+        c_right = _normal_cdf(kx + 0.5, u, scale_x)
+        denom_x = c_hi_x - c_left
+        if denom_x <= 0.0:
+            n_kx = rem_x
+        else:
+            pc_x = (c_right - c_left) / denom_x
+            if pc_x >= 1.0:
+                n_kx = rem_x
+            elif pc_x <= 0.0:
+                n_kx = 0
+            else:
+                n_kx = np.random.binomial(rem_x, pc_x)
+        c_left = c_right
+        rem_x -= n_kx
+        if n_kx == 0:
+            continue
+
+        x_e = x + kx
+        if wrap:
+            ix = x_e % num_x
+        elif 0 <= x_e < num_x:
+            ix = x_e
+        else:
+            # the whole column diffused off the sensor and is lost
+            continue
+
+        rem_y = n_kx
+        c_hi_y = _normal_cdf(half_y + 0.5, v, scale_y)
+        cy_left = _normal_cdf(-half_y - 0.5, v, scale_y)
+        for ky in range(-half_y, half_y + 1):
+            if rem_y == 0:
+                break
+            cy_right = _normal_cdf(ky + 0.5, v, scale_y)
+            denom_y = c_hi_y - cy_left
+            if denom_y <= 0.0:
+                n_ky = rem_y
+            else:
+                pc_y = (cy_right - cy_left) / denom_y
+                if pc_y >= 1.0:
+                    n_ky = rem_y
+                elif pc_y <= 0.0:
+                    n_ky = 0
+                else:
+                    n_ky = np.random.binomial(rem_y, pc_y)
+            cy_left = cy_right
+            rem_y -= n_ky
+            if n_ky == 0:
+                continue
+
+            y_e = y + ky
+            if wrap:
+                result[i, ix, y_e % num_y] += n_ky
+            elif 0 <= y_e < num_y:
+                result[i, ix, y_e] += n_ky
 
 
 @numba.njit(
@@ -779,6 +990,7 @@ def _electrons_measured_numba(  # pragma: nocover
     energy_pair_inf: np.ndarray,
     fano_inf: np.ndarray,
     wrap: bool,
+    factor_multinomial: float,
 ) -> np.ndarray:
 
     num_i, num_x, num_y, num_n = p_n.shape
@@ -850,27 +1062,26 @@ def _electrons_measured_numba(  # pragma: nocover
                     u = random.uniform(-0.5, 0.5)
                     v = random.uniform(-0.5, 0.5)
 
-                    for e in range(m_ij):
-                        if z_ij < z_ff and wp_x > 0 and wp_y > 0:
-                            w = z_ff * math.sqrt(1 - z_ij / z_ff)
-
-                            p = random.gauss(u, w / wp_x)
-                            q = random.gauss(v, w / wp_y)
-
-                            p = round(p)
-                            q = round(q)
-
-                        else:
-                            p = q = 0
-
-                        x_e = x + p
-                        y_e = y + q
-
-                        if wrap:
-                            # toroidal boundary: charge re-enters the opposite edge
-                            result[i, x_e % num_x, y_e % num_y] += 1
-                        elif (0 <= x_e < num_x) and (0 <= y_e < num_y):
-                            result[i, x_e, y_e] += 1
-                        # otherwise the electron diffused off the sensor and is lost
+                    if z_ij < z_ff and wp_x > 0 and wp_y > 0:
+                        w = z_ff * math.sqrt(1 - z_ij / z_ff)
+                        _diffuse_electrons(
+                            result=result,
+                            i=i,
+                            x=x,
+                            y=y,
+                            m=m_ij,
+                            u=u,
+                            v=v,
+                            sigma_x=w / wp_x,
+                            sigma_y=w / wp_y,
+                            num_x=num_x,
+                            num_y=num_y,
+                            wrap=wrap,
+                            factor_multinomial=factor_multinomial,
+                        )
+                    else:
+                        # no diffusion: all of the electrons stay in the
+                        # pixel the photon was absorbed in
+                        result[i, x, y] += m_ij
 
     return result
