@@ -1415,7 +1415,7 @@ def vmr_signal(
         )
 
         # Define a grid of wavelengths
-        wavelength = na.geomspace(100, 1000, axis="wavelength", num=5) * u.AA
+        wavelength = na.geomspace(100, 1000, axis="wavelength", num=21) * u.AA
 
         # Compute the actual number of electrons measured for each experiment
         signal = optika.sensors.signal(
