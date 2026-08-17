@@ -443,7 +443,9 @@ class AbstractImagingSensor(
 
         This uses the material's analytic per-wavelength noise model
         (:meth:`~optika.sensors.materials.AbstractSensorMaterial.uncertainty`),
-        which accounts for shot, Fano, and partial-charge-collection noise. If
+        which accounts for shot, Fano, and partial-charge-collection noise,
+        and the noise reduction from charge diffusion using
+        :attr:`width_pixel`. If
         `integrate` is :obj:`True`, the per-wavelength variances are summed in
         quadrature and the sensor's :attr:`read_noise` is added once, giving the
         deterministic counterpart of the noise added by :meth:`expose`.
@@ -481,6 +483,7 @@ class AbstractImagingSensor(
             electrons=image.outputs,
             wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
             direction=direction,
+            width_pixel=self.width_pixel,
         )
 
         inputs = image.inputs

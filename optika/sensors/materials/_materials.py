@@ -5,6 +5,7 @@ import functools
 import dataclasses
 import numpy as np
 import scipy.optimize
+import scipy.special
 import astropy.units as u
 import astropy.constants
 import named_arrays as na
@@ -1232,17 +1233,58 @@ def signal(
         raise ValueError(f"Unrecognized method: {method}")
 
 
+def _probability_same_pixel(
+    sigma: float | na.AbstractScalar,
+) -> na.AbstractScalar:
+    r"""
+    The probability that two electrons from the same photon land in the same
+    column (or row) of pixels, averaged over the uniformly-distributed
+    sub-pixel position of the photon.
+
+    Both electrons start from the same sub-pixel position
+    :math:`u \sim \mathcal{U}(-1/2, 1/2)` and are displaced independently by
+    :math:`\mathcal{N}(0, \sigma^2)`, so their separation is
+    :math:`\delta \sim \mathcal{N}(0, 2 \sigma^2)`, and the probability that
+    they are binned into the same pixel is
+    :math:`\left\langle (1 - |\delta|)_+ \right\rangle`,
+    which evaluates to
+
+    .. math::
+
+        d(\sigma) = \text{erf} \left( \frac{1}{2 \sigma} \right)
+            - \frac{2 \sigma}{\sqrt{\pi}} \left( 1 - e^{-1 / 4 \sigma^2} \right).
+
+    Parameters
+    ----------
+    sigma
+        The standard deviation of the charge diffusion kernel in units of the
+        pixel width.
+    """
+    where = sigma > 0
+    sigma = np.where(where, sigma, 1)
+    result = scipy.special.erf(1 / (2 * sigma)) + (
+        2 * sigma / np.sqrt(np.pi) * np.expm1(-1 / (4 * np.square(sigma)))
+    )
+    return np.where(where, result, 1)
+
+
 def vmr_signal(
     wavelength: u.Quantity | na.ScalarArray,
     direction: float | na.AbstractScalar = 1,
     n: complex | na.AbstractScalar = 1,
     n_substrate: None | complex | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    width_pixel: (
+        u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     shot: bool = True,
     fano: bool = True,
     pcc: bool = True,
+    diffusion: bool = True,
 ) -> na.ScalarArray:
     r"""
     Compute the variance-to-mean ratio (VMR) of the number of electrons measured by
@@ -1263,6 +1305,19 @@ def vmr_signal(
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
+    thickness_depletion
+        The thickness of the depletion region, the region with significant electric
+        field.
+        The default is the same value as `thickness_substrate`,
+        which means there is no field-free region and no charge diffusion.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    width_pixel
+        The size of a single pixel on the sensor,
+        used by the charge-diffusion model.
+        A scalar gives square pixels; a
+        :class:`named_arrays.AbstractCartesian2dVectorArray`
+        gives rectangular pixels.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -1275,6 +1330,11 @@ def vmr_signal(
         Whether to include the Fano noise in the result.
     pcc
         Whether to include noise due to partial charge collection in the result.
+    diffusion
+        Whether to include the noise reduction due to charge diffusion
+        in the result.
+        This only has an effect if `thickness_depletion` is smaller than
+        `thickness_substrate` and `width_pixel` is positive.
 
     Examples
     --------
@@ -1329,6 +1389,67 @@ def vmr_signal(
         ax.set_ylabel(f"variance-to-mean ratio ({signal.unit:latex_inline})");
         ax.legend();
 
+    Compare the analytic VMR to a Monte Carlo approximation for a sensor with
+    a field-free region, where charge diffusion is significant.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the thickness of the depletion region,
+        # which is smaller than the thickness of the substrate,
+        # so that there is a field-free region where charge diffuses
+        thickness_depletion = 2 * u.um
+
+        # Define the logical axes of the pixel grid
+        axis_xy = ("detector_x", "detector_y")
+
+        # Define the expected number of photons incident on each pixel
+        photons_expected = na.broadcast_to(
+            100 * u.photon,
+            shape=dict(detector_x=16, detector_y=16),
+        )
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(100, 1000, axis="wavelength", num=5) * u.AA
+
+        # Compute the actual number of electrons measured for each experiment
+        signal = optika.sensors.signal(
+            photons_expected=photons_expected,
+            wavelength=wavelength,
+            thickness_depletion=thickness_depletion,
+            axis_xy=axis_xy,
+            wrap=True,
+            shape_random=dict(experiment=200),
+        )
+
+        # Estimate the VMR of the measured signal by averaging
+        # over both experiments and pixels
+        vmr_measured = signal.vmr(("experiment",) + axis_xy)
+
+        # Compute the VMR analytically with and without charge diffusion
+        vmr_diffusion = optika.sensors.vmr_signal(
+            wavelength=wavelength,
+            thickness_depletion=thickness_depletion,
+        )
+        vmr_no_diffusion = optika.sensors.vmr_signal(
+            wavelength=wavelength,
+        )
+
+        # Plot the measured and analytic VMRs as a function of wavelength
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.scatter(wavelength, vmr_measured, ax=ax, label="Monte Carlo");
+        na.plt.plot(wavelength, vmr_diffusion, ax=ax, label="analytic");
+        na.plt.plot(wavelength, vmr_no_diffusion, ax=ax, label="analytic (no diffusion)");
+        ax.set_xscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel(f"variance-to-mean ratio ({signal.unit:latex_inline})");
+        ax.legend();
+
     Notes
     -----
     The VMR of the measured electrons is given by
@@ -1350,6 +1471,74 @@ def vmr_signal(
     where :math:`\alpha` is the absorption coefficient,
     :math:`W` is the thickness of the implant region,
     and :math:`\eta_0` is the CCE at the back surface.
+
+    The expression for :math:`F(N_e'')` above can be written compactly as
+
+    .. math::
+        :label: vmr-compact
+
+        F(N_e'') = 1 + \left( \overline{n} + \mathcal{F} - 1 \right)
+            \frac{\left\langle \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle},
+
+    where :math:`\left\langle \cdot \right\rangle` denotes an average over the
+    exponentially-distributed absorption depth :math:`z`,
+    since :math:`\left\langle \eta^2 \right\rangle / \left\langle \eta \right\rangle
+    = \overline{\eta} + F(\eta)`.
+    The constant term is the uncorrelated (Poisson) component of the noise,
+    and the second term is the photon-correlated component,
+    which arises because the :math:`\sim \overline{n}` electrons produced by a
+    single photon are measured together in the same pixel.
+
+    Charge diffusion weakens exactly this correlation:
+    two electrons produced by the same photon at depth :math:`z` in the
+    field-free region land in the same pixel only with probability
+
+    .. math::
+
+        D(z) = d \left( \frac{w(z)}{p_x} \right) d \left( \frac{w(z)}{p_y} \right),
+
+    where :math:`p_x` and :math:`p_y` are the pixel widths,
+    :math:`w(z) = z_f \sqrt{1 - z / z_f}` is the standard deviation of the
+    Gaussian charge diffusion kernel,
+    :math:`z_f` is the thickness of the field-free region
+    (the difference between the substrate thickness and the depletion
+    thickness),
+    and
+
+    .. math::
+
+        d(\sigma) = \text{erf} \left( \frac{1}{2 \sigma} \right)
+            - \frac{2 \sigma}{\sqrt{\pi}} \left( 1 - e^{-1 / 4 \sigma^2} \right)
+
+    is the probability that two electrons displaced independently by
+    :math:`\mathcal{N}(0, \sigma^2)` from the same uniformly-distributed
+    sub-pixel starting position fall into the same column of pixels.
+    Weighting the photon-correlated component of Equation :eq:`vmr-compact`
+    by :math:`D(z)` yields the VMR with charge diffusion,
+
+    .. math::
+        :label: vmr-diffusion
+
+        F(N_e'') = 1 + \left( \overline{n} + \mathcal{F} - 1 \right)
+            \frac{\left\langle D(z) \, \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle}.
+
+    Note that the uncorrelated term is unchanged since diffusion only moves
+    electrons between pixels, which preserves Poisson statistics.
+    This function evaluates Equation :eq:`vmr-diffusion` by subtracting the
+    correction
+
+    .. math::
+
+        F_\text{diffusion} = - \left( \overline{n} + \mathcal{F} - 1 \right)
+            \frac{\left\langle \left[ 1 - D(z) \right] \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle}
+
+    from Equation :eq:`vmr-compact`,
+    where the average is computed numerically over the field-free region
+    using the absorption-depth distribution truncated to the substrate.
+    This result assumes uniform illumination and a periodic pixel grid,
+    so it corresponds to ``wrap=True`` in :func:`signal`,
+    and is a good approximation away from the edges of a sensor
+    with ``wrap=False``.
     """
 
     if n_substrate is None:
@@ -1403,6 +1592,51 @@ def vmr_signal(
         F_pcc = 1 * unit - cce * unit - F_cce * unit + iqy * F_cce + F * F_cce
 
         result = result + F_pcc
+
+    if diffusion:
+        if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
+            width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
+
+        n0 = cce_backsurface
+        aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
+
+        thickness_ff = np.maximum(
+            thickness_substrate - thickness_depletion,
+            0 * thickness_substrate,
+        )
+        az_ff = (absorption * thickness_ff).to(u.dimensionless_unscaled).value
+        az_substrate = absorption * thickness_substrate
+        az_substrate = az_substrate.to(u.dimensionless_unscaled).value
+
+        def ratio_ff(width: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            where = width > 0
+            width = np.where(where, width, 1 * u.um)
+            r = (thickness_ff / width).to(u.dimensionless_unscaled).value
+            return np.where(where, r, 0)
+
+        r_x = ratio_ff(width_pixel.x)
+        r_y = ratio_ff(width_pixel.y)
+
+        fraction_absorbed = -np.expm1(-az_substrate)
+        t_ff = -np.expm1(-az_ff) / fraction_absorbed
+        az_ff_safe = np.where(az_ff > 0, az_ff, 1)
+
+        axis_z = "_vmr_signal_depth"
+        num_z = 1001
+        s = (na.arange(0, num_z, axis=axis_z) + 0.5) / num_z
+
+        az = -np.log1p(-t_ff * s * fraction_absorbed)
+        eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
+        w = np.sqrt(np.maximum(1 - az / az_ff_safe, 0))
+        D = _probability_same_pixel(r_x * w) * _probability_same_pixel(r_y * w)
+
+        integral = t_ff * ((1 - D) * np.square(eta)).mean(axis_z)
+
+        unit = u.electron / u.photon
+
+        F_diffusion = -(iqy + F - 1 * unit) * integral / cce
+
+        result = result + F_diffusion
 
     return result * u.photon
 
@@ -1546,6 +1780,10 @@ class AbstractSensorMaterial(
         electrons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
     ) -> na.AbstractScalar:
         """
         Given the number of electrons measured by the sensor, compute the
@@ -1560,6 +1798,9 @@ class AbstractSensorMaterial(
         direction
             The cosine of the refracted angle inside the light-sensitive region,
             as produced by :meth:`direction_refracted`.
+        width_pixel
+            The physical size of each pixel, used by the charge-diffusion model.
+            Should match the value passed to :meth:`signal`.
         """
 
 
@@ -1637,9 +1878,15 @@ class IdealSensorMaterial(
         electrons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
     ) -> na.AbstractScalar:
         # an ideal sensor has only shot noise, so the electrons are
         # Poisson-distributed and the variance equals the mean.
+        # `width_pixel` is unused since charge diffusion preserves
+        # Poisson statistics.
         return np.sqrt(electrons * u.electron)
 
 
@@ -2209,6 +2456,10 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         electrons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
     ) -> na.AbstractScalar:
         # `direction` is the cosine of the refracted angle *inside* the
         # substrate (as passed to `signal`); pass ``n == n_substrate`` so
@@ -2222,6 +2473,9 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             n=n_substrate,
             n_substrate=n_substrate,
             thickness_implant=self.thickness_implant,
+            thickness_depletion=self.depletion.thickness,
+            thickness_substrate=self.thickness_substrate,
+            width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
         )
