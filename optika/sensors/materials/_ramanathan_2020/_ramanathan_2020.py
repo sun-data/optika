@@ -1,3 +1,4 @@
+import functools
 import pathlib
 import math
 import random
@@ -45,10 +46,17 @@ def _probability_of_n_pairs_from_file(
     )
 
 
+@functools.cache
 def _probability_of_n_pairs_ramanathan() -> na.FunctionArray[
     na.CartesianNdVectorArray,
     na.ScalarArray,
 ]:
+    """
+    Load the tabulated pair-creation PMF of :cite:t:`Ramanathan2020`.
+
+    The result is cached and shared between calls, so it should be treated
+    as read-only.
+    """
 
     directory = pathlib.Path(__file__).parent
     pn_000K = _probability_of_n_pairs_from_file(directory / "p0K.dat")
@@ -445,11 +453,35 @@ def probability_of_n_pairs(
     _temperature = pn.inputs.components["temperature"]
     _probability = pn.outputs
 
-    probability = na.interp(
-        x=temperature,
-        xp=_temperature,
-        fp=_probability,
+    # Interpolate over temperature by gathering the two bracketing samples
+    # and blending them, rather than with `na.interp`, which loops over the
+    # ~20,000 elements of the non-interpolated axes in Python.
+    # Rename the tabulated temperature axis so that it cannot collide with
+    # an axis of the same name on the `temperature` argument.
+    axis = "_temperature_interp"
+    _temperature = na.ScalarArray(_temperature.ndarray, axes=axis)
+    _probability = na.ScalarArray(
+        ndarray=_probability.ndarray,
+        axes=tuple(axis if ax == "temperature" else ax for ax in _probability.axes),
     )
+
+    num_temperature = _temperature.shape[axis]
+    index_upper = np.clip(
+        (temperature > _temperature).sum(axis),
+        a_min=1,
+        a_max=num_temperature - 1,
+    )
+    index_lower = index_upper - 1
+    t_lower = _temperature[{axis: index_lower}]
+    t_upper = _temperature[{axis: index_upper}]
+    weight = np.clip(
+        (temperature - t_lower) / (t_upper - t_lower),
+        a_min=0,
+        a_max=1,
+    )
+    p_lower = _probability[{axis: index_lower}]
+    p_upper = _probability[{axis: index_upper}]
+    probability = p_lower + weight * (p_upper - p_lower)
 
     probability = na.interp(
         x=energy,
