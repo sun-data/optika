@@ -99,6 +99,49 @@ def test_fano_factor_inf(
 
 
 @pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        5 * u.AA,
+        na.geomspace(2, 5000, axis="wavelength", num=11) << u.AA,
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="temperature",
+    argvalues=[
+        0 * u.K,
+        200 * u.K,
+        350 * u.K,
+        na.linspace(10, 290, axis="temperature", num=5) << u.K,
+    ],
+)
+def test_probability_of_n_pairs(
+    wavelength: u.Quantity | na.ScalarArray,
+    temperature: u.Quantity | na.ScalarArray,
+):
+    result = _ramanathan_2020.probability_of_n_pairs(
+        wavelength=wavelength,
+        temperature=temperature,
+    )
+
+    pn = _ramanathan_2020._probability_of_n_pairs_ramanathan()
+    expected = na.interp(
+        x=temperature.to(u.K, equivalencies=u.temperature()),
+        xp=pn.inputs.components["temperature"],
+        fp=pn.outputs,
+    )
+    expected = na.interp(
+        x=wavelength.to(u.eV, equivalencies=u.spectral()),
+        xp=pn.inputs.components["energy"],
+        fp=expected,
+    )
+
+    assert np.allclose(result.outputs, expected, atol=1e-12)
+
+    total = result.outputs.sum("num_electron")
+    assert np.allclose(total, 1)
+
+
+@pytest.mark.parametrize(
     argnames="photons_absorbed",
     argvalues=[
         na.broadcast_to((100 * u.photon).astype(int), dict(pixel_x=2, pixel_y=2)),
