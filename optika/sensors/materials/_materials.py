@@ -1408,14 +1408,16 @@ def vmr_signal(
         # Define the logical axes of the pixel grid
         axis_xy = ("detector_x", "detector_y")
 
-        # Define the expected number of photons incident on each pixel
+        # Define the expected number of photons incident on each pixel.
+        # The VMR is independent of the illumination level, so a modest
+        # number of photons keeps the Monte Carlo inexpensive.
         photons_expected = na.broadcast_to(
-            100 * u.photon,
+            25 * u.photon,
             shape=dict(detector_x=16, detector_y=16),
         )
 
         # Define a grid of wavelengths
-        wavelength = na.geomspace(100, 1000, axis="wavelength", num=21) * u.AA
+        wavelength = na.geomspace(100, 1000, axis="wavelength", num=101) * u.AA
 
         # Compute the actual number of electrons measured for each experiment
         signal = optika.sensors.signal(
