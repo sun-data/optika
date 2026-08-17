@@ -1417,7 +1417,7 @@ def vmr_signal(
         )
 
         # Define a grid of wavelengths
-        wavelength = na.geomspace(100, 1000, axis="wavelength", num=101) * u.AA
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=101) * u.AA
 
         # Compute the actual number of electrons measured for each experiment
         signal = optika.sensors.signal(
@@ -1448,6 +1448,7 @@ def vmr_signal(
         na.plt.plot(wavelength, vmr_diffusion, ax=ax, label="analytic");
         na.plt.plot(wavelength, vmr_no_diffusion, ax=ax, label="analytic (no diffusion)");
         ax.set_xscale("log");
+        ax.set_yscale("log");
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel(f"variance-to-mean ratio ({signal.unit:latex_inline})");
         ax.legend();
