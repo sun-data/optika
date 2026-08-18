@@ -716,3 +716,80 @@ class TestSequentialSystemGrazingSpectrograph(
         result = a.field_max
         assert np.abs(result.x - _radius_field_grazing) < 1e-6 * u.deg
         assert np.abs(result.y - _radius_field_grazing) < 1e-6 * u.deg
+
+
+# the field stop is decentered so that a mirrored field frame is observable:
+# rays aimed using global-frame field bounds miss the aperture entirely
+_radius_field_rotated = 2 * u.mm
+_decenter_field_rotated = 3 * u.mm
+
+_system_rotated_object = optika.systems.SequentialSystem(
+    object=optika.surfaces.Surface(
+        name="source",
+        aperture=optika.apertures.CircularAperture(
+            radius=_radius_field_rotated,
+            transformation=na.transformations.Cartesian3dTranslation(
+                x=_decenter_field_rotated,
+            ),
+        ),
+        is_field_stop=True,
+        transformation=na.transformations.Cartesian3dRotationY(180 * u.deg),
+    ),
+    surfaces=[
+        optika.surfaces.Surface(
+            name="mirror",
+            sag=optika.sags.SphericalSag(radius=240 * u.mm),
+            material=optika.materials.Mirror(),
+            aperture=optika.apertures.CircularAperture(radius=15 * u.mm),
+            is_pupil_stop=True,
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=-200 * u.mm,
+            ),
+        ),
+    ],
+    sensor=optika.sensors.ImagingSensor(
+        name="sensor",
+        width_pixel=150 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        timedelta_exposure=1 * u.s,
+        num_pixel=na.Cartesian2dVectorArray(128, 128),
+        transformation=na.transformations.Cartesian3dTranslation(
+            z=100 * u.mm,
+        ),
+    ),
+    grid_input=_grid_input,
+)
+
+
+@pytest.mark.parametrize(argnames="a", argvalues=[_system_rotated_object])
+class TestSequentialSystemRotatedObject(
+    AbstractTestAbstractSequentialSystem,
+):
+    """
+    A finite-conjugate relay whose object surface is rotated 180 degrees
+    about :math:`y`, so its local coordinate frame differs from the global
+    frame. This guards the object-local frame handling of the stop
+    root-finding problem: the solved stop rays must be expressed in the
+    object surface's local coordinates before their direction is flipped,
+    since that is the frame in which the field and pupil coordinates of the
+    input grid are interpreted.
+    """
+
+    def test_field_bounds_match_decentered_aperture(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        x_min = _decenter_field_rotated - _radius_field_rotated
+        x_max = _decenter_field_rotated + _radius_field_rotated
+        assert np.abs(a.field_min.x - x_min) < 1 * u.um
+        assert np.abs(a.field_max.x - x_max) < 1 * u.um
+
+    def test_rays_reach_the_sensor(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        # the square field/pupil grids overfill the circular apertures, so
+        # the unvignetted fraction is well below 1 even for a healthy trace;
+        # with a mirrored object frame it is exactly 0
+        unvignetted = a.rayfunction_default.outputs.unvignetted
+        assert unvignetted.mean().ndarray > 0.25
