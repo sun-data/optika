@@ -1,5 +1,5 @@
-Introduction
-============
+optika
+======
 
 :mod:`optika` is a Python package for designing optical systems inspired by
 `Zemax <https://en.wikipedia.org/wiki/Zemax>`_.
@@ -26,6 +26,14 @@ to broadcast orthogonal configuration changes against each other.
 Furthermore, :mod:`named_arrays` provides an implementation of a 3D vector,
 :class:`~named_arrays.Cartesian3dVectorArray`, which is convenient to use since
 many of the inputs and outputs of :mod:`optika` can be represented as 3D vectors.
+
+Installation
+------------
+
+:mod:`optika` is published on PyPI and can be installed using::
+
+    pip install optika
+
 
 Features
 --------
@@ -75,6 +83,77 @@ Differences from Zemax
 * Diffraction grating rulings are now a parameter of an optical surface.
   There is no need to change the type of surface to allow for different ruling
   designs.
+
+
+Examples
+========
+
+Compute the transmissivity of a thin filter, such as the aluminum filters used
+to reject visible light on solar instruments.
+
+.. jupyter-execute::
+
+    import matplotlib.pyplot as plt
+    import astropy.units as u
+    import named_arrays as na
+    import optika
+
+    # Define the wavelengths at which to compute the transmissivity
+    wavelength = na.geomspace(100, 800, axis="wavelength", num=201) * u.AA
+
+    # Compute the efficiency of a 100 nm layer of aluminum
+    reflectivity, transmissivity = optika.materials.multilayer_efficiency(
+        wavelength=wavelength,
+        layers=optika.materials.Layer(
+            chemical="Al",
+            thickness=1000 * u.AA,
+        ),
+    )
+
+    # Plot the transmissivity, which drops sharply at the aluminum L edge
+    fig, ax = plt.subplots(constrained_layout=True)
+    na.plt.plot(wavelength, transmissivity.average, ax=ax, axis="wavelength");
+    ax.set_xscale("log");
+    ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+    ax.set_ylabel("transmissivity");
+
+|
+
+Compute the effective quantum efficiency of a back-illuminated CCD, and compare
+it to the theoretical maximum for the same sensor.
+
+.. jupyter-execute::
+
+    # Define the wavelengths at which to compute the quantum efficiency
+    wavelength = na.geomspace(10, 10000, axis="wavelength", num=1001) * u.AA
+
+    # Compute the effective quantum efficiency of the sensor
+    eqe = optika.sensors.quantum_efficiency_effective(
+        wavelength=wavelength,
+    )
+
+    # Compute the quantum efficiency of an ideal back surface
+    eqe_max = optika.sensors.quantum_efficiency_effective(
+        wavelength=wavelength,
+        cce_backsurface=1,
+    )
+
+    # Plot both
+    fig, ax = plt.subplots(constrained_layout=True)
+    na.plt.plot(wavelength, eqe, ax=ax, axis="wavelength", label="effective");
+    na.plt.plot(wavelength, eqe_max, ax=ax, axis="wavelength", label="ideal back surface");
+    ax.set_xscale("log");
+    ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+    ax.set_ylabel("quantum efficiency");
+    ax.legend();
+
+|
+
+For a complete optical system, including a raytrace and a simulated image, see
+the worked Newtonian telescope in
+:class:`optika.systems.SequentialSystem`.
+
+|
 
 
 Tutorials
