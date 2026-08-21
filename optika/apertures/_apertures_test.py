@@ -2,6 +2,7 @@ import dataclasses
 import pytest
 import numpy as np
 import matplotlib.axes
+import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -487,3 +488,52 @@ class TestIsoscelesTrapezoidalAperture(
     AbstractTestAbstractIsoscelesTrapezoidalAperture,
 ):
     pass
+
+
+def _extent_plotted(
+    aperture: optika.apertures.AbstractAperture,
+    unit: None | u.UnitBase,
+) -> float:
+    """
+    How far from the origin the aperture is drawn.
+
+    The bare magnitude handed to matplotlib, which is what sets the scale it is
+    drawn at on an axes which does not understand units.
+    """
+    fig, ax = plt.subplots()
+    try:
+        aperture.plot(ax=ax, components=("x", "y"), unit=unit)
+        x = np.concatenate(
+            [
+                np.asarray(getattr(line.get_xdata(), "value", line.get_xdata()))
+                for line in ax.lines
+            ]
+        )
+        return float(np.max(np.abs(x)))
+    finally:
+        plt.close(fig)
+
+
+def test_plot_unit():
+    """
+    Asking for a unit draws every aperture to one scale.
+
+    Matplotlib is told about units by
+    :func:`astropy.visualization.quantity_support`, but that reconciles them
+    only on a 2D axes. On a 3D axes an aperture measured in microns is drawn a
+    thousand times larger than the same aperture measured in millimeters, and
+    the instrument around it collapses to a speck.
+    """
+    millimeters = optika.apertures.RectangularAperture(1 * u.mm)
+    micrometers = optika.apertures.RectangularAperture(1000 * u.um)
+
+    # the same aperture, described in two different units
+    assert _extent_plotted(millimeters, None) == pytest.approx(1)
+    assert _extent_plotted(micrometers, None) == pytest.approx(1000)
+
+    # which are drawn to one scale when a unit is asked for
+    assert _extent_plotted(millimeters, u.mm) == pytest.approx(1)
+    assert _extent_plotted(micrometers, u.mm) == pytest.approx(1)
+
+    # and converted, not merely relabelled
+    assert _extent_plotted(millimeters, u.um) == pytest.approx(1000)

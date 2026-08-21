@@ -202,6 +202,7 @@ class AbstractSurface(
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
         transformation: None | na.transformations.AbstractTransformation = None,
         components: None | tuple[str, ...] = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> dict[str, na.AbstractScalar]:
         sag = self.sag
@@ -228,6 +229,7 @@ class AbstractSurface(
                 transformation=transformation,
                 components=components,
                 sag=sag,
+                unit=unit,
                 **kwargs,
             )
 
@@ -237,6 +239,7 @@ class AbstractSurface(
                 transformation=transformation,
                 components=components,
                 sag=sag,
+                unit=unit,
                 **kwargs,
             )
 
