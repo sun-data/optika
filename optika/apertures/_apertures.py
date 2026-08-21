@@ -135,6 +135,7 @@ class AbstractAperture(
         transformation: None | na.transformations.AbstractTransformation = None,
         components: None | tuple[str, ...] = None,
         sag: None | optika.sags.AbstractSag = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> None | na.ScalarArray[npt.NDArray[None | matplotlib.lines.Line2D]]:
         if ax is None:
@@ -148,6 +149,9 @@ class AbstractAperture(
 
         if sag is not None:
             wire.z = sag(wire)
+
+        if unit is not None:
+            wire = wire.to(unit)
 
         kwargs_plot = self.kwargs_plot
         if kwargs_plot is None:

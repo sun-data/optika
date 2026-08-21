@@ -1696,6 +1696,7 @@ class AbstractSequentialSystem(
         plot_rays: bool = True,
         plot_rays_vignetted: bool = False,
         kwargs_rays: None | dict[str, Any] = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> na.AbstractScalar | dict[str, na.AbstractScalar]:
         """
@@ -1715,6 +1716,19 @@ class AbstractSequentialSystem(
             Boolean flag indicating whether to plot the vignetted rays.
         kwargs_rays
             Any additional keyword arguments to use when plotting the rays.
+        unit
+            The unit to express every plotted length in.
+
+            A system is free to describe its parts in whichever units suit
+            them, and a detector measured in microns alongside optics measured
+            in millimeters is quite normal. Matplotlib is told about units by
+            :func:`astropy.visualization.quantity_support`, which reconciles
+            them on a 2D axes but not on a 3D one, where a surface given in
+            microns is drawn a thousand times too large.
+
+            Giving a unit here converts everything to it first, so the system
+            is drawn to one scale whatever the axes. Leaving it as
+            :obj:`None`, the default, passes the lengths through as they are.
         kwargs
             Any additional keyword arguments to use when plotting the surfaces.
         """
@@ -1741,6 +1755,7 @@ class AbstractSequentialSystem(
                     ax=ax,
                     transformation=transformation,
                     components=components,
+                    unit=unit,
                     **kwargs,
                 )
             )
@@ -1755,8 +1770,12 @@ class AbstractSequentialSystem(
             if not plot_rays_vignetted:
                 where = raytrace.outputs.unvignetted[{self.axis_surface: ~0}]
 
+            position = raytrace.outputs.position
+            if unit is not None:
+                position = position.to(unit)
+
             result["rays"] = na.plt.plot(
-                raytrace.outputs.position,
+                position,
                 ax=ax,
                 axis=self.axis_surface,
                 where=where,
