@@ -716,3 +716,30 @@ class TestSequentialSystemGrazingSpectrograph(
         result = a.field_max
         assert np.abs(result.x - _radius_field_grazing) < 1e-6 * u.deg
         assert np.abs(result.y - _radius_field_grazing) < 1e-6 * u.deg
+
+
+def test_plot_unit():
+    """
+    The whole system is drawn in the unit asked for, rays included.
+
+    :func:`astropy.visualization.quantity_support` reconciles units on a 2D
+    axes but not on a 3D one, where a part described in microns is drawn a
+    thousand times larger than the millimeters around it.
+    """
+
+    def extent(unit: u.UnitBase) -> float:
+        """The largest magnitude handed to matplotlib, surfaces and rays alike."""
+        fig, ax = plt.subplots()
+        try:
+            _system_newtonian.plot(ax=ax, components=("z", "x"), unit=unit)
+            x = np.concatenate(
+                [
+                    np.asarray(getattr(line.get_xdata(), "value", line.get_xdata()))
+                    for line in ax.lines
+                ]
+            )
+            return float(np.max(np.abs(x)))
+        finally:
+            plt.close(fig)
+
+    assert extent(u.um) == pytest.approx(1000 * extent(u.mm))
