@@ -159,6 +159,22 @@ class AbstractAperture(
 
         kwargs = kwargs_plot | kwargs
 
+        # On a 3D axes the aperture is drawn as a filled polygon rather than a
+        # closed line. The fill hides whatever is behind the surface, which an
+        # outline cannot, and carrying the edge on the same artist means the
+        # two can never be sorted apart: matplotlib orders a 3D axes by one
+        # depth per artist, so a separate outline lying on its own face is
+        # placed in front of or behind it at random.
+        if optika.plot.is_3d(ax):
+            return na.plt.fill(
+                wire,
+                ax=ax,
+                axis="wire",
+                transformation=transformation,
+                components=components,
+                **optika.plot.kwargs_filled(kwargs),
+            )
+
         return na.plt.plot(
             wire,
             ax=ax,

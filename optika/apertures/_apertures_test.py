@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 import matplotlib.axes
 import matplotlib.pyplot as plt
+import mpl_toolkits.mplot3d.art3d
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -537,3 +538,38 @@ def test_plot_unit():
 
     # and converted, not merely relabelled
     assert _extent_plotted(millimeters, u.um) == pytest.approx(1000)
+
+
+def test_plot_3d_is_filled():
+    """
+    On a 3D axes an aperture is drawn filled rather than as a closed line.
+
+    An outline cannot hide what is behind the surface, and a fill drawn as a
+    separate artist from its own outline is sorted apart from it, matplotlib
+    ordering a 3D axes by one depth per artist.
+    """
+    aperture = optika.apertures.RectangularAperture(1 * u.mm)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    aperture.plot(ax=ax, components=("x", "y", "z"))
+
+    assert len(ax.collections) == 1
+    assert isinstance(
+        ax.collections[0],
+        mpl_toolkits.mplot3d.art3d.Poly3DCollection,
+    )
+    assert not ax.lines
+    plt.close(fig)
+
+
+def test_plot_2d_is_a_line():
+    """On a 2D axes an aperture is still drawn as a line."""
+    aperture = optika.apertures.RectangularAperture(1 * u.mm)
+
+    fig, ax = plt.subplots()
+    aperture.plot(ax=ax, components=("x", "y"))
+
+    assert len(ax.lines) == 1
+    assert not ax.collections
+    plt.close(fig)
