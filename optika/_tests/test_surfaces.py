@@ -1,5 +1,6 @@
 import pytest
 import matplotlib.axes
+import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -89,3 +90,20 @@ class TestSurface(
     AbstractTestAbstractSurface,
 ):
     pass
+
+
+def test_plot_kwargs_plot():
+    """A surface can carry the keywords it is to be drawn with."""
+    color = "tab:red"
+    surface = optika.surfaces.Surface(
+        aperture=optika.apertures.CircularAperture(10 * u.mm),
+        kwargs_plot=dict(color=color),
+    )
+
+    fig, ax = plt.subplots()
+    surface.plot(ax=ax, components=("x", "y"))
+    colors = [line.get_color() for line in ax.lines]
+    plt.close(fig)
+
+    assert colors
+    assert all(c == color for c in colors)

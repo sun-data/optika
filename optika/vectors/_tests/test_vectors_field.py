@@ -147,3 +147,11 @@ class TestFieldVectorArray(
         value: optika.vectors.AbstractFieldVectorArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
+
+
+def test_from_scalar():
+    """Without a vector to be like, the class asked is the class built."""
+    result = optika.vectors.FieldVectorArray.from_scalar(2 * u.mm)
+
+    assert isinstance(result, optika.vectors.FieldVectorArray)
+    assert result.field == 2 * u.mm

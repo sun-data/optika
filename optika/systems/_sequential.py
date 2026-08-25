@@ -100,7 +100,9 @@ class AbstractSequentialSystem(
         obj = self.object
         if obj is not None:
             result = [obj]
-        else:
+        else:  # pragma: nocover
+            # every concrete system fills in an object surface if it is given
+            # none, so this is here for the sake of a subclass which does not
             result = []
 
         result += list(self.surfaces)
@@ -307,7 +309,7 @@ class AbstractSequentialSystem(
         The index of the field stop in :attr:`surfaces_all`.
         """
         indices = self._indices_field_stop
-        if not indices:
+        if not indices:  # pragma: nocover
             raise ValueError(
                 "Field stop is not defined for this system."
                 "Set `is_field_stop=True` for at least one surface in this system."
@@ -417,9 +419,11 @@ class AbstractSequentialSystem(
         indices_pupil_stop = self._indices_pupil_stop
         indices_field_stop = self._indices_field_stop
 
-        if not indices_pupil_stop:
+        # both stops have been looked up by the caller, which raises a
+        # fuller message of its own if either is missing
+        if not indices_pupil_stop:  # pragma: nocover
             raise ValueError("pupil not defined")
-        if not indices_field_stop:
+        if not indices_field_stop:  # pragma: nocover
             raise ValueError("field stop not defined")
 
         while indices_pupil_stop and indices_field_stop:
@@ -492,7 +496,7 @@ class AbstractSequentialSystem(
                     )
                     return surface_first.sag(position)
 
-            else:
+            else:  # pragma: nocover
                 raise ValueError(f"unrecognized input grid unit, {na.unit(grid_first)}")
 
             # Seed the free ray component by aiming each ray at its own
@@ -551,7 +555,7 @@ class AbstractSequentialSystem(
                 component_target = "position"
             elif na.unit(grid_last).is_equivalent(u.dimensionless_unscaled):
                 component_target = "direction"
-            else:
+            else:  # pragma: nocover
                 raise ValueError(f"unrecognized output grid unit, {na.unit(grid_last)}")
 
             # The residual of the root-finding problem has the same units as

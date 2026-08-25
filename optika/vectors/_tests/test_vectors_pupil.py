@@ -147,3 +147,11 @@ class TestPupilVectorArray(
         value: optika.vectors.AbstractPupilVectorArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
+
+
+def test_from_scalar():
+    """Without a vector to be like, the class asked is the class built."""
+    result = optika.vectors.PupilVectorArray.from_scalar(2 * u.mm)
+
+    assert isinstance(result, optika.vectors.PupilVectorArray)
+    assert result.pupil == 2 * u.mm
