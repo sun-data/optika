@@ -49,3 +49,15 @@ def test_kwargs_filled_facecolor():
     assert result["facecolors"] == "none"
     assert result["edgecolors"] == "black"
     assert "facecolor" not in result
+
+
+def test_is_3d_default_axes():
+    """With no axes given the current one is used, as matplotlib does."""
+    fig = plt.figure()
+    fig.add_subplot(111, projection="3d")
+    assert optika.plot.is_3d(None)
+    plt.close(fig)
+
+    fig, ax = plt.subplots()
+    assert not optika.plot.is_3d(None)
+    plt.close(fig)

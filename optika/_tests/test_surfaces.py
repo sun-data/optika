@@ -1,6 +1,7 @@
 import pytest
 import matplotlib.axes
 import matplotlib.pyplot as plt
+import mpl_toolkits.mplot3d.art3d
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -204,3 +205,58 @@ def test_plot_substrate_uses_the_aperture_transformation():
 
     # and both are where the aperture was put, not where it was defined
     assert back[0] == pytest.approx(offset.value - 10, abs=1e-9)
+
+
+def test_plot_substrate_3d():
+    """
+    Seen in 3D the substrate is a solid: a filled back, and a wall around it.
+
+    The wall is drawn a panel at a time rather than as one artist, since
+    matplotlib sorts a 3D axes by one depth per artist, and a wall which
+    wraps around the optic is nearer the viewer on one side than the other.
+    """
+    surface = _surface(_substrate)
+    num_vertices = surface.aperture.num_vertices
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    result = surface.plot(ax=ax, components=("x", "y", "z"))["substrate"]
+    plt.close(fig)
+
+    assert "wall" in result
+    assert "edges" not in result
+
+    for artist in [result["back"], result["wall"]]:
+        for a in np.atleast_1d(na.as_named_array(artist).ndarray).flat:
+            assert isinstance(a, mpl_toolkits.mplot3d.art3d.Poly3DCollection)
+
+    # one panel of the wall for each edge of the aperture
+    assert na.shape(result["wall"]) == dict(vertex=num_vertices)
+
+
+def test_plot_substrate_unit():
+    """The substrate is drawn in the unit asked for, like the rest of the surface."""
+    surface = _surface(_substrate)
+    thickness = na.value(surface.material.substrate.thickness)
+
+    fig, ax = plt.subplots()
+    result = surface.plot(ax=ax, components=("z", "x"), unit=u.um)["substrate"]
+
+    lines = np.atleast_1d(na.as_named_array(result["back"]).ndarray)
+    drawn = np.concatenate([np.asarray(a.get_xdata()) for a in lines.flat])
+    plt.close(fig)
+
+    # micrometres, so a thousand times the number millimetres would give
+    assert np.abs(drawn) == pytest.approx(1000 * thickness)
+
+
+def test_plot_substrate_without_an_aperture():
+    """A surface with no aperture has no edge to hang a substrate on."""
+    fig, ax = plt.subplots()
+    result = optika.surfaces.Surface(material=_substrate).plot(
+        ax=ax,
+        components=("z", "x"),
+    )
+    plt.close(fig)
+
+    assert result["substrate"] == dict()

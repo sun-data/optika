@@ -281,8 +281,10 @@ class AbstractSurface(
         the vertex, and joined to the front at each vertex of the aperture, so
         the optic reads as a solid seen edge on.
 
-        Nothing is filled: on a 2D axes there is nothing to fill against, and
-        on a 3D one the outline is drawn the same way, so that the two agree.
+        On a 3D axes the faces are filled, so that the optic is opaque and
+        hides whatever lies behind it. Seen flat there is nothing to hide, so
+        the substrate is drawn as outlines, which is how a layout drawing
+        shows one.
         """
         result = dict()
 
