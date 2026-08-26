@@ -123,6 +123,7 @@ class AbstractSurface(
     def propagate_rays(
         self,
         rays: optika.rays.RayVectorArray,
+        efficiency: bool = True,
     ) -> optika.rays.RayVectorArray:
         r"""
         Refract, reflect, and/or diffract the given rays off of this surface
@@ -131,6 +132,14 @@ class AbstractSurface(
         ----------
         rays
             A set of input rays that will interact with this surface.
+        efficiency
+            A boolean flag indicating whether to accumulate the efficiency of
+            this surface into
+            :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
+            If :obj:`False`, the intensity of the result is meaningless, but
+            the geometry is unchanged and much cheaper to compute, since the
+            efficiency of a multilayer coating usually costs far more than
+            the raytrace it belongs to.
         """
         sag = self.sag
         material = self.material
@@ -141,7 +150,7 @@ class AbstractSurface(
         if transformation is not None:
             rays = transformation.inverse(rays)
 
-        rays_1 = sag.propagate_rays(rays)
+        rays_1 = sag.propagate_rays(rays, efficiency=efficiency)
 
         position_1 = rays_1.position
 
@@ -172,11 +181,14 @@ class AbstractSurface(
             normal=normal,
         )
 
-        efficiency = material.efficiency(rays_1, normal)
-        if rulings is not None:
-            efficiency = efficiency * rulings.efficiency(rays_1, normal)
+        if efficiency:
+            throughput = material.efficiency(rays_1, normal)
+            if rulings is not None:
+                throughput = throughput * rulings.efficiency(rays_1, normal)
+            intensity_2 = intensity_1 * throughput
+        else:
+            intensity_2 = intensity_1
 
-        intensity_2 = intensity_1 * efficiency
         attenuation_2 = material.attenuation(rays_1)
 
         rays_2 = dataclasses.replace(
