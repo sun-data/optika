@@ -152,3 +152,13 @@ class TestObjectVectorArray(
         value: optika.vectors.AbstractObjectVectorArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
+
+
+def test_from_scalar():
+    """Without a vector to be like, the class asked is the class built."""
+    result = optika.vectors.ObjectVectorArray.from_scalar(2)
+
+    assert isinstance(result, optika.vectors.ObjectVectorArray)
+    assert result.wavelength == 2
+    assert result.field == 2
+    assert result.pupil == 2

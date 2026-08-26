@@ -1,3 +1,4 @@
+import dataclasses
 import matplotlib.pyplot as plt
 import pytest
 import numpy as np
@@ -743,3 +744,119 @@ def test_plot_unit():
             plt.close(fig)
 
     assert extent(u.um) == pytest.approx(1000 * extent(u.mm))
+
+
+def test_plot_kwargs_plot():
+    """A system can carry the keywords its surfaces are to be drawn with."""
+    color = "tab:red"
+    system = dataclasses.replace(
+        _system_newtonian,
+        kwargs_plot=dict(color=color),
+    )
+
+    fig, ax = plt.subplots()
+    system.plot(ax=ax, components=("z", "x"), plot_rays=False)
+    colors = [line.get_color() for line in ax.lines]
+    plt.close(fig)
+
+    assert colors
+    assert all(c == color for c in colors)
+
+
+def test_field_stop_default():
+    """
+    With no surface marked as the field stop, the first one becomes it.
+
+    A system needs a field stop to define its field of view, so rather than
+    refuse to trace a system which does not name one, the object surface is
+    taken to be it.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=dataclasses.replace(_sensor, is_field_stop=False),
+        grid_input=_grid_input,
+    )
+
+    assert system.index_field_stop == 0
+    assert system.surfaces_all[0].is_field_stop
+
+
+def test_index_pupil_stop_undefined():
+    """
+    A system which names no pupil stop cannot say where its pupil is.
+
+    Unlike the field stop there is no sensible surface to fall back on, since
+    the pupil is a property of the optics rather than of the frame.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=[dataclasses.replace(_surfaces[0], is_pupil_stop=False)],
+        sensor=_sensor,
+        grid_input=_grid_input,
+    )
+
+    with pytest.raises(ValueError, match="Pupil stop is not defined"):
+        system.index_pupil_stop
+
+
+_object_translated = optika.surfaces.Surface(
+    aperture=optika.apertures.CircularAperture(10 * u.mm),
+    transformation=na.transformations.Cartesian3dTranslation(z=-10 * u.mm),
+)
+"""An object surface placed away from the origin of the system."""
+
+
+def test_object_transformation():
+    """
+    The rays start on the object surface wherever that surface has been put.
+
+    The object carries its own transformation, like any other surface, and the
+    rays are given in the coordinates of the system rather than of the object.
+    """
+    system = optika.systems.SequentialSystem(
+        object=_object_translated,
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input,
+    )
+
+    raytrace = system.raytrace(axis="surface")
+    z = raytrace.outputs.position.z[dict(surface=0)]
+
+    assert np.all(z == _object_translated.transformation.z)
+
+
+def test_stops_afocal():
+    """
+    A system whose image is at infinity is solved in angle at the far stop.
+
+    The stop nearer the object is measured in millimeters and the one further
+    away in direction cosines, so the rays are matched to the second stop by
+    the direction they leave in rather than by where they land.
+    """
+    system = optika.systems.SequentialSystem(
+        object=optika.surfaces.Surface(
+            aperture=optika.apertures.CircularAperture(1 * u.mm),
+            is_pupil_stop=True,
+        ),
+        surfaces=[
+            optika.surfaces.Surface(
+                name="exit",
+                aperture=optika.apertures.CircularAperture(0.05),
+                is_field_stop=True,
+                transformation=na.transformations.Cartesian3dTranslation(
+                    z=100 * u.mm,
+                ),
+            ),
+        ],
+        grid_input=_grid_input,
+    )
+
+    result = system.rayfunction_stops
+
+    # the rays leave at every angle the far stop admits, and from everywhere
+    # on the near one
+    direction = np.max(np.abs(result.outputs.direction.x))
+    position = np.max(np.abs(result.outputs.position.x))
+
+    assert float(na.value(direction).ndarray) == pytest.approx(0.05)
+    assert float(na.value(position.to(u.mm)).ndarray) == pytest.approx(1)

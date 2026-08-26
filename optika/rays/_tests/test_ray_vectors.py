@@ -287,3 +287,62 @@ class TestRayVectorArray(
         value: float | na.ScalarArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
+
+
+_rays = rays[0]
+"""A single set of rays, for the operations which take one."""
+
+_vector_2d = na.Cartesian2dVectorArray(1, 1) * u.mm
+"""A vector which rays cannot be combined with, having the wrong components."""
+
+
+def test__array_matmul__scalar():
+    """Multiplying by a scalar is left to the base class, which can do it."""
+    result = _rays @ 2
+
+    assert result.position == 2 * _rays.position
+    assert result.direction == 2 * _rays.direction
+
+
+@pytest.mark.parametrize(
+    argnames="x1,x2",
+    argvalues=[
+        (_rays, _vector_2d),
+        (_vector_2d, _rays),
+    ],
+)
+def test__array_matmul__unsupported(x1, x2):
+    """Rays and a vector of other components cannot be multiplied together."""
+    assert x1 @ x2 is None
+
+
+def test__array_matmul__neither():
+    """
+    Asked about two things which are not rays, the rays decline to answer.
+
+    Only reachable by calling the method directly, since matmul is dispatched
+    to this class only when one of its operands is a set of rays.
+    """
+    assert _rays.__array_matmul__(1, 2) is NotImplemented
+
+
+@pytest.mark.parametrize(
+    argnames="x1,x2",
+    argvalues=[
+        (_rays, _vector_2d),
+        (_vector_2d, _rays),
+    ],
+)
+def test__array_add__unsupported(x1, x2):
+    """Rays and a vector of other components cannot be added together."""
+    with pytest.raises(TypeError):
+        x1 + x2
+
+
+def test__array_add__neither():
+    """
+    Asked about two things which are not rays, the rays decline to answer.
+
+    Only reachable by calling the method directly, as with matmul above.
+    """
+    assert _rays.__array_add__(1, 2) is NotImplemented
