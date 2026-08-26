@@ -233,6 +233,21 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(raytrace.outputs, optika.rays.RayVectorArray)
         assert a.axis_surface not in raytrace.shape
 
+    def test_rayfunction_efficiency(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        """
+        Skipping the efficiency of each surface leaves the geometry of the
+        rays untouched.
+        """
+        expected = a.rayfunction()
+        result = a.rayfunction(efficiency=False)
+
+        assert np.all(result.outputs.position == expected.outputs.position)
+        assert np.all(result.outputs.direction == expected.outputs.direction)
+        assert np.all(result.outputs.unvignetted == expected.outputs.unvignetted)
+
     def test_rayfunction_default(self, a: optika.systems.AbstractSequentialSystem):
         rayfunction = a.rayfunction_default
         assert isinstance(rayfunction, optika.rays.RayFunctionArray)
@@ -555,6 +570,38 @@ _grid_input_wavelength = optika.vectors.ObjectVectorArray(
 )
 class TestSequentialSystem(AbstractTestAbstractSequentialSystem):
     pass
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class _HalfMirror(optika.materials.Mirror):
+    """A mirror which reflects half of the light which strikes it."""
+
+    def efficiency(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.ScalarLike:
+        return 0.5
+
+
+def test_rayfunction_efficiency_skipped():
+    """
+    Skipping the efficiency of each surface leaves the intensity of the rays
+    at its input value, instead of the throughput of the system.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=[dataclasses.replace(_surfaces[0], material=_HalfMirror())],
+        sensor=_sensor,
+        grid_input=_grid_input,
+    )
+
+    expected = system.rayfunction()
+    result = system.rayfunction(efficiency=False)
+
+    assert np.all(expected.outputs.intensity < 1)
+    assert np.all(result.outputs.intensity == 1)
+    assert np.all(result.outputs.position == expected.outputs.position)
+    assert np.all(result.outputs.unvignetted == expected.outputs.unvignetted)
 
 
 def test__anchor_surface():

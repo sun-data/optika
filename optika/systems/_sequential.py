@@ -380,9 +380,14 @@ class AbstractSequentialSystem(
         rays_component_variable.y = a.y
         rays_component_variable.z = zfunc(a)
 
+        # only the geometry of these rays is used, and the objective is
+        # evaluated once per iteration of the solver, so the efficiency of
+        # each surface would be by far the most expensive part of finding
+        # the stops and is skipped
         rays = optika.propagators.propagate_rays(
             propagators=subsystem[1:],
             rays=rays,
+            efficiency=False,
         )
 
         transformation_last = subsystem[~0].transformation
@@ -657,6 +662,7 @@ class AbstractSequentialSystem(
         result.outputs = optika.propagators.propagate_rays(
             propagators=subsystem,
             rays=rays_stop.outputs,
+            efficiency=False,
         )
 
         obj = subsystem[~0]
@@ -849,6 +855,7 @@ class AbstractSequentialSystem(
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         accumulate: bool = True,
+        efficiency: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -882,6 +889,14 @@ class AbstractSequentialSystem(
             in normalized or physical units.
         accumulate
             Whether to include intermediate rays in the result.
+        efficiency
+            A boolean flag indicating whether to accumulate the efficiency of
+            each surface into
+            :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
+            If :obj:`False`, the intensity of the result is meaningless, but
+            the geometry and
+            :attr:`~optika.rays.AbstractRayVectorArray.unvignetted` are
+            unchanged and much cheaper to compute.
 
         See Also
         --------
@@ -921,11 +936,13 @@ class AbstractSequentialSystem(
                 propagators=surfaces,
                 rays=rays,
                 axis=axis,
+                efficiency=efficiency,
             )
         else:
             result.outputs = optika.propagators.propagate_rays(
                 propagators=surfaces,
                 rays=rays,
+                efficiency=efficiency,
             )
 
         return result
@@ -938,6 +955,7 @@ class AbstractSequentialSystem(
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
+        efficiency: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -966,6 +984,14 @@ class AbstractSequentialSystem(
         normalized_pupil
             A boolean flag indicating whether the `pupil` parameter is given
             in normalized or physical units.
+        efficiency
+            A boolean flag indicating whether to accumulate the efficiency of
+            each surface into
+            :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
+            If :obj:`False`, the intensity of the result is meaningless, but
+            the geometry and
+            :attr:`~optika.rays.AbstractRayVectorArray.unvignetted` are
+            unchanged and much cheaper to compute.
 
         See Also
         --------
@@ -982,6 +1008,7 @@ class AbstractSequentialSystem(
             axis=axis,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
+            efficiency=efficiency,
         )
         rayfunction = raytrace[{axis: ~0}]
         rays = rayfunction.outputs
@@ -1263,12 +1290,16 @@ class AbstractSequentialSystem(
         degree
             The degree of the polynomial distortion model.
         """
+        # this fit reads only the geometry of the rays and which of them were
+        # vignetted, never their intensity, so the efficiency of each surface
+        # is not computed
         rays, axis_wavelength, axis_field, axis_pupil = self._rayfunction_and_axes(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
+            efficiency=False,
         )
 
         if not axis_wavelength:
@@ -1349,12 +1380,16 @@ class AbstractSequentialSystem(
         degree
             The degree of the polynomial vignetting model.
         """
+        # this fit reads only the geometry of the rays and which of them were
+        # vignetted, never their intensity, so the efficiency of each surface
+        # is not computed
         rays, axis_wavelength, axis_field, axis_pupil = self._rayfunction_and_axes(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
+            efficiency=False,
         )
 
         if not axis_wavelength:
@@ -1629,6 +1664,7 @@ class AbstractSequentialSystem(
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
+        efficiency: bool = True,
     ) -> tuple[
         optika.rays.RayFunctionArray,
         tuple[str, ...],
@@ -1661,6 +1697,12 @@ class AbstractSequentialSystem(
         normalized_pupil
             A boolean flag indicating whether the `pupil` parameter is given
             in normalized or physical units.
+        efficiency
+            A boolean flag indicating whether to accumulate the efficiency of
+            each surface into
+            :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
+            Ignored if all of the grids are :obj:`None`, since
+            :attr:`rayfunction_default` is then returned as-is.
         """
         if wavelength is None and field is None and pupil is None:
             rays = self.rayfunction_default
@@ -1674,6 +1716,7 @@ class AbstractSequentialSystem(
                 pupil=pupil,
                 normalized_field=normalized_field,
                 normalized_pupil=normalized_pupil,
+                efficiency=efficiency,
             )
             axis_wavelength = self._normalize_axis_wavelength(
                 axis_wavelength=None,

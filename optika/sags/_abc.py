@@ -109,14 +109,16 @@ class AbstractSag(
     def propagate_rays(
         self,
         rays: optika.rays.AbstractRayVectorArray,
+        efficiency: bool = True,
     ) -> optika.rays.AbstractRayVectorArray:
 
         result = self.intercept(rays)
 
-        displacement = result.position - rays.position
+        if efficiency:
+            displacement = result.position - rays.position
 
-        f = np.exp(-result.attenuation * displacement.length)
+            f = np.exp(-result.attenuation * displacement.length)
 
-        result.intensity = f * result.intensity
+            result.intensity = f * result.intensity
 
         return result
