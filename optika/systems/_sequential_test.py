@@ -1,5 +1,7 @@
 import dataclasses
+import matplotlib.lines
 import matplotlib.pyplot as plt
+import mpl_toolkits.mplot3d.art3d
 import pytest
 import numpy as np
 import astropy.units as u
@@ -907,3 +909,50 @@ def test_stops_afocal():
 
     assert float(na.value(direction).ndarray) == pytest.approx(0.05)
     assert float(na.value(position.to(u.mm)).ndarray) == pytest.approx(1)
+
+
+def test_plot_rays_3d_is_a_collection():
+    """
+    On a 3D axes the rays are drawn as collections, one per segment.
+
+    A line is not sorted into a 3D scene at all: it keeps the zorder it was
+    given, and at the default that is below every filled surface, so a beam
+    disappears behind the first optic it crosses instead of reaching it.
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+
+    result = _system_newtonian.plot(
+        ax=ax,
+        components=("z", "x", "y"),
+        plot_rays=True,
+    )
+
+    rays = [a for a in np.atleast_1d(result["rays"].ndarray).flat if a is not None]
+    plt.close(fig)
+
+    assert rays
+    for artist in rays:
+        assert isinstance(artist, mpl_toolkits.mplot3d.art3d.Line3DCollection)
+
+    # a segment for every gap between surfaces
+    axis = _system_newtonian.axis_surface
+    assert na.shape(result["rays"])[axis] == len(_system_newtonian.surfaces_all) - 1
+
+
+def test_plot_rays_2d_is_a_line():
+    """On a 2D axes the rays are still drawn as ordinary lines."""
+    fig, ax = plt.subplots()
+
+    result = _system_newtonian.plot(
+        ax=ax,
+        components=("z", "x"),
+        plot_rays=True,
+    )
+
+    rays = [a for a in np.atleast_1d(result["rays"].ndarray).flat if a is not None]
+    plt.close(fig)
+
+    assert rays
+    for artist in rays:
+        assert isinstance(artist, matplotlib.lines.Line2D)

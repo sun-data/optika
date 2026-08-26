@@ -1821,7 +1821,13 @@ class AbstractSequentialSystem(
             if unit is not None:
                 position = position.to(unit)
 
-            result["rays"] = na.plt.plot(
+            # On a 3D axes the rays are drawn as collections, which the axes
+            # sorts into the scene by depth. A line is not sorted at all: it
+            # keeps the zorder it was given, which puts it either in front of
+            # every optic or, at the default, behind all of them.
+            plot = na.plt.line_collection if optika.plot.is_3d(ax) else na.plt.plot
+
+            result["rays"] = plot(
                 position,
                 ax=ax,
                 axis=self.axis_surface,
