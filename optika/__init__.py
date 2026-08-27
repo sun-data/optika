@@ -3,6 +3,7 @@ A Python package for simulating and designing optical systems.
 """
 
 from ._caching import memory
+from . import plot
 from . import mixins
 from ._util import shape, direction, angles
 from . import vectors
@@ -22,6 +23,7 @@ from . import radiometry
 from . import systems
 
 __all__ = [
+    "plot",
     "memory",
     "mixins",
     "shape",
