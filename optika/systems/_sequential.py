@@ -781,6 +781,47 @@ class AbstractSequentialSystem(
         """
         return self.pupil_boundary.max(self._axis_stops)
 
+    @property
+    def _pupil_vertices_default(self) -> na.Cartesian2dVectorArray:
+        """
+        The pupil grid :meth:`area_effective` uses when given none.
+
+        Its components are cell *vertices*, since the effective area weights
+        each ray by the area of its pupil cell, whereas
+        :attr:`grid_input` holds the points that rays are traced at.  That is
+        why the two cannot share a default.
+        """
+        return na.Cartesian2dVectorArray(
+            x=na.linspace(-1, 1, axis="_pupil_x", num=11),
+            y=na.linspace(-1, 1, axis="_pupil_y", num=11),
+        )
+
+    def _calc_rayfunction_stops_denormalize(
+        self,
+        wavelength: na.ScalarLike,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        Solve for the stops on the sampling that :meth:`_denormalize_grid`
+        uses, which is the expensive half of denormalizing a grid.
+
+        Separated so that a caller denormalizing several grids on the same
+        wavelengths can solve once and pass the result to
+        :meth:`_denormalize_grid_from_rays`, instead of repeating a solve
+        which depends on nothing else.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths to solve at.
+        """
+        return self._calc_rayfunction_stops(
+            wavelength_input=wavelength,
+            axis_pupil_stop=self._axis_pupil_stop,
+            axis_field_stop=self._axis_field_stop,
+            samples_pupil_stop=21,
+            samples_field_stop=21,
+        )
+
     def _denormalize_grid(
         self,
         grid: optika.vectors.ObjectVectorArray,
@@ -791,16 +832,40 @@ class AbstractSequentialSystem(
         if (not normalized_field) and (not normalized_pupil):
             return grid
 
+        return self._denormalize_grid_from_rays(
+            grid=grid,
+            rayfunction_stops=self._calc_rayfunction_stops_denormalize(grid.wavelength),
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+
+    def _denormalize_grid_from_rays(
+        self,
+        grid: optika.vectors.ObjectVectorArray,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+    ) -> optika.vectors.ObjectVectorArray:
+        """
+        Map a normalized grid onto the field and pupil that the given stop
+        rayfunction describes.
+
+        Parameters
+        ----------
+        grid
+            The grid to denormalize.
+        rayfunction_stops
+            The result of :meth:`_calc_rayfunction_stops_denormalize` on the
+            wavelengths of `grid`.
+        normalized_field
+            A boolean flag indicating whether the field of `grid` is given in
+            normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the pupil of `grid` is given in
+            normalized or physical units.
+        """
         axis_field = self._axis_field_stop
         axis_pupil = self._axis_pupil_stop
-
-        rayfunction_stops = self._calc_rayfunction_stops(
-            wavelength_input=grid.wavelength,
-            axis_pupil_stop=axis_pupil,
-            axis_field_stop=axis_field,
-            samples_pupil_stop=21,
-            samples_field_stop=21,
-        )
 
         result = grid.copy_shallow()
 
@@ -1526,10 +1591,7 @@ class AbstractSequentialSystem(
         if field is None:
             field = self.grid_input.field
         if pupil is None:
-            pupil = na.Cartesian2dVectorArray(
-                x=na.linspace(-1, 1, axis="_pupil_x", num=11),
-                y=na.linspace(-1, 1, axis="_pupil_y", num=11),
-            )
+            pupil = self._pupil_vertices_default
 
         grid = optika.vectors.ObjectVectorArray(
             wavelength=wavelength,
@@ -1665,16 +1727,47 @@ class AbstractSequentialSystem(
         # `area_effective` interprets `pupil` as cell vertices (it needs them to
         # compute the pupil cell areas), while `distortion` and `vignetting`
         # trace at sample points, so give them the cell centers of the vertices.
+        # With no pupil given the two fall back to different grids, since
+        # `grid_input.pupil` holds points and cannot serve as vertices.
         if pupil is not None:
             pupil_centers = pupil.cell_centers(axis=tuple(na.shape(pupil)))
         else:
-            pupil_centers = None
+            pupil = self._pupil_vertices_default
+            pupil_centers = self.grid_input.pupil
+
+        if wavelength is None:
+            wavelength = self.grid_input.wavelength
+        if field is None:
+            field = self.grid_input.field
+
+        # Each of the three fits below denormalizes its own grid, and the
+        # expensive part of that is solving for the stops, which depends on
+        # nothing but the wavelengths.  Solve once here and hand each of them
+        # a grid which is already physical.
+        stops = self._calc_rayfunction_stops_denormalize(wavelength)
+
+        def denormalize(
+            pupil: na.AbstractCartesian2dVectorArray,
+        ) -> optika.vectors.ObjectVectorArray:
+            return self._denormalize_grid_from_rays(
+                grid=optika.vectors.ObjectVectorArray(
+                    wavelength=wavelength,
+                    field=field,
+                    pupil=pupil,
+                ),
+                rayfunction_stops=stops,
+                normalized_field=normalized_field,
+                normalized_pupil=normalized_pupil,
+            )
+
+        grid_area = denormalize(pupil)
+        grid_fit = denormalize(pupil_centers)
 
         kwargs = dict(
             wavelength=wavelength,
-            field=field,
-            normalized_field=normalized_field,
-            normalized_pupil=normalized_pupil,
+            field=grid_area.field,
+            normalized_field=False,
+            normalized_pupil=False,
         )
         # the cosine of the refracted angle at which light strikes the sensor,
         # computed the same way as
@@ -1693,11 +1786,11 @@ class AbstractSequentialSystem(
         )
 
         return LinearSystem(
-            area_effective=self.area_effective(pupil=pupil, **kwargs),
-            distortion=self.distortion(pupil=pupil_centers, degree=degree, **kwargs),
+            area_effective=self.area_effective(pupil=grid_area.pupil, **kwargs),
+            distortion=self.distortion(pupil=grid_fit.pupil, degree=degree, **kwargs),
             sensor=self.sensor,
             direction=direction,
-            vignetting=self.vignetting(pupil=pupil_centers, degree=degree, **kwargs),
+            vignetting=self.vignetting(pupil=grid_fit.pupil, degree=degree, **kwargs),
         )
 
     def _rayfunction_and_axes(
