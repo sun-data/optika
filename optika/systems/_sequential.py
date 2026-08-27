@@ -636,11 +636,16 @@ class AbstractSequentialSystem(
     def _calc_rayfunction_stops(
         self,
         wavelength_input: na.ScalarLike,
-        axis_pupil_stop: str,
-        axis_field_stop: str,
-        samples_pupil_stop: int = 101,
-        samples_field_stop: int = 101,
+        axis_pupil_stop: None | str = None,
+        axis_field_stop: None | str = None,
+        samples_pupil_stop: int = 21,
+        samples_field_stop: int = 21,
     ) -> optika.rays.RayFunctionArray:
+        if axis_pupil_stop is None:
+            axis_pupil_stop = self._axis_pupil_stop
+        if axis_field_stop is None:
+            axis_field_stop = self._axis_field_stop
+
         surfaces = self.surfaces_all
 
         index_pupil_stop = self.index_pupil_stop
@@ -699,13 +704,7 @@ class AbstractSequentialSystem(
         which is designed to exactly strike the borders of both the field
         stop and the pupil stop.
         """
-        return self._calc_rayfunction_stops(
-            wavelength_input=self.grid_input.wavelength,
-            axis_pupil_stop=self._axis_pupil_stop,
-            axis_field_stop=self._axis_field_stop,
-            samples_pupil_stop=21,
-            samples_field_stop=21,
-        )
+        return self._calc_rayfunction_stops(self.grid_input.wavelength)
 
     @property
     def _axis_stops(self) -> tuple[str, str]:
@@ -796,32 +795,6 @@ class AbstractSequentialSystem(
             y=na.linspace(-1, 1, axis="_pupil_y", num=11),
         )
 
-    def _calc_rayfunction_stops_denormalize(
-        self,
-        wavelength: na.ScalarLike,
-    ) -> optika.rays.RayFunctionArray:
-        """
-        Solve for the stops on the sampling that :meth:`_denormalize_grid`
-        uses, which is the expensive half of denormalizing a grid.
-
-        Separated so that a caller denormalizing several grids on the same
-        wavelengths can solve once and pass the result to
-        :meth:`_denormalize_grid_from_rays`, instead of repeating a solve
-        which depends on nothing else.
-
-        Parameters
-        ----------
-        wavelength
-            The wavelengths to solve at.
-        """
-        return self._calc_rayfunction_stops(
-            wavelength_input=wavelength,
-            axis_pupil_stop=self._axis_pupil_stop,
-            axis_field_stop=self._axis_field_stop,
-            samples_pupil_stop=21,
-            samples_field_stop=21,
-        )
-
     def _denormalize_grid(
         self,
         grid: optika.vectors.ObjectVectorArray,
@@ -834,7 +807,7 @@ class AbstractSequentialSystem(
 
         return self._denormalize_grid_from_rays(
             grid=grid,
-            rayfunction_stops=self._calc_rayfunction_stops_denormalize(grid.wavelength),
+            rayfunction_stops=self._calc_rayfunction_stops(grid.wavelength),
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
         )
@@ -855,8 +828,8 @@ class AbstractSequentialSystem(
         grid
             The grid to denormalize.
         rayfunction_stops
-            The result of :meth:`_calc_rayfunction_stops_denormalize` on the
-            wavelengths of `grid`.
+            The result of :meth:`_calc_rayfunction_stops` on the wavelengths
+            of `grid`.
         normalized_field
             A boolean flag indicating whether the field of `grid` is given in
             normalized or physical units.
@@ -1744,7 +1717,7 @@ class AbstractSequentialSystem(
         # expensive part of that is solving for the stops, which depends on
         # nothing but the wavelengths.  Solve once here and hand each of them
         # a grid which is already physical.
-        stops = self._calc_rayfunction_stops_denormalize(wavelength)
+        stops = self._calc_rayfunction_stops(wavelength)
 
         def denormalize(
             pupil: na.AbstractCartesian2dVectorArray,
