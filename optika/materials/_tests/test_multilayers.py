@@ -1,4 +1,5 @@
 from typing import Sequence
+import dataclasses
 import pytest
 import pathlib
 import numpy as np
@@ -290,6 +291,64 @@ def test_multilayer_efficiency_vs_file(
 class AbstractTestAbstractMultilayerMaterial(
     test_materials.AbstractTestAbstractMaterial,
 ):
+    def test_num_interpolation(self, a: optika.materials.AbstractMultilayerMaterial):
+        result = a.num_interpolation
+        assert (result is None) or (result > 0)
+
+    def test_efficiency_interpolated(
+        self,
+        a: optika.materials.AbstractMultilayerMaterial,
+    ):
+        """
+        Interpolating the stack over the angle of incidence reproduces solving
+        it for every ray, and does so better the more nodes it is given.
+        """
+        angle = na.linspace(0, 20, axis="angle", num=25) * u.deg
+        rays = optika.rays.RayVectorArray(
+            wavelength=_wavelength,
+            direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        expected = a.efficiency(rays, normal)
+
+        # measured against the size of the response rather than pointwise,
+        # since a multilayer stack can pass through a deep null where the
+        # relative error of any approximation is unbounded but the absolute
+        # error is negligible
+        scale = np.abs(expected).max()
+
+        def error(num: int) -> float:
+            result = dataclasses.replace(a, num_interpolation=num).efficiency(
+                rays=rays,
+                normal=normal,
+            )
+            return np.abs(result - expected).max() / scale
+
+        coarse, fine = error(8), error(64)
+
+        assert coarse < 0.05
+        assert fine <= coarse
+
+    def test_efficiency_interpolated_scalar(
+        self,
+        a: optika.materials.AbstractMultilayerMaterial,
+    ):
+        """With a single angle of incidence there is nothing to interpolate
+        over, so the stack is solved directly."""
+        rays = optika.rays.RayVectorArray(
+            wavelength=200 * u.AA,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        result = dataclasses.replace(a, num_interpolation=8).efficiency(
+            rays=rays,
+            normal=normal,
+        )
+
+        assert np.all(result == a.efficiency(rays, normal))
+
     def test_layers(self, a: optika.materials.AbstractMultilayerMaterial):
         result = a.layers
         if not isinstance(result, optika.materials.AbstractLayer):

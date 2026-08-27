@@ -768,6 +768,10 @@ def layer_absorbance(
     return flux_absorbed
 
 
+_axis_interpolation = "_incidence"
+"""The logical axis of the angle-of-incidence interpolation table."""
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractMultilayerMaterial(
     AbstractMaterial,
@@ -789,6 +793,38 @@ class AbstractMultilayerMaterial(
         return result
 
     @property
+    @abc.abstractmethod
+    def num_interpolation(self) -> None | int:
+        """
+        The number of nodes used to interpolate the response of this stack
+        over the angle of incidence.
+
+        Solving the transfer matrices of a multilayer stack usually costs far
+        more than the raytrace it belongs to, and the result is a smooth
+        function of the angle of incidence, over which a given surface
+        typically spans only a few degrees.  Setting this to an integer
+        evaluates the stack at that many angles spanning the range the rays
+        actually cover, and interpolates the rest, which is much cheaper
+        whenever there are more rays than nodes.
+
+        If :obj:`None` (the default), the stack is solved for every ray.
+
+        The error this introduces grows with the angular range the rays span,
+        measured against the width of the features in the response.  A
+        near-normal system whose surfaces each span a few degrees is
+        reproduced to one part in :math:`10^5` by a handful of nodes, while a
+        stack with a Bragg resonance sampled across tens of degrees needs many
+        more.  Since the nodes cost almost nothing next to the rays, prefer
+        more of them than seems necessary, and check a new system against
+        :obj:`None` before trusting it.
+        """
+
+    @property
+    def _substrate(self) -> None | Layer:
+        """The layer supporting this stack, if it has one."""
+        return None
+
+    @property
     def transformation(self) -> None:
         return None
 
@@ -803,6 +839,89 @@ class AbstractMultilayerMaterial(
         rays: optika.rays.RayVectorArray,
     ) -> na.ScalarLike:
         return rays.attenuation
+
+    def _efficiency(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> tuple[na.ScalarLike, na.ScalarLike]:
+        """
+        The reflectivity and transmissivity of this stack for the given rays,
+        averaged over polarization state.
+
+        Nothing in this package tracks polarization yet, so the two states are
+        averaged as early as possible: the table below is averaged before it
+        is interpolated rather than after, which halves the interpolation and
+        gives the same answer, since interpolation is linear.
+
+        To return the two states separately, drop the two calls to
+        :attr:`~optika.vectors.AbstractPolarizationVectorArray.average` here
+        and interpolate ``.s`` and ``.p`` on their own.  The angle of
+        incidence is still the only variable worth tabulating: what
+        polarization adds is a rotation into the plane of incidence, which
+        varies over the pupil but costs almost nothing next to the stack.
+        Note that a table accurate for the average is not automatically
+        accurate for the two states, and that :func:`multilayer_efficiency`
+        has already discarded the phase, which a coherent treatment needs.
+
+        Parameters
+        ----------
+        rays
+            The rays striking this stack.
+        normal
+            The vector normal to the interface between successive layers.
+        """
+        wavelength = rays.wavelength
+        k = rays.attenuation * wavelength / (4 * np.pi)
+        n = rays.index_refraction + k * 1j
+        direction = -rays.direction @ normal
+
+        kwargs = dict(
+            wavelength=wavelength,
+            n=n,
+            layers=self.layers,
+            substrate=self._substrate,
+        )
+
+        def exact() -> tuple[na.ScalarLike, na.ScalarLike]:
+            r, t = multilayer_efficiency(direction=direction, **kwargs)
+            return r.average, t.average
+
+        num = self.num_interpolation
+        if num is None:
+            return exact()
+
+        # the table is built along the axes which only the angle of incidence
+        # varies over, so the wavelength, the index of refraction of the
+        # ambient medium, and any axis of the stack itself are kept
+        shape_kept = na.broadcast_shapes(
+            na.shape(wavelength),
+            na.shape(n),
+            self.shape,
+        )
+        axis = tuple(a for a in na.shape(direction) if a not in shape_kept)
+        if not axis:
+            return exact()
+
+        nodes = na.linspace(
+            start=direction.min(axis),
+            stop=direction.max(axis),
+            axis=_axis_interpolation,
+            num=num,
+        )
+
+        reflectivity, transmissivity = multilayer_efficiency(
+            direction=nodes,
+            **kwargs,
+        )
+
+        def interpolate(table: na.ScalarLike) -> na.ScalarLike:
+            return na.interp(direction, nodes, table, axis=_axis_interpolation)
+
+        return (
+            interpolate(reflectivity.average),
+            interpolate(transmissivity.average),
+        )
 
     @abc.abstractmethod
     def plot_layers(
@@ -852,18 +971,8 @@ class AbstractMultilayerFilm(
         normal
             the vector normal to the interface between successive layers
         """
-        wavelength = rays.wavelength
-        k = rays.attenuation * wavelength / (4 * np.pi)
-        n = rays.index_refraction + k * 1j
-
-        reflectivity, transmissivity = multilayer_efficiency(
-            wavelength=wavelength,
-            direction=-rays.direction @ normal,
-            n=n,
-            layers=self.layers,
-            substrate=None,
-        )
-        return transmissivity.average
+        reflectivity, transmissivity = self._efficiency(rays, normal)
+        return transmissivity
 
     def plot_layers(
         self,
@@ -887,6 +996,13 @@ class MultilayerFilm(
     layers: None | AbstractLayer | Sequence[AbstractLayer] = None
     """A sequence of layers representing the multilayer stack."""
 
+    num_interpolation: None | int = None
+    """
+    The number of nodes used to interpolate the response of this stack over
+    the angle of incidence, or :obj:`None` to solve it for every ray.
+    See :attr:`~optika.materials.AbstractMultilayerMaterial.num_interpolation`.
+    """
+
     @property
     def shape(self) -> dict[str, int]:
         try:
@@ -905,6 +1021,10 @@ class AbstractMultilayerMirror(
 ):
     """A generalized multilayer mirror coating."""
 
+    @property
+    def _substrate(self) -> None | Layer:
+        return self.substrate
+
     def efficiency(
         self,
         rays: optika.rays.RayVectorArray,
@@ -921,18 +1041,8 @@ class AbstractMultilayerMirror(
         normal
             the vector normal to the interface between successive layers
         """
-        wavelength = rays.wavelength
-        k = rays.attenuation * wavelength / (4 * np.pi)
-        n = rays.index_refraction + k * 1j
-
-        reflectivity, transmissivity = multilayer_efficiency(
-            wavelength=wavelength,
-            direction=-rays.direction @ normal,
-            n=n,
-            layers=self.layers,
-            substrate=self.substrate,
-        )
-        return reflectivity.average
+        reflectivity, transmissivity = self._efficiency(rays, normal)
+        return reflectivity
 
     def plot_layers(
         self,
@@ -1107,6 +1217,13 @@ class MultilayerMirror(
 
     substrate: None | Layer = None
     """A layer representing the substrate that the layers are deposited onto."""
+
+    num_interpolation: None | int = None
+    """
+    The number of nodes used to interpolate the response of this stack over
+    the angle of incidence, or :obj:`None` to solve it for every ray.
+    See :attr:`~optika.materials.AbstractMultilayerMaterial.num_interpolation`.
+    """
 
     @property
     def shape(self) -> dict[str, int]:
