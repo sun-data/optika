@@ -645,6 +645,110 @@ def test_area_effective_ignores_field_outside_the_field_of_view():
     assert np.allclose(result_extended.area, result.area, rtol=0.05)
 
 
+def _system_vignetted() -> optika.systems.SequentialSystem:
+    """
+    A system whose field stop is a circle rather than the sensor.
+
+    The normalized field grid is the bounding box of the field of view, so a
+    field stop shaped like the sensor fills it and nothing is vignetted.  A
+    round one leaves the corners dark, which is what a system like ESIS
+    actually looks like and what makes the vignetting model do any work.
+    """
+    surfaces = [
+        optika.surfaces.Surface(
+            name="mirror",
+            sag=optika.sags.SphericalSag(-200 * u.mm),
+            material=optika.materials.Mirror(),
+            aperture=optika.apertures.CircularAperture(20 * u.mm),
+            is_pupil_stop=True,
+            transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
+        ),
+        optika.surfaces.Surface(
+            name="field stop",
+            aperture=optika.apertures.CircularAperture(0.96 * u.mm),
+            is_field_stop=True,
+            transformation=na.transformations.Cartesian3dTranslation(z=2 * u.mm),
+        ),
+    ]
+    sensor = optika.sensors.ImagingSensor(
+        name="sensor",
+        width_pixel=15 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        timedelta_exposure=1 * u.s,
+        num_pixel=na.Cartesian2dVectorArray(128, 128),
+        transformation=na.transformations.Cartesian3dTranslation(z=1 * u.mm),
+    )
+    grid = optika.vectors.ObjectVectorArray(
+        wavelength=na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
+        field=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+            num=11,
+        ),
+        pupil=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+            num=11,
+        ),
+    )
+    return optika.systems.SequentialSystem(
+        surfaces=surfaces,
+        sensor=sensor,
+        grid_input=grid,
+    )
+
+
+def test_linearize_conserves_flux():
+    """
+    A flat field through the linearized system collects the same number of
+    electrons as the same flat field traced through the system it came from.
+
+    This is the end-to-end statement of what `linearize` is for, and the one
+    thing that exercises the distortion, vignetting, and effective-area
+    models against each other rather than one at a time.
+    """
+    system = _system_vignetted()
+
+    # a uniform scene covering the inner half of the field of view, kept away
+    # from the edge where the polynomial vignetting model cannot follow the
+    # hard cutoff of the field stop
+    center = (system.field_max + system.field_min) / 2
+    half = (system.field_max - system.field_min) / 4
+    num = 12
+    scene = na.FunctionArray(
+        inputs=na.SpectralPositionalVectorArray(
+            wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
+            position=na.Cartesian2dVectorArray(
+                x=na.linspace(
+                    center.x - half.x, center.x + half.x, axis="field_x", num=num + 1
+                ),
+                y=na.linspace(
+                    center.y - half.y, center.y + half.y, axis="field_y", num=num + 1
+                ),
+            ),
+        ),
+        outputs=1e3
+        * u.photon
+        / u.s
+        / u.cm**2
+        / u.arcsec**2
+        / u.nm
+        * na.ScalarArray(np.ones((num, num)), axes=("field_x", "field_y")),
+    )
+
+    expected = system.image(scene, noise=False).outputs.sum()
+    result = system.linearize(degree=2).image(scene, noise=False).outputs.sum()
+
+    # the two discretize the problem differently, and `area_effective` traces
+    # at randomly placed pupil cell centers, so they agree to a few percent
+    # rather than exactly.  An average of the effective area taken over a
+    # different set of field positions than the vignetting model is
+    # normalized over would put this near 0.56, which the tolerance excludes.
+    assert np.allclose(result, expected, rtol=0.15)
+
+
 def test__anchor_surface():
     first = optika.surfaces.Surface(name="first")
     last = optika.surfaces.Surface(name="last")
