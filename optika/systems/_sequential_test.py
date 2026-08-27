@@ -492,6 +492,12 @@ class AbstractTestAbstractSequentialSystem(
         assert result.sensor is a.sensor
         assert result.field_stop is None
 
+        # `direction` has to be a scalar.  `expose` indexes it by the cell
+        # centers of the *scene's* wavelength grid, which is unrelated to the
+        # grid linearized here, so an array would either fail to broadcast or
+        # silently pair up wavelengths which are not the same.
+        assert na.shape(result.direction) == {}
+
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
         assert isinstance(fig, plt.Figure)

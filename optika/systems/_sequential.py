@@ -1364,38 +1364,12 @@ class AbstractSequentialSystem(
             efficiency=False,
         )
 
-        if not axis_wavelength:
-            raise ValueError(
-                "fitting a distortion model requires the wavelength grid "
-                "to vary along its own logical axis."
-            )
-        (axis_wavelength,) = axis_wavelength
-
-        coordinates_scene = na.SpectralPositionalVectorArray(
-            wavelength=rays.inputs.wavelength,
-            position=rays.inputs.field,
-        )
-
-        unvignetted = rays.outputs.unvignetted
-        where = unvignetted.any(axis_pupil)
-
-        # average only the unvignetted rays, falling back to all of the rays
-        # for field points excluded from the fit so that the mean is never
-        # empty. The sensor-plane positions are expressed in pixel coordinates,
-        # so the fitted distortion maps the scene onto the pixel grid.
-        coordinates_sensor = np.mean(
-            self.sensor.pixels(rays.outputs.position.xy),
-            axis=axis_pupil,
-            where=unvignetted | ~where,
-        )
-
-        return optika.distortion.PolynomialDistortionModel(
-            coordinates_scene=coordinates_scene,
-            coordinates_sensor=coordinates_sensor,
+        return self._fit_distortion(
+            rays=rays,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
+            axis_pupil=axis_pupil,
             degree=degree,
-            where=where,
         )
 
     def vignetting(
@@ -1454,6 +1428,102 @@ class AbstractSequentialSystem(
             efficiency=False,
         )
 
+        return self._fit_vignetting(
+            rays=rays,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+            degree=degree,
+        )
+
+    def _fit_distortion(
+        self,
+        rays: optika.rays.RayFunctionArray,
+        axis_wavelength: tuple[str, ...],
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+        degree: int,
+    ) -> optika.distortion.PolynomialDistortionModel:
+        """
+        Fit a polynomial distortion model to rays which have already been traced.
+
+        Separated from :meth:`distortion` so that a caller needing both models,
+        such as :meth:`linearize`, can trace once and fit twice.
+
+        Parameters
+        ----------
+        rays
+            The traced rays, from :meth:`_rayfunction_and_axes`.
+        axis_wavelength
+            The normalized wavelength axis of `rays`.
+        axis_field
+            The normalized field axes of `rays`.
+        axis_pupil
+            The normalized pupil axes of `rays`.
+        degree
+            The degree of the polynomial model.
+        """
+        if not axis_wavelength:
+            raise ValueError(
+                "fitting a distortion model requires the wavelength grid "
+                "to vary along its own logical axis."
+            )
+        (axis_wavelength,) = axis_wavelength
+
+        coordinates_scene = na.SpectralPositionalVectorArray(
+            wavelength=rays.inputs.wavelength,
+            position=rays.inputs.field,
+        )
+
+        unvignetted = rays.outputs.unvignetted
+        where = unvignetted.any(axis_pupil)
+
+        # average only the unvignetted rays, falling back to all of the rays
+        # for field points excluded from the fit so that the mean is never
+        # empty. The sensor-plane positions are expressed in pixel coordinates,
+        # so the fitted distortion maps the scene onto the pixel grid.
+        coordinates_sensor = np.mean(
+            self.sensor.pixels(rays.outputs.position.xy),
+            axis=axis_pupil,
+            where=unvignetted | ~where,
+        )
+
+        return optika.distortion.PolynomialDistortionModel(
+            coordinates_scene=coordinates_scene,
+            coordinates_sensor=coordinates_sensor,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            degree=degree,
+            where=where,
+        )
+
+    def _fit_vignetting(
+        self,
+        rays: optika.rays.RayFunctionArray,
+        axis_wavelength: tuple[str, ...],
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+        degree: int,
+    ) -> optika.radiometry.PolynomialVignettingModel:
+        """
+        Fit a polynomial vignetting model to rays which have already been traced.
+
+        Separated from :meth:`vignetting` so that a caller needing both models,
+        such as :meth:`linearize`, can trace once and fit twice.
+
+        Parameters
+        ----------
+        rays
+            The traced rays, from :meth:`_rayfunction_and_axes`.
+        axis_wavelength
+            The normalized wavelength axis of `rays`.
+        axis_field
+            The normalized field axes of `rays`.
+        axis_pupil
+            The normalized pupil axes of `rays`.
+        degree
+            The degree of the polynomial model.
+        """
         if not axis_wavelength:
             raise ValueError(
                 "fitting a vignetting model requires the wavelength grid "
@@ -1742,28 +1812,55 @@ class AbstractSequentialSystem(
             normalized_field=False,
             normalized_pupil=False,
         )
+        # the distortion and vignetting fits read the same rays, and so does
+        # `direction`, so trace them once.  None of the three reads the
+        # intensity: `direction` is built from the geometry and from the index
+        # of refraction, which is computed either way.
+        rays, axis_wavelength, axis_field, axis_pupil = self._rayfunction_and_axes(
+            pupil=grid_fit.pupil,
+            efficiency=False,
+            **kwargs,
+        )
+
         # the cosine of the refracted angle at which light strikes the sensor,
         # computed the same way as
-        # :meth:`~optika.sensors.AbstractImagingSensor.collect` and averaged
-        # over the grid.
-        rays = self.rayfunction_default.outputs
+        # :meth:`~optika.sensors.AbstractImagingSensor.collect`.
+        outputs = rays.outputs
         direction = self.sensor.material.direction_refracted(
-            wavelength=rays.wavelength,
-            direction=rays.direction,
-            n=rays.n,
-            normal=self.sensor.sag.normal(rays.position),
+            wavelength=outputs.wavelength,
+            direction=outputs.direction,
+            n=outputs.n,
+            normal=self.sensor.sag.normal(outputs.position),
         )
-        axis_grid = self.axis_wavelength_ + self.axis_field_ + self.axis_pupil_
+
+        # averaged over the whole grid, wavelength included.  It has to end up
+        # a scalar: `AbstractImagingSensor.expose` indexes `direction` by the
+        # cell centers of the *scene's* wavelength grid, which has nothing to
+        # do with the grid being linearized, so an array would either fail to
+        # broadcast or pair up wavelengths which are not the same.
+        axis_grid = axis_wavelength + axis_field + axis_pupil
         direction = direction.mean(
             axis=tuple(ax for ax in axis_grid if ax in na.shape(direction)),
         )
 
         return LinearSystem(
             area_effective=self.area_effective(pupil=grid_area.pupil, **kwargs),
-            distortion=self.distortion(pupil=grid_fit.pupil, degree=degree, **kwargs),
+            distortion=self._fit_distortion(
+                rays=rays,
+                axis_wavelength=axis_wavelength,
+                axis_field=axis_field,
+                axis_pupil=axis_pupil,
+                degree=degree,
+            ),
             sensor=self.sensor,
             direction=direction,
-            vignetting=self.vignetting(pupil=grid_fit.pupil, degree=degree, **kwargs),
+            vignetting=self._fit_vignetting(
+                rays=rays,
+                axis_wavelength=axis_wavelength,
+                axis_field=axis_field,
+                axis_pupil=axis_pupil,
+                degree=degree,
+            ),
         )
 
     def _rayfunction_and_axes(
