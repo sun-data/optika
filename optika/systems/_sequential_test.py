@@ -604,6 +604,45 @@ def test_rayfunction_efficiency_skipped():
     assert np.all(result.outputs.unvignetted == expected.outputs.unvignetted)
 
 
+def test_area_effective_ignores_field_outside_the_field_of_view():
+    """
+    The effective area is averaged over the field of view, so sampling more
+    of the field which lies outside it does not change the answer.
+
+    This is what lets the model be multiplied by the vignetting model, which
+    normalizes its illumination over that same set of field positions.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+
+    field = na.Cartesian2dVectorLinearSpace(
+        start=0,
+        stop=1,
+        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+        num=5,
+    )
+
+    # the same five samples along each axis, plus two which land far enough
+    # outside the field stop that no ray through them reaches the sensor
+    samples = np.array([-3, 0, 0.25, 0.5, 0.75, 1, 3])
+    field_extended = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(samples, axes="field_x"),
+        y=na.ScalarArray(samples, axes="field_y"),
+    )
+
+    result = system.area_effective(field=field)
+    result_extended = system.area_effective(field=field_extended)
+
+    # `area_effective` traces at randomly placed cell centers, so two calls
+    # differ by a percent or so.  Averaging over the extra field positions
+    # instead of ignoring them would halve the result, which this separates
+    # comfortably.
+    assert np.allclose(result_extended.area, result.area, rtol=0.05)
+
+
 def test__anchor_surface():
     first = optika.surfaces.Surface(name="first")
     last = optika.surfaces.Surface(name="last")

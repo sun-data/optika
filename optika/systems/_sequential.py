@@ -1441,9 +1441,15 @@ class AbstractSequentialSystem(
         efficiency, and the absorbance of the sensor) is weighted by the area
         of its pupil cell and summed, giving the effective area at that field
         position. Rays blocked by an aperture are excluded from the sum. The
-        result is then averaged over the field of view and returned as an
-        :class:`~optika.radiometry.InterpolatedEffectiveAreaModel`, which
-        linearly interpolates in wavelength.
+        result is then averaged over the field of view, counting only those
+        field positions which have at least one unvignetted ray, and returned
+        as an :class:`~optika.radiometry.InterpolatedEffectiveAreaModel`,
+        which linearly interpolates in wavelength.
+
+        The average is taken over the same field positions that
+        :meth:`vignetting` normalizes its illumination over, so that the two
+        models can be multiplied together to recover the effective area at a
+        given field position.
 
         The components of `pupil` are interpreted as the vertices of a grid of
         cells, and the rays are traced at the corresponding cell centers, so
@@ -1554,12 +1560,25 @@ class AbstractSequentialSystem(
             normalized_pupil=False,
         )
 
+        unvignetted = rays.outputs.unvignetted
+
         area_eff = rays.outputs.intensity.sum(
             axis=axis_pupil,
-            where=rays.outputs.unvignetted,
+            where=unvignetted,
         )
 
-        area_eff = area_eff.mean(axis_field)
+        # Field positions with no unvignetted rays lie outside the field of
+        # view and are excluded, exactly as :meth:`vignetting` excludes them
+        # when it normalizes its illumination.  The two are multiplied
+        # together by :class:`~optika.systems.LinearSystem`, so an average
+        # taken over a different set of field positions than the vignetting
+        # model is normalized over would rescale the result by the ratio of
+        # the two sets.
+        area_eff = np.mean(
+            area_eff,
+            axis=axis_field,
+            where=unvignetted.any(axis_pupil),
+        )
 
         return optika.radiometry.InterpolatedEffectiveAreaModel(
             wavelength=wavelength,
