@@ -25,7 +25,8 @@ class AbstractVignettingModel(
     """
     An interface describing an arbitrary vignetting model, which maps scene
     coordinates to the relative illumination of the optical system (the spatial
-    response normalized to one at the center of the field of view).
+    response normalized to one *on average* over the field of view, not at its
+    center).
     """
 
     @abc.abstractmethod
