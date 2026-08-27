@@ -206,6 +206,41 @@ class AbstractSurface(
         unit: None | u.UnitBase = None,
         **kwargs,
     ) -> dict[str, na.AbstractScalar]:
+        """
+        Draw this surface onto the given axes.
+
+        Parameters
+        ----------
+        ax
+            The matplotlib axes to draw onto.
+            If :obj:`None`, the current axes is used.
+        transformation
+            Any extra transformation to apply before drawing.
+        components
+            Which components of the surface to draw, in the order of the axes
+            of the plot.
+        unit
+            The unit to express every drawn length in.
+        kwargs
+            Additional keyword arguments passed along to the apertures and the
+            substrate.
+
+        Returns
+        -------
+        A dictionary of the artists drawn, under the keys
+
+        ``aperture``
+            the region which admits light, if this surface has one.
+
+        ``aperture_mechanical``
+            the outline of the substrate, if this surface has one.
+
+        ``substrate``
+            the thickness of the substrate, if the material of this surface
+            has one. Itself a dictionary, holding the ``back`` face and either
+            the ``wall`` joining it to the front on a 3D axes, or the
+            ``edges`` of the substrate on a 2D one.
+        """
         sag = self.sag
         material = self.material
         aperture = self.aperture
@@ -338,6 +373,8 @@ class AbstractSurface(
         back.z = na.broadcast_to(depth, na.shape(back.z))
         result["back"] = draw(back, fill=True)
 
+        axis = "vertex"
+
         vertices = getattr(aperture, "vertices", None)
         if vertices is not None:
             # An aperture can be placed within its surface, and `wire` returns
@@ -346,31 +383,38 @@ class AbstractSurface(
             # from corners which are not where the faces are.
             if aperture.transformation is not None:
                 vertices = aperture.transformation(vertices)
+        else:
+            # An aperture with no corners, a circle for instance, is walled
+            # from the samples along its edge instead, which `wire` gives
+            # already placed.
+            vertices = aperture.wire().explicit.combine_axes(
+                axes=("wire",),
+                axis_new=axis,
+            )
 
-            front = vertices.copy_shallow()
-            front.z = sag(front)
-            behind = vertices.copy_shallow()
-            behind.z = na.broadcast_to(depth, na.shape(front.z))
+        front = vertices.copy_shallow()
+        front.z = sag(front)
+        behind = vertices.copy_shallow()
+        behind.z = na.broadcast_to(depth, na.shape(front.z))
 
-            if solid:
-                # the wall between the faces, a panel at a time so that each is
-                # sorted by depth on its own
-                axis = "vertex"
-                rolled = {
-                    axis: na.ScalarArray(
-                        ndarray=np.roll(np.arange(front.shape[axis]), -1),
-                        axes=(axis,),
-                    )
-                }
-                panel = np.stack(
-                    arrays=[front, front[rolled], behind[rolled], behind],
-                    axis="wire",
+        if solid:
+            # the wall between the faces, a panel at a time so that each is
+            # sorted by depth on its own
+            rolled = {
+                axis: na.ScalarArray(
+                    ndarray=np.roll(np.arange(front.shape[axis]), -1),
+                    axes=(axis,),
                 )
-                result["wall"] = draw(panel, fill=True)
-            else:
-                # seen flat there is no wall to speak of, only the edge of the
-                # substrate showing at each vertex
-                result["edges"] = draw(np.stack([front, behind], axis="wire"))
+            }
+            panel = np.stack(
+                arrays=[front, front[rolled], behind[rolled], behind],
+                axis="wire",
+            )
+            result["wall"] = draw(panel, fill=True)
+        else:
+            # seen flat there is no wall to speak of, only the edge of the
+            # substrate showing at each vertex
+            result["edges"] = draw(np.stack([front, behind], axis="wire"))
 
         return result
 

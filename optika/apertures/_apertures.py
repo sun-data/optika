@@ -5,6 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import matplotlib.axes
 import matplotlib.lines
+import mpl_toolkits.mplot3d.art3d
 import matplotlib.pyplot as plt
 import astropy.units as u
 import named_arrays as na
@@ -137,7 +138,44 @@ class AbstractAperture(
         sag: None | optika.sags.AbstractSag = None,
         unit: None | u.UnitBase = None,
         **kwargs,
-    ) -> None | na.ScalarArray[npt.NDArray[None | matplotlib.lines.Line2D]]:
+    ) -> (
+        None
+        | na.ScalarArray[
+            npt.NDArray[
+                None
+                | matplotlib.lines.Line2D
+                | mpl_toolkits.mplot3d.art3d.Poly3DCollection
+            ]
+        ]
+    ):
+        """
+        Draw this aperture onto the given axes.
+
+        On a 2D axes the aperture is drawn as a closed line. On a 3D axes it is
+        drawn as a filled polygon instead, so that it hides whatever lies behind
+        it, and the colour asked for becomes the edge of that polygon while the
+        face is left blank.
+
+        Parameters
+        ----------
+        ax
+            The matplotlib axes to draw onto.
+            If :obj:`None`, the current axes is used.
+        transformation
+            Any extra transformation to apply before drawing.
+        components
+            Which components of the aperture to draw, in the order of the axes
+            of the plot.
+        sag
+            An optional sag profile to lift the aperture onto.
+        unit
+            The unit to express every drawn length in.
+        kwargs
+            Additional keyword arguments passed along to
+            :func:`named_arrays.plt.plot`, or to :func:`named_arrays.plt.fill`
+            on a 3D axes, where ``color`` becomes the edge colour and
+            ``facecolor`` the face.
+        """
         if ax is None:
             ax = plt.gca()
         ax = na.as_named_array(ax)

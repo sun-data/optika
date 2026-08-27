@@ -260,3 +260,26 @@ def test_plot_substrate_without_an_aperture():
     plt.close(fig)
 
     assert result["substrate"] == dict()
+
+
+def test_plot_substrate_without_vertices():
+    """
+    An aperture with no corners is still given a wall.
+
+    A circle has no vertices to build one from, so the samples along its edge
+    are used instead. Without this its substrate is a back face with nothing
+    joining it to the front.
+    """
+    surface = optika.surfaces.Surface(
+        sag=optika.sags.SphericalSag(radius=-400 * u.mm),
+        material=_substrate,
+        aperture=optika.apertures.CircularAperture(50 * u.mm),
+    )
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    result = surface.plot(ax=ax, components=("x", "y", "z"))["substrate"]
+    plt.close(fig)
+
+    assert "wall" in result
+    assert na.shape(result["wall"])["vertex"] > 2

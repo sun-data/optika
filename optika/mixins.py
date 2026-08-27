@@ -159,7 +159,12 @@ class Plottable(abc.ABC):
             Which 3d components to plot, helpful if plotting in 2d.
         kwargs
             Additional keyword arguments that will be passed along to
-            :func:`named_arrays.plt.plot()`
+            :func:`named_arrays.plt.plot`.
+
+            On a 3D axes a surface is drawn filled rather than as an outline,
+            so that it hides whatever lies behind it, and these are passed to
+            :func:`named_arrays.plt.fill` instead. The colour asked for becomes
+            the edge of the polygon and ``facecolor`` its face.
         """
 
 
