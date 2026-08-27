@@ -708,28 +708,62 @@ class AbstractSequentialSystem(
         )
 
     @property
+    def _axis_stops(self) -> tuple[str, str]:
+        """The logical axes along the edges of the two stop surfaces."""
+        return (self._axis_field_stop, self._axis_pupil_stop)
+
+    @property
+    def field_boundary(self) -> na.AbstractCartesian2dVectorArray:
+        """
+        The field coordinates at the edge of this optical system's field of view.
+
+        These are the rays which graze the edges of both stops, so they trace
+        the outline of the field rather than filling it. In angle if the object
+        is at infinity, and in position if it is not.
+
+        How wide a field of view this outline represents is a question the
+        outline alone does not answer, and different instruments answer it
+        differently. For a field stop which is not a circle, the extent of the
+        field depends on the direction it is measured along, and on how the
+        system is rolled about its optical axis. An octagonal stop, for
+        instance, is wider corner to corner than edge to edge by a factor of
+        :math:`1 / \\cos(22.5^\\circ)`. Reduce this outline in whichever way
+        the instrument at hand takes to be its field of view;
+        :attr:`field_min` and :attr:`field_max` are two such reductions.
+        """
+        rays = self.rayfunction_stops.outputs
+        if self.object_is_at_infinity:
+            return optika.angles(rays.direction)
+        else:
+            return rays.position.xy
+
+    @property
+    def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
+        """
+        The coordinates at the edge of this optical system's entrance pupil.
+
+        The counterpart of :attr:`field_boundary`, in position if the object is
+        at infinity and in angle if it is not.
+        """
+        rays = self.rayfunction_stops.outputs
+        if self.object_is_at_infinity:
+            return rays.position.xy
+        else:
+            return optika.angles(rays.direction)
+
+    @property
     def field_min(self) -> na.AbstractCartesian2dVectorArray:
         """
         The lower left corner of this optical system's field of view.
         """
-        axis = (self._axis_field_stop, self._axis_pupil_stop)
-        if self.object_is_at_infinity:
-            angles = optika.angles(self.rayfunction_stops.outputs.direction)
-            return angles.min(axis)
-        else:
-            return self.rayfunction_stops.outputs.position.xy.min(axis)
+        return self.field_boundary.min(self._axis_stops)
 
     @property
     def field_max(self) -> na.AbstractCartesian2dVectorArray:
         """
         The upper right corner of this optical system's field of view.
         """
-        axis = (self._axis_field_stop, self._axis_pupil_stop)
-        if self.object_is_at_infinity:
-            angles = optika.angles(self.rayfunction_stops.outputs.direction)
-            return angles.max(axis)
-        else:
-            return self.rayfunction_stops.outputs.position.xy.max(axis)
+        return self.field_boundary.max(self._axis_stops)
 
     @property
     def pupil_min(self) -> na.AbstractCartesian2dVectorArray:
@@ -737,12 +771,7 @@ class AbstractSequentialSystem(
         The lower left corner of this optical system's entrance pupil in
         physical units.
         """
-        axis = (self._axis_field_stop, self._axis_pupil_stop)
-        if self.object_is_at_infinity:
-            return self.rayfunction_stops.outputs.position.xy.min(axis)
-        else:
-            angles = optika.angles(self.rayfunction_stops.outputs.direction)
-            return angles.min(axis)
+        return self.pupil_boundary.min(self._axis_stops)
 
     @property
     def pupil_max(self):
@@ -750,12 +779,7 @@ class AbstractSequentialSystem(
         The upper right corner of this optical system's entrance pupil in
         physical units.
         """
-        axis = (self._axis_field_stop, self._axis_pupil_stop)
-        if self.object_is_at_infinity:
-            return self.rayfunction_stops.outputs.position.xy.max(axis)
-        else:
-            angles = optika.angles(self.rayfunction_stops.outputs.direction)
-            return angles.max(axis)
+        return self.pupil_boundary.max(self._axis_stops)
 
     def _denormalize_grid(
         self,

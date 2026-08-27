@@ -113,9 +113,35 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(result.outputs, optika.rays.RayVectorArray)
         assert result.ndim >= 2
 
+    def test_field_boundary(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.field_boundary
+        assert isinstance(result, na.AbstractCartesian2dVectorArray)
+
+        # the outline of the field, along the edge of each stop
+        assert set(a._axis_stops).issubset(na.shape(result))
+
+        if a.object_is_at_infinity:
+            assert na.unit(result).is_equivalent(u.deg)
+        else:
+            assert na.unit(result).is_equivalent(u.m)
+
+    def test_pupil_boundary(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.pupil_boundary
+        assert isinstance(result, na.AbstractCartesian2dVectorArray)
+        assert set(a._axis_stops).issubset(na.shape(result))
+
+        if a.object_is_at_infinity:
+            assert na.unit(result).is_equivalent(u.m)
+        else:
+            assert na.unit(result).is_equivalent(u.deg)
+
     def test_field_min(self, a: optika.systems.AbstractSequentialSystem):
         result = a.field_min
         assert isinstance(result, na.AbstractCartesian2dVectorArray)
+
+        # the corner of the field is a reduction of its outline
+        assert np.all(result == a.field_boundary.min(a._axis_stops))
+
         if a.object_is_at_infinity:
             assert na.unit(result).is_equivalent(u.deg)
         else:
