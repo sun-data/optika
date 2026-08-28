@@ -330,6 +330,34 @@ class AbstractTestAbstractMultilayerMaterial(
         assert coarse < 0.05
         assert fine <= coarse
 
+    def test_efficiency_interpolated_uncertain(
+        self,
+        a: optika.materials.AbstractMultilayerMaterial,
+    ):
+        """
+        The interpolation works on rays whose direction carries an uncertainty
+        distribution, which is how a system built with `num_distribution` set
+        traces them.
+        """
+        angle = na.NormalUncertainScalarArray(
+            na.linspace(0, 20, axis="angle", num=25) * u.deg,
+            width=0.5 * u.deg,
+            num_distribution=3,
+        )
+        rays = optika.rays.RayVectorArray(
+            wavelength=_wavelength,
+            direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        expected = a.efficiency(rays, normal)
+        result = dataclasses.replace(a, num_interpolation=64).efficiency(
+            rays=rays,
+            normal=normal,
+        )
+
+        assert np.abs(result - expected).max() < 0.05 * np.abs(expected).max()
+
     def test_efficiency_interpolated_scalar(
         self,
         a: optika.materials.AbstractMultilayerMaterial,
