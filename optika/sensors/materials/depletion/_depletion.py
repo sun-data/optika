@@ -146,9 +146,12 @@ class JanesickDepletionModel(
 
     @property
     def shape(self) -> dict[str, int]:
+        # `mcc_measured` is left out: the measurement this model was fitted
+        # against is sampled along an axis of its own, which says nothing
+        # about the shape of the model and need not agree with the axes of
+        # any other measurement alongside it.
         return na.broadcast_shapes(
             na.shape(self.thickness),
             na.shape(self.thickness_substrate),
             na.shape(self.width_pixel),
-            na.shape(self.mcc_measured),
         )
