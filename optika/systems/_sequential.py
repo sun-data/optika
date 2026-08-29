@@ -801,18 +801,31 @@ class AbstractSequentialSystem(
         return self.pupil_boundary.max(self.axis_stops)
 
     @property
-    def _pupil_vertices_default(self) -> na.Cartesian2dVectorArray:
+    def _field_vertices_default(self) -> na.Cartesian2dVectorArray:
         """
-        The pupil grid :meth:`area_effective` uses when given none.
+        The field grid :meth:`area_effective` and :meth:`linearize` use when
+        given none.
 
-        Its components are cell *vertices*, since the effective area weights
-        each ray by the area of its pupil cell, whereas
-        :attr:`grid_input` holds the points that rays are traced at.  That is
-        why the two cannot share a default.
+        Its components are cell *vertices*, not the points rays are traced
+        at, which are the centers of the cells these bound.
         """
         return na.Cartesian2dVectorArray(
-            x=na.linspace(-1, 1, axis="_pupil_x", num=11),
-            y=na.linspace(-1, 1, axis="_pupil_y", num=11),
+            x=na.linspace(-1, 1, axis="_field_x", num=12),
+            y=na.linspace(-1, 1, axis="_field_y", num=12),
+        )
+
+    @property
+    def _pupil_vertices_default(self) -> na.Cartesian2dVectorArray:
+        """
+        The pupil grid :meth:`area_effective` and :meth:`linearize` use when
+        given none.
+
+        Its components are cell *vertices*, since the effective area weights
+        each ray by the area of its pupil cell.
+        """
+        return na.Cartesian2dVectorArray(
+            x=na.linspace(-1, 1, axis="_pupil_x", num=12),
+            y=na.linspace(-1, 1, axis="_pupil_y", num=12),
         )
 
     def _denormalize_grid(
@@ -1625,17 +1638,18 @@ class AbstractSequentialSystem(
             If :obj:`None` (the default), ``self.grid_input.wavelength``
             will be used.
         field
-            The field positions at which the effective area is sampled before
-            averaging over the field of view, in either normalized or physical
-            units.
-            If :obj:`None` (the default), ``self.grid_input.field``
-            will be used.
+            The **vertices** of the field grid, in either normalized or
+            physical units.  One ray is traced per cell, at a point drawn
+            uniformly inside it, and the result is averaged over the cells
+            which lie in the field of view.
+            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
+            the normalized field is used.
         pupil
             The **vertices** of the pupil grid, in either normalized or physical
             units. The area of each pupil cell is computed from these vertices
-            and used to weight the throughput, and the rays are traced at the
-            cell centers.
-            If :obj:`None` (the default), an :math:`11 \\times 11` grid spanning
+            and used to weight the throughput, and one ray is traced per cell, at
+            a point drawn uniformly inside it.
+            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
             the normalized pupil is used.
         normalized_field
             A boolean flag indicating whether the `field` parameter is given
@@ -1652,7 +1666,7 @@ class AbstractSequentialSystem(
         if wavelength is None:
             wavelength = self.grid_input.wavelength
         if field is None:
-            field = self.grid_input.field
+            field = self._field_vertices_default
         if pupil is None:
             pupil = self._pupil_vertices_default
 
@@ -1695,10 +1709,28 @@ class AbstractSequentialSystem(
             )
         (axis_wavelength,) = axis_wavelength
 
-        shape = grid.shape
-
         area = np.abs(pupil.volume_cell(axis=axis_pupil))
-        pupil = pupil.broadcast_to(shape).cell_centers(axis=axis_pupil, random=True)
+
+        # Both grids are sampled once per cell, at a point drawn uniformly
+        # inside it.  Stratifying this way rather than taking the cell centers
+        # keeps the quadrature from aliasing against the edge of the field
+        # stop or of the pupil, which a fixed grid does at a rate depending on
+        # where that edge happens to fall between samples.
+        #
+        # The field is drawn once per cell per wavelength, and the pupil once
+        # per cell for every field position, so that no two rays share an
+        # offset and the errors average down instead of accumulating.
+        field = field.broadcast_to(
+            na.broadcast_shapes(na.shape(wavelength), na.shape(field)),
+        ).cell_centers(axis=axis_field, random=True)
+
+        pupil = pupil.broadcast_to(
+            na.broadcast_shapes(
+                na.shape(wavelength),
+                na.shape(field),
+                na.shape(pupil),
+            ),
+        ).cell_centers(axis=axis_pupil, random=True)
 
         rays = self.rayfunction(
             intensity=area,
@@ -1765,18 +1797,23 @@ class AbstractSequentialSystem(
             If :obj:`None` (the default), ``self.grid_input.wavelength``
             will be used.
         field
-            The field positions at which to sample the system, in either
-            normalized or physical units.
-            If :obj:`None` (the default), ``self.grid_input.field``
-            will be used.
+            The **vertices** of the field grid, in either normalized or
+            physical units.  The effective area samples a point inside every
+            cell, while the distortion and vignetting fits trace at the cell
+            centers.
+            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
+            the normalized field is used.
         pupil
             The **vertices** of the pupil grid, in either normalized or physical
-            units. The effective area fit uses these vertices to compute the
-            pupil cell areas, while the distortion and vignetting fits trace at
-            the corresponding cell centers.
-            If :obj:`None` (the default), the effective area fit uses its own
-            default pupil grid and the distortion and vignetting fits use
-            ``self.grid_input.pupil``.
+            units. The effective area uses these vertices to compute the pupil
+            cell areas and samples a point inside every cell, while the
+            distortion and vignetting fits trace at the cell centers.
+            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
+            the normalized pupil is used.
+
+            Both grids describe the same sampling for all three models, so
+            passing these defaults back reproduces what leaving them out
+            does.
         normalized_field
             A boolean flag indicating whether the `field` parameter is given
             in normalized or physical units.
@@ -1787,21 +1824,20 @@ class AbstractSequentialSystem(
             The degree of the polynomial distortion and vignetting models.
         """
 
-        # `area_effective` interprets `pupil` as cell vertices (it needs them to
-        # compute the pupil cell areas), while `distortion` and `vignetting`
-        # trace at sample points, so give them the cell centers of the vertices.
-        # With no pupil given the two fall back to different grids, since
-        # `grid_input.pupil` holds points and cannot serve as vertices.
-        if pupil is not None:
-            pupil_centers = pupil.cell_centers(axis=tuple(na.shape(pupil)))
-        else:
-            pupil = self._pupil_vertices_default
-            pupil_centers = self.grid_input.pupil
-
+        # `field` and `pupil` are cell vertices: `area_effective` needs them to
+        # weight each ray by the area of its pupil cell, and samples a point
+        # inside every cell, while `distortion` and `vignetting` trace at the
+        # cell centers.  Both therefore describe the same grid, so that
+        # passing the defaults back reproduces what leaving them out does.
         if wavelength is None:
             wavelength = self.grid_input.wavelength
         if field is None:
-            field = self.grid_input.field
+            field = self._field_vertices_default
+        if pupil is None:
+            pupil = self._pupil_vertices_default
+
+        field_centers = field.cell_centers(axis=tuple(na.shape(field)))
+        pupil_centers = pupil.cell_centers(axis=tuple(na.shape(pupil)))
 
         # Each of the three fits below denormalizes its own grid, and the
         # expensive part of that is solving for the stops, which depends on
@@ -1810,6 +1846,7 @@ class AbstractSequentialSystem(
         stops = self._calc_rayfunction_stops(wavelength)
 
         def denormalize(
+            field: na.AbstractCartesian2dVectorArray,
             pupil: na.AbstractCartesian2dVectorArray,
         ) -> optika.vectors.ObjectVectorArray:
             return self._denormalize_grid_from_rays(
@@ -1823,12 +1860,11 @@ class AbstractSequentialSystem(
                 normalized_pupil=normalized_pupil,
             )
 
-        grid_area = denormalize(pupil)
-        grid_fit = denormalize(pupil_centers)
+        grid_area = denormalize(field, pupil)
+        grid_fit = denormalize(field_centers, pupil_centers)
 
         kwargs = dict(
             wavelength=wavelength,
-            field=grid_area.field,
             normalized_field=False,
             normalized_pupil=False,
         )
@@ -1837,6 +1873,7 @@ class AbstractSequentialSystem(
         # intensity: `direction` is built from the geometry and from the index
         # of refraction, which is computed either way.
         rays, axis_wavelength, axis_field, axis_pupil = self._rayfunction_and_axes(
+            field=grid_fit.field,
             pupil=grid_fit.pupil,
             efficiency=False,
             **kwargs,
@@ -1864,7 +1901,11 @@ class AbstractSequentialSystem(
         )
 
         return LinearSystem(
-            area_effective=self.area_effective(pupil=grid_area.pupil, **kwargs),
+            area_effective=self.area_effective(
+                field=grid_area.field,
+                pupil=grid_area.pupil,
+                **kwargs,
+            ),
             distortion=self._fit_distortion(
                 rays=rays,
                 axis_wavelength=axis_wavelength,
