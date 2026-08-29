@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Callable, Literal
 from typing_extensions import Self
 import abc
 import functools
@@ -1268,6 +1268,53 @@ def _probability_same_pixel(
     return np.where(where, result, 1)
 
 
+_num_gauss_legendre = 32
+"""
+The number of Gauss-Legendre nodes used on each subinterval by
+:func:`_integrate_gauss_legendre`.
+Chosen so that the charge-diffusion integral of :func:`vmr_signal` is accurate
+to better than one part in :math:`10^6` over the full range of optical depths
+encountered by a silicon sensor between 1 and 10000 angstroms.
+"""
+
+
+def _integrate_gauss_legendre(
+    integrand: Callable[[na.AbstractScalar], na.AbstractScalar],
+    lower: float | na.AbstractScalar,
+    upper: float | na.AbstractScalar,
+    axis: str,
+) -> na.AbstractScalar:
+    """
+    Integrate `integrand` between `lower` and `upper` using Gauss-Legendre
+    quadrature with :obj:`_num_gauss_legendre` nodes.
+
+    The limits may be arrays, in which case a separate quadrature rule is
+    applied to every element, and `axis` is the logical axis along which the
+    nodes are placed.
+
+    Parameters
+    ----------
+    integrand
+        The function to integrate.
+    lower
+        The lower limit of integration.
+    upper
+        The upper limit of integration.
+    axis
+        The logical axis along which to place the quadrature nodes.
+        Consumed by the sum, so it does not appear in the result.
+    """
+    nodes, weights = scipy.special.roots_legendre(_num_gauss_legendre)
+
+    nodes = na.ScalarArray(nodes, axes=(axis,))
+    weights = na.ScalarArray(weights, axes=(axis,))
+
+    half = (upper - lower) / 2
+    center = (upper + lower) / 2
+
+    return half * (weights * integrand(half * nodes + center)).sum(axis)
+
+
 def vmr_signal(
     wavelength: u.Quantity | na.ScalarArray,
     direction: float | na.AbstractScalar = 1,
@@ -1535,9 +1582,44 @@ def vmr_signal(
         F_\text{diffusion} = - \left( \overline{n} + \mathcal{F} - 1 \right)
             \frac{\left\langle \left[ 1 - D(z) \right] \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle}
 
-    from Equation :eq:`vmr-compact`,
-    where the average is computed numerically over the field-free region
-    using the absorption-depth distribution truncated to the substrate.
+    from Equation :eq:`vmr-compact`.
+    The integrand vanishes outside the field-free region, since :math:`D = 1`
+    where the charge does not spread, so only that region is integrated.
+
+    The average has no closed form.
+    The obstruction is :math:`D`, which contains
+    :math:`\text{erf}(1 / 2 \sigma)` with :math:`\sigma \propto \sqrt{z_f - z}`,
+    and squaring it to cover the two axes of the sensor produces a product of
+    two error functions integrated against the exponential absorption profile.
+    It is therefore evaluated by quadrature, in a variable chosen to make that
+    quadrature converge quickly.
+    Writing the average as an integral over the cumulative absorption
+    probability :math:`s` within the field-free region distributes the nodes
+    according to where photons are actually absorbed, which matters because the
+    optical depth of that region spans four orders of magnitude across the
+    wavelengths of interest.
+    Substituting :math:`s = 1 - r^2` then removes the square-root branch point
+    which :math:`\sigma(z)` places at :math:`z = z_f`, since the diffusion width
+    becomes proportional to :math:`r` near that end of the range.
+    In terms of :math:`r` the optical depth is
+
+    .. math::
+
+        \alpha z = -\log \left( e^{-\alpha z_f} + \left( 1 - e^{-\alpha z_f} \right) r^2 \right),
+
+    which is evaluated in this form rather than through :math:`s` so that it
+    stays finite when :math:`e^{-\alpha z_f}` underflows.
+    The remaining integrand is smooth apart from the point where the implant
+    ends and :math:`\eta` saturates, so the interval is split there and
+    Gauss-Legendre quadrature is applied to each part.
+
+    With :obj:`_num_gauss_legendre` nodes per part this is accurate to better
+    than one part in :math:`10^6` for optical depths
+    :math:`\alpha z_f` between :math:`0.02` and :math:`3000`,
+    which covers silicon between 1 and 10000 angstroms;
+    a midpoint rule in :math:`s` needs some thirty times as many nodes to reach
+    a hundred times worse accuracy.
+
     This result assumes uniform illumination and a periodic pixel grid,
     so it corresponds to ``wrap=True`` in :func:`signal`,
     and is a good approximation away from the edges of a sensor
@@ -1621,19 +1703,31 @@ def vmr_signal(
         r_y = ratio_ff(width_pixel.y)
 
         fraction_absorbed = -np.expm1(-az_substrate)
-        t_ff = -np.expm1(-az_ff) / fraction_absorbed
+        fraction_ff = -np.expm1(-az_ff)
+        t_ff = fraction_ff / fraction_absorbed
         az_ff_safe = np.where(az_ff > 0, az_ff, 1)
 
         axis_z = "_vmr_signal_depth"
-        num_z = 1001
-        s = (na.arange(0, num_z, axis=axis_z) + 0.5) / num_z
 
-        az = -np.log1p(-t_ff * s * fraction_absorbed)
-        eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
-        w = np.sqrt(np.maximum(1 - az / az_ff_safe, 0))
-        D = _probability_same_pixel(r_x * w) * _probability_same_pixel(r_y * w)
+        def integrand(r: na.AbstractScalar) -> na.AbstractScalar:
+            az = -np.log(np.exp(-az_ff) + fraction_ff * np.square(r))
+            eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
+            w = np.sqrt(np.maximum(1 - az / az_ff_safe, 0))
+            D = _probability_same_pixel(r_x * w) * _probability_same_pixel(r_y * w)
+            return (1 - D) * np.square(eta) * 2 * r
 
-        integral = t_ff * ((1 - D) * np.square(eta)).mean(axis_z)
+        # The integrand is smooth except where the implant ends and the
+        # differential CCE saturates, so integrate up to that point and beyond
+        # it separately.  The breakpoint collapses to zero if the implant is
+        # thicker than the field-free region, leaving a single interval.
+        r_implant = np.sqrt(
+            np.maximum((np.exp(-aW) - np.exp(-az_ff)) / fraction_ff, 0),
+        )
+
+        integral = t_ff * (
+            _integrate_gauss_legendre(integrand, 0, r_implant, axis_z)
+            + _integrate_gauss_legendre(integrand, r_implant, 1, axis_z)
+        )
 
         unit = u.electron / u.photon
 
