@@ -12,6 +12,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractEffectiveAreaModel(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Shaped,
 ):
     """

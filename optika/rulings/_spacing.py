@@ -14,6 +14,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulingSpacing(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Transformable,
     optika.mixins.Shaped,
 ):

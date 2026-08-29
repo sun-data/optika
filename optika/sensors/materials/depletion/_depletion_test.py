@@ -8,6 +8,7 @@ from optika._tests import test_mixins
 
 class AbstractTestAbstractDepletionModel(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
 ):
     def test_thickness(

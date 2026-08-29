@@ -16,6 +16,7 @@ def _area() -> na.AbstractScalar:
 
 class AbstractTestAbstractEffectiveAreaModel(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
 ):
     def test__call__(self, a: optika.radiometry.AbstractEffectiveAreaModel):

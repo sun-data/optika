@@ -1,7 +1,7 @@
 """Mixin classes used throughout this package."""
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, Self
 import abc
 import dataclasses
 import pathlib
@@ -15,6 +15,7 @@ from ezdxf.addons.r12writer import R12FastStreamWriter
 
 __all__ = [
     "Shaped",
+    "Replaceable",
     "Printable",
     "Plottable",
     "Transformable",
@@ -35,6 +36,61 @@ class Shaped(abc.ABC):
         """
         The array shape of this object.
         """
+
+
+@dataclasses.dataclass(repr=False)
+class Replaceable(abc.ABC):
+    """An object which can be copied with some of its fields changed."""
+
+    def replace(self, /, **changes) -> Self:
+        """
+        A copy of this object with the given fields replaced.
+
+        A method version of :func:`dataclasses.replace`, matching
+        :meth:`named_arrays.AbstractArray.replace`, so that a nested change
+        reads the same at every level:
+
+        .. code-block:: python
+
+            system.replace(
+                surface=system.surface.replace(
+                    sag=system.surface.sag.replace(radius=r),
+                ),
+            )
+
+        The copy is shallow, as :func:`dataclasses.replace` is: every field
+        which is not named is shared with the original, and mutating one
+        through the copy is mutating it in both. Take
+        :func:`copy.deepcopy` of the result where that matters.
+
+        Parameters
+        ----------
+        changes
+            The fields to overwrite in the copy.
+
+        Examples
+        --------
+        Move a surface without disturbing the one it was copied from.
+
+        .. jupyter-execute::
+
+            import astropy.units as u
+            import named_arrays as na
+            import optika
+
+            surface = optika.surfaces.Surface(
+                sag=optika.sags.SphericalSag(radius=100 * u.mm),
+            )
+
+            moved = surface.replace(
+                transformation=na.transformations.Cartesian3dTranslation(
+                    z=10 * u.mm,
+                ),
+            )
+
+            moved.transformation, surface.transformation
+        """
+        return dataclasses.replace(self, **changes)
 
 
 @dataclasses.dataclass(repr=False)

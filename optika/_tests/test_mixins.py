@@ -44,6 +44,32 @@ class AbstractTestShaped(
             assert isinstance(result[k], int)
 
 
+class AbstractTestReplaceable(
+    abc.ABC,
+):
+    def test_replace(self, a: optika.mixins.Replaceable):
+        # replacing nothing is a copy
+        result = a.replace()
+        assert isinstance(result, type(a))
+        assert result is not a
+
+        fields = dataclasses.fields(a)
+        if not fields:  # pragma: nocover
+            return
+
+        # every field is carried over, and by reference, since the copy is
+        # shallow
+        for f in fields:
+            assert getattr(result, f.name) is getattr(a, f.name)
+
+        # and a field which is named is the one thing which differs
+        name = fields[0].name
+        sentinel = object()
+        result = a.replace(**{name: sentinel})
+        assert getattr(result, name) is sentinel
+        assert getattr(a, name) is not sentinel
+
+
 class AbstractTestPrintable(
     abc.ABC,
 ):

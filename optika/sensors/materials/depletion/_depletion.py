@@ -15,6 +15,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractDepletionModel(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Shaped,
 ):
     """

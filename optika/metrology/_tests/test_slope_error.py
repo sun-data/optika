@@ -17,6 +17,7 @@ from optika._tests import test_mixins
 )
 class TestSlopeErrorParameters(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
 ):
     def test_step_size(self, a: optika.metrology.SlopeErrorParameters):

@@ -33,6 +33,7 @@ __all__ = [
 class AbstractAperture(
     optika.mixins.DxfWritable,
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Plottable,
     optika.mixins.Transformable,
     optika.mixins.Shaped,

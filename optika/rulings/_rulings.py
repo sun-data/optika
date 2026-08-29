@@ -131,6 +131,7 @@ def incident_effective(
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulings(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Shaped,
 ):
     """
