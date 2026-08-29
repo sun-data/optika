@@ -47,6 +47,7 @@ class AbstractSurface(
     optika.mixins.DxfWritable,
     optika.mixins.Plottable,
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Transformable,
     optika.mixins.Shaped,
     optika.propagators.AbstractLightPropagator,

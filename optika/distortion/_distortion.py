@@ -24,6 +24,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractDistortionModel(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Shaped,
 ):
     """

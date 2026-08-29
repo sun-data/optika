@@ -16,6 +16,7 @@ _wavelength = [
 
 class AbstractTestAbstractChemical(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
     abc.ABC,
 ):

@@ -22,6 +22,7 @@ def _scene() -> na.SpectralPositionalVectorArray:
 
 class AbstractTestAbstractDistortionModel(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
 ):
     def test_distort(self, a: optika.distortion.AbstractDistortionModel):

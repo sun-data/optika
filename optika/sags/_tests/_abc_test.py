@@ -40,6 +40,7 @@ def radius_parameterization() -> list[u.Quantity | na.AbstractScalar]:
 
 class AbstractTestAbstractSag(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestTransformable,
     test_mixins.AbstractTestShaped,
     test_propagators.AbstractTestAbstractRayPropagator,
