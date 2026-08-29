@@ -1720,6 +1720,14 @@ def vmr_signal(
         # differential CCE saturates, so integrate up to that point and beyond
         # it separately.  The breakpoint collapses to zero if the implant is
         # thicker than the field-free region, leaving a single interval.
+        #
+        # The kink is inherited from the piecewise-linear differential CCE of
+        # `charge_collection_efficiency`, which follows :cite:t:`Stern1994`.
+        # A smooth profile would need no split and half as many nodes, but the
+        # piecewise-linear form is kept deliberately so that the fitted implant
+        # thickness and back-surface CCE remain comparable with the values
+        # published by :cite:t:`Stern1994` and :cite:t:`Boerner2012`.  Do not
+        # trade that away for the quadrature.
         r_implant = np.sqrt(
             np.maximum((np.exp(-aW) - np.exp(-az_ff)) / fraction_ff, 0),
         )
