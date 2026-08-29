@@ -642,9 +642,9 @@ class AbstractSequentialSystem(
         samples_field_stop: int = 21,
     ) -> optika.rays.RayFunctionArray:
         if axis_pupil_stop is None:
-            axis_pupil_stop = self._axis_pupil_stop
+            axis_pupil_stop = self.axis_pupil_stop
         if axis_field_stop is None:
-            axis_field_stop = self._axis_field_stop
+            axis_field_stop = self.axis_field_stop
 
         surfaces = self.surfaces_all
 
@@ -694,8 +694,22 @@ class AbstractSequentialSystem(
 
         return result
 
-    _axis_pupil_stop: ClassVar[str] = "_stop_pupil"
-    _axis_field_stop: ClassVar[str] = "_stop_field"
+    axis_pupil_stop: ClassVar[str] = "_stop_pupil"
+    """
+    The axis along the edge of the pupil stop.
+
+    This system names the axis rather than taking a name for it, since it is
+    swept internally and not by the caller. The leading underscore marks it as
+    such, and keeps it from colliding with an axis somebody else named.
+    """
+
+    axis_field_stop: ClassVar[str] = "_stop_field"
+    """
+    The axis along the edge of the field stop.
+
+    Named by this system, in the same way and for the same reason as
+    :attr:`axis_pupil_stop`.
+    """
 
     @functools.cached_property
     def rayfunction_stops(self) -> optika.rays.RayFunctionArray:
@@ -707,9 +721,15 @@ class AbstractSequentialSystem(
         return self._calc_rayfunction_stops(self.grid_input.wavelength)
 
     @property
-    def _axis_stops(self) -> tuple[str, str]:
-        """The logical axes along the edges of the two stop surfaces."""
-        return (self._axis_field_stop, self._axis_pupil_stop)
+    def axis_stops(self) -> tuple[str, str]:
+        """
+        The axes along the edges of the two stop surfaces.
+
+        These are the axes of :attr:`field_boundary` and
+        :attr:`pupil_boundary`, and so the ones to reduce over to turn either
+        outline into a measurement of the system.
+        """
+        return (self.axis_field_stop, self.axis_pupil_stop)
 
     @property
     def field_boundary(self) -> na.AbstractCartesian2dVectorArray:
@@ -755,14 +775,14 @@ class AbstractSequentialSystem(
         """
         The lower left corner of this optical system's field of view.
         """
-        return self.field_boundary.min(self._axis_stops)
+        return self.field_boundary.min(self.axis_stops)
 
     @property
     def field_max(self) -> na.AbstractCartesian2dVectorArray:
         """
         The upper right corner of this optical system's field of view.
         """
-        return self.field_boundary.max(self._axis_stops)
+        return self.field_boundary.max(self.axis_stops)
 
     @property
     def pupil_min(self) -> na.AbstractCartesian2dVectorArray:
@@ -770,7 +790,7 @@ class AbstractSequentialSystem(
         The lower left corner of this optical system's entrance pupil in
         physical units.
         """
-        return self.pupil_boundary.min(self._axis_stops)
+        return self.pupil_boundary.min(self.axis_stops)
 
     @property
     def pupil_max(self):
@@ -778,7 +798,7 @@ class AbstractSequentialSystem(
         The upper right corner of this optical system's entrance pupil in
         physical units.
         """
-        return self.pupil_boundary.max(self._axis_stops)
+        return self.pupil_boundary.max(self.axis_stops)
 
     @property
     def _pupil_vertices_default(self) -> na.Cartesian2dVectorArray:
@@ -837,8 +857,8 @@ class AbstractSequentialSystem(
             A boolean flag indicating whether the pupil of `grid` is given in
             normalized or physical units.
         """
-        axis_field = self._axis_field_stop
-        axis_pupil = self._axis_pupil_stop
+        axis_field = self.axis_field_stop
+        axis_pupil = self.axis_pupil_stop
 
         result = grid.copy_shallow()
 
