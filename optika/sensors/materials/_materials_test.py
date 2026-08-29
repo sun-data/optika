@@ -376,6 +376,36 @@ def test_vmr_signal_diffusion():
     assert np.all(result_default == result_default_no_diffusion)
 
 
+def test_vmr_signal_quadrature():
+    """
+    The charge-diffusion integral should be converged at the default number of
+    quadrature nodes, across the full range of optical depths that silicon
+    spans between 1 and 10000 angstroms.
+    """
+    ccd = optika.sensors.materials.e2v_ccd97()
+
+    kwargs = dict(
+        wavelength=na.geomspace(1, 10000, axis="wavelength", num=101) * u.AA,
+        thickness_implant=ccd.thickness_implant,
+        thickness_depletion=ccd.depletion.thickness,
+        thickness_substrate=ccd.thickness_substrate,
+        width_pixel=16 * u.um,
+        cce_backsurface=ccd.cce_backsurface,
+        temperature=ccd.temperature,
+    )
+
+    result = optika.sensors.vmr_signal(**kwargs)
+
+    num = optika.sensors.materials._materials._num_gauss_legendre
+    try:
+        optika.sensors.materials._materials._num_gauss_legendre = 8 * num
+        expected = optika.sensors.vmr_signal(**kwargs)
+    finally:
+        optika.sensors.materials._materials._num_gauss_legendre = num
+
+    assert np.all(np.abs(result / expected - 1) < 1e-5)
+
+
 class AbstractTestAbstractSensorMaterial(
     AbstractTestAbstractMaterial,
 ):
