@@ -1755,10 +1755,18 @@ class AbstractSequentialSystem(
         # taken over a different set of field positions than the vignetting
         # model is normalized over would rescale the result by the ratio of
         # the two sets.
-        area_eff = np.mean(
-            area_eff,
-            axis=axis_field,
-            where=unvignetted.any(axis_pupil),
+        # Written as a sum over a count rather than as a mean with `where`,
+        # so that a wavelength which no sampled field position admits comes
+        # out as no effective area rather than as the undefined average of an
+        # empty set.  That is reachable whenever the field is sampled coarsely
+        # enough, and a `nan` there would carry silently into every image the
+        # resulting model produces.
+        illuminated = unvignetted.any(axis_pupil)
+        num = illuminated.sum(axis_field)
+        area_eff = area_eff.sum(axis=axis_field, where=illuminated) / np.where(
+            num > 0,
+            num,
+            1,
         )
 
         return optika.radiometry.InterpolatedEffectiveAreaModel(

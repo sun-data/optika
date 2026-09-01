@@ -789,6 +789,33 @@ def test_linearize_conserves_flux():
     assert np.allclose(result, expected, rtol=0.15)
 
 
+def test_area_effective_without_any_illuminated_field():
+    """
+    A wavelength which no sampled field position admits has no effective
+    area, rather than the undefined average of an empty set.
+
+    Averaging with `where` over nothing gives `nan`, which would carry
+    silently into every image the resulting model produces.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+
+    # cells lying entirely beyond the normalized field, so nothing gets through
+    vertices = np.array([5, 6, 7])
+    field = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(vertices, axes="field_x"),
+        y=na.ScalarArray(vertices, axes="field_y"),
+    )
+
+    result = system.area_effective(field=field)
+
+    assert np.all(np.isfinite(result.area))
+    assert np.all(result.area == 0 * result.area.unit)
+
+
 def test_linearize_keeps_axes_it_is_not_centering():
     """
     Only the two field axes and the two pupil axes are collapsed from
