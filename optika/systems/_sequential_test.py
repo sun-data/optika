@@ -1213,3 +1213,28 @@ def test_plot_rays_2d_is_a_line():
     assert rays
     for artist in rays:
         assert isinstance(artist, matplotlib.lines.Line2D)
+
+
+def test_area_effective_is_reproducible_when_seeded():
+    """
+    A seed fixes the sampling, and so fixes the answer.
+
+    The field and the pupil are sampled at a point drawn inside each cell,
+    which keeps the quadrature from aliasing against an edge but leaves the
+    result a little different on every call. Anything which must be
+    reproduced, such as a figure in an article, needs to be able to ask for
+    the same sample twice.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+    wavelength = _grid_input_wavelength.wavelength
+
+    a = system.area_effective(wavelength=wavelength, seed=42)(wavelength)
+    b = system.area_effective(wavelength=wavelength, seed=42)(wavelength)
+    c = system.area_effective(wavelength=wavelength, seed=43)(wavelength)
+
+    assert np.all(a == b)
+    assert np.any(a != c)
