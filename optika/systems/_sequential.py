@@ -1836,8 +1836,20 @@ class AbstractSequentialSystem(
         if pupil is None:
             pupil = self._pupil_vertices_default
 
-        field_centers = field.cell_centers(axis=tuple(na.shape(field)))
-        pupil_centers = pupil.cell_centers(axis=tuple(na.shape(pupil)))
+        # named explicitly rather than taken from the shape of each grid, which
+        # would also collapse any axis the grid carries beyond the two being
+        # centered, such as one of :attr:`shape`
+        axis_wavelength = self._normalize_axis_wavelength(None, wavelength)
+        axis_field = self._normalize_axis_field(None, axis_wavelength, field)
+        axis_pupil = self._normalize_axis_pupil(
+            axis_pupil=None,
+            axis_field=axis_field,
+            axis_wavelength=axis_wavelength,
+            pupil=pupil,
+        )
+
+        field_centers = field.cell_centers(axis=axis_field)
+        pupil_centers = pupil.cell_centers(axis=axis_pupil)
 
         # Each of the three fits below denormalizes its own grid, and the
         # expensive part of that is solving for the stops, which depends on

@@ -789,6 +789,53 @@ def test_linearize_conserves_flux():
     assert np.allclose(result, expected, rtol=0.15)
 
 
+def test_linearize_keeps_axes_it_is_not_centering():
+    """
+    Only the two field axes and the two pupil axes are collapsed from
+    vertices to centers.
+
+    A grid may carry axes of its own, such as one of ``system.shape``, and
+    those have to survive.  Taking the axes to center from the shape of the
+    grid rather than naming them would average such an axis into itself.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+
+    num = 5
+    wavelength = _grid_input_wavelength.wavelength
+    num_wavelength = na.shape(wavelength)["wavelength"]
+
+    # a field grid which drifts with wavelength, so that it carries an axis
+    # which is not one of the two being centered
+    drift = 1e-6 * na.linspace(0, 1, axis="wavelength", num=num_wavelength)
+    field = na.Cartesian2dVectorArray(
+        x=na.linspace(0, 1, axis="field_x", num=num) + drift,
+        y=na.linspace(0, 1, axis="field_y", num=num) + drift,
+    )
+    pupil = na.Cartesian2dVectorArray(
+        x=na.linspace(-1, 1, axis="pupil_x", num=num),
+        y=na.linspace(-1, 1, axis="pupil_y", num=num),
+    )
+
+    result = system.linearize(
+        wavelength=wavelength,
+        field=field,
+        pupil=pupil,
+        degree=1,
+    )
+
+    # the scene the distortion is fit to is defined on the cell centers, so
+    # each field axis loses exactly one sample and the wavelength axis, which
+    # is not being centered, keeps all of its own
+    shape = na.shape(result.distortion.coordinates_scene.position)
+    assert shape["field_x"] == num - 1
+    assert shape["field_y"] == num - 1
+    assert shape["wavelength"] == num_wavelength
+
+
 def test__anchor_surface():
     first = optika.surfaces.Surface(name="first")
     last = optika.surfaces.Surface(name="last")
