@@ -660,29 +660,29 @@ def test_area_effective_ignores_field_outside_the_field_of_view():
         grid_input=_grid_input_wavelength,
     )
 
-    field = na.Cartesian2dVectorLinearSpace(
-        start=0,
-        stop=1,
-        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-        num=5,
+    # `field` holds cell vertices, so these bound ten cells along each axis
+    vertices = np.linspace(0, 1, num=11)
+    field = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(vertices, axes="field_x"),
+        y=na.ScalarArray(vertices, axes="field_y"),
     )
 
-    # the same five samples along each axis, plus two which land far enough
-    # outside the field stop that no ray through them reaches the sensor
-    samples = np.array([-3, 0, 0.25, 0.5, 0.75, 1, 3])
+    # the same ten cells, plus four along each axis which lie beyond the
+    # normalized field entirely, so no ray through them reaches the sensor
+    vertices_extended = np.concatenate([vertices, [1.5, 2, 2.5, 3]])
     field_extended = na.Cartesian2dVectorArray(
-        x=na.ScalarArray(samples, axes="field_x"),
-        y=na.ScalarArray(samples, axes="field_y"),
+        x=na.ScalarArray(vertices_extended, axes="field_x"),
+        y=na.ScalarArray(vertices_extended, axes="field_y"),
     )
 
     result = system.area_effective(field=field)
     result_extended = system.area_effective(field=field_extended)
 
-    # `area_effective` traces at randomly placed cell centers, so two calls
-    # differ by a percent or so.  Averaging over the extra field positions
-    # instead of ignoring them would halve the result, which this separates
-    # comfortably.
-    assert np.allclose(result_extended.area, result.area, rtol=0.05)
+    # `area_effective` samples a random point inside every cell, so two calls
+    # differ by about a percent at this resolution.  Averaging over the dark
+    # cells instead of ignoring them would leave the result 49% low, which
+    # this separates comfortably.
+    assert np.allclose(result_extended.area, result.area, rtol=0.1)
 
 
 def _system_vignetted() -> optika.systems.SequentialSystem:
@@ -787,6 +787,80 @@ def test_linearize_conserves_flux():
     # different set of field positions than the vignetting model is
     # normalized over would put this near 0.56, which the tolerance excludes.
     assert np.allclose(result, expected, rtol=0.15)
+
+
+def test_area_effective_without_any_illuminated_field():
+    """
+    A wavelength which no sampled field position admits has no effective
+    area, rather than the undefined average of an empty set.
+
+    Averaging with `where` over nothing gives `nan`, which would carry
+    silently into every image the resulting model produces.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+
+    # cells lying entirely beyond the normalized field, so nothing gets through
+    vertices = np.array([5, 6, 7])
+    field = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(vertices, axes="field_x"),
+        y=na.ScalarArray(vertices, axes="field_y"),
+    )
+
+    result = system.area_effective(field=field)
+
+    assert np.all(np.isfinite(result.area))
+    assert np.all(result.area == 0 * result.area.unit)
+
+
+def test_linearize_keeps_axes_it_is_not_centering():
+    """
+    Only the two field axes and the two pupil axes are collapsed from
+    vertices to centers.
+
+    A grid may carry axes of its own, such as one of ``system.shape``, and
+    those have to survive.  Taking the axes to center from the shape of the
+    grid rather than naming them would average such an axis into itself.
+    """
+    system = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+
+    num = 5
+    wavelength = _grid_input_wavelength.wavelength
+    num_wavelength = na.shape(wavelength)["wavelength"]
+
+    # a field grid which drifts with wavelength, so that it carries an axis
+    # which is not one of the two being centered
+    drift = 1e-6 * na.linspace(0, 1, axis="wavelength", num=num_wavelength)
+    field = na.Cartesian2dVectorArray(
+        x=na.linspace(0, 1, axis="field_x", num=num) + drift,
+        y=na.linspace(0, 1, axis="field_y", num=num) + drift,
+    )
+    pupil = na.Cartesian2dVectorArray(
+        x=na.linspace(-1, 1, axis="pupil_x", num=num),
+        y=na.linspace(-1, 1, axis="pupil_y", num=num),
+    )
+
+    result = system.linearize(
+        wavelength=wavelength,
+        field=field,
+        pupil=pupil,
+        degree=1,
+    )
+
+    # the scene the distortion is fit to is defined on the cell centers, so
+    # each field axis loses exactly one sample and the wavelength axis, which
+    # is not being centered, keeps all of its own
+    shape = na.shape(result.distortion.coordinates_scene.position)
+    assert shape["field_x"] == num - 1
+    assert shape["field_y"] == num - 1
+    assert shape["wavelength"] == num_wavelength
 
 
 def test__anchor_surface():
