@@ -146,6 +146,7 @@ class AbstractLinearSystem(
         coordinates: na.SpectralPositionalVectorArray,
         axis_wavelength: str,
         axis_field: tuple[str, str],
+        device: None | str = None,
     ) -> tuple[na.AbstractScalar, dict[str, int], dict[str, int]]:
         """
         Compute the weights which map the overlap of each pixel on the object
@@ -194,6 +195,10 @@ class AbstractLinearSystem(
         weights_input = (
             weights_vignetting * weights_stop * weights_area.to_value(self.weights_unit)
         )
+        # every factor above is dimensionless by construction, but a
+        # dimensionless Quantity would drag device-built weight values back
+        # to the host when it multiplies them
+        weights_input = na.value(weights_input)
 
         axis_pixel = self.sensor.axis_pixel
 
@@ -204,6 +209,7 @@ class AbstractLinearSystem(
             axis_output=(axis_pixel.x, axis_pixel.y),
             weights_input=weights_input,
             method="conservative",
+            device=device,
         )
 
         return result
@@ -528,6 +534,7 @@ class AbstractLinearSystem(
         integrate: bool = True,
         noise: bool = True,
         uncertainty: bool = False,
+        device: None | str = None,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -597,6 +604,7 @@ class AbstractLinearSystem(
             coordinates=coordinates,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
+            device=device,
         )
 
         return self.image_from_weights(
