@@ -96,6 +96,12 @@ class AbstractSequentialSystem(
         """
         Concatenate :attr:`object` with :attr:`surfaces` into a single list of
         surfaces.
+
+        The object surface defines the reference frame of the system and so is
+        left untouched, while :attr:`transformation` is composed onto every
+        other surface. Setting :attr:`transformation` therefore repositions the
+        optics relative to a fixed object, instead of moving the object and the
+        optics together as a rigid whole.
         """
         obj = self.object
         if obj is not None:
@@ -105,11 +111,23 @@ class AbstractSequentialSystem(
             # none, so this is here for the sake of a subclass which does not
             result = []
 
-        result += list(self.surfaces)
+        surfaces = list(self.surfaces)
 
         sensor = self.sensor
         if sensor is not None:
-            result += [sensor]
+            surfaces += [sensor]
+
+        transformation = self.transformation
+        result += [
+            dataclasses.replace(
+                surface,
+                transformation=na.transformations.compose(
+                    transformation,
+                    surface.transformation,
+                ),
+            )
+            for surface in surfaces
+        ]
 
         if not any(s.is_field_stop for s in result):
             result[0] = dataclasses.replace(result[0], is_field_stop=True)
@@ -689,9 +707,6 @@ class AbstractSequentialSystem(
         result.outputs.position = result.outputs.position.broadcast_to(shape)
         result.outputs.direction = result.outputs.direction.broadcast_to(shape)
 
-        if self.transformation is not None:
-            result.outputs = self.transformation(result.outputs)
-
         return result
 
     axis_pupil_stop: ClassVar[str] = "_stop_pupil"
@@ -1021,8 +1036,6 @@ class AbstractSequentialSystem(
         rays = result.outputs
         if intensity is not None:
             rays.intensity = intensity
-        if self.transformation is not None:
-            rays = self.transformation.inverse(rays)
 
         surfaces = self.surfaces_all
 
@@ -2083,15 +2096,11 @@ class AbstractSequentialSystem(
         """
 
         surfaces = self.surfaces_all
-        transformation_self = self.transformation
         kwargs_plot = self.kwargs_plot
 
-        if transformation is not None:
-            if transformation_self is not None:
-                transformation = transformation @ transformation_self
-        else:
-            transformation = transformation_self
-
+        # `surfaces_all` already carries `self.transformation` on the optics,
+        # so only the caller's transformation is applied here on top of each
+        # surface's own placement.
         if kwargs_plot is not None:
             kwargs = kwargs | kwargs_plot
 
@@ -2279,12 +2288,9 @@ class AbstractSequentialSystem(
         **kwargs,
     ) -> None:
 
-        if self.transformation is not None:
-            if transformation is not None:
-                transformation = transformation @ self.transformation
-            else:
-                transformation = self.transformation
-
+        # `surfaces_all` already carries `self.transformation` on the optics,
+        # so only the caller's transformation is applied here on top of each
+        # surface's own placement.
         surfaces = self.surfaces_all
 
         for surface in surfaces:
