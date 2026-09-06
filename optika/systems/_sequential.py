@@ -988,7 +988,7 @@ class AbstractSequentialSystem(
         self,
         wavelength: na.ScalarLike,
         rayfunction_stops: optika.rays.RayFunctionArray,
-    ) -> tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
+    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
         """
         Fit the lower-left and upper-right corners of the entrance pupil as
         polynomials in field.
@@ -1016,7 +1016,10 @@ class AbstractSequentialSystem(
 
         Returns
         -------
-            The fits of the lower-left and upper-right corners of the pupil.
+            The fits of the lower-left and upper-right corners of the pupil,
+            or :obj:`None` if the pupil of the center of the field could not
+            be found, in which case the box shared by every field point
+            should be used instead.
         """
         rays = rayfunction_stops.outputs
         if self.object_is_at_infinity:
@@ -1043,11 +1046,19 @@ class AbstractSequentialSystem(
 
         # one more sample at the center of the field, traced explicitly
         field_center = field_edge.mean(axis_edge)
-        rays_center = self._calc_rayfunction_pupil(
-            wavelength=wavelength,
-            field=field_center,
-            rayfunction_stops=rayfunction_stops,
-        ).outputs
+        try:
+            rays_center = self._calc_rayfunction_pupil(
+                wavelength=wavelength,
+                field=field_center,
+                rayfunction_stops=rayfunction_stops,
+            ).outputs
+        except ValueError:
+            # The pupil of the center of the field could not be found, so
+            # there is nothing to fit.  The caller then falls back to the box
+            # shared by every field point, which is never worse than before
+            # this fit existed, rather than failing a raytrace which the
+            # shared box would have carried out.
+            return None
         if self.object_is_at_infinity:
             pupil_center = rays_center.position.xy
         else:
@@ -1152,7 +1163,8 @@ class AbstractSequentialSystem(
             The result of :meth:`_calc_pupil_fit` on the wavelengths of
             `grid`, the fits of the corners of the entrance pupil as a
             function of field.
-            Required if `normalized_pupil` is :obj:`True`.
+            If :obj:`None`, the box shared by every field point is used
+            instead.
         normalized_field
             A boolean flag indicating whether the field of `grid` is given in
             normalized or physical units.
@@ -1178,42 +1190,51 @@ class AbstractSequentialSystem(
             result.field = ptp_field * (result.field + 1) / 2 + min_field
 
         if normalized_pupil:
-            # The pupil is the one belonging to each field point, evaluated
-            # from the fit, rather than the single bounding box shared by
-            # every field point, which for an off-axis system can be many
-            # times larger than the pupil of any one of them.
-            fit_min, fit_max = pupil_fit
-            x = optika.vectors.SceneVectorArray(result.wavelength, result.field)
-            fit_min = fit_min(x).outputs
-            fit_max = fit_max(x).outputs
-
-            # No field point can accept more than the union of every ray
-            # which passes both stops, so bound the pupil of each field point
-            # to that.  A system limited by its field stop rather than its
-            # pupil stop has no smooth pupil for the fit to follow, and its
-            # box then collapses or turns inside out under the bound; fall
-            # back to the whole pupil wherever that happens, so that every
-            # box sampled is a real part of the pupil and never worse than
-            # the box shared by every field point.
+            # the single bounding box shared by every field point
             axis_both = (axis_field, axis_pupil)
             global_min = pupil.min(axis=axis_both)
             global_max = pupil.max(axis=axis_both)
 
-            def bound(
-                lo: na.AbstractScalar,
-                hi: na.AbstractScalar,
-                lo_global: na.AbstractScalar,
-                hi_global: na.AbstractScalar,
-            ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
-                lo = np.maximum(lo, lo_global)
-                hi = np.minimum(hi, hi_global)
-                bad = hi <= lo
-                return np.where(bad, lo_global, lo), np.where(bad, hi_global, hi)
+            if pupil_fit is None:
+                # There is no pupil resolved per field point to draw on, so
+                # every field point takes the shared box, as it did before
+                # the pupil was resolved per field.
+                min_pupil = global_min
+                max_pupil = global_max
 
-            min_x, max_x = bound(fit_min.x, fit_max.x, global_min.x, global_max.x)
-            min_y, max_y = bound(fit_min.y, fit_max.y, global_min.y, global_max.y)
-            min_pupil = na.Cartesian2dVectorArray(x=min_x, y=min_y)
-            max_pupil = na.Cartesian2dVectorArray(x=max_x, y=max_y)
+            else:
+                # The pupil is the one belonging to each field point,
+                # evaluated from the fit, rather than the shared box, which
+                # for an off-axis system can be many times larger than the
+                # pupil of any one of them.
+                fit_min, fit_max = pupil_fit
+                x = optika.vectors.SceneVectorArray(result.wavelength, result.field)
+                fit_min = fit_min(x).outputs
+                fit_max = fit_max(x).outputs
+
+                # No field point can accept more than the union of every ray
+                # which passes both stops, so bound the pupil of each field
+                # point to that.  A system limited by its field stop rather
+                # than its pupil stop has no smooth pupil for the fit to
+                # follow, and its box then collapses or turns inside out
+                # under the bound; fall back to the whole pupil wherever that
+                # happens, so that every box sampled is a real part of the
+                # pupil and never worse than the shared box.
+                def bound(
+                    lo: na.AbstractScalar,
+                    hi: na.AbstractScalar,
+                    lo_global: na.AbstractScalar,
+                    hi_global: na.AbstractScalar,
+                ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+                    lo = np.maximum(lo, lo_global)
+                    hi = np.minimum(hi, hi_global)
+                    bad = hi <= lo
+                    return np.where(bad, lo_global, lo), np.where(bad, hi_global, hi)
+
+                min_x, max_x = bound(fit_min.x, fit_max.x, global_min.x, global_max.x)
+                min_y, max_y = bound(fit_min.y, fit_max.y, global_min.y, global_max.y)
+                min_pupil = na.Cartesian2dVectorArray(x=min_x, y=min_y)
+                max_pupil = na.Cartesian2dVectorArray(x=max_x, y=max_y)
 
             result.pupil = (max_pupil - min_pupil) * (result.pupil + 1) / 2 + min_pupil
 

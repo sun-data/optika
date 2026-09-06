@@ -1104,6 +1104,37 @@ def test_pupil_fit_resolves_the_entrance_pupil_per_field(
     assert np.all(width_center.y < width.y)
 
 
+def test_pupil_denormalization_falls_back_to_the_shared_box(monkeypatch):
+    """
+    When the pupil of the center of the field cannot be found, the pupil is
+    denormalized onto the box shared by every field point, as it was before
+    the pupil was resolved per field, instead of failing the raytrace.
+    """
+    a = _system_newtonian
+
+    def fail(*args, **kwargs):
+        raise ValueError("the pupil of this field point cannot be found")
+
+    monkeypatch.setattr(type(a), "_calc_rayfunction_pupil", fail)
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    assert a._calc_pupil_fit(wavelength, stops) is None
+
+    # the pupil is the shared box, as it was before
+    grid = a.grid_input
+    result = a._denormalize_grid(grid)
+    pupil = a.pupil_boundary
+    axis = a.axis_stops
+    expected = pupil.ptp(axis) * (grid.pupil + 1) / 2 + pupil.min(axis)
+    assert np.allclose(result.pupil.x, expected.x)
+    assert np.allclose(result.pupil.y, expected.y)
+
+    # and the raytrace still runs on it
+    rays = a.raytrace(field=grid.field, pupil=grid.pupil, accumulate=False)
+    assert np.any(rays.outputs.unvignetted)
+
+
 def test_plot_unit():
     """
     The whole system is drawn in the unit asked for, rays included.
