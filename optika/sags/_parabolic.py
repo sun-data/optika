@@ -106,9 +106,12 @@ class ParabolicSag(
         .. math::
 
             d = \frac{-o_x u_x - o_y u_y + 2 f u_z
-                      - \text{sgn}(f u_z) \sqrt{-o_y^2 u_x^2 - o_x^2 u_y^2 + 2 o_y u_y (o_x u_x - 2 f u_z)
+                      \mp \sqrt{-o_y^2 u_x^2 - o_x^2 u_y^2 + 2 o_y u_y (o_x u_x - 2 f u_z)
                               + 4 f (o_z (u_x^2 + u_y^2) - o_x u_x u_z + f u_z^2}
-                      }{u_x^2 + u_y^2}.
+                      }{u_x^2 + u_y^2},
+
+        of which the intercept is the root with the smaller :math:`|d|`, the
+        crossing nearest the ray's current position.
 
         If the line is parallel to the :math:`z` axis, then the above equation
         is singular and we need to solve the corresponding linear equation to find
@@ -139,13 +142,35 @@ class ParabolicSag(
         uy = u.y  # noqa: F841
         uz = u.z  # noqa: F841
 
+        # The two halves of the quadratic formula.  `midpoint` lies halfway
+        # between the roots and `halfwidth` is half the distance between them,
+        # so the roots are `midpoint - halfwidth` and `midpoint + halfwidth`.
+        midpoint = "(-ox * ux - oy * uy + 2 * f * uz)"
+        halfwidth = (
+            "sqrt("
+            "   -(oy * ux)**2 - (ox * uy)**2 + 2 * oy * uy * (ox * ux - 2 * f * uz)"
+            "   + 4 * f * (oz * (ux**2 + uy**2) - ox * ux * uz + f * uz**2)"
+            ")"
+        )
+        near = f"{midpoint} - {halfwidth}"
+        far = f"{midpoint} + {halfwidth}"
+
+        # Take the root nearest the ray's current position, as
+        # `AbstractConicSag.intercept` does for every other conic.  Selecting
+        # the root by `sign(f * uz)` instead returns the far crossing for a ray
+        # that starts on the surface, which moves it to the opposite side of
+        # the paraboloid; `optika.systems.SequentialSystem` does exactly that
+        # when it propagates the solved stop rays back through the surface they
+        # were launched from.
+        #
+        # Both roots are built into one `numexpr` expression on purpose:
+        # evaluating the two halves separately and combining them afterwards
+        # measures about 50% slower.
         position = na.numexpr.evaluate(
             "o + u * where("
             "   (ux**2 + uy**2) > 1e-10,"
-            "   (-ox * ux - oy * uy + 2 * f * uz - sign(f * uz) * sqrt("
-            "       -(oy * ux)**2 - (ox * uy)**2 + 2 * oy * uy * (ox * ux - 2 * f * uz)"
-            "       + 4 * f * (oz * (ux**2 + uy**2) - ox * ux * uz + f * uz**2)"
-            "   )) / (ux**2 + uy**2),"
+            f"   where(abs({near}) <= abs({far}), {near}, {far})"
+            "   / (ux**2 + uy**2),"
             "   (ox**2 + oy**2 - 4 * f * oz) / (4 * f * uz),"
             ")"
         )
