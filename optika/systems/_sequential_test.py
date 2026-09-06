@@ -1056,6 +1056,57 @@ class TestSequentialSystemGrazingSpectrograph(
         assert np.abs(result.y - _radius_field_grazing) < 1e-6 * u.deg
 
 
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[_system_newtonian, _system_grazing],
+)
+def test_pupil_fit_resolves_the_entrance_pupil_per_field(
+    a: optika.systems.AbstractSequentialSystem,
+):
+    """
+    The entrance pupil is denormalized per field point, from a fit which
+    reproduces the pupil of every point along the edge of the field, and which
+    is narrower at the center of the field than the box shared by every field
+    point, since the pupil of these systems walks across the field.
+    """
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
+
+    rays = stops.outputs
+    if a.object_is_at_infinity:
+        field = optika.angles(rays.direction)
+        pupil = rays.position.xy
+    else:
+        field = rays.position.xy
+        pupil = optika.angles(rays.direction)
+
+    # the axis along the edge of the pupil stop, whichever stop axis the pupil
+    # grid was swept over
+    axis_wire = tuple(ax for ax in a.axis_stops if ax in na.shape(stops.inputs.pupil))
+    axis_edge = tuple(ax for ax in a.axis_stops if ax not in axis_wire)
+
+    width = pupil.max(a.axis_stops) - pupil.min(a.axis_stops)
+    tolerance = 1e-5 * width
+
+    # the fit reproduces the pupil at every point along the edge of the field
+    field_edge = field.mean(axis_wire)
+    x = optika.vectors.SceneVectorArray(wavelength, field_edge)
+    error_min = np.abs(fit_min(x).outputs - pupil.min(axis_wire))
+    error_max = np.abs(fit_max(x).outputs - pupil.max(axis_wire))
+    assert np.all(error_min.x < tolerance.x)
+    assert np.all(error_min.y < tolerance.y)
+    assert np.all(error_max.x < tolerance.x)
+    assert np.all(error_max.y < tolerance.y)
+
+    # the pupil at the center of the field is narrower than the box shared by
+    # every field point
+    x_center = optika.vectors.SceneVectorArray(wavelength, field_edge.mean(axis_edge))
+    width_center = fit_max(x_center).outputs - fit_min(x_center).outputs
+    assert np.all(width_center.x < width.x)
+    assert np.all(width_center.y < width.y)
+
+
 def test_plot_unit():
     """
     The whole system is drawn in the unit asked for, rays included.
