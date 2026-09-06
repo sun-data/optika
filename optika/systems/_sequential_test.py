@@ -529,7 +529,7 @@ _objects = [
 _transformations = [
     None,
     None,
-    na.transformations.Cartesian3dTranslation(x=100 * u.mm),
+    na.transformations.Cartesian3dTranslation(x=1 * u.mm),
     na.transformations.Cartesian3dRotationZ(23 * u.deg),
 ]
 
@@ -612,6 +612,37 @@ _grid_input_wavelength = optika.vectors.ObjectVectorArray(
 )
 class TestSequentialSystem(AbstractTestAbstractSequentialSystem):
     pass
+
+
+def test_transformation_moves_optics_not_object():
+    """
+    The system transformation repositions the optics relative to a fixed
+    object, so it changes the raytrace instead of being a rigid relabel of the
+    whole system that leaves the image unmoved.
+    """
+    base = _system_newtonian
+    shift = 10 * u.mm
+    moved = dataclasses.replace(
+        base,
+        transformation=na.transformations.Cartesian3dTranslation(x=shift),
+    )
+
+    axis = base.axis_surface
+    kwargs = dict(
+        wavelength=500 * u.nm,
+        field=na.Cartesian2dVectorArray(0, 0),
+        pupil=na.Cartesian2dVectorArray(0, 0),
+        accumulate=True,
+    )
+    sensor_x_base = base.raytrace(**kwargs).outputs.position[{axis: ~0}].x
+    sensor_x_moved = moved.raytrace(**kwargs).outputs.position[{axis: ~0}].x
+
+    # the image moves with the optics by the amount of the system translation
+    assert not np.allclose(sensor_x_base.ndarray, sensor_x_moved.ndarray)
+    assert np.allclose((sensor_x_moved - sensor_x_base).ndarray, shift)
+
+    # the object surface is left in its own frame, untouched by the transform
+    assert moved.surfaces_all[0].transformation == base.surfaces_all[0].transformation
 
 
 @dataclasses.dataclass(eq=False, repr=False)
