@@ -203,3 +203,39 @@ def test_polynomial_vignetting_model_channel():
     result = a(scene)
     assert "channel" in result.shape
     assert np.all(np.abs(result - illumination) < 1e-9)
+
+
+def test_plot_residual_where():
+    """
+    The residual is undefined at the calibration points the fit was not
+    constrained by, so those are left out rather than drawn, and the default
+    color scale is set without them.
+    """
+    scene = _scene()
+    illumination = _illumination()
+
+    # the corners of the field are excluded from the fit
+    where = scene.position.length < 1.2 * u.deg
+
+    a = optika.radiometry.PolynomialVignettingModel(
+        coordinates_scene=scene,
+        illumination=illumination,
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+        where=where,
+    )
+
+    residual = abs(a.illumination - a.fit.predictions)
+    residual_inside = np.nanmax(residual[where].ndarray)
+
+    # the excluded corners hold the largest residuals, so had they been kept
+    # they would have set the upper limit of the color scale
+    assert residual_inside < np.nanmax(residual.ndarray)
+
+    fig, ax = a.plot_residual()
+
+    norm = ax.ndarray.reshape(-1)[0].collections[0].norm
+    assert norm.vmax == pytest.approx(residual_inside)
+
+    plt.close(fig)

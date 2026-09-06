@@ -418,6 +418,7 @@ class PolynomialDistortionModel(
 
     def plot_residual(
         self,
+        ax: None | na.ScalarArray = None,
         figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
@@ -434,6 +435,12 @@ class PolynomialDistortionModel(
 
         Parameters
         ----------
+        ax
+            The matplotlib axes to draw on, distributed along
+            :attr:`axis_wavelength`.
+            If :obj:`None`, a new figure is created with one subplot per
+            wavelength, and `figsize` sets its size.
+            If given, `figsize` is ignored, since the figure already exists.
         figsize
             The size of the returned figure in inches.
             If :obj:`None`, the size is chosen automatically from the number
@@ -468,26 +475,35 @@ class PolynomialDistortionModel(
 
         ncols = na.shape(wavelength).get(axis_wavelength, 1)
 
-        if figsize is None:
-            # shape each subplot to the field-of-view aspect ratio, and widen
-            # the figure to fit one subplot per wavelength
-            height_subplot = 3
-            aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
-            figsize = (
-                ncols * height_subplot * aspect + 1.5,
-                height_subplot + 1,
-            )
-
         with astropy.visualization.quantity_support():
-            fig, ax = na.plt.subplots(
-                axis_cols=axis_wavelength,
-                ncols=ncols,
-                sharex=True,
-                sharey=True,
-                squeeze=False,
-                figsize=figsize,
-                constrained_layout=True,
-            )
+            if ax is None:
+                if figsize is None:
+                    # shape each subplot to the field-of-view aspect ratio, and
+                    # widen the figure to fit one subplot per wavelength
+                    height_subplot = 3
+                    aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
+                    figsize = (
+                        ncols * height_subplot * aspect + 1.5,
+                        height_subplot + 1,
+                    )
+
+                fig, ax = na.plt.subplots(
+                    axis_cols=axis_wavelength,
+                    ncols=ncols,
+                    sharex=True,
+                    sharey=True,
+                    squeeze=False,
+                    figsize=figsize,
+                    constrained_layout=True,
+                )
+            else:
+                ax = na.as_named_array(ax)
+                if axis_wavelength not in ax.shape:
+                    raise ValueError(
+                        f"the given axes must be distributed along "
+                        f"{axis_wavelength=}, got {ax.shape=}."
+                    )
+                fig = ax.ndarray.reshape(-1)[0].get_figure()
 
             colorizer = plt.Colorizer(
                 cmap=cmap,

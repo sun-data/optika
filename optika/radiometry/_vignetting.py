@@ -6,6 +6,7 @@ import matplotlib.cm
 import matplotlib.colors
 import matplotlib.figure
 import matplotlib.pyplot as plt
+import numpy as np
 import astropy.visualization
 import named_arrays as na
 import optika
@@ -242,13 +243,19 @@ class PolynomialVignettingModel(
             If :obj:`None`, defaults to zero.
         vmax
             The residual value mapped to the highest color.
-            If :obj:`None`, defaults to the maximum residual.
+            If :obj:`None`, defaults to the largest residual among the points
+            the fit was constrained by.
         kwargs
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
         """
+        residual = abs(self.illumination - self.fit.predictions)
+
+        # exclude the calibration points that were not used by the fit
+        residual = np.where(self.where, residual, np.nan)
+
         return self._plot(
-            abs(self.illumination - self.fit.predictions),
+            residual,
             label="illumination residual",
             ax=ax,
             figsize=figsize,
@@ -329,7 +336,7 @@ class PolynomialVignettingModel(
         if vmin is None:
             vmin = 0
         if vmax is None:
-            vmax = values.max()
+            vmax = np.nanmax(values)
 
         ncols = na.shape(wavelength).get(axis_wavelength, 1)
 
