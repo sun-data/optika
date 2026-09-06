@@ -968,6 +968,18 @@ class AbstractSequentialSystem(
             aim=aim,
         )
 
+        # The solver fixes the free component of each ray in the local
+        # coordinates of the launch surface, so a launch surface which is
+        # translated along the axis leaves the rays on the right lines but at
+        # the wrong depth.  Carry them to the launch surface itself, as the
+        # stops are, so that their positions are on the object where the
+        # entrance pupil is measured.
+        rays = optika.propagators.propagate_rays(
+            propagators=[subsystem[0]],
+            rays=rays,
+            efficiency=False,
+        )
+
         # The solved component carries the pupil-stop axis and the fixed one
         # only the field axes, so broadcast them against each other to keep
         # reductions over either well-defined downstream.

@@ -1135,6 +1135,35 @@ def test_pupil_denormalization_falls_back_to_the_shared_box(monkeypatch):
     assert np.any(rays.outputs.unvignetted)
 
 
+def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
+    """
+    The rays which find the pupil of a field point are launched from the
+    object surface itself, even when it is translated along the axis, since
+    the entrance pupil is measured on the object.
+
+    The solver fixes those rays in the local coordinates of the object, so a
+    translated object leaves them on the right lines but at the wrong depth
+    unless they are carried back to the object, which put the pupil of the
+    center of the field out of line with the pupil along its edge.
+    """
+    base = _system_newtonian
+    shift = -500 * u.mm
+    a = dataclasses.replace(
+        base,
+        object=dataclasses.replace(
+            base.object,
+            transformation=na.transformations.Cartesian3dTranslation(z=shift),
+        ),
+    )
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    field = a.field_boundary.mean(a.axis_stops)
+    rays = a._calc_rayfunction_pupil(wavelength, field, rayfunction_stops=stops)
+
+    assert np.allclose(rays.outputs.position.z, shift)
+
+
 def test_plot_unit():
     """
     The whole system is drawn in the unit asked for, rays included.
