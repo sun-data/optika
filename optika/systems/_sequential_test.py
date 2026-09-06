@@ -1073,13 +1073,10 @@ def test_pupil_fit_resolves_the_entrance_pupil_per_field(
     stops = a._calc_rayfunction_stops(wavelength)
     fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
 
-    rays = stops.outputs
-    if a.object_is_at_infinity:
-        field = optika.angles(rays.direction)
-        pupil = rays.position.xy
-    else:
-        field = rays.position.xy
-        pupil = optika.angles(rays.direction)
+    # the field and pupil along the edge of both stops, in whichever of angle
+    # and position each is measured in for this object
+    field = a.field_boundary
+    pupil = a.pupil_boundary
 
     # the axis along the edge of the pupil stop, whichever stop axis the pupil
     # grid was swept over
