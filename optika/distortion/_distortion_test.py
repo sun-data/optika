@@ -154,6 +154,47 @@ class TestPolynomialDistortionModel(
         assert a.axis_wavelength in na.shape(ax)
         plt.close(fig)
 
+    def test_plot_residual_ax(
+        self,
+        a: optika.distortion.PolynomialDistortionModel,
+    ):
+        """The plotter draws into axes given to it, instead of its own."""
+        axis = a.axis_wavelength
+        num = na.shape(a.coordinates_scene)[axis]
+
+        fig, ax = na.plt.subplots(
+            axis_rows="row",
+            nrows=2,
+            axis_cols=axis,
+            ncols=num,
+            squeeze=False,
+        )
+
+        row = ax[{"row": 0}]
+
+        fig_result, ax_result = a.plot_residual(ax=row)
+
+        assert fig_result is fig
+        assert np.all(ax_result == row)
+
+        # the row it was given has been drawn on, and the other has not
+        assert all(b.collections for b in row.ndarray)
+        assert not any(b.collections for b in ax[{"row": 1}].ndarray)
+
+        plt.close(fig)
+
+    def test_plot_residual_ax_invalid(
+        self,
+        a: optika.distortion.PolynomialDistortionModel,
+    ):
+        """Axes which are not distributed along the wavelength axis are refused."""
+        fig, ax = na.plt.subplots(axis_cols="wrong", ncols=2, squeeze=False)
+
+        with pytest.raises(ValueError, match="must be distributed along"):
+            a.plot_residual(ax=ax)
+
+        plt.close(fig)
+
 
 def test_polynomial_distortion_model_channel():
     """

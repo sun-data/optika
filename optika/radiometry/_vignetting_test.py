@@ -128,6 +128,57 @@ class TestPolynomialVignettingModel(
         assert a.axis_wavelength in na.shape(ax)
         plt.close(fig)
 
+    @pytest.mark.parametrize(
+        argnames="method",
+        argvalues=["plot", "plot_residual"],
+    )
+    def test_plot_ax(
+        self,
+        a: optika.radiometry.PolynomialVignettingModel,
+        method: str,
+    ):
+        """Both plotters draw into axes given to them, instead of their own."""
+        axis = a.axis_wavelength
+        num = na.shape(a.coordinates_scene)[axis]
+
+        fig, ax = na.plt.subplots(
+            axis_rows="row",
+            nrows=2,
+            axis_cols=axis,
+            ncols=num,
+            squeeze=False,
+        )
+
+        row = ax[{"row": 0}]
+
+        fig_result, ax_result = getattr(a, method)(ax=row)
+
+        assert fig_result is fig
+        assert np.all(ax_result == row)
+
+        # the row it was given has been drawn on, and the other has not
+        assert all(b.collections for b in row.ndarray)
+        assert not any(b.collections for b in ax[{"row": 1}].ndarray)
+
+        plt.close(fig)
+
+    @pytest.mark.parametrize(
+        argnames="method",
+        argvalues=["plot", "plot_residual"],
+    )
+    def test_plot_ax_invalid(
+        self,
+        a: optika.radiometry.PolynomialVignettingModel,
+        method: str,
+    ):
+        """Axes which are not distributed along the wavelength axis are refused."""
+        fig, ax = na.plt.subplots(axis_cols="wrong", ncols=2, squeeze=False)
+
+        with pytest.raises(ValueError, match="must be distributed along"):
+            getattr(a, method)(ax=ax)
+
+        plt.close(fig)
+
 
 def test_polynomial_vignetting_model_channel():
     """
@@ -152,3 +203,39 @@ def test_polynomial_vignetting_model_channel():
     result = a(scene)
     assert "channel" in result.shape
     assert np.all(np.abs(result - illumination) < 1e-9)
+
+
+def test_plot_residual_where():
+    """
+    The residual is undefined at the calibration points the fit was not
+    constrained by, so those are left out rather than drawn, and the default
+    color scale is set without them.
+    """
+    scene = _scene()
+    illumination = _illumination()
+
+    # the corners of the field are excluded from the fit
+    where = scene.position.length < 1.2 * u.deg
+
+    a = optika.radiometry.PolynomialVignettingModel(
+        coordinates_scene=scene,
+        illumination=illumination,
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+        where=where,
+    )
+
+    residual = abs(a.illumination - a.fit.predictions)
+    residual_inside = np.nanmax(residual[where].ndarray)
+
+    # the excluded corners hold the largest residuals, so had they been kept
+    # they would have set the upper limit of the color scale
+    assert residual_inside < np.nanmax(residual.ndarray)
+
+    fig, ax = a.plot_residual()
+
+    norm = ax.ndarray.reshape(-1)[0].collections[0].norm
+    assert norm.vmax == pytest.approx(residual_inside)
+
+    plt.close(fig)
