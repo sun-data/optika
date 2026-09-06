@@ -1164,6 +1164,40 @@ def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
     assert np.allclose(rays.outputs.position.z, shift)
 
 
+def test_solve_rays_launches_from_a_translated_surface():
+    """
+    The rays the stop solver finds are launched from the surface it is given,
+    in global coordinates, even when that surface is translated along the
+    axis.  The solver fixes them in the local coordinates of that surface, so
+    it must carry every trial, and the result, into global coordinates, or a
+    translated surface launches them from the wrong depth and a ray with any
+    angle to the axis misses the surfaces it should strike.
+    """
+    base = _system_newtonian
+    shift = -500 * u.mm
+    a = dataclasses.replace(
+        base,
+        object=dataclasses.replace(
+            base.object,
+            transformation=na.transformations.Cartesian3dTranslation(z=shift),
+        ),
+    )
+
+    surfaces = a.surfaces_all
+    subsystem = surfaces[: a.index_pupil_stop + 1]
+    obj = subsystem[0]
+    pupil_stop = subsystem[~0]
+
+    grid_first = obj.aperture.wire(num=5)
+    grid_first = na.Cartesian2dVectorArray(grid_first.x, grid_first.y)
+    grid_last = pupil_stop.aperture.wire(num=5)
+    grid_last = na.Cartesian2dVectorArray(grid_last.x, grid_last.y)
+
+    rays = a._solve_rays(subsystem, grid_first, grid_last, a.grid_input.wavelength)
+
+    assert np.allclose(rays.position.z, shift)
+
+
 def test_plot_unit():
     """
     The whole system is drawn in the unit asked for, rays included.

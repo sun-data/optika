@@ -398,6 +398,16 @@ class AbstractSequentialSystem(
         rays_component_variable.y = a.y
         rays_component_variable.z = zfunc(a)
 
+        # The trial ray is fixed in the local coordinates of the launch
+        # surface, so carry it into the global coordinates the rest of the
+        # subsystem is in before tracing it.  Otherwise a launch surface
+        # translated along the axis launches every trial from the wrong depth,
+        # and a ray with any angle to the axis misses the surfaces it should
+        # strike by the drift of the ray across that depth.
+        transformation_first = subsystem[0].transformation
+        if transformation_first is not None:
+            rays = transformation_first(rays)
+
         # only the geometry of these rays is used, and the objective is
         # evaluated once per iteration of the solver, so the efficiency of
         # each surface would be by far the most expensive part of finding
@@ -549,8 +559,10 @@ class AbstractSequentialSystem(
             position_seed.z = surface_first.sag(position_seed)
             rays.position = position_seed
 
-        if surface_first.transformation is not None:
-            rays = surface_first.transformation(rays)
+        # The rays stay in the local coordinates of the launch surface for the
+        # solve, since that is where the free component is fixed; `_ray_error`
+        # carries each trial into global coordinates, and the result is
+        # carried there once at the end.
 
         if na.unit(grid_last).is_equivalent(u.mm):
             component_target = "position"
@@ -626,6 +638,10 @@ class AbstractSequentialSystem(
         variables.x = root.x
         variables.y = root.y
         variables.z = zfunc(root)
+
+        # the rays were solved in the local coordinates of the launch surface
+        if surface_first.transformation is not None:
+            rays = surface_first.transformation(rays)
 
         return rays
 
