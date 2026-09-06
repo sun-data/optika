@@ -139,10 +139,20 @@ class PolynomialVignettingModel(
             degree=1,
         )
 
-        fig, ax = model.plot()
-        na.plt.set_aspect("equal", ax=ax);
+        fig, ax = na.plt.subplots(
+            axis_rows="row",
+            nrows=2,
+            axis_cols="wavelength",
+            ncols=3,
+            sharex=True,
+            sharey=True,
+            squeeze=False,
+            constrained_layout=True,
+        )
 
-        fig, ax = model.plot_residual()
+        model.plot(ax=ax[{"row": 1}])
+        model.plot_residual(ax=ax[{"row": 0}])
+
         na.plt.set_aspect("equal", ax=ax);
     """
 
@@ -198,6 +208,7 @@ class PolynomialVignettingModel(
 
     def plot_residual(
         self,
+        ax: None | na.ScalarArray = None,
         figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
@@ -214,6 +225,12 @@ class PolynomialVignettingModel(
 
         Parameters
         ----------
+        ax
+            The matplotlib axes to draw on, distributed along
+            :attr:`axis_wavelength`.
+            If :obj:`None`, a new figure is created with one subplot per
+            wavelength, and `figsize` sets its size.
+            If given, `figsize` is ignored, since the figure already exists.
         figsize
             The size of the returned figure in inches.
             If :obj:`None`, the size is chosen automatically from the number
@@ -233,6 +250,7 @@ class PolynomialVignettingModel(
         return self._plot(
             abs(self.illumination - self.fit.predictions),
             label="illumination residual",
+            ax=ax,
             figsize=figsize,
             cmap=cmap,
             vmin=vmin,
@@ -242,6 +260,7 @@ class PolynomialVignettingModel(
 
     def plot(
         self,
+        ax: None | na.ScalarArray = None,
         figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
@@ -254,6 +273,12 @@ class PolynomialVignettingModel(
 
         Parameters
         ----------
+        ax
+            The matplotlib axes to draw on, distributed along
+            :attr:`axis_wavelength`.
+            If :obj:`None`, a new figure is created with one subplot per
+            wavelength, and `figsize` sets its size.
+            If given, `figsize` is ignored, since the figure already exists.
         figsize
             The size of the returned figure in inches.
             If :obj:`None`, the size is chosen automatically from the number
@@ -273,6 +298,7 @@ class PolynomialVignettingModel(
         return self._plot(
             self.illumination,
             label="illumination",
+            ax=ax,
             figsize=figsize,
             cmap=cmap,
             vmin=vmin,
@@ -284,6 +310,7 @@ class PolynomialVignettingModel(
         self,
         values: na.AbstractScalar,
         label: str,
+        ax: None | na.ScalarArray = None,
         figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
@@ -306,26 +333,35 @@ class PolynomialVignettingModel(
 
         ncols = na.shape(wavelength).get(axis_wavelength, 1)
 
-        if figsize is None:
-            # shape each subplot to the field-of-view aspect ratio, and widen
-            # the figure to fit one subplot per wavelength
-            height_subplot = 3
-            aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
-            figsize = (
-                ncols * height_subplot * aspect + 1.5,
-                height_subplot + 1,
-            )
-
         with astropy.visualization.quantity_support():
-            fig, ax = na.plt.subplots(
-                axis_cols=axis_wavelength,
-                ncols=ncols,
-                sharex=True,
-                sharey=True,
-                squeeze=False,
-                figsize=figsize,
-                constrained_layout=True,
-            )
+            if ax is None:
+                if figsize is None:
+                    # shape each subplot to the field-of-view aspect ratio, and
+                    # widen the figure to fit one subplot per wavelength
+                    height_subplot = 3
+                    aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
+                    figsize = (
+                        ncols * height_subplot * aspect + 1.5,
+                        height_subplot + 1,
+                    )
+
+                fig, ax = na.plt.subplots(
+                    axis_cols=axis_wavelength,
+                    ncols=ncols,
+                    sharex=True,
+                    sharey=True,
+                    squeeze=False,
+                    figsize=figsize,
+                    constrained_layout=True,
+                )
+            else:
+                ax = na.as_named_array(ax)
+                if axis_wavelength not in ax.shape:
+                    raise ValueError(
+                        f"the given axes must be distributed along "
+                        f"{axis_wavelength=}, got {ax.shape=}."
+                    )
+                fig = ax.ndarray.reshape(-1)[0].get_figure()
 
             colorizer = plt.Colorizer(
                 cmap=cmap,
