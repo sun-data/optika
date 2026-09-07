@@ -183,6 +183,29 @@ class TestPolynomialDistortionModel(
 
         plt.close(fig)
 
+    def test_plot_residual_unit(
+        self,
+        a: optika.distortion.PolynomialDistortionModel,
+    ):
+        """The field position is drawn in the unit asked for, labels and all."""
+        fig_deg, ax_deg = a.plot_residual()
+        fig_arcsec, ax_arcsec = a.plot_residual(unit=u.arcsec)
+
+        axs_deg = ax_deg.ndarray.reshape(-1)[0]
+        axs_arcsec = ax_arcsec.ndarray.reshape(-1)[0]
+
+        scale = u.deg.to(u.arcsec)
+        for get in ("get_xlim", "get_ylim"):
+            lim_deg = getattr(axs_deg, get)()
+            lim_arcsec = getattr(axs_arcsec, get)()
+            assert lim_arcsec == pytest.approx(tuple(scale * x for x in lim_deg))
+
+        assert format(u.arcsec, "latex_inline") in axs_arcsec.get_xlabel()
+        assert format(u.deg, "latex_inline") in axs_deg.get_xlabel()
+
+        plt.close(fig_deg)
+        plt.close(fig_arcsec)
+
     def test_plot_residual_ax_invalid(
         self,
         a: optika.distortion.PolynomialDistortionModel,
