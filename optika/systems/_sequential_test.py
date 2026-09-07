@@ -1491,3 +1491,122 @@ def test_pupil_denormalization_falls_back_when_the_fit_is_singular():
 
     rays = a.raytrace(accumulate=False)
     assert np.any(rays.outputs.unvignetted)
+
+
+def _system_with_launch_surface(transformation, fold: bool = False):
+    """
+    A system whose pupil stop comes first and carries a physical aperture, so
+    that the solver's free variable is the launch direction, with that stop
+    placed by the given transformation.
+
+    With `fold`, a 45 degree mirror ahead of the stop turns the beam onto the
+    world's :math:`x` axis, and the surfaces after the stop are placed along
+    that axis instead.
+    """
+    turn = na.transformations.Cartesian3dRotationY(90 * u.deg)
+
+    mirror = optika.surfaces.Surface(
+        name="mirror",
+        sag=optika.sags.SphericalSag(radius=-600 * u.mm),
+        material=optika.materials.Mirror(),
+        aperture=optika.apertures.CircularAperture(60 * u.mm),
+        transformation=(
+            (na.transformations.Cartesian3dTranslation(x=400 * u.mm) @ turn)
+            if fold
+            else na.transformations.Cartesian3dTranslation(z=300 * u.mm)
+        ),
+    )
+
+    stop = optika.surfaces.Surface(
+        name="stop",
+        aperture=optika.apertures.CircularAperture(15 * u.mm),
+        transformation=transformation,
+        is_pupil_stop=True,
+    )
+
+    fold_mirror = optika.surfaces.Surface(
+        name="fold",
+        material=optika.materials.Mirror(),
+        aperture=optika.apertures.CircularAperture(40 * u.mm),
+        transformation=na.transformations.Cartesian3dRotationY(-45 * u.deg),
+    )
+
+    return optika.systems.SequentialSystem(
+        object=optika.surfaces.Surface(
+            name="object",
+            aperture=optika.apertures.CircularAperture(np.sin(0.5 * u.deg)),
+            transformation=na.transformations.Cartesian3dTranslation(z=-400 * u.mm),
+        ),
+        surfaces=([fold_mirror] if fold else []) + [stop, mirror],
+        sensor=optika.sensors.ImagingSensor(
+            name="sensor",
+            width_pixel=10 * u.um,
+            axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+            num_pixel=na.Cartesian2dVectorArray(256, 256),
+            transformation=(
+                (na.transformations.Cartesian3dTranslation(x=100 * u.mm) @ turn)
+                if fold
+                else None
+            ),
+            is_field_stop=True,
+        ),
+        grid_input=optika.vectors.ObjectVectorArray(
+            wavelength=500 * u.nm,
+            field=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                num=3,
+            ),
+            pupil=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                num=3,
+            ),
+        ),
+    )
+
+
+def test_stops_solve_with_a_folded_beam():
+    """
+    A 45 degree fold ahead of the pupil stop, so that the beam reaching it runs
+    along the world's :math:`x` axis rather than its :math:`z` axis.
+
+    The launch rays are solved in the local coordinates of the surface they are
+    launched from, where that beam runs along the surface's own normal.
+    Solving in world coordinates instead puts the parametrisation of the free
+    direction exactly on its pole here, since the beam is then perpendicular to
+    the axis the two free components are measured against.
+    """
+    a = _system_with_launch_surface(
+        na.transformations.Cartesian3dTranslation(x=150 * u.mm)
+        @ na.transformations.Cartesian3dRotationY(90 * u.deg),
+        fold=True,
+    )
+    result = a._calc_rayfunction_stops(500 * u.nm)
+    assert np.all(np.isfinite(result.outputs.position.length))
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "The free direction is parametrised by its two transverse components "
+        "in the local frame of the launch surface, which is singular when the "
+        "beam grazes that surface.  No two-parameter chart of the sphere is "
+        "regular everywhere, so the fix is to anchor the chart to the seed "
+        "direction, where the solution is known to lie."
+    ),
+)
+def test_stops_solve_when_the_launch_surface_is_nearly_edge_on():
+    """
+    A launch surface turned nearly edge-on to the beam, as a grazing-incidence
+    optic modelled as a tilted segment would be.
+    """
+    a = _system_with_launch_surface(
+        na.transformations.Cartesian3dRotationY(88 * u.deg),
+    )
+    result = a._calc_rayfunction_stops(500 * u.nm)
+
+    # unreachable until the solve above stops raising, which is the point
+    assert np.all(np.isfinite(result.outputs.position.length))  # pragma: nocover
