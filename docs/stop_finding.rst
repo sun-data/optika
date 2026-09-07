@@ -358,8 +358,23 @@ A few conventions are load-bearing and worth stating explicitly:
     agree; a rotated object otherwise trains the fit on a center sample taken
     at a different field point than its edge samples.
 
+  * :meth:`~optika.systems.AbstractSequentialSystem.rayfunction` returns its
+    rays in the **sensor's** frame, which is the sensor's own transformation
+    with the system's
+    :attr:`~optika.systems.SequentialSystem.transformation` composed on top,
+    since that is where ``surfaces_all`` places the sensor.  Its counterpart
+    :meth:`~optika.systems.AbstractSequentialSystem.raytrace` returns global
+    rays instead.
+
   Nothing in the type system enforces any of this, so a function which takes
-  or returns rays should say which frame they are in.
+  or returns rays should say which frame they are in.  What does enforce it is
+  ``test_rayfunction_is_invariant_under_a_rigid_motion``, which moves every
+  surface of a system together.  That describes the same instrument in a
+  different frame, so nothing the system reports may change; a quantity
+  measured in the global frame by mistake moves with the motion and fails.
+  Building a system at an angle on purpose does not test this, because tilting
+  one surface changes the instrument and can stop any light reaching the
+  sensor, which no amount of broken frame handling would then make worse.
 
 * **Angles are direction cosines.** :func:`~optika.direction` and
   :func:`~optika.angles` convert between a pair of azimuth/elevation angles and

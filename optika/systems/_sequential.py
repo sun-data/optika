@@ -1600,8 +1600,17 @@ class AbstractSequentialSystem(
         rayfunction = raytrace[{axis: ~0}]
         rays = rayfunction.outputs
 
-        if self.sensor.transformation is not None:
-            rays = self.sensor.transformation.inverse(rays)
+        # The sensor sits where `surfaces_all` puts it, which is its own
+        # transformation with `transformation` composed on top, so both are
+        # needed to express these rays in the frame of the sensor. Using only
+        # the sensor's own transformation leaves the rays of a system with a
+        # `transformation` in neither the sensor's frame nor the global one.
+        transformation = na.transformations.compose(
+            self.transformation,
+            self.sensor.transformation,
+        )
+        if transformation is not None:
+            rays = transformation.inverse(rays)
 
         rayfunction.outputs = rays
 
