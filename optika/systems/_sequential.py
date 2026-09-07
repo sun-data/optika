@@ -1072,6 +1072,11 @@ class AbstractSequentialSystem(
         aim = None
         if rayfunction_stops is not None and self.object_is_at_infinity:
             aim = rayfunction_stops.outputs.position.mean(self.axis_stops)
+            # the stop rays are expressed in the object's local coordinates,
+            # while `_solve_rays` aims in global ones
+            obj = subsystem[0]
+            if obj.transformation is not None:
+                aim = obj.transformation(aim)
 
         rays = self._solve_rays(
             subsystem=subsystem,
@@ -1092,6 +1097,15 @@ class AbstractSequentialSystem(
             rays=rays,
             efficiency=False,
         )
+
+        # `_calc_pupil_fit` fits these against samples taken from the stop
+        # rays, which `_calc_rayfunction_stops` expresses in the object's own
+        # coordinates.  Express these the same way, so that the two are
+        # measured in one frame; otherwise a rotated object trains the fit on
+        # a center sample taken at a different field point than the edges.
+        obj = subsystem[0]
+        if obj.transformation is not None:
+            rays = obj.transformation.inverse(rays)
 
         # The solved component carries the pupil-stop axis and the fixed one
         # only the field axes, so broadcast them against each other to keep

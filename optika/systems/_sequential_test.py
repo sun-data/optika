@@ -1164,7 +1164,11 @@ def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
     field = a.field_boundary.mean(a.axis_stops)
     rays = a._calc_rayfunction_pupil(wavelength, field, rayfunction_stops=stops)
 
-    assert np.allclose(rays.outputs.position.z, shift)
+    # these come back in the object's own coordinates, as the stop rays do, so
+    # carry them into the world's to say where the object actually is
+    position = a.object.transformation(rays.outputs.position)
+
+    assert np.allclose(position.z, shift)
 
 
 def test_solve_rays_launches_from_a_translated_surface():
