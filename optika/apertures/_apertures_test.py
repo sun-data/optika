@@ -50,6 +50,16 @@ class AbstractTestAbstractAperture(
     test_mixins.AbstractTestTransformable,
     test_mixins.AbstractTestShaped,
 ):
+    star_shaped: bool = True
+    """
+    Whether every point of this aperture can be joined to the centroid of its
+    wire by a straight line which stays inside the aperture.
+
+    True for every simply-connected aperture, and so the default, but false
+    for an aperture with a hole in it: the centroid of a complete annulus
+    lies at the centre of the hole, outside the aperture.
+    """
+
     def test_samples_wire(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.samples_wire, int)
         assert a.samples_wire > 0
@@ -76,8 +86,8 @@ class AbstractTestAbstractAperture(
         assert np.all(result[~na.as_named_array(a.active)])
 
         # the centroid of the wire must be inside an active, non-inverted
-        # aperture (every aperture here is star-shaped about its centroid)
-        if (a.active is True) and (a.inverted is False):
+        # aperture, provided the aperture is star-shaped about its centroid
+        if self.star_shaped and (a.active is True) and (a.inverted is False):
             centroid = a.wire().mean("wire")
             assert np.all(na.as_named_array(a(centroid)))
 
@@ -235,6 +245,89 @@ def test_circular_sector_wire_samples_radial_arms():
     radius = np.sqrt(wire.x**2 + wire.y**2)
     on_arm = (radius > 1 * u.mm) & (radius < (125 * u.mm - 1 * u.mm))
     assert np.any(on_arm)
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.AnnularAperture(
+            radius_inner=radius_inner,
+            radius_outer=radius_outer,
+            angle_start=angle_start,
+            angle_stop=angle_stop,
+            samples_wire=21,
+            active=active,
+            inverted=inverted,
+            transformation=transformation,
+            kwargs_plot=kwargs_plot,
+        )
+        for radius_inner, radius_outer in [
+            (50 * u.mm, 100 * u.mm),
+            (na.linspace(20, 40, axis="radius", num=4) * u.mm, 100 * u.mm),
+        ]
+        for angle_start, angle_stop in [
+            (0 * u.deg, 360 * u.deg),
+            (30 * u.deg, 120 * u.deg),
+        ]
+        for active in active_parameterization
+        for inverted in inverted_parameterization
+        for transformation in transform_parameterization
+        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+    ],
+)
+class TestAnnularAperture(
+    AbstractTestAbstractAperture,
+):
+    star_shaped = False
+
+    def test_radius_inner(self, a: optika.apertures.AnnularAperture):
+        assert isinstance(a.radius_inner, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius_inner >= 0)
+
+    def test_radius_outer(self, a: optika.apertures.AnnularAperture):
+        assert isinstance(a.radius_outer, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius_outer >= a.radius_inner)
+
+    def test_angle_start(self, a: optika.apertures.AnnularAperture):
+        assert na.unit_normalized(a.angle_start).is_equivalent(u.deg)
+
+    def test_angle_stop(self, a: optika.apertures.AnnularAperture):
+        assert na.unit_normalized(a.angle_stop).is_equivalent(u.deg)
+        assert np.all(a.angle_stop >= a.angle_start)
+
+    def test_vertices(self, a: optika.apertures.AnnularAperture):
+        """An annulus is bounded by arcs, so it has no vertices."""
+        assert a.vertices is None
+
+    def test_hole(self, a: optika.apertures.AnnularAperture):
+        """
+        The replacement for the star-shaped centroid check: a point halfway
+        across the annulus is inside it and the centre of the hole is not.
+        This pins both edges, which the centroid check would not do even for
+        an annulus narrow enough to contain its own centroid.
+        """
+        if (a.active is not True) or (a.inverted is not False):
+            return
+
+        radius = (a.radius_inner + a.radius_outer) / 2
+        angle = (a.angle_start + a.angle_stop) / 2
+
+        inside = na.Cartesian3dVectorArray(
+            x=radius * np.cos(angle),
+            y=radius * np.sin(angle),
+            z=0 * radius,
+        )
+        outside = na.Cartesian3dVectorArray(
+            x=0 * radius,
+            y=0 * radius,
+            z=0 * radius,
+        )
+        if a.transformation is not None:
+            inside = a.transformation(inside)
+            outside = a.transformation(outside)
+
+        assert np.all(na.as_named_array(a(inside)))
+        assert not np.any(na.as_named_array(a(outside)))
 
 
 class AbstractTestAbstractPolygonalAperture(
