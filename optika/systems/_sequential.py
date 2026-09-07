@@ -888,8 +888,12 @@ class AbstractSequentialSystem(
         rayfunction_stops
             The stop rays at that wavelength.
         """
+        # The cache is only good for the stop rays it was built from.  A caller
+        # which solved its own stops, at a different number of wire samples
+        # say, must be given a fit which matches them.
         if self._wavelength_is_default(wavelength):
-            return self.pupil_fit
+            if rayfunction_stops is self.rayfunction_stops:
+                return self.pupil_fit
 
         return self._calc_pupil_fit(wavelength, rayfunction_stops)
 
@@ -1219,15 +1223,25 @@ class AbstractSequentialSystem(
         inputs = na.nominal(optika.vectors.SceneVectorArray(wavelength, field))
 
         def fit(outputs: na.AbstractCartesian2dVectorArray):
-            return na.PolynomialFitFunctionArray.from_degree(
+            result = na.PolynomialFitFunctionArray.from_degree(
                 inputs=inputs,
                 outputs=outputs,
                 degree=2,
                 components=("field.x", "field.y"),
                 axis_polynomial=axis_edge,
             )
+            # The least-squares solve is deferred until the coefficients are
+            # first read, which would put it outside this method and defeat
+            # the fallback below.  Force it here, so that a design matrix
+            # which turns out to be singular falls back to the shared box in
+            # the same way as a field center which cannot be traced.
+            result.coefficients
+            return result
 
-        return fit(pupil_min), fit(pupil_max)
+        try:
+            return fit(pupil_min), fit(pupil_max)
+        except ValueError:
+            return None
 
     def _denormalize_grid(
         self,

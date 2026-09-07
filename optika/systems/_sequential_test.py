@@ -1110,16 +1110,15 @@ def test_pupil_denormalization_falls_back_to_the_shared_box(monkeypatch):
     denormalized onto the box shared by every field point, as it was before
     the pupil was resolved per field, instead of failing the raytrace.
     """
-    a = _system_newtonian
+    # A copy of the shared system, so that the `pupil_fit` this test caches on
+    # it, which is the fallback and not a real calibration, does not leak into
+    # whichever test happens to run next.
+    a = dataclasses.replace(_system_newtonian)
 
     def fail(*args, **kwargs):
         raise ValueError("the pupil of this field point cannot be found")
 
     monkeypatch.setattr(type(a), "_calc_rayfunction_pupil", fail)
-
-    # `a` is shared with the other tests in this module, so an earlier one may
-    # already have calibrated and cached its pupil
-    monkeypatch.delitem(a.__dict__, "pupil_fit", raising=False)
 
     wavelength = a.grid_input.wavelength
     stops = a._calc_rayfunction_stops(wavelength)
@@ -1415,3 +1414,47 @@ def test_area_effective_is_reproducible_when_seeded():
 
     assert np.all(a == b)
     assert np.any(a != c)
+
+
+def test_stops_and_pupil_are_solved_once_at_the_default_wavelength(monkeypatch):
+    """
+    Denormalizing a grid needs the stop rays and the entrance-pupil fit, and
+    both depend on nothing but the wavelength.  A caller working at the
+    system's own input wavelengths must pay for each of them once, however
+    many times it traces.
+    """
+    a = dataclasses.replace(_system_newtonian)
+
+    calls = dict(stops=0, fit=0)
+
+    solve_stops = type(a)._calc_rayfunction_stops
+    solve_fit = type(a)._calc_pupil_fit
+
+    def count_stops(self, *args, **kwargs):
+        calls["stops"] += 1
+        return solve_stops(self, *args, **kwargs)
+
+    def count_fit(self, *args, **kwargs):
+        calls["fit"] += 1
+        return solve_fit(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(a), "_calc_rayfunction_stops", count_stops)
+    monkeypatch.setattr(type(a), "_calc_pupil_fit", count_fit)
+
+    grid = a.grid_input
+    for _ in range(3):
+        a.raytrace(field=grid.field, pupil=grid.pupil, accumulate=False)
+
+    assert calls["stops"] == 1
+    assert calls["fit"] == 1
+
+    # a wavelength the caches were not solved at is solved from scratch
+    a.raytrace(
+        wavelength=grid.wavelength + 1 * u.nm,
+        field=grid.field,
+        pupil=grid.pupil,
+        accumulate=False,
+    )
+
+    assert calls["stops"] == 2
+    assert calls["fit"] == 2
