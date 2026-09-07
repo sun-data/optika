@@ -1117,6 +1117,10 @@ def test_pupil_denormalization_falls_back_to_the_shared_box(monkeypatch):
 
     monkeypatch.setattr(type(a), "_calc_rayfunction_pupil", fail)
 
+    # `a` is shared with the other tests in this module, so an earlier one may
+    # already have calibrated and cached its pupil
+    monkeypatch.delitem(a.__dict__, "pupil_fit", raising=False)
+
     wavelength = a.grid_input.wavelength
     stops = a._calc_rayfunction_stops(wavelength)
     assert a._calc_pupil_fit(wavelength, stops) is None

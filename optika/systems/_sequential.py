@@ -805,6 +805,94 @@ class AbstractSequentialSystem(
         """
         return self._calc_rayfunction_stops(self.grid_input.wavelength)
 
+    def _wavelength_is_default(self, wavelength: na.ScalarLike) -> bool:
+        """
+        Whether the given wavelength is the one :attr:`grid_input` carries, and
+        so the one the cached stop rays and pupil calibration were solved at.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength to compare against :attr:`grid_input`.
+        """
+        wavelength_default = self.grid_input.wavelength
+
+        if wavelength is wavelength_default:
+            return True
+
+        if na.shape(wavelength) != na.shape(wavelength_default):
+            return False
+
+        return bool(np.all(wavelength == wavelength_default))
+
+    def _rayfunction_stops(
+        self,
+        wavelength: na.ScalarLike,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        The stop rays at the given wavelength, reusing
+        :attr:`rayfunction_stops` when that was solved at the same wavelength.
+
+        Solving for the stop rays is among the most expensive things this class
+        does, and denormalizing a grid needs them every time.  Most callers
+        denormalize against the system's own input wavelengths, which
+        :attr:`rayfunction_stops` has already solved for, so going through the
+        cache saves the whole solve.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength to solve the stop rays at.
+        """
+        if self._wavelength_is_default(wavelength):
+            return self.rayfunction_stops
+
+        return self._calc_rayfunction_stops(wavelength)
+
+    @functools.cached_property
+    def pupil_fit(
+        self,
+    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
+        """
+        The entrance pupil of the system, fit as a function of field position
+        at the wavelengths of :attr:`grid_input`.
+
+        :obj:`None` if the pupil could not be calibrated per field point, in
+        which case the box shared by every field point is used instead.
+
+        This property is cached to increase performance.
+        If :attr:`grid_input` is updated, the cache must be cleared with
+        ``del system.pupil_fit`` before calling this property.
+        """
+        wavelength = self.grid_input.wavelength
+        return self._calc_pupil_fit(wavelength, self._rayfunction_stops(wavelength))
+
+    def _pupil_fit(
+        self,
+        wavelength: na.ScalarLike,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
+        """
+        The entrance pupil fit at the given wavelength, reusing
+        :attr:`pupil_fit` when that was solved at the same wavelength.
+
+        Calibrating the pupil traces the field edges and one field center for
+        every wavelength, which costs more than the rest of denormalizing a
+        grid put together.  It depends on nothing but the wavelengths, so a
+        caller working at the system's own input wavelengths pays for it once.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength to calibrate the pupil at.
+        rayfunction_stops
+            The stop rays at that wavelength.
+        """
+        if self._wavelength_is_default(wavelength):
+            return self.pupil_fit
+
+        return self._calc_pupil_fit(wavelength, rayfunction_stops)
+
     @property
     def axis_stops(self) -> tuple[str, str]:
         """
@@ -1151,12 +1239,12 @@ class AbstractSequentialSystem(
         if (not normalized_field) and (not normalized_pupil):
             return grid
 
-        rayfunction_stops = self._calc_rayfunction_stops(grid.wavelength)
+        rayfunction_stops = self._rayfunction_stops(grid.wavelength)
 
         # the pupil is only calibrated when it needs denormalizing
         pupil_fit = None
         if normalized_pupil:
-            pupil_fit = self._calc_pupil_fit(grid.wavelength, rayfunction_stops)
+            pupil_fit = self._pupil_fit(grid.wavelength, rayfunction_stops)
 
         return self._denormalize_grid_from_rays(
             grid=grid,
@@ -2262,10 +2350,10 @@ class AbstractSequentialSystem(
         # entrance pupil, both of which depend on nothing but the wavelengths.
         # Solve once here and hand each of them a grid which is already
         # physical.
-        stops = self._calc_rayfunction_stops(wavelength)
+        stops = self._rayfunction_stops(wavelength)
         pupil_fit = None
         if normalized_pupil:
-            pupil_fit = self._calc_pupil_fit(wavelength, stops)
+            pupil_fit = self._pupil_fit(wavelength, stops)
 
         def denormalize(
             field: na.AbstractCartesian2dVectorArray,
