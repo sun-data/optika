@@ -10,6 +10,80 @@ import optika
 from .._tests import test_mixins
 from ._systems_test import AbstractTestAbstractSystem
 
+_motion_rigid = na.transformations.compose(
+    na.transformations.Cartesian3dTranslation(
+        x=7 * u.mm,
+        y=-13 * u.mm,
+        z=29 * u.mm,
+    ),
+    na.transformations.compose(
+        na.transformations.Cartesian3dRotationZ(23 * u.deg),
+        na.transformations.Cartesian3dRotationY(17 * u.deg),
+    ),
+)
+"""
+A rigid motion used to describe a system in a different frame.
+
+The angles and distances are deliberately unrounded, so that a frame error
+cannot hide behind a symmetry of the system it is applied to, and moderate,
+so that no system is carried near the pole of the chart the launch solve
+parametrizes a ray direction on.
+"""
+
+
+def _moved_rigidly(
+    system: optika.systems.AbstractSequentialSystem,
+    motion: na.transformations.AbstractTransformation,
+) -> optika.systems.AbstractSequentialSystem:
+    """
+    Describe `system` in a frame moved by `motion`.
+
+    Every surface moves together, so this is a relabeling of the same
+    instrument rather than a different instrument, and every result of the
+    system must survive it unchanged.
+    :attr:`~optika.systems.AbstractSequentialSystem.transformation` already
+    carries onto every surface except the object, so moving the object is all
+    that is left to do.
+    """
+    obj = system.object
+    if obj is not None:
+        obj = dataclasses.replace(
+            obj,
+            transformation=na.transformations.compose(motion, obj.transformation),
+        )
+    return dataclasses.replace(
+        system,
+        object=obj,
+        transformation=na.transformations.compose(motion, system.transformation),
+    )
+
+
+_grid_field_rigid = na.Cartesian2dVectorLinearSpace(
+    start=-0.9,
+    stop=0.9,
+    axis=na.Cartesian2dVectorArray("_rigid_field_x", "_rigid_field_y"),
+    num=4,
+)
+"""
+The normalized field grid the rigid-motion test traces.
+
+It stops short of the edge of the field so that no ray lands exactly on the
+boundary of an aperture, where the roundoff a rigid motion introduces would
+decide which side of it the ray falls on.
+"""
+
+_grid_pupil_rigid = dataclasses.replace(
+    _grid_field_rigid,
+    axis=na.Cartesian2dVectorArray("_rigid_pupil_x", "_rigid_pupil_y"),
+)
+"""
+The normalized pupil grid the rigid-motion test traces.
+
+The same grid as :obj:`_grid_field_rigid` on its own pair of axes, so that the
+two sweep a four-dimensional grid instead of being broadcast against each
+other.
+"""
+
 
 class AbstractTestAbstractSequentialSystem(
     test_mixins.AbstractTestDxfWritable,
@@ -226,6 +300,49 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(raytrace.outputs, optika.rays.RayVectorArray)
         if accumulate:
             assert a.axis_surface in raytrace.shape
+
+    def test_rayfunction_is_invariant_under_a_rigid_motion(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        """
+        Moving every surface of a system together describes the same
+        instrument in a different frame, so it must leave every result of that
+        system alone.
+
+        Each result is measured in a frame the system carries with it: the
+        field and the pupil in the frame of the object, and the rays in the
+        frame of the sensor. Any of them measured in the global frame instead
+        moves with the motion, and any solve anchored to the global frame
+        finds a different answer, so this exercises every frame the system
+        works in at once. It is an invariance rather than a system built at an
+        angle on purpose, since tilting one surface of a system changes the
+        instrument and can quietly stop any light reaching the sensor, which
+        no amount of broken frame handling would then make worse.
+        """
+        b = _moved_rigidly(a, _motion_rigid)
+
+        kwargs = dict(
+            field=_grid_field_rigid,
+            pupil=_grid_pupil_rigid,
+        )
+        expected = a.rayfunction(**kwargs)
+        result = b.rayfunction(**kwargs)
+
+        # the field and the pupil are denormalized against the stops, which
+        # the system solves for in the frame of its object surface, and the
+        # rays are measured in the frame of the sensor
+        for r, e in [
+            (result.inputs.field, expected.inputs.field),
+            (result.inputs.pupil, expected.inputs.pupil),
+            (result.outputs.position, expected.outputs.position),
+        ]:
+            error = (r - e).length.max()
+            assert error < 1e-6 * e.length.max()
+
+        # no ray sits on the edge of an aperture, so the motion cannot move
+        # one across it and every ray must be vignetted exactly as before
+        assert np.all(result.outputs.unvignetted == expected.outputs.unvignetted)
 
     @pytest.mark.parametrize(
         argnames="wavelength,field,pupil",
@@ -1164,7 +1281,11 @@ def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
     field = a.field_boundary.mean(a.axis_stops)
     rays = a._calc_rayfunction_pupil(wavelength, field, rayfunction_stops=stops)
 
-    assert np.allclose(rays.outputs.position.z, shift)
+    # these come back in the object's own coordinates, as the stop rays do, so
+    # carry them into the world's to say where the object actually is
+    position = a.object.transformation(rays.outputs.position)
+
+    assert np.allclose(position.z, shift)
 
 
 def test_solve_rays_launches_from_a_translated_surface():
@@ -1610,3 +1731,80 @@ def test_stops_solve_when_the_launch_surface_is_nearly_edge_on():
 
     # unreachable until the solve above stops raising, which is the point
     assert np.all(np.isfinite(result.outputs.position.length))  # pragma: nocover
+
+
+# the field stop is decentered so that a mirrored field frame is observable:
+# rays aimed using global-frame field bounds miss the aperture entirely
+_radius_field_rotated = 2 * u.mm
+_decenter_field_rotated = 3 * u.mm
+
+_system_rotated_object = optika.systems.SequentialSystem(
+    object=optika.surfaces.Surface(
+        name="source",
+        aperture=optika.apertures.CircularAperture(
+            radius=_radius_field_rotated,
+            transformation=na.transformations.Cartesian3dTranslation(
+                x=_decenter_field_rotated,
+            ),
+        ),
+        is_field_stop=True,
+        transformation=na.transformations.Cartesian3dRotationY(180 * u.deg),
+    ),
+    surfaces=[
+        optika.surfaces.Surface(
+            name="mirror",
+            sag=optika.sags.SphericalSag(radius=240 * u.mm),
+            material=optika.materials.Mirror(),
+            aperture=optika.apertures.CircularAperture(radius=15 * u.mm),
+            is_pupil_stop=True,
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=-200 * u.mm,
+            ),
+        ),
+    ],
+    sensor=optika.sensors.ImagingSensor(
+        name="sensor",
+        width_pixel=150 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        timedelta_exposure=1 * u.s,
+        num_pixel=na.Cartesian2dVectorArray(128, 128),
+        transformation=na.transformations.Cartesian3dTranslation(
+            z=100 * u.mm,
+        ),
+    ),
+    grid_input=_grid_input,
+)
+
+
+@pytest.mark.parametrize(argnames="a", argvalues=[_system_rotated_object])
+class TestSequentialSystemRotatedObject(
+    AbstractTestAbstractSequentialSystem,
+):
+    """
+    A finite-conjugate relay whose object surface is rotated 180 degrees
+    about :math:`y`, so its local coordinate frame differs from the global
+    frame. This guards the object-local frame handling of the stop
+    root-finding problem: the solved stop rays must be expressed in the
+    object surface's local coordinates before their direction is flipped,
+    since that is the frame in which the field and pupil coordinates of the
+    input grid are interpreted.
+    """
+
+    def test_field_bounds_match_decentered_aperture(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        x_min = _decenter_field_rotated - _radius_field_rotated
+        x_max = _decenter_field_rotated + _radius_field_rotated
+        assert np.abs(a.field_min.x - x_min) < 1 * u.um
+        assert np.abs(a.field_max.x - x_max) < 1 * u.um
+
+    def test_rays_reach_the_sensor(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        # the square field/pupil grids overfill the circular apertures, so
+        # the unvignetted fraction is well below 1 even for a healthy trace;
+        # with a mirrored object frame it is exactly 0
+        unvignetted = a.rayfunction_default.outputs.unvignetted
+        assert unvignetted.mean().ndarray > 0.25

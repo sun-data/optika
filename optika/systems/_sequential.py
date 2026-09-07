@@ -761,10 +761,15 @@ class AbstractSequentialSystem(
         obj = subsystem[~0]
         rays = result.outputs
         if obj.transformation is not None:
+            # express the stop rays in the local coordinates of the object
+            # surface, since that is the frame in which the field and pupil
+            # coordinates of the input grid are interpreted by
+            # `_calc_rayfunction_input`
             rays = obj.transformation.inverse(rays)
 
         where = rays.direction @ obj.sag.normal(rays.position) > 0
-        result.outputs.direction[where] = -result.outputs.direction[where]
+        rays.direction[where] = -rays.direction[where]
+        result.outputs = rays
 
         # If the first stop is the object surface, the solved variable is the
         # position and the direction retains only the field-stop axis, so
@@ -1067,6 +1072,11 @@ class AbstractSequentialSystem(
         aim = None
         if rayfunction_stops is not None and self.object_is_at_infinity:
             aim = rayfunction_stops.outputs.position.mean(self.axis_stops)
+            # the stop rays are expressed in the object's local coordinates,
+            # while `_solve_rays` aims in global ones
+            obj = subsystem[0]
+            if obj.transformation is not None:
+                aim = obj.transformation(aim)
 
         rays = self._solve_rays(
             subsystem=subsystem,
@@ -1087,6 +1097,15 @@ class AbstractSequentialSystem(
             rays=rays,
             efficiency=False,
         )
+
+        # `_calc_pupil_fit` fits these against samples taken from the stop
+        # rays, which `_calc_rayfunction_stops` expresses in the object's own
+        # coordinates.  Express these the same way, so that the two are
+        # measured in one frame; otherwise a rotated object trains the fit on
+        # a center sample taken at a different field point than the edges.
+        obj = subsystem[0]
+        if obj.transformation is not None:
+            rays = obj.transformation.inverse(rays)
 
         # The solved component carries the pupil-stop axis and the fixed one
         # only the field axes, so broadcast them against each other to keep
@@ -1581,8 +1600,17 @@ class AbstractSequentialSystem(
         rayfunction = raytrace[{axis: ~0}]
         rays = rayfunction.outputs
 
-        if self.sensor.transformation is not None:
-            rays = self.sensor.transformation.inverse(rays)
+        # The sensor sits where `surfaces_all` puts it, which is its own
+        # transformation with `transformation` composed on top, so both are
+        # needed to express these rays in the frame of the sensor. Using only
+        # the sensor's own transformation leaves the rays of a system with a
+        # `transformation` in neither the sensor's frame nor the global one.
+        transformation = na.transformations.compose(
+            self.transformation,
+            self.sensor.transformation,
+        )
+        if transformation is not None:
+            rays = transformation.inverse(rays)
 
         rayfunction.outputs = rays
 
