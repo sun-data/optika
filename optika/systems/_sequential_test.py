@@ -1458,3 +1458,36 @@ def test_stops_and_pupil_are_solved_once_at_the_default_wavelength(monkeypatch):
 
     assert calls["stops"] == 2
     assert calls["fit"] == 2
+
+
+def test_pupil_denormalization_falls_back_when_the_fit_is_singular():
+    """
+    A field stop whose outline is degenerate in one component leaves the
+    least-squares fit of the pupil with a singular design matrix.  That is the
+    other way the calibration can fail, and like a field center which cannot
+    be traced it falls back to the box shared by every field point rather than
+    failing a raytrace which the shared box would have carried out.
+
+    The fit solves for its coefficients lazily, so forcing the solve is what
+    keeps this failure inside the fallback.
+    """
+    base = _system_newtonian
+    a = dataclasses.replace(
+        base,
+        object=dataclasses.replace(
+            base.object,
+            aperture=optika.apertures.RectangularAperture(
+                half_width=na.Cartesian2dVectorArray(
+                    x=np.sin(0.05 * u.deg),
+                    y=0 * u.dimensionless_unscaled,
+                ),
+            ),
+        ),
+    )
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    assert a._calc_pupil_fit(wavelength, stops) is None
+
+    rays = a.raytrace(accumulate=False)
+    assert np.any(rays.outputs.unvignetted)
