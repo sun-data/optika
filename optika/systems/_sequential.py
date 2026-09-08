@@ -16,9 +16,26 @@ from . import AbstractSystem
 from . import LinearSystem
 
 __all__ = [
+    "StopSolveError",
     "AbstractSequentialSystem",
     "SequentialSystem",
 ]
+
+
+class StopSolveError(ValueError):
+    """
+    The two-point solve which connects a pair of surfaces did not converge.
+
+    Raised by the search for the rays which graze the edge of both stops, and
+    by the search for the entrance pupil of a single field point, both of
+    which are Newton solves that can be started outside their basin of
+    convergence or asked for a ray which does not exist.
+
+    It derives from :class:`ValueError`, which is what this solve raised
+    before it was named, so code which already catches that keeps working.
+    Catching this instead distinguishes a solve which did not converge from a
+    system which was built wrong, which the same call can also report.
+    """
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -437,6 +454,7 @@ class AbstractSequentialSystem(
         grid_last: na.AbstractCartesian2dVectorArray,
         wavelength: na.ScalarLike,
         aim: None | na.AbstractCartesian3dVectorArray = None,
+        hint: str = "",
     ) -> optika.rays.RayVectorArray:
         """
         Solve for the rays launched from `grid_first` on the first surface of
@@ -465,11 +483,20 @@ class AbstractSequentialSystem(
             If :obj:`None` (the default), each ray is aimed at its own target
             point when no surface with optical power lies between the two
             ends, and otherwise at the center of the first powered surface.
+        hint
+            Advice to append to the error raised if the solve does not
+            converge. Two callers share this solve and what a user can do
+            about a failure differs between them, so each supplies its own.
 
         Returns
         -------
             The solved launch rays, in the global coordinates of the first
             surface.
+
+        Raises
+        ------
+        StopSolveError
+            If the solve does not converge.
         """
         surface_first = subsystem[0]
         surface_last = subsystem[~0]
@@ -624,15 +651,18 @@ class AbstractSequentialSystem(
                 max_abs_error=max_abs_error,
             )
         except ValueError as e:  # pragma: nocover
-            raise ValueError(
+
+            def described(surface: optika.surfaces.AbstractSurface) -> str:
+                # a surface need not be named, and 'None and None' names
+                # nothing at all
+                if surface.name is not None:
+                    return repr(surface.name)
+                return f"an unnamed {type(surface).__name__}"
+
+            raise StopSolveError(
                 f"Could not solve for the rays connecting the "
-                f"surfaces {surface_first.name!r} and "
-                f"{surface_last.name!r}. "
-                f"If the field stop is only partially reachable at a "
-                f"single wavelength (e.g. a spectrograph sensor), "
-                f"consider marking the object surface, with an angular "
-                f"(dimensionless, sine of the half-angle) aperture, as "
-                f"the field stop instead."
+                f"surfaces {described(surface_first)} and "
+                f"{described(surface_last)}. " + hint
             ) from e
 
         variables.x = root.x
@@ -717,6 +747,13 @@ class AbstractSequentialSystem(
                 grid_first=grid_first,
                 grid_last=grid_last,
                 wavelength=wavelength_input,
+                hint=(
+                    "If the field stop is only partially reachable at a "
+                    "single wavelength (e.g. a spectrograph sensor), "
+                    "consider marking the object surface, with an angular "
+                    "(dimensionless, sine of the half-angle) aperture, as "
+                    "the field stop instead."
+                ),
             )
 
         return result
@@ -807,6 +844,22 @@ class AbstractSequentialSystem(
         A rayfunction defined on the input surface of the optical system,
         which is designed to exactly strike the borders of both the field
         stop and the pupil stop.
+
+        This property is cached to increase performance, and so are the
+        results which depend on it.  :meth:`raytrace` and :meth:`image`
+        denormalize a grid against these rays and against :attr:`pupil_fit`,
+        so both read the caches rather than solving afresh.
+
+        Nothing detects a system which is changed after they are filled.  A
+        new system is the reliable way to change one, since these are the
+        caches a change invalidates:
+
+        * :attr:`rayfunction_stops`
+        * :attr:`pupil_fit`
+        * :attr:`rayfunction_default`
+
+        Clear them with ``del system.rayfunction_stops`` and so on, in that
+        order, if a system must be changed in place.
         """
         return self._calc_rayfunction_stops(self.grid_input.wavelength)
 
@@ -865,9 +918,9 @@ class AbstractSequentialSystem(
         :obj:`None` if the pupil could not be calibrated per field point, in
         which case the box shared by every field point is used instead.
 
-        This property is cached to increase performance.
-        If :attr:`grid_input` is updated, the cache must be cleared with
-        ``del system.pupil_fit`` before calling this property.
+        This property is cached to increase performance.  See
+        :attr:`rayfunction_stops` for what invalidates it and for the other
+        caches which go with it.
         """
         wavelength = self.grid_input.wavelength
         return self._calc_pupil_fit(wavelength, self._rayfunction_stops(wavelength))
@@ -896,8 +949,14 @@ class AbstractSequentialSystem(
         # The cache is only good for the stop rays it was built from.  A caller
         # which solved its own stops, at a different number of wire samples
         # say, must be given a fit which matches them.
+        #
+        # Read the cache rather than `rayfunction_stops` itself: asking the
+        # property whether the given rays are the cached ones would solve for
+        # them when they are not cached, which is the most expensive thing
+        # this class does, only to find they are not the same and throw the
+        # answer away.
         if self._wavelength_is_default(wavelength):
-            if rayfunction_stops is self.rayfunction_stops:
+            if rayfunction_stops is self.__dict__.get("rayfunction_stops"):
                 return self.pupil_fit
 
         return self._calc_pupil_fit(wavelength, rayfunction_stops)
@@ -1084,6 +1143,11 @@ class AbstractSequentialSystem(
             grid_last=grid_last,
             wavelength=wavelength,
             aim=aim,
+            hint=(
+                "This is the entrance pupil of one field point, which the "
+                "system falls back to a pupil shared by every field point "
+                "without."
+            ),
         )
 
         # `_calc_pupil_fit` fits these against samples taken from the stop
@@ -1184,7 +1248,7 @@ class AbstractSequentialSystem(
                 field=field_center,
                 rayfunction_stops=rayfunction_stops,
             ).outputs
-        except ValueError:
+        except StopSolveError:
             # The pupil of the center of the field could not be found, so
             # there is nothing to fit.  The caller then falls back to the box
             # shared by every field point, which is never worse than before
@@ -1252,7 +1316,11 @@ class AbstractSequentialSystem(
 
         try:
             return fit(pupil_min), fit(pupil_max)
-        except ValueError:
+        except np.linalg.LinAlgError:
+            # Only a design matrix which cannot be inverted falls back.  A
+            # `ValueError` from anywhere else in the fit is a system built
+            # wrong or a mistake in this method, and silently disabling the
+            # per-field pupil forever would hide it.
             return None
 
     def _denormalize_grid(
@@ -1620,9 +1688,9 @@ class AbstractSequentialSystem(
         Computes the rays in local coordinates at the last surface in the system
         as a function of input wavelength and position using :attr:`grid_input`.
 
-        This property is cached to increase performance.
-        If :attr:`grid_input` is updated, the cache must be cleared with
-        ``del system.rayfunction_default`` before calling this property.
+        This property is cached to increase performance.  See
+        :attr:`rayfunction_stops` for what invalidates it and for the other
+        caches which go with it.
         """
         return self.rayfunction()
 

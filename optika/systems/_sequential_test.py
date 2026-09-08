@@ -1233,7 +1233,9 @@ def test_pupil_denormalization_falls_back_to_the_shared_box(monkeypatch):
     a = dataclasses.replace(_system_newtonian)
 
     def fail(*args, **kwargs):
-        raise ValueError("the pupil of this field point cannot be found")
+        raise optika.systems.StopSolveError(
+            "the pupil of this field point cannot be found"
+        )
 
     monkeypatch.setattr(type(a), "_calc_rayfunction_pupil", fail)
 
@@ -1320,6 +1322,60 @@ def test_pupil_fit_is_anchored_independently_of_the_stop_sampling():
     width = (hi_fine - lo_fine).length
     assert (lo_coarse - lo_fine).length < 1e-9 * width
     assert (hi_coarse - hi_fine).length < 1e-9 * width
+
+
+@pytest.mark.parametrize("stage", ["trace", "fit"])
+def test_pupil_calibration_does_not_swallow_an_unrelated_error(
+    monkeypatch,
+    stage: str,
+):
+    """
+    Only a solve which did not converge, or a design matrix which cannot be
+    inverted, falls back to the shared box.
+
+    Both fallbacks used to catch every :class:`ValueError`, which would turn a
+    system built wrong, or a mistake in the calibration itself, into a pupil
+    that silently stopped being resolved per field point, at either of the two
+    stages the calibration can fail at.
+    """
+    a = dataclasses.replace(_system_newtonian)
+
+    def fail(*args, **kwargs):
+        raise ValueError("this is neither of those")
+
+    if stage == "trace":
+        monkeypatch.setattr(type(a), "_calc_rayfunction_pupil", fail)
+    else:
+        monkeypatch.setattr(na.PolynomialFitFunctionArray, "from_degree", fail)
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    with pytest.raises(ValueError, match="neither of those"):
+        a._calc_pupil_fit(wavelength, stops)
+
+
+def test_pupil_fit_does_not_solve_the_stops_to_check_its_cache(monkeypatch):
+    """
+    Handing in stop rays of one's own does not make the system solve for its
+    own as well.
+
+    The cached fit is only good for the rays it was built from, so it is
+    returned only when those are the rays given. Asking the cached property
+    for them in order to compare would solve for them when the cache is cold,
+    which is the most expensive thing this class does.
+    """
+    a = dataclasses.replace(_system_newtonian)
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+
+    # the cache is cold, and filling it now would be pure waste
+    assert "rayfunction_stops" not in a.__dict__
+
+    def fail(*args, **kwargs):
+        raise AssertionError("the stops were solved to compare against")
+
+    monkeypatch.setattr(type(a), "_calc_rayfunction_stops", fail)
+    a._pupil_fit(wavelength, stops)
 
 
 def test_pupil_denormalization_falls_back_when_a_corner_is_not_a_number():
