@@ -91,16 +91,17 @@ class ZernikeSag(
 
     @property
     def _coefficients_normalized(self) -> na.AbstractScalar:
-        """The coefficients as a named array guaranteed to contain `axis`."""
+        """
+        The coefficients as a named array.
+
+        A bare array or scalar is interpreted as being along `axis`.
+        Whether the result actually varies along `axis` is checked by
+        :func:`optika.zernikes.zernike_sum`.
+        """
         result = self.coefficients
         if not isinstance(result, na.AbstractArray):
             result = np.atleast_1d(u.Quantity(result))
             result = na.ScalarArray(result, axes=(self.axis,))
-        if self.axis not in result.shape:
-            raise ValueError(
-                f"`coefficients` must vary along `axis`, {self.axis!r}, "
-                f"got an array with shape {result.shape}."
-            )
         return result
 
     @property
@@ -127,17 +128,11 @@ class ZernikeSag(
 
         result = self.base(position)
 
-        coefficients = self._coefficients_normalized
-        position_normalized = position.xy / self.radius
-
-        for i in range(coefficients.shape[self.axis]):
-            c = coefficients[{self.axis: i}]
-            result = result + c * optika.zernikes.zernike(
-                position=position_normalized,
-                j=i + 1,
-            )
-
-        return result
+        return result + optika.zernikes.zernike_sum(
+            position=position.xy / self.radius,
+            coefficients=self._coefficients_normalized,
+            axis=self.axis,
+        )
 
     def normal(
         self,
@@ -152,18 +147,16 @@ class ZernikeSag(
         gradient_x = normal_base.x / -normal_base.z
         gradient_y = normal_base.y / -normal_base.z
 
-        coefficients = self._coefficients_normalized
         radius = self.radius
-        position_normalized = position.xy / radius
 
-        for i in range(coefficients.shape[self.axis]):
-            c = coefficients[{self.axis: i}]
-            gradient = optika.zernikes.zernike_gradient(
-                position=position_normalized,
-                j=i + 1,
-            )
-            gradient_x = gradient_x + c * gradient.x / radius
-            gradient_y = gradient_y + c * gradient.y / radius
+        gradient = optika.zernikes.zernike_sum_gradient(
+            position=position.xy / radius,
+            coefficients=self._coefficients_normalized,
+            axis=self.axis,
+        )
+
+        gradient_x = gradient_x + gradient.x / radius
+        gradient_y = gradient_y + gradient.y / radius
 
         norm = np.sqrt(np.square(gradient_x) + np.square(gradient_y) + 1)
 

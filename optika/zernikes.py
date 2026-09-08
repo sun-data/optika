@@ -6,6 +6,7 @@ indexed here using Noll's convention :cite:p:`Noll1976`, where each polynomial
 is normalized to have unit RMS over the unit disk.
 """
 
+import functools
 import math
 import numpy as np
 import named_arrays as na
@@ -14,6 +15,8 @@ __all__ = [
     "noll",
     "zernike",
     "zernike_gradient",
+    "zernike_sum",
+    "zernike_sum_gradient",
 ]
 
 
@@ -240,4 +243,313 @@ def zernike_gradient(
     return na.Cartesian2dVectorArray(
         x=norm * (d_radial * t * cos_phi - radial_over_rho * dt * sin_phi),
         y=norm * (d_radial * t * sin_phi + radial_over_rho * dt * cos_phi),
+    )
+
+
+@functools.lru_cache
+def _tables(num: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    r"""
+    Tabulate the signed azimuthal degree, the normalization constant, and the
+    monomial coefficients of the radial polynomial, for the first `num` Noll
+    indices.
+
+    Element ``radial[i, e]`` is the coefficient of :math:`\rho^e` in the
+    radial polynomial of the Zernike polynomial with Noll index
+    :math:`j = i + 1`.
+
+    Parameters
+    ----------
+    num
+        The number of Zernike polynomials to tabulate.
+    """
+    quantum_numbers = [noll(j) for j in range(1, num + 1)]
+
+    n = np.array([n for n, m in quantum_numbers])
+    m = np.array([m for n, m in quantum_numbers])
+
+    radial = np.zeros((num, n.max() + 1))
+    for i, (n_i, m_i) in enumerate(quantum_numbers):
+        for c, e in _coefficients_radial(n_i, abs(m_i)):
+            radial[i, e] += c
+
+    norm = np.where(m == 0, np.sqrt(n + 1), np.sqrt(2 * (n + 1)))
+
+    for array in (m, norm, radial):
+        array.flags.writeable = False
+
+    return m, norm, radial
+
+
+def _harmonics(
+    coefficients: na.AbstractScalar,
+    axis: str,
+) -> list[tuple[int, int, list[na.AbstractScalar]]]:
+    r"""
+    Collect a sum of Zernike polynomials into one polynomial in
+    :math:`\rho^2` for each azimuthal harmonic.
+
+    The result is a list of ``(mu, sign, a)``, where the harmonic contributes
+
+    .. code-block:: text
+
+        rho ** mu * sum(a[k] * rho ** (2 * k) for k in ...) * T(mu * phi),
+
+    and :math:`T` is the cosine if ``sign`` is positive and the sine if it is
+    negative.
+    Since this sums over the Noll axis, which is small, the coefficients are
+    contracted before any array of evaluation points is touched.
+
+    Parameters
+    ----------
+    coefficients
+        The magnitude of each Zernike polynomial, along `axis`.
+    axis
+        The logical axis of `coefficients` indexing the Noll terms.
+    """
+    if axis not in coefficients.shape:
+        raise ValueError(
+            f"`coefficients` must vary along `axis`, {axis!r}, "
+            f"got an array with shape {coefficients.shape}."
+        )
+
+    m, norm, radial = _tables(coefficients.shape[axis])
+
+    degree = radial.shape[~0] - 1
+
+    result = []
+    for mu in range(degree + 1):
+        for sign in (1, -1):
+
+            if mu == 0 and sign < 0:  # the sine of zero is not a harmonic
+                continue
+
+            where = m == (sign * mu)
+            if not where.any():
+                continue
+
+            # the radial polynomial of R_n^mu has only the powers
+            # rho ** mu, rho ** (mu + 2), ...
+            a = []
+            for e in range(mu, degree + 1, 2):
+                weight = na.ScalarArray(
+                    ndarray=np.where(where, norm * radial[:, e], 0),
+                    axes=axis,
+                )
+                a.append((coefficients * weight).sum(axis=axis))
+
+            result.append((mu, sign, a))
+
+    return result
+
+
+def zernike_sum(
+    position: na.AbstractCartesian2dVectorArray,
+    coefficients: na.AbstractScalar,
+    axis: str,
+) -> na.AbstractScalar:
+    r"""
+    Evaluate a weighted sum of Zernike polynomials at the given points on the
+    unit disk.
+
+    This is equivalent to summing :func:`zernike` over the Noll indices, but
+    its cost per point scales with the radial degree of the basis rather than
+    with the number of terms.
+
+    Parameters
+    ----------
+    position
+        The normalized, dimensionless points at which to evaluate the sum.
+        Points satisfying :math:`|\text{position}| \leq 1` are inside
+        the unit disk.
+    coefficients
+        The magnitude of each Zernike polynomial, along `axis`, where element
+        :math:`i` is the coefficient of the polynomial with Noll index
+        :math:`j = i + 1`.
+    axis
+        The logical axis of `coefficients` indexing the Noll terms.
+
+    Examples
+    --------
+
+    Plot a wavefront composed of defocus, coma, and spherical aberration.
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import named_arrays as na
+        import optika
+
+        position = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("x", "y"),
+            num=101,
+        ).explicit
+
+        coefficients = na.ScalarArray(
+            ndarray=np.array([0, 0, 0, 0.2, 0, 0, 0, 0.1, 0, 0, 0.05]),
+            axes="zernike",
+        )
+
+        w = optika.zernikes.zernike_sum(position, coefficients, axis="zernike")
+        w[position.length > 1] = np.nan
+
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.pcolormesh(position, C=w, ax=ax)
+        ax.set_aspect("equal");
+
+    Notes
+    -----
+    Zernike polynomials which share an azimuthal degree :math:`m` share an
+    azimuthal sinusoid, so the sum can be collected into one polynomial per
+    harmonic,
+
+    .. math::
+
+        \sum_j c_j Z_j(\rho, \phi) = \sum_{m \geq 0}
+            \left[ A_m(\rho) \cos(m \phi) + B_m(\rho) \sin(m \phi) \right].
+
+    The radial polynomial :math:`R_n^m` contains only the powers
+    :math:`\rho^{m}, \rho^{m + 2}, \dots`, so each collected polynomial
+    factors as :math:`A_m(\rho) = \rho^m Q_m(\rho^2)`, and :math:`Q_m` is
+    evaluated by Horner's method.
+
+    Collecting the coefficients is a sum over the Noll index alone, so it
+    happens on arrays the size of `coefficients` rather than the size of
+    `position`.
+    What remains is one sinusoid per harmonic instead of one per term, which
+    is why the cost grows with the radial degree, roughly the square root of
+    the number of terms.
+    """
+    harmonics = _harmonics(coefficients, axis)
+
+    rho2 = np.square(position.x) + np.square(position.y)
+    rho = np.sqrt(rho2)
+    phi = np.arctan2(position.y, position.x)
+
+    result = 0 * rho * coefficients[{axis: 0}]
+
+    for mu, sign, a in harmonics:
+
+        poly = a[~0]
+        for k in reversed(range(len(a) - 1)):
+            poly = poly * rho2 + a[k]
+
+        if mu:
+            poly = poly * rho**mu
+            if sign > 0:
+                poly = poly * np.cos(mu * phi)
+            else:
+                poly = poly * np.sin(mu * phi)
+
+        result = result + poly
+
+    return result
+
+
+def zernike_sum_gradient(
+    position: na.AbstractCartesian2dVectorArray,
+    coefficients: na.AbstractScalar,
+    axis: str,
+) -> na.Cartesian2dVectorArray:
+    r"""
+    Evaluate the gradient of a weighted sum of Zernike polynomials at the
+    given points on the unit disk.
+
+    This is equivalent to summing :func:`zernike_gradient` over the Noll
+    indices, but its cost per point scales with the radial degree of the basis
+    rather than with the number of terms.
+
+    Parameters
+    ----------
+    position
+        The normalized, dimensionless points at which to evaluate the
+        gradient.
+    coefficients
+        The magnitude of each Zernike polynomial, along `axis`, where element
+        :math:`i` is the coefficient of the polynomial with Noll index
+        :math:`j = i + 1`.
+    axis
+        The logical axis of `coefficients` indexing the Noll terms.
+
+    Examples
+    --------
+
+    Evaluate the gradient of a wavefront made of defocus and coma.
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import named_arrays as na
+        import optika
+
+        coefficients = na.ScalarArray(
+            ndarray=np.array([0, 0, 0, 0.2, 0, 0, 0, 0.1]),
+            axes="zernike",
+        )
+
+        optika.zernikes.zernike_sum_gradient(
+            position=na.Cartesian2dVectorArray(0.3, -0.4),
+            coefficients=coefficients,
+            axis="zernike",
+        )
+
+    Notes
+    -----
+    Differentiating the collected form described in :func:`zernike_sum` using
+    the chain rule in polar coordinates gives
+
+    .. math::
+
+        \frac{\partial}{\partial \rho}
+            \left[ \rho^m Q(\rho^2) \right]
+            &= \rho^{m - 1} \left[ m Q(\rho^2)
+               + 2 \rho^2 Q'(\rho^2) \right] \\
+        \frac{1}{\rho} \left[ \rho^m Q(\rho^2) \right]
+            &= \rho^{m - 1} Q(\rho^2),
+
+    both of which are polynomials for :math:`m \geq 1`, while the
+    :math:`m = 0` harmonic contributes nothing to the azimuthal derivative.
+    Nothing divides by :math:`\rho`, so the gradient is exact at the center of
+    the pupil, as it is in :func:`zernike_gradient`.
+    """
+    harmonics = _harmonics(coefficients, axis)
+
+    rho2 = np.square(position.x) + np.square(position.y)
+    rho = np.sqrt(rho2)
+    phi = np.arctan2(position.y, position.x)
+    cos_phi = np.cos(phi)
+    sin_phi = np.sin(phi)
+
+    zero = 0 * rho * coefficients[{axis: 0}]
+    d_rho = zero
+    d_phi_over_rho = zero
+
+    for mu, sign, a in harmonics:
+
+        # Q(rho ** 2) and its derivative, both by Horner's method.
+        # The k = 0 term of Q' vanishes, so it must not shift the accumulator.
+        q = a[~0]
+        dq = 0 * a[~0]
+        for k in reversed(range(len(a) - 1)):
+            q = q * rho2 + a[k]
+            dq = dq * rho2 + (k + 1) * a[k + 1]
+
+        if mu:
+            factor = rho ** (mu - 1) if mu > 1 else 1
+            if sign > 0:
+                t = np.cos(mu * phi)
+                dt = -mu * np.sin(mu * phi)
+            else:
+                t = np.sin(mu * phi)
+                dt = mu * np.cos(mu * phi)
+            d_rho = d_rho + factor * (mu * q + 2 * rho2 * dq) * t
+            d_phi_over_rho = d_phi_over_rho + factor * q * dt
+        else:
+            d_rho = d_rho + 2 * rho * dq
+
+    return na.Cartesian2dVectorArray(
+        x=d_rho * cos_phi - d_phi_over_rho * sin_phi,
+        y=d_rho * sin_phi + d_phi_over_rho * cos_phi,
     )

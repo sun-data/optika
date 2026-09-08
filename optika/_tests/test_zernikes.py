@@ -127,3 +127,99 @@ def test_zernike_gradient(j: int, position: na.AbstractCartesian2dVectorArray):
 
     assert np.allclose(result.x, derivative_x, atol=1e-5)
     assert np.allclose(result.y, derivative_y, atol=1e-5)
+
+
+_coefficients = [
+    na.ScalarArray(np.array([0.0, 0.0, 0.0, 1.0]), axes="zernike"),
+    na.ScalarArray(np.linspace(1, 0.1, num=11), axes="zernike"),
+    na.NormalUncertainScalarArray(
+        nominal=na.ScalarArray(np.linspace(1, 0.1, num=11), axes="zernike"),
+        width=0.1,
+    ),
+    na.ScalarArray(
+        ndarray=np.linspace(1, 0.1, num=24).reshape(12, 2),
+        axes=("zernike", "config"),
+    ),
+]
+
+
+def _sum_explicit(
+    position: na.AbstractCartesian2dVectorArray,
+    coefficients: na.AbstractScalar,
+) -> na.AbstractScalar:
+    """The weighted sum, term by term, which the collected form must match."""
+    result = 0 * position.x * coefficients[{"zernike": 0}]
+    for i in range(coefficients.shape["zernike"]):
+        c = coefficients[{"zernike": i}]
+        result = result + c * optika.zernikes.zernike(position, i + 1)
+    return result
+
+
+def _sum_gradient_explicit(
+    position: na.AbstractCartesian2dVectorArray,
+    coefficients: na.AbstractScalar,
+) -> na.Cartesian2dVectorArray:
+    """The gradient, term by term, which the collected form must match."""
+    result = na.Cartesian2dVectorArray(0, 0) * coefficients[{"zernike": 0}]
+    for i in range(coefficients.shape["zernike"]):
+        c = coefficients[{"zernike": i}]
+        result = result + c * optika.zernikes.zernike_gradient(position, i + 1)
+    return result
+
+
+@pytest.mark.parametrize("coefficients", _coefficients)
+@pytest.mark.parametrize(
+    argnames="position",
+    argvalues=[
+        _position_random,
+        _position_origin,
+    ],
+)
+def test_zernike_sum(
+    position: na.AbstractCartesian2dVectorArray,
+    coefficients: na.AbstractScalar,
+):
+    result = optika.zernikes.zernike_sum(position, coefficients, axis="zernike")
+    expected = _sum_explicit(position, coefficients)
+
+    assert isinstance(na.as_named_array(result), na.AbstractScalar)
+    assert np.allclose(result, expected)
+
+
+@pytest.mark.parametrize("coefficients", _coefficients)
+@pytest.mark.parametrize(
+    argnames="position",
+    argvalues=[
+        _position_random,
+        _position_origin,
+    ],
+)
+def test_zernike_sum_gradient(
+    position: na.AbstractCartesian2dVectorArray,
+    coefficients: na.AbstractScalar,
+):
+    result = optika.zernikes.zernike_sum_gradient(
+        position=position,
+        coefficients=coefficients,
+        axis="zernike",
+    )
+    expected = _sum_gradient_explicit(position, coefficients)
+
+    assert isinstance(result, na.AbstractCartesian2dVectorArray)
+    assert np.allclose(result, expected)
+
+
+def test_zernike_sum_invalid_axis():
+    coefficients = na.ScalarArray(np.array([0.0, 1.0]), axes="not_zernike")
+    with pytest.raises(ValueError):
+        optika.zernikes.zernike_sum(
+            position=_position_origin,
+            coefficients=coefficients,
+            axis="zernike",
+        )
+    with pytest.raises(ValueError):
+        optika.zernikes.zernike_sum_gradient(
+            position=_position_origin,
+            coefficients=coefficients,
+            axis="zernike",
+        )
