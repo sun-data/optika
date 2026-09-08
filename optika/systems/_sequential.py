@@ -1988,10 +1988,17 @@ class AbstractSequentialSystem(
         system.
 
         The relative illumination at each scene coordinate is estimated from
-        the fraction of unvignetted rays in the pupil, normalized so that its
+        the fraction of unvignetted rays in the pupil, weighted by how large
+        that field position's entrance pupil is, and normalized so that its
         average over the field of view is unity.
         Field points with no unvignetted rays are excluded from the fit and
         from the normalization.
+
+        The weight matters because the entrance pupil is resolved per field
+        position rather than shared, so two positions which pass the same
+        fraction of their own pupil need not collect the same light. Without
+        it this model and :meth:`area_effective` could not be multiplied
+        together except where every pupil happens to be the same size.
 
         Parameters
         ----------
@@ -2141,7 +2148,22 @@ class AbstractSequentialSystem(
         unvignetted = rays.outputs.unvignetted
         where = unvignetted.any(axis_pupil)
 
-        illumination = unvignetted.mean(axis_pupil)
+        # How much light a field position collects is the fraction of its
+        # entrance pupil which survives times how large that pupil is, and
+        # since the pupil is resolved per field position the second factor is
+        # not shared. :meth:`area_effective` weights by the area of each
+        # pupil cell and averages the product over the field, so leaving the
+        # size out here would leave the two models unable to be multiplied
+        # together, which is the whole point of fitting them.
+        #
+        # The size is the span of the sampled pupil, not the area of a cell,
+        # which is enough: one normalized pupil grid is shared by every field
+        # position and denormalizing maps it onto that position's pupil by an
+        # affine map, so the span is proportional to the pupil's area with a
+        # constant which divides out below.
+        span = rays.inputs.pupil.ptp(axis_pupil)
+
+        illumination = unvignetted.mean(axis_pupil) * span.x * span.y
         illumination = illumination / np.mean(
             illumination,
             axis=axis_field,
@@ -2182,9 +2204,14 @@ class AbstractSequentialSystem(
         which linearly interpolates in wavelength.
 
         The average is taken over the same field positions that
-        :meth:`vignetting` normalizes its illumination over, so that the two
-        models can be multiplied together to recover the effective area at a
-        given field position.
+        :meth:`vignetting` normalizes its illumination over, and that model
+        carries the size of each field position's entrance pupil, so that the
+        two can be multiplied together to recover the effective area at a
+        given field position.  Both halves of that are needed: an average over
+        one set of field positions and a normalization over another would
+        rescale the result by the ratio of the two, and an illumination which
+        left out the size of its pupil would be wrong wherever the pupil is
+        not the same size across the field.
 
         The components of `pupil` are interpreted as the vertices of a grid of
         cells, and the rays are traced at the corresponding cell centers, so

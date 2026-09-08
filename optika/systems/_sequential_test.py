@@ -1291,6 +1291,73 @@ def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
     assert np.allclose(position.z, shift)
 
 
+def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
+    """
+    A field point which collects the same fraction of a pupil twice as wide
+    collects four times the light, and the vignetting model says so.
+
+    :meth:`area_effective` weights by the area of each pupil cell and averages
+    the product over the field, so the two models multiply together to give
+    the light collected at one field point only if this one carries how large
+    that field point's pupil is.  Once the pupil is resolved per field point
+    that is no longer shared, which is what makes the weight necessary.
+
+    Every fixture in this module has a pupil whose area is the same across its
+    field, so the rays are built here rather than traced.
+    """
+    a = _system_newtonian
+
+    axis_wavelength = ("_vw",)
+    axis_field = ("_vfx", "_vfy")
+    axis_pupil = ("_vpx", "_vpy")
+
+    # the pupil of the second column of the field is twice as wide
+    width = na.ScalarArray(np.array([1.0, 2.0]), axes=("_vfx",))
+    pupil = (
+        na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(*axis_pupil),
+            num=3,
+        )
+        * width
+        * u.mm
+    )
+
+    inputs = optika.vectors.ObjectVectorArray(
+        wavelength=na.linspace(500, 600, axis=axis_wavelength[0], num=2) * u.nm,
+        field=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(*axis_field),
+            num=2,
+        )
+        * u.deg,
+        pupil=pupil,
+    )
+    shape = na.shape_broadcasted(inputs.wavelength, inputs.field, inputs.pupil)
+    rays = optika.rays.RayFunctionArray(
+        inputs=inputs,
+        outputs=optika.rays.RayVectorArray(
+            unvignetted=na.broadcast_to(na.ScalarArray(np.array(True)), shape),
+        ),
+    )
+
+    model = a._fit_vignetting(
+        rays=rays,
+        axis_wavelength=axis_wavelength,
+        axis_field=axis_field,
+        axis_pupil=axis_pupil,
+        degree=1,
+    )
+
+    # every ray survives, so the whole difference is the size of the pupil
+    illumination = model.illumination
+    narrow = illumination[{"_vfx": 0}].mean()
+    wide = illumination[{"_vfx": 1}].mean()
+    assert np.allclose((wide / narrow).ndarray, 4)
+
+
 def test_pupil_fit_is_anchored_independently_of_the_stop_sampling():
     """
     The pupil the fit gives the center of the field does not depend on how
