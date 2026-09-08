@@ -7,6 +7,7 @@ import matplotlib.colors
 import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
+import astropy.units as u
 import astropy.visualization
 import named_arrays as na
 import optika
@@ -214,6 +215,7 @@ class PolynomialVignettingModel(
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
         vmax: None | na.ArrayLike = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
@@ -245,6 +247,14 @@ class PolynomialVignettingModel(
             The residual value mapped to the highest color.
             If :obj:`None`, defaults to the largest residual among the points
             the fit was constrained by.
+        unit
+            The unit to express the field position in.
+
+            A model is free to describe the scene in whichever unit suits it,
+            and the one that suits the fit is not always the one that reads
+            well on an axis: a field of a tenth of a degree is easier to see
+            in arcseconds. If :obj:`None`, the position is drawn in the unit
+            it is already in.
         kwargs
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
@@ -262,6 +272,7 @@ class PolynomialVignettingModel(
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
+            unit=unit,
             **kwargs,
         )
 
@@ -272,6 +283,7 @@ class PolynomialVignettingModel(
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
         vmax: None | na.ArrayLike = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
@@ -298,6 +310,14 @@ class PolynomialVignettingModel(
         vmax
             The illumination value mapped to the highest color.
             If :obj:`None`, defaults to the maximum illumination.
+        unit
+            The unit to express the field position in.
+
+            A model is free to describe the scene in whichever unit suits it,
+            and the one that suits the fit is not always the one that reads
+            well on an axis: a field of a tenth of a degree is easier to see
+            in arcseconds. If :obj:`None`, the position is drawn in the unit
+            it is already in.
         kwargs
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
@@ -310,6 +330,7 @@ class PolynomialVignettingModel(
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
+            unit=unit,
             **kwargs,
         )
 
@@ -322,6 +343,7 @@ class PolynomialVignettingModel(
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
         vmax: None | na.ArrayLike = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
@@ -332,6 +354,9 @@ class PolynomialVignettingModel(
         position = scene.position
         wavelength = na.as_named_array(scene.wavelength)
         axis_wavelength = self.axis_wavelength
+
+        if unit is not None:
+            position = position.to(unit)
 
         if vmin is None:
             vmin = 0

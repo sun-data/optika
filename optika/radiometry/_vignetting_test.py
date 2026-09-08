@@ -205,6 +205,42 @@ def test_polynomial_vignetting_model_channel():
     assert np.all(np.abs(result - illumination) < 1e-9)
 
 
+@pytest.mark.parametrize(
+    argnames="method",
+    argvalues=["plot", "plot_residual"],
+)
+def test_plot_unit(method: str):
+    """The field position is drawn in the unit asked for, labels and all."""
+    a = optika.radiometry.PolynomialVignettingModel(
+        coordinates_scene=_scene(),
+        illumination=_illumination(),
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+    )
+
+    fig_deg, ax_deg = getattr(a, method)()
+    fig_arcsec, ax_arcsec = getattr(a, method)(unit=u.arcsec)
+
+    axs_deg = ax_deg.ndarray.reshape(-1)[0]
+    axs_arcsec = ax_arcsec.ndarray.reshape(-1)[0]
+
+    # the scene is described in degrees, so drawing it in arcseconds has to
+    # stretch both axes by exactly the ratio of the two units
+    scale = u.deg.to(u.arcsec)
+    for get in ("get_xlim", "get_ylim"):
+        lim_deg = getattr(axs_deg, get)()
+        lim_arcsec = getattr(axs_arcsec, get)()
+        assert lim_arcsec == pytest.approx(tuple(scale * x for x in lim_deg))
+
+    # and to say so on the axis
+    assert format(u.arcsec, "latex_inline") in axs_arcsec.get_xlabel()
+    assert format(u.deg, "latex_inline") in axs_deg.get_xlabel()
+
+    plt.close(fig_deg)
+    plt.close(fig_arcsec)
+
+
 def test_plot_residual_where():
     """
     The residual is undefined at the calibration points the fit was not
