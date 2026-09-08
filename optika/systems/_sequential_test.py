@@ -307,18 +307,27 @@ class AbstractTestAbstractSequentialSystem(
     ):
         """
         Moving every surface of a system together describes the same
-        instrument in a different frame, so it must leave every result of that
-        system alone.
+        instrument in a different frame, so :meth:`rayfunction` must return
+        what it did before.
 
-        Each result is measured in a frame the system carries with it: the
-        field and the pupil in the frame of the object, and the rays in the
-        frame of the sensor. Any of them measured in the global frame instead
-        moves with the motion, and any solve anchored to the global frame
-        finds a different answer, so this exercises every frame the system
-        works in at once. It is an invariance rather than a system built at an
-        angle on purpose, since tilting one surface of a system changes the
-        instrument and can quietly stop any light reaching the sensor, which
-        no amount of broken frame handling would then make worse.
+        Specifically: the field and the pupil it was traced at, the position
+        and the direction of every ray, and which rays were vignetted. Each is
+        measured in a frame the system carries with it, the first two in the
+        frame of the object and the rays in the frame of the sensor, so any of
+        them measured in the global frame instead moves with the motion, and
+        any solve anchored to the global frame finds a different answer. That
+        exercises every frame the system works in at once.
+
+        It is an invariance rather than a system built at an angle on purpose,
+        since tilting one surface of a system changes the instrument and can
+        quietly stop any light reaching the sensor, which no amount of broken
+        frame handling would then make worse.
+
+        What this does not cover: :meth:`raytrace`, whose output is global and
+        so moves with the motion rather than staying put, though it is pinned
+        indirectly, since the sensor frame these rays are in is the moved
+        sensor's; and the three models fit from these rays, which
+        :func:`test_models_are_invariant_under_a_rigid_motion` takes.
         """
         b = _moved_rigidly(a, _motion_rigid)
 
@@ -336,6 +345,7 @@ class AbstractTestAbstractSequentialSystem(
             (result.inputs.field, expected.inputs.field),
             (result.inputs.pupil, expected.inputs.pupil),
             (result.outputs.position, expected.outputs.position),
+            (result.outputs.direction, expected.outputs.direction),
         ]:
             error = (r - e).length.max()
             assert error < 1e-6 * e.length.max()
@@ -1289,6 +1299,55 @@ def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
     position = a.object.transformation(rays.outputs.position)
 
     assert np.allclose(position.z, shift)
+
+
+def test_models_are_invariant_under_a_rigid_motion():
+    """
+    The three models fit from a raytrace survive a rigid motion of the whole
+    system, in the same way and for the same reason the rays do.
+
+    Fit on one system rather than on all of them, since these need a
+    wavelength grid on an axis of its own which not every system in this
+    module has, and each one costs a raytrace of its own.
+
+    The grid stops short of the edge of the field, for a sharper reason than
+    :func:`AbstractTestAbstractSequentialSystem.test_rayfunction_is_invariant_under_a_rigid_motion`
+    has. Both models fit through a mask built from ``unvignetted``, so a ray
+    which the roundoff of a motion carries across an aperture edge does not
+    merely move, it joins or leaves the fitted set, and a vignetted ray landed
+    wherever it landed. Measured on the grazing system with a grid running to
+    the edge, that moves the distortion model by 94 pixels and the
+    illumination by more than unity, while an interior grid holds both to
+    1e-7. Which is a fact about sampling on aperture edges rather than about
+    frames, and the reason :obj:`_grid_field_rigid` stops short as well.
+    """
+    a = _system_grazing
+    b = _moved_rigidly(a, _motion_rigid)
+
+    wavelength = na.linspace(500, 600, axis="_rigid_wavelength", num=3) * u.nm
+    kwargs = dict(
+        wavelength=wavelength,
+        field=_grid_field_rigid,
+        pupil=_grid_pupil_rigid,
+        degree=1,
+    )
+
+    distortion_a = a.distortion(**kwargs)
+    distortion_b = b.distortion(**kwargs)
+    sensor_a = distortion_a.coordinates_sensor
+    sensor_b = distortion_b.coordinates_sensor
+    assert (sensor_b - sensor_a).length.max() < 1e-6 * sensor_a.length.max()
+
+    vignetting_a = a.vignetting(**kwargs)
+    vignetting_b = b.vignetting(**kwargs)
+    illumination_a = vignetting_a.illumination
+    illumination_b = vignetting_b.illumination
+    assert np.abs(illumination_b - illumination_a).max() < 1e-6
+
+    # the sampling of this one is random, so hold it to a seed
+    area_a = a.area_effective(wavelength=wavelength, seed=42).area
+    area_b = b.area_effective(wavelength=wavelength, seed=42).area
+    assert np.abs(area_b - area_a).max() < 1e-6 * np.abs(area_a).max()
 
 
 def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
