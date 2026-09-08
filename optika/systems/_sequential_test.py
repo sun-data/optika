@@ -1480,30 +1480,6 @@ def test_pupil_calibration_does_not_swallow_an_unrelated_error(
         a._calc_pupil_fit(wavelength, stops)
 
 
-def test_pupil_fit_does_not_solve_the_stops_to_check_its_cache(monkeypatch):
-    """
-    Handing in stop rays of one's own does not make the system solve for its
-    own as well.
-
-    The cached fit is only good for the rays it was built from, so it is
-    returned only when those are the rays given. Asking the cached property
-    for them in order to compare would solve for them when the cache is cold,
-    which is the most expensive thing this class does.
-    """
-    a = dataclasses.replace(_system_newtonian)
-    wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength)
-
-    # the cache is cold, and filling it now would be pure waste
-    assert "rayfunction_stops" not in a.__dict__
-
-    def fail(*args, **kwargs):
-        raise AssertionError("the stops were solved to compare against")
-
-    monkeypatch.setattr(type(a), "_calc_rayfunction_stops", fail)
-    a._pupil_fit(wavelength, stops)
-
-
 def test_pupil_denormalization_falls_back_when_a_corner_is_not_a_number():
     """
     A pupil corner which is not a number falls back to the box shared by every
