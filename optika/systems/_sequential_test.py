@@ -1261,10 +1261,11 @@ def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
     object surface itself, even when it is translated along the axis, since
     the entrance pupil is measured on the object.
 
-    The solver fixes those rays in the local coordinates of the object, so a
-    translated object leaves them on the right lines but at the wrong depth
-    unless they are carried back to the object, which put the pupil of the
-    center of the field out of line with the pupil along its edge.
+    A translated object used to leave them on the right lines but at the wrong
+    depth, which put the pupil of the center of the field out of line with the
+    pupil along its edge. What guarantees the depth now is that the solver
+    fixes each ray in the object's own coordinates and sets its z to the sag
+    there, so this pins the property rather than any one mechanism.
     """
     base = _system_newtonian
     shift = -500 * u.mm
@@ -1286,6 +1287,77 @@ def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
     position = a.object.transformation(rays.outputs.position)
 
     assert np.allclose(position.z, shift)
+
+
+def test_pupil_fit_is_anchored_independently_of_the_stop_sampling():
+    """
+    The pupil the fit gives the center of the field does not depend on how
+    finely the stops were sampled to build it.
+
+    The fit is anchored on one interior sample taken at the center of the
+    field. The wire of an aperture closes, so its last point repeats its
+    first, and averaging the wire to find that center leans toward the
+    repeated point by one part in `samples_field_stop`, which would leave the
+    anchor, and so the whole calibration, a function of a sampling parameter.
+    """
+    a = _system_newtonian
+    wavelength = a.grid_input.wavelength
+
+    def pupil_at_the_center_of_the_field(samples: int):
+        stops = a._calc_rayfunction_stops(
+            wavelength_input=wavelength,
+            samples_field_stop=samples,
+            samples_pupil_stop=samples,
+        )
+        fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
+        field = na.Cartesian2dVectorArray(0, 0) * na.unit(a.field_boundary.x)
+        x = optika.vectors.SceneVectorArray(wavelength, field)
+        return fit_min(x).outputs, fit_max(x).outputs
+
+    lo_coarse, hi_coarse = pupil_at_the_center_of_the_field(11)
+    lo_fine, hi_fine = pupil_at_the_center_of_the_field(41)
+
+    width = (hi_fine - lo_fine).length
+    assert (lo_coarse - lo_fine).length < 1e-9 * width
+    assert (hi_coarse - hi_fine).length < 1e-9 * width
+
+
+def test_pupil_denormalization_falls_back_when_a_corner_is_not_a_number():
+    """
+    A pupil corner which is not a number falls back to the box shared by every
+    field point, in the same way a collapsed one does.
+
+    Testing the healthy case and negating it, rather than testing for the
+    broken one, is what makes this hold: a comparison against a NaN is false
+    either way round, so a guard written the other way would pass the NaN
+    through and turn every ray at that field point into a NaN silently.
+    """
+    a = dataclasses.replace(_system_newtonian)
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
+
+    # poison the fit so that it evaluates to NaN at every field point
+    nan = np.nan * na.unit(fit_min.outputs.x)
+    fit_min = dataclasses.replace(
+        fit_min,
+        outputs=na.Cartesian2dVectorArray(x=nan, y=nan),
+    )
+    a.__dict__["pupil_fit"] = (fit_min, fit_max)
+
+    grid = a.grid_input
+    result = a._denormalize_grid(grid)
+
+    assert not np.any(np.isnan(result.pupil.x.ndarray))
+    assert not np.any(np.isnan(result.pupil.y.ndarray))
+
+    # the fallback is the shared box, exactly as when the fit is singular
+    pupil = a.pupil_boundary
+    axis = a.axis_stops
+    expected = pupil.ptp(axis) * (grid.pupil + 1) / 2 + pupil.min(axis)
+    assert np.allclose(result.pupil.x, expected.x)
+    assert np.allclose(result.pupil.y, expected.y)
 
 
 def test_solve_rays_launches_from_a_translated_surface():

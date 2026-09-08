@@ -1086,18 +1086,6 @@ class AbstractSequentialSystem(
             aim=aim,
         )
 
-        # The solver fixes the free component of each ray in the local
-        # coordinates of the launch surface, so a launch surface which is
-        # translated along the axis leaves the rays on the right lines but at
-        # the wrong depth.  Carry them to the launch surface itself, as the
-        # stops are, so that their positions are on the object where the
-        # entrance pupil is measured.
-        rays = optika.propagators.propagate_rays(
-            propagators=[subsystem[0]],
-            rays=rays,
-            efficiency=False,
-        )
-
         # `_calc_pupil_fit` fits these against samples taken from the stop
         # rays, which `_calc_rayfunction_stops` expresses in the object's own
         # coordinates.  Express these the same way, so that the two are
@@ -1183,8 +1171,13 @@ class AbstractSequentialSystem(
         pupil_min_edge = pupil.min(axis_wire)
         pupil_max_edge = pupil.max(axis_wire)
 
-        # one more sample at the center of the field, traced explicitly
-        field_center = field_edge.mean(axis_edge)
+        # One more sample at the center of the field, traced explicitly.
+        # The center is the middle of the field's extent and not the mean of
+        # these samples: the wire of an aperture closes, so its last point
+        # repeats its first, and averaging it leans toward that point by one
+        # part in `samples_field_stop`. That would make the sample the whole
+        # fit is anchored on depend on how finely the stop was sampled.
+        field_center = (field_edge.min(axis_edge) + field_edge.max(axis_edge)) / 2
         try:
             rays_center = self._calc_rayfunction_pupil(
                 wavelength=wavelength,
@@ -1377,7 +1370,12 @@ class AbstractSequentialSystem(
                 ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
                     lo = np.maximum(lo, lo_global)
                     hi = np.minimum(hi, hi_global)
-                    bad = hi <= lo
+                    # Negate the healthy case rather than test for the
+                    # broken one, so that a corner which is not a number
+                    # falls back too. `hi <= lo` is false for a NaN, which
+                    # would let it through and turn every ray at that field
+                    # point into a NaN with nothing raised.
+                    bad = ~(hi > lo)
                     return np.where(bad, lo_global, lo), np.where(bad, hi_global, hi)
 
                 min_x, max_x = bound(fit_min.x, fit_max.x, global_min.x, global_max.x)

@@ -123,9 +123,11 @@ them:
         :func:`~optika.direction`.
 
 This convention (dimensionless means normalized, length means position, angle
-means direction) is used consistently throughout the stop-finding code; see
-``_coordinates_are_normalized`` and
-:attr:`~optika.systems.AbstractSequentialSystem.object_is_at_infinity`.
+means direction) is used consistently throughout the stop-finding code. There
+is no helper which decides it; each site tests the unit of the grid it was
+handed against :func:`~named_arrays.unit_normalized`, and reads
+:attr:`~optika.systems.AbstractSequentialSystem.object_is_at_infinity` to know
+which of position and direction the field is.
 
 
 The two-point ray solve
@@ -299,12 +301,11 @@ which it does whenever the pupil stop is far from the entrance pupil. Rays
 drawn uniformly in it are then mostly outside the pupil of the field point
 they belong to, and are thrown away at the stop.
 
-:meth:`~optika.systems.AbstractSequentialSystem._calc_pupil_fit` calibrates the
-pupil per field point instead. It fits a quadratic in the field to the corners
-of the pupil, using the samples already present along the edge of the field
-stop plus one traced at the center of the field, and
-:meth:`~optika.systems.AbstractSequentialSystem._denormalize_grid` evaluates
-that fit at each field point being traced.
+``_calc_pupil_fit`` calibrates the pupil per field point instead. It fits a
+quadratic in the field to the corners of the pupil, using the samples already
+present along the edge of the field stop plus one traced at the center of the
+field, and ``_denormalize_grid`` evaluates that fit at each field point being
+traced.
 
 Three things keep it honest:
 
