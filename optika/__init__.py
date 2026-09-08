@@ -21,6 +21,7 @@ from . import sensors
 from . import distortion
 from . import radiometry
 from . import systems
+from . import telescopes
 
 __all__ = [
     "plot",
@@ -44,4 +45,5 @@ __all__ = [
     "distortion",
     "radiometry",
     "systems",
+    "telescopes",
 ]
