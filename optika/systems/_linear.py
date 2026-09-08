@@ -160,6 +160,10 @@ class AbstractLinearSystem(
             The logical axis corresponding to changing wavelength coordinate.
         axis_field
             The logical axes corresponding to changing field coordinate.
+        device
+            The device on which to build the weights, passed through to
+            :func:`named_arrays.regridding.weights`.
+            If :obj:`None` (the default), the weights are built on the host.
         """
 
         coordinates = coordinates.spectral_positional
@@ -202,6 +206,10 @@ class AbstractLinearSystem(
 
         axis_pixel = self.sensor.axis_pixel
 
+        # only ask for a device when one is requested, so that the host path
+        # keeps working with versions of `named_arrays` that predate the option
+        kwargs_device = dict() if device is None else dict(device=device)
+
         result = na.regridding.weights(
             coordinates_input=position_sensor,
             coordinates_output=self.coordinates_sensor,
@@ -209,7 +217,7 @@ class AbstractLinearSystem(
             axis_output=(axis_pixel.x, axis_pixel.y),
             weights_input=weights_input,
             method="conservative",
-            device=device,
+            **kwargs_device,
         )
 
         return result
@@ -574,6 +582,9 @@ class AbstractLinearSystem(
             to the result, as a
             :class:`~named_arrays.NormalUncertainScalarArray`, using the
             sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
+        device
+            The device on which to build and apply the weights, see
+            :meth:`weights`. If :obj:`None` (the default), the host is used.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
