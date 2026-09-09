@@ -16,9 +16,26 @@ from . import AbstractSystem
 from . import LinearSystem
 
 __all__ = [
+    "StopSolveError",
     "AbstractSequentialSystem",
     "SequentialSystem",
 ]
+
+
+class StopSolveError(ValueError):
+    """
+    The two-point solve which connects a pair of surfaces did not converge.
+
+    Raised by the search for the rays which graze the edge of both stops, and
+    by the search for the entrance pupil of a single field point, both of
+    which are Newton solves that can be started outside their basin of
+    convergence or asked for a ray which does not exist.
+
+    It derives from :class:`ValueError`, which is what this solve raised
+    before it was named, so code which already catches that keeps working.
+    Catching this instead distinguishes a solve which did not converge from a
+    system which was built wrong, which the same call can also report.
+    """
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -398,6 +415,16 @@ class AbstractSequentialSystem(
         rays_component_variable.y = a.y
         rays_component_variable.z = zfunc(a)
 
+        # The trial ray is fixed in the local coordinates of the launch
+        # surface, so carry it into the global coordinates the rest of the
+        # subsystem is in before tracing it.  Otherwise a launch surface
+        # translated along the axis launches every trial from the wrong depth,
+        # and a ray with any angle to the axis misses the surfaces it should
+        # strike by the drift of the ray across that depth.
+        transformation_first = subsystem[0].transformation
+        if transformation_first is not None:
+            rays = transformation_first(rays)
+
         # only the geometry of these rays is used, and the objective is
         # evaluated once per iteration of the solver, so the efficiency of
         # each surface would be by far the most expensive part of finding
@@ -419,6 +446,234 @@ class AbstractSequentialSystem(
         )
         result = grid_last_trial - grid_last
         return result
+
+    def _solve_rays(
+        self,
+        subsystem: list[optika.surfaces.AbstractSurface],
+        grid_first: na.AbstractCartesian2dVectorArray,
+        grid_last: na.AbstractCartesian2dVectorArray,
+        wavelength: na.ScalarLike,
+        aim: None | na.AbstractCartesian3dVectorArray = None,
+        hint: str = "",
+    ) -> optika.rays.RayVectorArray:
+        """
+        Solve for the rays launched from `grid_first` on the first surface of
+        `subsystem` which land on `grid_last` on its last surface.
+
+        Whichever component of the launch ray the grid on the first surface
+        does not fix is the free variable of the root-finding problem: a
+        physical grid (in units of length) fixes the launch position and the
+        direction is solved for, while an angular grid (dimensionless direction
+        cosines) fixes the launch direction and the position is solved for.
+
+        Parameters
+        ----------
+        subsystem
+            The consecutive surfaces to trace through, starting at the launch
+            surface and ending at the target surface.
+        grid_first
+            The launch grid, in the local coordinates of the first surface.
+        grid_last
+            The target grid, in the local coordinates of the last surface.
+        wavelength
+            The wavelength of the rays.
+        aim
+            The point, in global coordinates, to aim the initial guess of each
+            ray at.
+            If :obj:`None` (the default), each ray is aimed at its own target
+            point when no surface with optical power lies between the two
+            ends, and otherwise at the center of the first powered surface.
+        hint
+            Advice to append to the error raised if the solve does not
+            converge. Two callers share this solve and what a user can do
+            about a failure differs between them, so each supplies its own.
+
+        Returns
+        -------
+            The solved launch rays, in the global coordinates of the first
+            surface.
+
+        Raises
+        ------
+        StopSolveError
+            If the solve does not converge.
+        """
+        surface_first = subsystem[0]
+        surface_last = subsystem[~0]
+
+        rays = optika.rays.RayVectorArray(wavelength=wavelength)
+
+        if na.unit(grid_first).is_equivalent(u.mm):
+            grid_first = na.Cartesian3dVectorArray(
+                x=grid_first.x,
+                y=grid_first.y,
+                z=0 * u.mm,
+            )
+            rays.position = grid_first.replace(z=surface_first.sag(grid_first))
+            rays.direction = na.Cartesian3dVectorArray(0, 0, 1)
+            component_variable = "direction"
+
+            def zfunc(xy: na.AbstractCartesian2dVectorArray):
+                return np.sqrt(1 - np.square(xy.length))
+
+        elif na.unit(grid_first).is_equivalent(u.dimensionless_unscaled):
+            rays.direction = na.Cartesian3dVectorArray(
+                x=grid_first.x,
+                y=grid_first.y,
+                z=np.sqrt(1 - np.square(grid_first.length)),
+            )
+            rays.position = na.Cartesian3dVectorArray() * u.mm
+            component_variable = "position"
+
+            def zfunc(xy: na.AbstractCartesian2dVectorArray):
+                position = na.Cartesian3dVectorArray(
+                    x=xy.x,
+                    y=xy.y,
+                    z=0 * na.unit_normalized(xy.x),
+                )
+                return surface_first.sag(position)
+
+        else:  # pragma: nocover
+            raise ValueError(f"unrecognized input grid unit, {na.unit(grid_first)}")
+
+        # Seed the free ray component by aiming each ray at its own
+        # target point on the last surface when no surface with
+        # optical power lies between the two (the seed is then
+        # nearly exact), and otherwise at the center of the first powered
+        # surface, so that the root-finding starts inside its basin of
+        # convergence even for surfaces far from the axis of the first
+        # surface (e.g. an off-axis fold or feed mirror).
+        if aim is None:
+            anchor = self._anchor_surface(subsystem)
+            if anchor is surface_last and na.unit(grid_last).is_equivalent(u.mm):
+                aim = na.Cartesian3dVectorArray(
+                    x=grid_last.x,
+                    y=grid_last.y,
+                    z=0 * na.unit_normalized(grid_last.x),
+                )
+                aim.z = surface_last.sag(aim)
+                if surface_last.transformation is not None:
+                    aim = surface_last.transformation(aim)
+            else:
+                aim = na.Cartesian3dVectorArray() * u.mm
+                if anchor.transformation is not None:
+                    aim = anchor.transformation(aim)
+        if surface_first.transformation is not None:
+            aim = surface_first.transformation.inverse(aim)
+
+        if component_variable == "direction":
+            d = aim - rays.position
+            d = d / d.length
+            # the sign of the seed direction is irrelevant to the
+            # root-finding problem (surface intercepts may have negative
+            # distance), but the z-component must be positive to be
+            # consistent with `zfunc`
+            flip = np.sign(d.z)
+            where = d.z != 0
+            rays.direction = na.Cartesian3dVectorArray(
+                x=np.where(where, flip * d.x, 0),
+                y=np.where(where, flip * d.y, 0),
+                z=np.where(where, flip * d.z, 1),
+            )
+        else:
+            d = rays.direction
+            t = aim.z / d.z
+            position_seed = na.Cartesian3dVectorArray(
+                x=aim.x - d.x * t,
+                y=aim.y - d.y * t,
+                z=0 * u.mm,
+            )
+            position_seed.z = surface_first.sag(position_seed)
+            rays.position = position_seed
+
+        # The rays stay in the local coordinates of the launch surface for the
+        # solve, since that is where the free component is fixed; `_ray_error`
+        # carries each trial into global coordinates, and the result is
+        # carried there once at the end.
+
+        if na.unit(grid_last).is_equivalent(u.mm):
+            component_target = "position"
+        elif na.unit(grid_last).is_equivalent(u.dimensionless_unscaled):
+            component_target = "direction"
+        else:  # pragma: nocover
+            raise ValueError(f"unrecognized output grid unit, {na.unit(grid_last)}")
+
+        # The residual of the root-finding problem has the same units as
+        # the target grid, so the convergence tolerance must scale with
+        # the size of the target aperture to be achievable in floating
+        # point for systems of any physical scale.
+        scale = np.maximum(
+            grid_last.x.ptp(),
+            grid_last.y.ptp(),
+        )
+        max_abs_error = 1e-9 * np.maximum(
+            scale,
+            1 * na.unit_normalized(scale),
+        )
+
+        variables = getattr(rays, component_variable)
+
+        function = functools.partial(
+            self._ray_error,
+            rays=rays,
+            subsystem=subsystem,
+            grid_last=grid_last,
+            component_variable=component_variable,
+            component_target=component_target,
+            zfunc=zfunc,
+        )
+
+        # The default perturbation used by `na.jacobian` is an absolute
+        # 1e-10 in the units of the variable, which is below the
+        # floating-point noise floor of the raytrace for variables
+        # measured in physical units, yielding a Jacobian made of noise.
+        # Use a perturbation proportional to the scale of the problem
+        # instead.
+        if component_variable == "direction":
+            dx = 1e-6
+        else:
+            dx = 1e-6 * np.maximum(
+                scale,
+                1 * na.unit_normalized(scale),
+            )
+
+        def jacobian(x, _function=function, _dx=dx):
+            return na.jacobian(function=_function, x=x, dx=_dx)
+
+        try:
+            root = na.optimize.root_newton(
+                function=function,
+                guess=na.Cartesian2dVectorArray(
+                    x=variables.x,
+                    y=variables.y,
+                ),
+                jacobian=jacobian,
+                max_abs_error=max_abs_error,
+            )
+        except ValueError as e:  # pragma: nocover
+
+            def described(surface: optika.surfaces.AbstractSurface) -> str:
+                # a surface need not be named, and 'None and None' names
+                # nothing at all
+                if surface.name is not None:
+                    return repr(surface.name)
+                return f"an unnamed {type(surface).__name__}"
+
+            raise StopSolveError(
+                f"Could not solve for the rays connecting the "
+                f"surfaces {described(surface_first)} and "
+                f"{described(surface_last)}. " + hint
+            ) from e
+
+        variables.x = root.x
+        variables.y = root.y
+        variables.z = zfunc(root)
+
+        # the rays were solved in the local coordinates of the launch surface
+        if surface_first.transformation is not None:
+            rays = surface_first.transformation(rays)
+
+        return rays
 
     def _calc_rayfunction_stops_only(
         self,
@@ -487,167 +742,19 @@ class AbstractSequentialSystem(
                 result.inputs.field = grid_first
                 result.inputs.pupil = grid_last
 
-            if na.unit(grid_first).is_equivalent(u.mm):
-                grid_first = na.Cartesian3dVectorArray(
-                    x=grid_first.x,
-                    y=grid_first.y,
-                    z=0 * u.mm,
-                )
-                result.outputs.position = grid_first.replace(
-                    z=surface_first.sag(grid_first)
-                )
-                result.outputs.direction = na.Cartesian3dVectorArray(0, 0, 1)
-                component_variable = "direction"
-
-                def zfunc(xy: na.AbstractCartesian2dVectorArray):
-                    return np.sqrt(1 - np.square(xy.length))
-
-            elif na.unit(grid_first).is_equivalent(u.dimensionless_unscaled):
-                result.outputs.direction = na.Cartesian3dVectorArray(
-                    x=grid_first.x,
-                    y=grid_first.y,
-                    z=np.sqrt(1 - np.square(grid_first.length)),
-                )
-                result.outputs.position = na.Cartesian3dVectorArray() * u.mm
-                component_variable = "position"
-
-                def zfunc(xy: na.AbstractCartesian2dVectorArray):
-                    position = na.Cartesian3dVectorArray(
-                        x=xy.x,
-                        y=xy.y,
-                        z=0 * na.unit_normalized(xy.x),
-                    )
-                    return surface_first.sag(position)
-
-            else:  # pragma: nocover
-                raise ValueError(f"unrecognized input grid unit, {na.unit(grid_first)}")
-
-            # Seed the free ray component by aiming each ray at its own
-            # target point on the last stop surface when no surface with
-            # optical power lies between the two stops (the seed is then
-            # nearly exact), and otherwise at the center of the first powered
-            # surface, so that the root-finding starts inside its basin of
-            # convergence even for surfaces far from the axis of the first
-            # stop (e.g. an off-axis fold or feed mirror).
-            anchor = self._anchor_surface(subsystem)
-            if anchor is surface_last and na.unit(grid_last).is_equivalent(u.mm):
-                aim = na.Cartesian3dVectorArray(
-                    x=grid_last.x,
-                    y=grid_last.y,
-                    z=0 * na.unit_normalized(grid_last.x),
-                )
-                aim.z = surface_last.sag(aim)
-                if surface_last.transformation is not None:
-                    aim = surface_last.transformation(aim)
-            else:
-                aim = na.Cartesian3dVectorArray() * u.mm
-                if anchor.transformation is not None:
-                    aim = anchor.transformation(aim)
-            if surface_first.transformation is not None:
-                aim = surface_first.transformation.inverse(aim)
-
-            if component_variable == "direction":
-                d = aim - result.outputs.position
-                d = d / d.length
-                # the sign of the seed direction is irrelevant to the
-                # root-finding problem (surface intercepts may have negative
-                # distance), but the z-component must be positive to be
-                # consistent with `zfunc`
-                flip = np.sign(d.z)
-                where = d.z != 0
-                result.outputs.direction = na.Cartesian3dVectorArray(
-                    x=np.where(where, flip * d.x, 0),
-                    y=np.where(where, flip * d.y, 0),
-                    z=np.where(where, flip * d.z, 1),
-                )
-            else:
-                d = result.outputs.direction
-                t = aim.z / d.z
-                position_seed = na.Cartesian3dVectorArray(
-                    x=aim.x - d.x * t,
-                    y=aim.y - d.y * t,
-                    z=0 * u.mm,
-                )
-                position_seed.z = surface_first.sag(position_seed)
-                result.outputs.position = position_seed
-
-            if surface_first.transformation is not None:
-                result.outputs = surface_first.transformation(result.outputs)
-
-            if na.unit(grid_last).is_equivalent(u.mm):
-                component_target = "position"
-            elif na.unit(grid_last).is_equivalent(u.dimensionless_unscaled):
-                component_target = "direction"
-            else:  # pragma: nocover
-                raise ValueError(f"unrecognized output grid unit, {na.unit(grid_last)}")
-
-            # The residual of the root-finding problem has the same units as
-            # the target grid, so the convergence tolerance must scale with
-            # the size of the target aperture to be achievable in floating
-            # point for systems of any physical scale.
-            scale = np.maximum(
-                grid_last.x.ptp(),
-                grid_last.y.ptp(),
-            )
-            max_abs_error = 1e-9 * np.maximum(
-                scale,
-                1 * na.unit_normalized(scale),
-            )
-
-            variables = getattr(result.outputs, component_variable)
-
-            function = functools.partial(
-                self._ray_error,
-                rays=result.outputs,
+            result.outputs = self._solve_rays(
                 subsystem=subsystem,
+                grid_first=grid_first,
                 grid_last=grid_last,
-                component_variable=component_variable,
-                component_target=component_target,
-                zfunc=zfunc,
+                wavelength=wavelength_input,
+                hint=(
+                    "If the field stop is only partially reachable at a "
+                    "single wavelength (e.g. a spectrograph sensor), "
+                    "consider marking the object surface, with an angular "
+                    "(dimensionless, sine of the half-angle) aperture, as "
+                    "the field stop instead."
+                ),
             )
-
-            # The default perturbation used by `na.jacobian` is an absolute
-            # 1e-10 in the units of the variable, which is below the
-            # floating-point noise floor of the raytrace for variables
-            # measured in physical units, yielding a Jacobian made of noise.
-            # Use a perturbation proportional to the scale of the problem
-            # instead.
-            if component_variable == "direction":
-                dx = 1e-6
-            else:
-                dx = 1e-6 * np.maximum(
-                    scale,
-                    1 * na.unit_normalized(scale),
-                )
-
-            def jacobian(x, _function=function, _dx=dx):
-                return na.jacobian(function=_function, x=x, dx=_dx)
-
-            try:
-                root = na.optimize.root_newton(
-                    function=function,
-                    guess=na.Cartesian2dVectorArray(
-                        x=variables.x,
-                        y=variables.y,
-                    ),
-                    jacobian=jacobian,
-                    max_abs_error=max_abs_error,
-                )
-            except ValueError as e:  # pragma: nocover
-                raise ValueError(
-                    f"Could not solve for the rays connecting the stop "
-                    f"surfaces {surface_first.name!r} and "
-                    f"{surface_last.name!r}. "
-                    f"If the field stop is only partially reachable at a "
-                    f"single wavelength (e.g. a spectrograph sensor), "
-                    f"consider marking the object surface, with an angular "
-                    f"(dimensionless, sine of the half-angle) aperture, as "
-                    f"the field stop instead."
-                ) from e
-
-            variables.x = root.x
-            variables.y = root.y
-            variables.z = zfunc(root)
 
         return result
 
@@ -691,10 +798,15 @@ class AbstractSequentialSystem(
         obj = subsystem[~0]
         rays = result.outputs
         if obj.transformation is not None:
+            # express the stop rays in the local coordinates of the object
+            # surface, since that is the frame in which the field and pupil
+            # coordinates of the input grid are interpreted by
+            # `_calc_rayfunction_input`
             rays = obj.transformation.inverse(rays)
 
         where = rays.direction @ obj.sag.normal(rays.position) > 0
-        result.outputs.direction[where] = -result.outputs.direction[where]
+        rays.direction[where] = -rays.direction[where]
+        result.outputs = rays
 
         # If the first stop is the object surface, the solved variable is the
         # position and the direction retains only the field-stop axis, so
@@ -732,8 +844,108 @@ class AbstractSequentialSystem(
         A rayfunction defined on the input surface of the optical system,
         which is designed to exactly strike the borders of both the field
         stop and the pupil stop.
+
+        This property is cached to increase performance, and so are the
+        results which depend on it.  :meth:`raytrace` and :meth:`image`
+        denormalize a grid against these rays and against :attr:`pupil_fit`,
+        so both read the caches rather than solving afresh.
+
+        Nothing detects a system which is changed after they are filled.  A
+        new system is the reliable way to change one, since these are the
+        caches a change invalidates:
+
+        * :attr:`rayfunction_stops`
+        * :attr:`pupil_fit`
+        * :attr:`rayfunction_default`
+
+        Clear them with ``del system.rayfunction_stops`` and so on, in that
+        order, if a system must be changed in place.
         """
         return self._calc_rayfunction_stops(self.grid_input.wavelength)
+
+    def _wavelength_is_default(self, wavelength: na.ScalarLike) -> bool:
+        """
+        Whether the given wavelength is the one :attr:`grid_input` carries, and
+        so the one the cached stop rays and pupil calibration were solved at.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength to compare against :attr:`grid_input`.
+        """
+        wavelength_default = self.grid_input.wavelength
+
+        if wavelength is wavelength_default:
+            return True
+
+        if na.shape(wavelength) != na.shape(wavelength_default):
+            return False
+
+        return bool(np.all(wavelength == wavelength_default))
+
+    @functools.cached_property
+    def pupil_fit(
+        self,
+    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
+        """
+        The entrance pupil of the system, fit as a function of field position
+        at the wavelengths of :attr:`grid_input`.
+
+        :obj:`None` if the pupil could not be calibrated per field point, in
+        which case the box shared by every field point is used instead.
+
+        This property is cached to increase performance.  See
+        :attr:`rayfunction_stops` for what invalidates it and for the other
+        caches which go with it.
+        """
+        return self._calc_pupil_fit(
+            self.grid_input.wavelength,
+            self.rayfunction_stops,
+        )
+
+    def _stops_and_pupil_fit(
+        self,
+        wavelength: na.ScalarLike,
+        normalized_pupil: bool = True,
+    ) -> tuple[
+        optika.rays.RayFunctionArray,
+        None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray],
+    ]:
+        """
+        The stop rays at a wavelength, and the entrance pupil fit from them.
+
+        Everything denormalizing a grid needs, and the expensive part of doing
+        it: solving for the stop rays is the single costliest thing this class
+        does, and calibrating the pupil costs more than the rest of the
+        denormalization put together.  Both depend on nothing but the
+        wavelength, so at the wavelengths of :attr:`grid_input` both come from
+        the cache and a caller pays for neither, however many grids it
+        denormalizes.
+
+        They are returned together because a fit only describes the rays it
+        was built from, so pairing them here is what keeps a caller from
+        holding one of each.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength to solve at.
+        normalized_pupil
+            Whether the pupil fit is wanted at all.  Denormalizing a grid
+            whose pupil is already physical does not need it, and calibrating
+            it anyway would be the most expensive part of that call.
+
+        Returns
+        -------
+            The stop rays, and the pupil fit or :obj:`None`.
+        """
+        if self._wavelength_is_default(wavelength):
+            stops = self.rayfunction_stops
+            return stops, self.pupil_fit if normalized_pupil else None
+
+        stops = self._calc_rayfunction_stops(wavelength)
+        fit = self._calc_pupil_fit(wavelength, stops) if normalized_pupil else None
+        return stops, fit
 
     @property
     def axis_stops(self) -> tuple[str, str]:
@@ -745,6 +957,37 @@ class AbstractSequentialSystem(
         outline into a measurement of the system.
         """
         return (self.axis_field_stop, self.axis_pupil_stop)
+
+    def _field_and_pupil(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> tuple[na.AbstractCartesian2dVectorArray, na.AbstractCartesian2dVectorArray]:
+        """
+        Read the field and pupil coordinates a set of rays represents.
+
+        Which of a ray's position and direction is its field and which is its
+        pupil depends on where the object is: an object at infinity has no
+        position to speak of, so its field is the direction the ray arrives
+        from and its pupil is where on the object surface it crosses, and an
+        object at a finite distance is the other way round.
+
+        Parameters
+        ----------
+        rays
+            Rays in the frame of the object surface, as
+            :meth:`_calc_rayfunction_stops` and :meth:`_calc_rayfunction_pupil`
+            return them.
+
+        Returns
+        -------
+            The field and the pupil coordinates, in that order.
+        """
+        position = rays.position.xy
+        direction = optika.angles(rays.direction)
+        if self.object_is_at_infinity:
+            return direction, position
+        else:
+            return position, direction
 
     @property
     def field_boundary(self) -> na.AbstractCartesian2dVectorArray:
@@ -765,11 +1008,8 @@ class AbstractSequentialSystem(
         the instrument at hand takes to be its field of view;
         :attr:`field_min` and :attr:`field_max` are two such reductions.
         """
-        rays = self.rayfunction_stops.outputs
-        if self.object_is_at_infinity:
-            return optika.angles(rays.direction)
-        else:
-            return rays.position.xy
+        field, _ = self._field_and_pupil(self.rayfunction_stops.outputs)
+        return field
 
     @property
     def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
@@ -779,11 +1019,8 @@ class AbstractSequentialSystem(
         The counterpart of :attr:`field_boundary`, in position if the object is
         at infinity and in angle if it is not.
         """
-        rays = self.rayfunction_stops.outputs
-        if self.object_is_at_infinity:
-            return rays.position.xy
-        else:
-            return optika.angles(rays.direction)
+        _, pupil = self._field_and_pupil(self.rayfunction_stops.outputs)
+        return pupil
 
     @property
     def field_min(self) -> na.AbstractCartesian2dVectorArray:
@@ -843,6 +1080,251 @@ class AbstractSequentialSystem(
             y=na.linspace(-1, 1, axis="_pupil_y", num=12),
         )
 
+    def _calc_rayfunction_pupil(
+        self,
+        wavelength: na.ScalarLike,
+        field: na.AbstractCartesian2dVectorArray,
+        rayfunction_stops: None | optika.rays.RayFunctionArray = None,
+        samples_pupil_stop: int = 21,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        Trace the rays from each of the given field points which graze the
+        edge of the pupil stop, to find the entrance pupil of every field
+        point.
+
+        The field is held fixed at each point and only the edge of the pupil
+        stop is swept, so unlike :attr:`rayfunction_stops`, which sweeps the
+        edges of both stops at once, the entrance pupil here is resolved as a
+        function of field instead of being collapsed into one bounding box
+        shared by every field point.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelength of the rays.
+        field
+            The field points at which to find the entrance pupil, in angle if
+            the object is at infinity and in position if it is not.
+        rayfunction_stops
+            The result of :meth:`_calc_rayfunction_stops` on `wavelength`.
+            If given, and the object is at infinity, the solve is seeded at
+            the center of the entrance pupil it locates.
+        samples_pupil_stop
+            The number of points along the edge of the pupil stop.
+        """
+        surfaces = self.surfaces_all
+        subsystem = surfaces[: self.index_pupil_stop + 1]
+
+        pupil_stop = subsystem[~0]
+        grid_last = np.moveaxis(
+            a=pupil_stop.aperture.wire(num=samples_pupil_stop),
+            source="wire",
+            destination=self.axis_pupil_stop,
+        )
+        grid_last = na.Cartesian2dVectorArray(grid_last.x, grid_last.y)
+
+        # The field fixes one component of the ray leaving the object, and
+        # the solver finds the other: the position for an object at infinity,
+        # whose field is a direction, and the direction otherwise.
+        if self.object_is_at_infinity:
+            direction = optika.direction(field)
+            grid_first = na.Cartesian2dVectorArray(direction.x, direction.y)
+        else:
+            grid_first = na.Cartesian2dVectorArray(field.x, field.y)
+
+        # Seed the solve at the center of the entrance pupil of the whole
+        # system, which the stops locate, rather than at the first powered
+        # surface: for an off-axis system the pupil can sit far from the axis
+        # of that surface, outside the basin of convergence of a seed aimed
+        # there.  The pupil of any one field point walks only a fraction of
+        # the whole pupil away from its center, so every field point starts
+        # close to its own solution.
+        aim = None
+        if rayfunction_stops is not None and self.object_is_at_infinity:
+            aim = rayfunction_stops.outputs.position.mean(self.axis_stops)
+            # the stop rays are expressed in the object's local coordinates,
+            # while `_solve_rays` aims in global ones
+            obj = subsystem[0]
+            if obj.transformation is not None:
+                aim = obj.transformation(aim)
+
+        rays = self._solve_rays(
+            subsystem=subsystem,
+            grid_first=grid_first,
+            grid_last=grid_last,
+            wavelength=wavelength,
+            aim=aim,
+            hint=(
+                "This is the entrance pupil of one field point, which the "
+                "system falls back to a pupil shared by every field point "
+                "without."
+            ),
+        )
+
+        # `_calc_pupil_fit` fits these against samples taken from the stop
+        # rays, which `_calc_rayfunction_stops` expresses in the object's own
+        # coordinates.  Express these the same way, so that the two are
+        # measured in one frame; otherwise a rotated object trains the fit on
+        # a center sample taken at a different field point than the edges.
+        obj = subsystem[0]
+        if obj.transformation is not None:
+            rays = obj.transformation.inverse(rays)
+
+        # The solved component carries the pupil-stop axis and the fixed one
+        # only the field axes, so broadcast them against each other to keep
+        # reductions over either well-defined downstream.
+        shape = na.shape_broadcasted(rays.position, rays.direction)
+        rays.position = rays.position.broadcast_to(shape)
+        rays.direction = rays.direction.broadcast_to(shape)
+
+        return optika.rays.RayFunctionArray(
+            inputs=optika.vectors.ObjectVectorArray(
+                wavelength=wavelength,
+                field=field,
+                pupil=grid_last,
+            ),
+            outputs=rays,
+        )
+
+    def _calc_pupil_fit(
+        self,
+        wavelength: na.ScalarLike,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
+        """
+        Fit the lower-left and upper-right corners of the entrance pupil as
+        polynomials in field.
+
+        The entrance pupil of an off-axis system walks across the field, so
+        the bounding box shared by every field point can be many times larger
+        than the pupil of any one of them.  The rays which graze both stops
+        already resolve the pupil at every point along the edge of the field,
+        so those make up the bulk of the samples and cost nothing more.  One
+        more sample, at the center of the field, is traced explicitly: the
+        edge of a round field lies on a single conic, along which a quadratic
+        cannot tell a constant from a radial term, so a sample away from the
+        edge is what pins down the size of the pupil in the interior.
+
+        The fit depends on nothing but the wavelengths, so it is made once and
+        evaluated at any field grid for free, which keeps the solves out of
+        the callers that denormalize several grids at once.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to calibrate the pupil.
+        rayfunction_stops
+            The result of :meth:`_calc_rayfunction_stops` on `wavelength`.
+
+        Returns
+        -------
+            The fits of the lower-left and upper-right corners of the pupil,
+            or :obj:`None` if the pupil of the center of the field could not
+            be found, in which case the box shared by every field point
+            should be used instead.
+        """
+        field, pupil = self._field_and_pupil(rayfunction_stops.outputs)
+
+        # The stop grids are swept along the two stop axes in the order the
+        # stops appear in the system, not by which stop each belongs to, so
+        # find the axis along the edge of the pupil stop from the input pupil
+        # grid, which is labeled by stop.
+        axis_stops = self.axis_stops
+        axis_wire = tuple(
+            ax for ax in axis_stops if ax in na.shape(rayfunction_stops.inputs.pupil)
+        )
+        (axis_edge,) = tuple(ax for ax in axis_stops if ax not in axis_wire)
+
+        # the field is constant along the edge of the pupil stop
+        field_edge = field.mean(axis_wire)
+        pupil_min_edge = pupil.min(axis_wire)
+        pupil_max_edge = pupil.max(axis_wire)
+
+        # One more sample at the center of the field, traced explicitly.
+        # The center is the middle of the field's extent and not the mean of
+        # these samples: the wire of an aperture closes, so its last point
+        # repeats its first, and averaging it leans toward that point by one
+        # part in `samples_field_stop`. That would make the sample the whole
+        # fit is anchored on depend on how finely the stop was sampled.
+        field_center = (field_edge.min(axis_edge) + field_edge.max(axis_edge)) / 2
+        try:
+            rays_center = self._calc_rayfunction_pupil(
+                wavelength=wavelength,
+                field=field_center,
+                rayfunction_stops=rayfunction_stops,
+            ).outputs
+        except StopSolveError:
+            # The pupil of the center of the field could not be found, so
+            # there is nothing to fit.  The caller then falls back to the box
+            # shared by every field point, which is never worse than before
+            # this fit existed, rather than failing a raytrace which the
+            # shared box would have carried out.
+            return None
+        _, pupil_center = self._field_and_pupil(rays_center)
+        axis_pupil = self.axis_pupil_stop
+        pupil_min_center = pupil_center.min(axis_pupil)
+        pupil_max_center = pupil_center.max(axis_pupil)
+
+        # The samples along the edge come from rays which pass both stops,
+        # but the one at the center traces only the pupil stop, so in a
+        # system limited by its field stop instead the two disagree, and a
+        # polynomial forced through them overshoots between.  No field point
+        # can accept more than the union of every ray which passes both
+        # stops, so hold the center sample to that bound before fitting, the
+        # same bound the fit is held to wherever it is evaluated.
+        pupil_min_center = np.maximum(pupil_min_center, pupil.min(axis_stops))
+        pupil_max_center = np.minimum(pupil_max_center, pupil.max(axis_stops))
+
+        # join the samples along the edge of the field with the one at its
+        # center, along the axis of the edge
+        def join(
+            edge: na.AbstractCartesian2dVectorArray,
+            center: na.AbstractCartesian2dVectorArray,
+        ) -> na.AbstractCartesian2dVectorArray:
+            shape = na.broadcast_shapes(na.shape(center), {axis_edge: 1})
+            return np.concatenate([edge, center.broadcast_to(shape)], axis=axis_edge)
+
+        field = join(field_edge, field_center)
+        pupil_min = join(pupil_min_edge, pupil_min_center)
+        pupil_max = join(pupil_max_edge, pupil_max_center)
+
+        # The wavelength is carried along as a plain broadcast axis, since the
+        # fit is only ever evaluated at the wavelengths it was made at, so the
+        # polynomial is in the field alone.
+        #
+        # The least-squares solve for the coefficients is linear in the
+        # outputs, so the uncertainty of the pupil samples passes through it
+        # exactly, but the inputs enter it through a matrix inverse which an
+        # uncertain array cannot take.  Fit against the nominal inputs, which
+        # drops only the uncertainty in where the samples sit, not in the
+        # pupil found there.
+        inputs = na.nominal(optika.vectors.SceneVectorArray(wavelength, field))
+
+        def fit(outputs: na.AbstractCartesian2dVectorArray):
+            result = na.PolynomialFitFunctionArray.from_degree(
+                inputs=inputs,
+                outputs=outputs,
+                degree=2,
+                components=("field.x", "field.y"),
+                axis_polynomial=axis_edge,
+            )
+            # The least-squares solve is deferred until the coefficients are
+            # first read, which would put it outside this method and defeat
+            # the fallback below.  Force it here, so that a design matrix
+            # which turns out to be singular falls back to the shared box in
+            # the same way as a field center which cannot be traced.
+            result.coefficients
+            return result
+
+        try:
+            return fit(pupil_min), fit(pupil_max)
+        except np.linalg.LinAlgError:
+            # Only a design matrix which cannot be inverted falls back.  A
+            # `ValueError` from anywhere else in the fit is a system built
+            # wrong or a mistake in this method, and silently disabling the
+            # per-field pupil forever would hide it.
+            return None
+
     def _denormalize_grid(
         self,
         grid: optika.vectors.ObjectVectorArray,
@@ -853,9 +1335,15 @@ class AbstractSequentialSystem(
         if (not normalized_field) and (not normalized_pupil):
             return grid
 
+        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
+            grid.wavelength,
+            normalized_pupil,
+        )
+
         return self._denormalize_grid_from_rays(
             grid=grid,
-            rayfunction_stops=self._calc_rayfunction_stops(grid.wavelength),
+            rayfunction_stops=rayfunction_stops,
+            pupil_fit=pupil_fit,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
         )
@@ -864,12 +1352,15 @@ class AbstractSequentialSystem(
         self,
         grid: optika.vectors.ObjectVectorArray,
         rayfunction_stops: optika.rays.RayFunctionArray,
+        pupil_fit: (
+            None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
+        ) = None,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
     ) -> optika.vectors.ObjectVectorArray:
         """
-        Map a normalized grid onto the field and pupil that the given stop
-        rayfunction describes.
+        Map a normalized grid onto the field that the given stop rayfunction
+        describes, and onto the entrance pupil of each of its field points.
 
         Parameters
         ----------
@@ -878,6 +1369,12 @@ class AbstractSequentialSystem(
         rayfunction_stops
             The result of :meth:`_calc_rayfunction_stops` on the wavelengths
             of `grid`.
+        pupil_fit
+            The result of :meth:`_calc_pupil_fit` on the wavelengths of
+            `grid`, the fits of the corners of the entrance pupil as a
+            function of field.
+            If :obj:`None`, the box shared by every field point is used
+            instead.
         normalized_field
             A boolean flag indicating whether the field of `grid` is given in
             normalized or physical units.
@@ -890,13 +1387,7 @@ class AbstractSequentialSystem(
 
         result = grid.copy_shallow()
 
-        object_is_at_infinity = self.object_is_at_infinity
-        if object_is_at_infinity:
-            field = optika.angles(rayfunction_stops.outputs.direction)
-            pupil = rayfunction_stops.outputs.position.xy
-        else:
-            field = rayfunction_stops.outputs.position.xy
-            pupil = optika.angles(rayfunction_stops.outputs.direction)
+        field, pupil = self._field_and_pupil(rayfunction_stops.outputs)
 
         if normalized_field:
             min_field = field.min(axis=(axis_field, axis_pupil))
@@ -904,9 +1395,58 @@ class AbstractSequentialSystem(
             result.field = ptp_field * (result.field + 1) / 2 + min_field
 
         if normalized_pupil:
-            min_pupil = pupil.min(axis=(axis_field, axis_pupil))
-            ptp_pupil = pupil.ptp(axis=(axis_field, axis_pupil))
-            result.pupil = ptp_pupil * (result.pupil + 1) / 2 + min_pupil
+            # the single bounding box shared by every field point
+            axis_both = (axis_field, axis_pupil)
+            global_min = pupil.min(axis=axis_both)
+            global_max = pupil.max(axis=axis_both)
+
+            if pupil_fit is None:
+                # There is no pupil resolved per field point to draw on, so
+                # every field point takes the shared box, as it did before
+                # the pupil was resolved per field.
+                min_pupil = global_min
+                max_pupil = global_max
+
+            else:
+                # The pupil is the one belonging to each field point,
+                # evaluated from the fit, rather than the shared box, which
+                # for an off-axis system can be many times larger than the
+                # pupil of any one of them.
+                fit_min, fit_max = pupil_fit
+                x = optika.vectors.SceneVectorArray(result.wavelength, result.field)
+                fit_min = fit_min(x).outputs
+                fit_max = fit_max(x).outputs
+
+                # No field point can accept more than the union of every ray
+                # which passes both stops, so bound the pupil of each field
+                # point to that.  A system limited by its field stop rather
+                # than its pupil stop has no smooth pupil for the fit to
+                # follow, and its box then collapses or turns inside out
+                # under the bound; fall back to the whole pupil wherever that
+                # happens, so that every box sampled is a real part of the
+                # pupil and never worse than the shared box.
+                def bound(
+                    lo: na.AbstractScalar,
+                    hi: na.AbstractScalar,
+                    lo_global: na.AbstractScalar,
+                    hi_global: na.AbstractScalar,
+                ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+                    lo = np.maximum(lo, lo_global)
+                    hi = np.minimum(hi, hi_global)
+                    # Negate the healthy case rather than test for the
+                    # broken one, so that a corner which is not a number
+                    # falls back too. `hi <= lo` is false for a NaN, which
+                    # would let it through and turn every ray at that field
+                    # point into a NaN with nothing raised.
+                    bad = ~(hi > lo)
+                    return np.where(bad, lo_global, lo), np.where(bad, hi_global, hi)
+
+                min_x, max_x = bound(fit_min.x, fit_max.x, global_min.x, global_max.x)
+                min_y, max_y = bound(fit_min.y, fit_max.y, global_min.y, global_max.y)
+                min_pupil = na.Cartesian2dVectorArray(x=min_x, y=min_y)
+                max_pupil = na.Cartesian2dVectorArray(x=max_x, y=max_y)
+
+            result.pupil = (max_pupil - min_pupil) * (result.pupil + 1) / 2 + min_pupil
 
         return result
 
@@ -1121,8 +1661,17 @@ class AbstractSequentialSystem(
         rayfunction = raytrace[{axis: ~0}]
         rays = rayfunction.outputs
 
-        if self.sensor.transformation is not None:
-            rays = self.sensor.transformation.inverse(rays)
+        # The sensor sits where `surfaces_all` puts it, which is its own
+        # transformation with `transformation` composed on top, so both are
+        # needed to express these rays in the frame of the sensor. Using only
+        # the sensor's own transformation leaves the rays of a system with a
+        # `transformation` in neither the sensor's frame nor the global one.
+        transformation = na.transformations.compose(
+            self.transformation,
+            self.sensor.transformation,
+        )
+        if transformation is not None:
+            rays = transformation.inverse(rays)
 
         rayfunction.outputs = rays
 
@@ -1134,9 +1683,9 @@ class AbstractSequentialSystem(
         Computes the rays in local coordinates at the last surface in the system
         as a function of input wavelength and position using :attr:`grid_input`.
 
-        This property is cached to increase performance.
-        If :attr:`grid_input` is updated, the cache must be cleared with
-        ``del system.rayfunction_default`` before calling this property.
+        This property is cached to increase performance.  See
+        :attr:`rayfunction_stops` for what invalidates it and for the other
+        caches which go with it.
         """
         return self.rayfunction()
 
@@ -1434,10 +1983,17 @@ class AbstractSequentialSystem(
         system.
 
         The relative illumination at each scene coordinate is estimated from
-        the fraction of unvignetted rays in the pupil, normalized so that its
+        the fraction of unvignetted rays in the pupil, weighted by how large
+        that field position's entrance pupil is, and normalized so that its
         average over the field of view is unity.
         Field points with no unvignetted rays are excluded from the fit and
         from the normalization.
+
+        The weight matters because the entrance pupil is resolved per field
+        position rather than shared, so two positions which pass the same
+        fraction of their own pupil need not collect the same light. Without
+        it this model and :meth:`area_effective` could not be multiplied
+        together except where every pupil happens to be the same size.
 
         Parameters
         ----------
@@ -1587,7 +2143,22 @@ class AbstractSequentialSystem(
         unvignetted = rays.outputs.unvignetted
         where = unvignetted.any(axis_pupil)
 
-        illumination = unvignetted.mean(axis_pupil)
+        # How much light a field position collects is the fraction of its
+        # entrance pupil which survives times how large that pupil is, and
+        # since the pupil is resolved per field position the second factor is
+        # not shared. :meth:`area_effective` weights by the area of each
+        # pupil cell and averages the product over the field, so leaving the
+        # size out here would leave the two models unable to be multiplied
+        # together, which is the whole point of fitting them.
+        #
+        # The size is the span of the sampled pupil, not the area of a cell,
+        # which is enough: one normalized pupil grid is shared by every field
+        # position and denormalizing maps it onto that position's pupil by an
+        # affine map, so the span is proportional to the pupil's area with a
+        # constant which divides out below.
+        span = rays.inputs.pupil.ptp(axis_pupil)
+
+        illumination = unvignetted.mean(axis_pupil) * span.x * span.y
         illumination = illumination / np.mean(
             illumination,
             axis=axis_field,
@@ -1602,6 +2173,63 @@ class AbstractSequentialSystem(
             degree=degree,
             where=where,
         )
+
+    @staticmethod
+    def _pupil_over_field_cells(
+        pupil: na.AbstractCartesian2dVectorArray,
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Bring a pupil grid given at the vertices of the field to its cells, as
+        the union of the boxes at each cell's vertices.
+
+        The pupil walks across the field, and once it is resolved per field
+        position its box is no larger than the pupil, so the box at the
+        center of a cell does not hold the pupil at the cell's edges. A ray
+        drawn anywhere in the cell must find its whole pupil inside the box
+        it is given, so the box for the cell is the smallest one holding the
+        boxes at all of the cell's vertices.
+
+        Parameters
+        ----------
+        pupil
+            The vertices of the pupil grid, carrying some or all of
+            `axis_field` at the resolution of the field vertices. Each field
+            vertex is assumed to carry the same normalized grid mapped
+            affinely onto its own box, which is how every grid this class
+            denormalizes is built.
+        axis_field
+            The axes of the field grid.
+        axis_pupil
+            The axes of the pupil grid.
+
+        Returns
+        -------
+            The pupil grid, carrying those field axes at the resolution of
+            the field cells. Field axes the grid does not carry are left
+            alone, and a grid carrying none is returned unchanged.
+        """
+        axis_field = tuple(ax for ax in axis_field if ax in na.shape(pupil))
+        if not axis_field:
+            return pupil
+
+        lo = pupil.min(axis_pupil)
+        hi = pupil.max(axis_pupil)
+
+        # the grid is affine in its box and the same at every field vertex,
+        # so any one vertex gives it back in normalized form; a box of no
+        # width in some component has no grid to recover along it
+        width = hi - lo
+        unit = na.unit_normalized(width.x)
+        safe = np.where(width > 0 * unit, width, 1 * unit)
+        normalized = ((pupil - lo) / safe)[{ax: 0 for ax in axis_field}]
+
+        for ax in axis_field:
+            lo = np.minimum(lo[{ax: slice(None, -1)}], lo[{ax: slice(1, None)}])
+            hi = np.maximum(hi[{ax: slice(None, -1)}], hi[{ax: slice(1, None)}])
+
+        return (hi - lo) * normalized + lo
 
     def area_effective(
         self,
@@ -1628,9 +2256,14 @@ class AbstractSequentialSystem(
         which linearly interpolates in wavelength.
 
         The average is taken over the same field positions that
-        :meth:`vignetting` normalizes its illumination over, so that the two
-        models can be multiplied together to recover the effective area at a
-        given field position.
+        :meth:`vignetting` normalizes its illumination over, and that model
+        carries the size of each field position's entrance pupil, so that the
+        two can be multiplied together to recover the effective area at a
+        given field position.  Both halves of that are needed: an average over
+        one set of field positions and a normalization over another would
+        rescale the result by the ratio of the two, and an illumination which
+        left out the size of its pupil would be wrong wherever the pupil is
+        not the same size across the field.
 
         The components of `pupil` are interpreted as the vertices of a grid of
         cells, and the rays are traced at the corresponding cell centers, so
@@ -1730,6 +2363,20 @@ class AbstractSequentialSystem(
                 f"one wavelength axis, got {axis_wavelength}"
             )
         (axis_wavelength,) = axis_wavelength
+
+        # The entrance pupil belongs to each field point, so the pupil grid
+        # carries the field axes at the resolution of the field vertices, and
+        # has to be brought to the field cells to line up with the field
+        # samples drawn below.  Not by averaging the vertices: the pupil
+        # walks across the field, so the box at the center of a cell clips
+        # the rays drawn toward the cell's edges by however far it walks
+        # across one cell.  On ESIS that is 2% of the pupil per cell of a
+        # 12 x 12 field, and it took half a percent off the effective area.
+        pupil = self._pupil_over_field_cells(
+            pupil=pupil,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+        )
 
         area = np.abs(pupil.volume_cell(axis=axis_pupil))
 
@@ -1888,10 +2535,11 @@ class AbstractSequentialSystem(
         pupil_centers = pupil.cell_centers(axis=axis_pupil)
 
         # Each of the three fits below denormalizes its own grid, and the
-        # expensive part of that is solving for the stops, which depends on
-        # nothing but the wavelengths.  Solve once here and hand each of them
-        # a grid which is already physical.
-        stops = self._calc_rayfunction_stops(wavelength)
+        # expensive part of that is solving for the stops and calibrating the
+        # entrance pupil, both of which depend on nothing but the wavelengths.
+        # Solve once here and hand each of them a grid which is already
+        # physical.
+        stops, pupil_fit = self._stops_and_pupil_fit(wavelength, normalized_pupil)
 
         def denormalize(
             field: na.AbstractCartesian2dVectorArray,
@@ -1904,6 +2552,7 @@ class AbstractSequentialSystem(
                     pupil=pupil,
                 ),
                 rayfunction_stops=stops,
+                pupil_fit=pupil_fit,
                 normalized_field=normalized_field,
                 normalized_pupil=normalized_pupil,
             )
