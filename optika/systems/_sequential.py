@@ -2174,6 +2174,63 @@ class AbstractSequentialSystem(
             where=where,
         )
 
+    @staticmethod
+    def _pupil_over_field_cells(
+        pupil: na.AbstractCartesian2dVectorArray,
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Bring a pupil grid given at the vertices of the field to its cells, as
+        the union of the boxes at each cell's vertices.
+
+        The pupil walks across the field, and once it is resolved per field
+        position its box is no larger than the pupil, so the box at the
+        center of a cell does not hold the pupil at the cell's edges. A ray
+        drawn anywhere in the cell must find its whole pupil inside the box
+        it is given, so the box for the cell is the smallest one holding the
+        boxes at all of the cell's vertices.
+
+        Parameters
+        ----------
+        pupil
+            The vertices of the pupil grid, carrying some or all of
+            `axis_field` at the resolution of the field vertices. Each field
+            vertex is assumed to carry the same normalized grid mapped
+            affinely onto its own box, which is how every grid this class
+            denormalizes is built.
+        axis_field
+            The axes of the field grid.
+        axis_pupil
+            The axes of the pupil grid.
+
+        Returns
+        -------
+            The pupil grid, carrying those field axes at the resolution of
+            the field cells. Field axes the grid does not carry are left
+            alone, and a grid carrying none is returned unchanged.
+        """
+        axis_field = tuple(ax for ax in axis_field if ax in na.shape(pupil))
+        if not axis_field:
+            return pupil
+
+        lo = pupil.min(axis_pupil)
+        hi = pupil.max(axis_pupil)
+
+        # the grid is affine in its box and the same at every field vertex,
+        # so any one vertex gives it back in normalized form; a box of no
+        # width in some component has no grid to recover along it
+        width = hi - lo
+        unit = na.unit_normalized(width.x)
+        safe = np.where(width > 0 * unit, width, 1 * unit)
+        normalized = ((pupil - lo) / safe)[{ax: 0 for ax in axis_field}]
+
+        for ax in axis_field:
+            lo = np.minimum(lo[{ax: slice(None, -1)}], lo[{ax: slice(1, None)}])
+            hi = np.maximum(hi[{ax: slice(None, -1)}], hi[{ax: slice(1, None)}])
+
+        return (hi - lo) * normalized + lo
+
     def area_effective(
         self,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
@@ -2307,19 +2364,21 @@ class AbstractSequentialSystem(
             )
         (axis_wavelength,) = axis_wavelength
 
-        area = np.abs(pupil.volume_cell(axis=axis_pupil))
+        # The entrance pupil belongs to each field point, so the pupil grid
+        # carries the field axes at the resolution of the field vertices, and
+        # has to be brought to the field cells to line up with the field
+        # samples drawn below.  Not by averaging the vertices: the pupil
+        # walks across the field, so the box at the center of a cell clips
+        # the rays drawn toward the cell's edges by however far it walks
+        # across one cell.  On ESIS that is 2% of the pupil per cell of a
+        # 12 x 12 field, and it took half a percent off the effective area.
+        pupil = self._pupil_over_field_cells(
+            pupil=pupil,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+        )
 
-        # The entrance pupil belongs to each field point, so the pupil grid,
-        # and the area of its cells, carry the field axes at the resolution
-        # of the field vertices.  Bring them to the centers of the field
-        # cells here, to line up with the field samples drawn below.  The
-        # pupil walks smoothly across a single cell of the field, so its
-        # value at the center of the cell stands in for its value at the
-        # point drawn inside it.
-        axis_field_pupil = tuple(ax for ax in axis_field if ax in na.shape(pupil))
-        if axis_field_pupil:
-            area = area.cell_centers(axis=axis_field_pupil)
-            pupil = pupil.cell_centers(axis=axis_field_pupil)
+        area = np.abs(pupil.volume_cell(axis=axis_pupil))
 
         # Both grids are sampled once per cell, at a point drawn uniformly
         # inside it.  Stratifying this way rather than taking the cell centers

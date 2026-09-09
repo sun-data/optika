@@ -1350,6 +1350,76 @@ def test_models_are_invariant_under_a_rigid_motion():
     assert np.abs(area_b - area_a).max() < 1e-6 * np.abs(area_a).max()
 
 
+def test_pupil_over_field_cells_holds_the_pupil_everywhere_in_the_cell():
+    """
+    The box a field cell is given holds the boxes at every one of its
+    vertices, so a ray drawn anywhere in the cell finds its whole pupil.
+
+    Averaging the vertices instead put the box at the cell's center, which the
+    pupil walks away from toward the cell's edges. Measured on ESIS at the
+    default 12 x 12 field, that took 0.57% off the effective area, against
+    0.02% with the union, and refining the pupil grid alone did nothing while
+    refining the field grid alone recovered most of it, which is the
+    signature of a box that clips per field cell.
+    """
+    axis_field = ("_fx", "_fy")
+    axis_pupil = ("_px", "_py")
+
+    # a pupil 10 mm wide which walks 4 mm in x across three field vertices,
+    # and 1 mm in y, on a 3-vertex pupil grid
+    walk = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(np.array([0.0, 2.0, 4.0]), axes=("_fx",)),
+        y=na.ScalarArray(np.array([0.0, 1.0]), axes=("_fy",)),
+    )
+    normalized = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray(*axis_pupil),
+        num=3,
+    )
+    pupil = (5 * normalized + walk) * u.mm
+
+    result = optika.systems.AbstractSequentialSystem._pupil_over_field_cells(
+        pupil=pupil,
+        axis_field=axis_field,
+        axis_pupil=axis_pupil,
+    )
+
+    # one fewer along each field axis, the pupil axes untouched
+    shape = na.shape(result)
+    assert shape["_fx"] == 2 and shape["_fy"] == 1
+    assert shape["_px"] == 3 and shape["_py"] == 3
+
+    lo = result.min(axis_pupil)
+    hi = result.max(axis_pupil)
+
+    # cell 0 spans the boxes at x-vertices 0 and 2 mm: [-5, 7]; cell 1: [-3, 9]
+    assert np.allclose(lo.x.ndarray, [-5, -3] * u.mm)
+    assert np.allclose(hi.x.ndarray, [7, 9] * u.mm)
+    # the one y cell spans the boxes at 0 and 1 mm: [-5, 6]
+    assert np.allclose(lo.y.ndarray, -5 * u.mm)
+    assert np.allclose(hi.y.ndarray, 6 * u.mm)
+
+    # the grid inside each box is the same normalized grid, not an average
+    inner = (result - lo) / (hi - lo)
+    expected = (normalized + 1) / 2
+    assert np.allclose(
+        inner.x.ndarray, expected.x.broadcast_to(na.shape(inner.x)).ndarray
+    )
+    assert np.allclose(
+        inner.y.ndarray, expected.y.broadcast_to(na.shape(inner.y)).ndarray
+    )
+
+    # a grid carrying no field axis is returned untouched
+    plain = 5 * normalized * u.mm
+    assert (
+        optika.systems.AbstractSequentialSystem._pupil_over_field_cells(
+            pupil=plain, axis_field=axis_field, axis_pupil=axis_pupil
+        )
+        is plain
+    )
+
+
 def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
     """
     A field point which collects the same fraction of a pupil twice as wide
