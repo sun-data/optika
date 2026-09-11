@@ -96,7 +96,18 @@ class AbstractTestAbstractSag(
     ):
         result = a.intercept(rays)
 
-        assert np.allclose(a(result.position), result.position.z)
+        # The intercept has to lie on the surface, and the surface is defined
+        # in the sag's own frame, where `z` equals the sag. Compare there:
+        # `__call__` measures the sag from the local `z = 0` plane for most
+        # sags but returns a parent-frame `z` for `NoSag`, and the two agree
+        # once the transformation is taken off.
+        sag = a.replace(transformation=None)
+
+        position = result.position
+        if a.transformation is not None:
+            position = a.transformation.inverse(position)
+
+        assert np.allclose(sag(position), position.z)
 
         result_expected = optika.sags.AbstractSag.intercept(a, rays)
 
