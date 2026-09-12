@@ -6,6 +6,7 @@ from ._caching import memory
 from . import plot
 from . import mixins
 from ._util import shape, direction, angles
+from . import zernikes
 from . import vectors
 from . import targets
 from . import rays
@@ -29,6 +30,7 @@ __all__ = [
     "shape",
     "direction",
     "angles",
+    "zernikes",
     "vectors",
     "targets",
     "rays",
