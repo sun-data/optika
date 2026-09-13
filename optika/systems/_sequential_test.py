@@ -1409,6 +1409,45 @@ def test_pupil_over_field_cells_holds_the_pupil_everywhere_in_the_cell():
     )
 
 
+def test_a_physical_pupil_at_a_new_wavelength_skips_the_pupil_fit(monkeypatch):
+    """
+    A grid whose pupil is already physical has no use for the entrance pupil
+    fit, so at a wavelength the caches were not built for only the stops are
+    solved, and without the sample at the center of the field which only the
+    fit would have read.
+    """
+    a = dataclasses.replace(_system_newtonian)
+    wavelength = 1.01 * a.grid_input.wavelength
+
+    def fail(*args, **kwargs):
+        raise AssertionError(
+            "the pupil was calibrated for a grid which did not need it"
+        )
+
+    monkeypatch.setattr(type(a), "_calc_pupil_fit", fail)
+
+    stops, fit = a._stops_and_pupil_fit(wavelength, normalized_pupil=False)
+    assert fit is None
+
+    # the outline alone, as many samples as the outline the system exposes
+    _, axis_edge = a._axes_stops(stops)
+    assert na.shape(stops)[axis_edge] == na.shape(a.rayfunction_stops)[axis_edge]
+
+    # and the same holds all the way through a raytrace
+    grid = a.grid_input
+    pupil = a.pupil_boundary
+    axis = a.axis_stops
+    pupil = pupil.ptp(axis) * (grid.pupil + 1) / 2 + pupil.min(axis)
+    rays = a.raytrace(
+        wavelength=wavelength,
+        field=grid.field,
+        pupil=pupil,
+        normalized_pupil=False,
+        accumulate=False,
+    )
+    assert np.any(rays.outputs.unvignetted)
+
+
 def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
     """
     A field point which collects the same fraction of a pupil twice as wide
