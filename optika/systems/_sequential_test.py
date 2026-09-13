@@ -1419,12 +1419,13 @@ def test_a_physical_pupil_at_a_new_wavelength_skips_the_pupil_fit(monkeypatch):
     a = dataclasses.replace(_system_newtonian)
     wavelength = 1.01 * a.grid_input.wavelength
 
-    def fail(*args, **kwargs):
-        raise AssertionError(
-            "the pupil was calibrated for a grid which did not need it"
-        )
+    # take the calibration away altogether, so that anything asking for it
+    # fails by name rather than through a stub whose body must never run
+    monkeypatch.delattr(optika.systems.AbstractSequentialSystem, "_calc_pupil_fit")
 
-    monkeypatch.setattr(type(a), "_calc_pupil_fit", fail)
+    # a grid which does need it now cannot be served, which is the control
+    with pytest.raises(AttributeError, match="_calc_pupil_fit"):
+        a._stops_and_pupil_fit(wavelength, normalized_pupil=True)
 
     stops, fit = a._stops_and_pupil_fit(wavelength, normalized_pupil=False)
     assert fit is None
