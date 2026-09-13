@@ -302,12 +302,20 @@ drawn uniformly in it are then mostly outside the pupil of the field point
 they belong to, and are thrown away at the stop.
 
 ``_calc_pupil_fit`` calibrates the pupil per field point instead. It fits a
-quadratic in the field to the corners of the pupil, using the samples already
-present along the edge of the field stop plus one traced at the center of the
-field, and ``_denormalize_grid`` evaluates that fit at each field point being
-traced.
+quadratic in the field to the corners of the pupil, using the samples along
+the edge of the field stop plus one at its center, and ``_denormalize_grid``
+evaluates that fit at each field point being traced.
 
-Three things keep it honest:
+The center is not traced on its own. The center of the field stop is one more
+point on that stop, so it rides through the same solve between the two stops
+as one more sample on the field stop's wire, and is carried back to the object
+with the rest. That costs a fraction of a solve between two adjacent surfaces,
+where a trace of its own from the object had to work through every surface
+between and, on ESIS, took four times as long as the whole stop solve. The
+sample is left out of ``rayfunction_stops``, which is the outline of the field,
+and kept in ``_rayfunction_stops_center``, which the fit reads.
+
+Two things keep it honest:
 
 * The fitted box is clipped to the box shared by every field point, so a fit
   which extrapolates cannot send rays outside the pupil the stops actually
@@ -315,9 +323,9 @@ Three things keep it honest:
 
 * Where the clipped box inverts, the shared box is used instead.
 
-* If the center of the field cannot be traced, or the fit is singular, the
-  whole calibration returns :obj:`None` and the shared box is used. This is
-  never worse than not having the fit at all.
+* If the fit is singular, which a field stop degenerate in one component
+  makes it, the whole calibration returns :obj:`None` and the shared box is
+  used. This is never worse than not having the fit at all.
 
 The fit is in the field alone; the wavelength rides along as a broadcast axis,
 since the fit is only ever evaluated at the wavelengths it was made at. It is
@@ -350,14 +358,13 @@ A few conventions are load-bearing and worth stating explicitly:
 
   * ``_solve_rays`` takes its launch grid in the launch surface's frame and
     returns the solved rays in the **global** frame, converting once at each
-    end.  Its ``aim`` argument is global.
+    end.
 
-  * ``_calc_rayfunction_stops`` and ``_calc_rayfunction_pupil`` return their
-    rays in the **object surface's** frame, because that is the frame in which
-    ``_calc_rayfunction_input`` reads the field and pupil of the input grid.
-    The entrance pupil is fit from samples taken from both, so they have to
-    agree; a rotated object otherwise trains the fit on a center sample taken
-    at a different field point than its edge samples.
+  * ``_calc_rayfunction_stops`` returns its rays in the **object surface's**
+    frame, because that is the frame in which ``_calc_rayfunction_input``
+    reads the field and pupil of the input grid. The entrance pupil is fit
+    from those rays alone, edge and center together, so its samples cannot
+    disagree about the frame.
 
   * :meth:`~optika.systems.AbstractSequentialSystem.rayfunction` returns its
     rays in the **sensor's** frame, which is the sensor's own transformation

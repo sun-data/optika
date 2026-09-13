@@ -1183,6 +1183,33 @@ class TestSequentialSystemGrazingSpectrograph(
         assert np.abs(result.y - _radius_field_grazing) < 1e-6 * u.deg
 
 
+def test_rayfunction_stops_leaves_out_the_center_it_was_solved_with():
+    """
+    :attr:`rayfunction_stops` is the outline of the field, so the rays through
+    the center of the field stop, which are solved along with it for the sake
+    of the pupil fit, are not among them.
+    """
+    a = _system_newtonian
+    with_center = a._rayfunction_stops_center
+    outline = a.rayfunction_stops
+    axis_wire, axis_edge = a._axes_stops(outline)
+
+    assert na.shape(with_center)[axis_edge] == na.shape(outline)[axis_edge] + 1
+
+    # and it is the same solve, not a second one
+    kept = with_center.outputs[{axis_edge: slice(None, -1)}]
+    assert np.all(kept.position == outline.outputs.position)
+
+    # the extra sample sits inside the outline of the field
+    field, _ = a._field_and_pupil(with_center.outputs)
+    center = field[{axis_edge: -1}].mean(axis_wire)
+    edge = field[{axis_edge: slice(None, -1)}]
+    assert np.all(center.x > edge.x.min())
+    assert np.all(center.x < edge.x.max())
+    assert np.all(center.y > edge.y.min())
+    assert np.all(center.y < edge.y.max())
+
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[_system_newtonian, _system_grazing],
@@ -1197,7 +1224,7 @@ def test_pupil_fit_resolves_the_entrance_pupil_per_field(
     point, since the pupil of these systems walks across the field.
     """
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength)
+    stops = a._calc_rayfunction_stops(wavelength, center=True)
     fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
 
     # the field and pupil along the edge of both stops, in whichever of angle
@@ -1231,53 +1258,15 @@ def test_pupil_fit_resolves_the_entrance_pupil_per_field(
     assert np.all(width_center.y < width.y)
 
 
-def test_pupil_denormalization_falls_back_to_the_shared_box(monkeypatch):
+def test_pupil_of_the_center_of_the_field_is_measured_on_a_translated_object():
     """
-    When the pupil of the center of the field cannot be found, the pupil is
-    denormalized onto the box shared by every field point, as it was before
-    the pupil was resolved per field, instead of failing the raytrace.
-    """
-    # A copy of the shared system, so that the `pupil_fit` this test caches on
-    # it, which is the fallback and not a real calibration, does not leak into
-    # whichever test happens to run next.
-    a = dataclasses.replace(_system_newtonian)
+    The rays which find the pupil at the center of the field lie on the object
+    surface itself, even when it is translated along the axis, since the
+    entrance pupil is measured on the object.
 
-    def fail(*args, **kwargs):
-        raise optika.systems.StopSolveError(
-            "the pupil of this field point cannot be found"
-        )
-
-    monkeypatch.setattr(type(a), "_calc_rayfunction_pupil", fail)
-
-    wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength)
-    assert a._calc_pupil_fit(wavelength, stops) is None
-
-    # the pupil is the shared box, as it was before
-    grid = a.grid_input
-    result = a._denormalize_grid(grid)
-    pupil = a.pupil_boundary
-    axis = a.axis_stops
-    expected = pupil.ptp(axis) * (grid.pupil + 1) / 2 + pupil.min(axis)
-    assert np.allclose(result.pupil.x, expected.x)
-    assert np.allclose(result.pupil.y, expected.y)
-
-    # and the raytrace still runs on it
-    rays = a.raytrace(field=grid.field, pupil=grid.pupil, accumulate=False)
-    assert np.any(rays.outputs.unvignetted)
-
-
-def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
-    """
-    The rays which find the pupil of a field point are launched from the
-    object surface itself, even when it is translated along the axis, since
-    the entrance pupil is measured on the object.
-
-    A translated object used to leave them on the right lines but at the wrong
-    depth, which put the pupil of the center of the field out of line with the
-    pupil along its edge. What guarantees the depth now is that the solver
-    fixes each ray in the object's own coordinates and sets its z to the sag
-    there, so this pins the property rather than any one mechanism.
+    They are solved along with the rays which graze both stops and carried
+    back to the object with them, so this holds for the same reason it holds
+    for the outline of the field.
     """
     base = _system_newtonian
     shift = -500 * u.mm
@@ -1290,13 +1279,13 @@ def test_pupil_of_each_field_point_is_measured_on_a_translated_object():
     )
 
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength)
-    field = a.field_boundary.mean(a.axis_stops)
-    rays = a._calc_rayfunction_pupil(wavelength, field, rayfunction_stops=stops)
+    stops = a._calc_rayfunction_stops(wavelength, center=True)
+    axis_wire, axis_edge = a._axes_stops(stops)
+    center = stops.outputs[{axis_edge: -1}]
 
     # these come back in the object's own coordinates, as the stop rays do, so
     # carry them into the world's to say where the object actually is
-    position = a.object.transformation(rays.outputs.position)
+    position = a.object.transformation(center.position)
 
     assert np.allclose(position.z, shift)
 
@@ -1489,64 +1478,73 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
 
 def test_pupil_fit_is_anchored_independently_of_the_stop_sampling():
     """
-    The pupil the fit gives the center of the field does not depend on how
-    finely the stops were sampled to build it.
+    The interior sample the pupil fit is anchored on sits at the center of the
+    field however finely the stops are sampled, and the fit there is set by
+    that sample and not by how many there are along the edge.
 
-    The fit is anchored on one interior sample taken at the center of the
-    field. The wire of an aperture closes, so its last point repeats its
-    first, and averaging the wire to find that center leans toward the
-    repeated point by one part in `samples_field_stop`, which would leave the
-    anchor, and so the whole calibration, a function of a sampling parameter.
+    The wire of an aperture closes, so its last point repeats its first, and
+    averaging the wire to find its center leaned toward the repeated point by
+    one part in `samples_field_stop`. The center is the middle of the wire's
+    extent instead, so it is exact at every sampling.
+
+    The extent of the pupil found there is a separate matter: it is read off
+    a polygon with `samples_pupil_stop` vertices, like every other sample of
+    the fit, and a polygon too coarse to reach the pupil's extrema falls short
+    at the center exactly as it does along the edge. The two samplings
+    compared here both reach a circle's extrema; a 10-gon does not.
     """
     a = _system_newtonian
     wavelength = a.grid_input.wavelength
+    zero = optika.vectors.SceneVectorArray(
+        wavelength,
+        na.Cartesian2dVectorArray(0, 0) * na.unit(a.field_boundary.x),
+    )
 
-    def pupil_at_the_center_of_the_field(samples: int):
+    fits = {}
+    for samples in [11, 21, 41]:
         stops = a._calc_rayfunction_stops(
             wavelength_input=wavelength,
             samples_field_stop=samples,
             samples_pupil_stop=samples,
+            center=True,
         )
+
+        # the anchor is at the center of the field at every sampling
+        field, _ = a._field_and_pupil(stops.outputs)
+        axis_wire, axis_edge = a._axes_stops(stops)
+        center = field[{axis_edge: -1}].mean(axis_wire)
+        assert np.abs(center.x) < 1e-12 * na.unit(center.x)
+        assert np.abs(center.y) < 1e-12 * na.unit(center.y)
+
         fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
-        field = na.Cartesian2dVectorArray(0, 0) * na.unit(a.field_boundary.x)
-        x = optika.vectors.SceneVectorArray(wavelength, field)
-        return fit_min(x).outputs, fit_max(x).outputs
+        fits[samples] = fit_min(zero).outputs, fit_max(zero).outputs
 
-    lo_coarse, hi_coarse = pupil_at_the_center_of_the_field(11)
-    lo_fine, hi_fine = pupil_at_the_center_of_the_field(41)
-
+    lo_coarse, hi_coarse = fits[21]
+    lo_fine, hi_fine = fits[41]
     width = (hi_fine - lo_fine).length
     assert (lo_coarse - lo_fine).length < 1e-9 * width
     assert (hi_coarse - hi_fine).length < 1e-9 * width
 
 
-@pytest.mark.parametrize("stage", ["trace", "fit"])
-def test_pupil_calibration_does_not_swallow_an_unrelated_error(
-    monkeypatch,
-    stage: str,
-):
+def test_pupil_calibration_does_not_swallow_an_unrelated_error(monkeypatch):
     """
-    Only a solve which did not converge, or a design matrix which cannot be
-    inverted, falls back to the shared box.
+    Only a design matrix which cannot be inverted falls back to the shared
+    box.
 
-    Both fallbacks used to catch every :class:`ValueError`, which would turn a
+    The fallback used to catch every :class:`ValueError`, which would turn a
     system built wrong, or a mistake in the calibration itself, into a pupil
-    that silently stopped being resolved per field point, at either of the two
-    stages the calibration can fail at.
+    that silently stopped being resolved per field point.
     """
     a = dataclasses.replace(_system_newtonian)
 
     def fail(*args, **kwargs):
-        raise ValueError("this is neither of those")
+        raise ValueError("this is not a singular matrix")
 
-    if stage == "trace":
-        monkeypatch.setattr(type(a), "_calc_rayfunction_pupil", fail)
-    else:
-        monkeypatch.setattr(na.PolynomialFitFunctionArray, "from_degree", fail)
+    monkeypatch.setattr(na.PolynomialFitFunctionArray, "from_degree", fail)
 
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength)
-    with pytest.raises(ValueError, match="neither of those"):
+    stops = a._calc_rayfunction_stops(wavelength, center=True)
+    with pytest.raises(ValueError, match="not a singular matrix"):
         a._calc_pupil_fit(wavelength, stops)
 
 
@@ -1563,7 +1561,7 @@ def test_pupil_denormalization_falls_back_when_a_corner_is_not_a_number():
     a = dataclasses.replace(_system_newtonian)
 
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength)
+    stops = a._calc_rayfunction_stops(wavelength, center=True)
     fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
 
     # poison the fit so that it evaluates to NaN at every field point
@@ -1885,8 +1883,9 @@ def test_pupil_denormalization_falls_back_when_the_fit_is_singular():
     """
     A field stop whose outline is degenerate in one component leaves the
     least-squares fit of the pupil with a singular design matrix.  That is the
-    other way the calibration can fail, and like a field center which cannot
-    be traced it falls back to the box shared by every field point rather than
+    one way the calibration can fail on its own, since the rays through the
+    center of the field are solved along with the stops and fail only with
+    them, and it falls back to the box shared by every field point rather than
     failing a raytrace which the shared box would have carried out.
 
     The fit solves for its coefficients lazily, so forcing the solve is what
@@ -1907,8 +1906,17 @@ def test_pupil_denormalization_falls_back_when_the_fit_is_singular():
     )
 
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength)
+    stops = a._calc_rayfunction_stops(wavelength, center=True)
     assert a._calc_pupil_fit(wavelength, stops) is None
+
+    # the pupil is the shared box, as it was before the fit existed
+    grid = a.grid_input
+    result = a._denormalize_grid(grid)
+    pupil = a.pupil_boundary
+    axis = a.axis_stops
+    expected = pupil.ptp(axis) * (grid.pupil + 1) / 2 + pupil.min(axis)
+    assert np.allclose(result.pupil.x, expected.x)
+    assert np.allclose(result.pupil.y, expected.y)
 
     rays = a.raytrace(accumulate=False)
     assert np.any(rays.outputs.unvignetted)

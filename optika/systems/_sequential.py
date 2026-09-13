@@ -453,7 +453,6 @@ class AbstractSequentialSystem(
         grid_first: na.AbstractCartesian2dVectorArray,
         grid_last: na.AbstractCartesian2dVectorArray,
         wavelength: na.ScalarLike,
-        aim: None | na.AbstractCartesian3dVectorArray = None,
         hint: str = "",
     ) -> optika.rays.RayVectorArray:
         """
@@ -477,12 +476,6 @@ class AbstractSequentialSystem(
             The target grid, in the local coordinates of the last surface.
         wavelength
             The wavelength of the rays.
-        aim
-            The point, in global coordinates, to aim the initial guess of each
-            ray at.
-            If :obj:`None` (the default), each ray is aimed at its own target
-            point when no surface with optical power lies between the two
-            ends, and otherwise at the center of the first powered surface.
         hint
             Advice to append to the error raised if the solve does not
             converge. Two callers share this solve and what a user can do
@@ -543,21 +536,20 @@ class AbstractSequentialSystem(
         # surface, so that the root-finding starts inside its basin of
         # convergence even for surfaces far from the axis of the first
         # surface (e.g. an off-axis fold or feed mirror).
-        if aim is None:
-            anchor = self._anchor_surface(subsystem)
-            if anchor is surface_last and na.unit(grid_last).is_equivalent(u.mm):
-                aim = na.Cartesian3dVectorArray(
-                    x=grid_last.x,
-                    y=grid_last.y,
-                    z=0 * na.unit_normalized(grid_last.x),
-                )
-                aim.z = surface_last.sag(aim)
-                if surface_last.transformation is not None:
-                    aim = surface_last.transformation(aim)
-            else:
-                aim = na.Cartesian3dVectorArray() * u.mm
-                if anchor.transformation is not None:
-                    aim = anchor.transformation(aim)
+        anchor = self._anchor_surface(subsystem)
+        if anchor is surface_last and na.unit(grid_last).is_equivalent(u.mm):
+            aim = na.Cartesian3dVectorArray(
+                x=grid_last.x,
+                y=grid_last.y,
+                z=0 * na.unit_normalized(grid_last.x),
+            )
+            aim.z = surface_last.sag(aim)
+            if surface_last.transformation is not None:
+                aim = surface_last.transformation(aim)
+        else:
+            aim = na.Cartesian3dVectorArray() * u.mm
+            if anchor.transformation is not None:
+                aim = anchor.transformation(aim)
         if surface_first.transformation is not None:
             aim = surface_first.transformation.inverse(aim)
 
@@ -682,6 +674,7 @@ class AbstractSequentialSystem(
         axis_field_stop: str,
         samples_pupil_stop: int = 101,
         samples_field_stop: int = 101,
+        center: bool = False,
     ) -> optika.rays.RayFunctionArray:
         result = optika.rays.RayFunctionArray(
             inputs=optika.vectors.ObjectVectorArray(
@@ -733,12 +726,22 @@ class AbstractSequentialSystem(
             )
             grid_last = na.Cartesian2dVectorArray(grid_last.x, grid_last.y)
 
+            # The field stop's center rides along as one more sample on its
+            # wire.  The rays through it are the entrance pupil at the center
+            # of the field, which the per-field pupil fit needs to pin the
+            # pupil's size in the interior, and here they cost one sample of
+            # a solve between two adjacent stops instead of their own solve
+            # from the object through every surface between.
             if surface_first.is_pupil_stop:
                 indices_pupil_stop.pop(0)
+                if center:
+                    grid_last = self._with_center(grid_last, axis_field_stop)
                 result.inputs.pupil = grid_first
                 result.inputs.field = grid_last
             else:
                 indices_field_stop.pop(0)
+                if center:
+                    grid_first = self._with_center(grid_first, axis_pupil_stop)
                 result.inputs.field = grid_first
                 result.inputs.pupil = grid_last
 
@@ -765,7 +768,31 @@ class AbstractSequentialSystem(
         axis_field_stop: None | str = None,
         samples_pupil_stop: int = 21,
         samples_field_stop: int = 21,
+        center: bool = False,
     ) -> optika.rays.RayFunctionArray:
+        """
+        Solve for the rays which graze the edges of both stops, and carry them
+        back to the object surface.
+
+        Parameters
+        ----------
+        wavelength_input
+            The wavelengths to solve at.
+        axis_pupil_stop
+            The axis along the edge of the pupil stop.
+        axis_field_stop
+            The axis along the edge of the field stop.
+        samples_pupil_stop
+            The number of points along the edge of the pupil stop.
+        samples_field_stop
+            The number of points along the edge of the field stop.
+        center
+            Whether to add the center of the field stop as one more point
+            after the last along its edge.  The rays through it are the
+            entrance pupil at the center of the field, which
+            :meth:`_calc_pupil_fit` needs; they are not part of the field's
+            outline, so :attr:`rayfunction_stops` leaves them out.
+        """
         if axis_pupil_stop is None:
             axis_pupil_stop = self.axis_pupil_stop
         if axis_field_stop is None:
@@ -786,6 +813,7 @@ class AbstractSequentialSystem(
             axis_field_stop=axis_field_stop,
             samples_pupil_stop=samples_pupil_stop,
             samples_field_stop=samples_field_stop,
+            center=center,
         )
 
         result = rays_stop.copy_shallow()
@@ -838,6 +866,73 @@ class AbstractSequentialSystem(
     :attr:`axis_pupil_stop`.
     """
 
+    @staticmethod
+    def _with_center(
+        wire: na.AbstractCartesian2dVectorArray,
+        axis: str,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Append the center of a wire's extent to it as one more point.
+
+        Parameters
+        ----------
+        wire
+            The points along the edge of an aperture.
+        axis
+            The axis along that edge.
+        """
+        center = (wire.min(axis) + wire.max(axis)) / 2
+        center = center.broadcast_to(na.broadcast_shapes(na.shape(center), {axis: 1}))
+        return np.concatenate([wire, center], axis=axis)
+
+    def _axes_stops(
+        self,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+    ) -> tuple[tuple[str, ...], str]:
+        """
+        Tell the two stop axes of a set of stop rays apart.
+
+        The stop rays are swept along the two stop axes in the order the stops
+        appear in the system, not by which stop each belongs to, so the axis
+        along the edge of the pupil stop is found from the input pupil grid,
+        which is labeled by stop.
+
+        Returns
+        -------
+            The axes along the wire of the pupil stop, and the axis along the
+            edge of the field stop.
+        """
+        axis_stops = self.axis_stops
+        axis_wire = tuple(
+            ax for ax in axis_stops if ax in na.shape(rayfunction_stops.inputs.pupil)
+        )
+        (axis_edge,) = tuple(ax for ax in axis_stops if ax not in axis_wire)
+        return axis_wire, axis_edge
+
+    def _without_center(
+        self,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        Drop the center of the field stop from a set of stop rays solved with
+        it, leaving the outline of the field.
+        """
+        _, axis_edge = self._axes_stops(rayfunction_stops)
+        return rayfunction_stops[{axis_edge: slice(None, -1)}]
+
+    @functools.cached_property
+    def _rayfunction_stops_center(self) -> optika.rays.RayFunctionArray:
+        """
+        :attr:`rayfunction_stops` with one more sample after the last along
+        the edge of the field stop: the rays through its center.
+
+        :attr:`pupil_fit` needs them, and the stop solve finds them for the
+        price of one more sample.  They are kept apart from
+        :attr:`rayfunction_stops` because that is the outline of the field
+        and these lie inside it.
+        """
+        return self._calc_rayfunction_stops(self.grid_input.wavelength, center=True)
+
     @functools.cached_property
     def rayfunction_stops(self) -> optika.rays.RayFunctionArray:
         """
@@ -861,7 +956,7 @@ class AbstractSequentialSystem(
         Clear them with ``del system.rayfunction_stops`` and so on, in that
         order, if a system must be changed in place.
         """
-        return self._calc_rayfunction_stops(self.grid_input.wavelength)
+        return self._without_center(self._rayfunction_stops_center)
 
     def _wavelength_is_default(self, wavelength: na.ScalarLike) -> bool:
         """
@@ -900,7 +995,7 @@ class AbstractSequentialSystem(
         """
         return self._calc_pupil_fit(
             self.grid_input.wavelength,
-            self.rayfunction_stops,
+            self._rayfunction_stops_center,
         )
 
     def _stops_and_pupil_fit(
@@ -943,9 +1038,14 @@ class AbstractSequentialSystem(
             stops = self.rayfunction_stops
             return stops, self.pupil_fit if normalized_pupil else None
 
-        stops = self._calc_rayfunction_stops(wavelength)
-        fit = self._calc_pupil_fit(wavelength, stops) if normalized_pupil else None
-        return stops, fit
+        if not normalized_pupil:
+            return self._calc_rayfunction_stops(wavelength), None
+
+        # the fit wants the center of the field stop solved along with its
+        # edge, and the outline handed back wants it left out again
+        stops = self._calc_rayfunction_stops(wavelength, center=True)
+        fit = self._calc_pupil_fit(wavelength, stops)
+        return self._without_center(stops), fit
 
     @property
     def axis_stops(self) -> tuple[str, str]:
@@ -975,8 +1075,8 @@ class AbstractSequentialSystem(
         ----------
         rays
             Rays in the frame of the object surface, as
-            :meth:`_calc_rayfunction_stops` and :meth:`_calc_rayfunction_pupil`
-            return them.
+            :meth:`_calc_rayfunction_stops`
+            returns them.
 
         Returns
         -------
@@ -1080,112 +1180,6 @@ class AbstractSequentialSystem(
             y=na.linspace(-1, 1, axis="_pupil_y", num=12),
         )
 
-    def _calc_rayfunction_pupil(
-        self,
-        wavelength: na.ScalarLike,
-        field: na.AbstractCartesian2dVectorArray,
-        rayfunction_stops: None | optika.rays.RayFunctionArray = None,
-        samples_pupil_stop: int = 21,
-    ) -> optika.rays.RayFunctionArray:
-        """
-        Trace the rays from each of the given field points which graze the
-        edge of the pupil stop, to find the entrance pupil of every field
-        point.
-
-        The field is held fixed at each point and only the edge of the pupil
-        stop is swept, so unlike :attr:`rayfunction_stops`, which sweeps the
-        edges of both stops at once, the entrance pupil here is resolved as a
-        function of field instead of being collapsed into one bounding box
-        shared by every field point.
-
-        Parameters
-        ----------
-        wavelength
-            The wavelength of the rays.
-        field
-            The field points at which to find the entrance pupil, in angle if
-            the object is at infinity and in position if it is not.
-        rayfunction_stops
-            The result of :meth:`_calc_rayfunction_stops` on `wavelength`.
-            If given, and the object is at infinity, the solve is seeded at
-            the center of the entrance pupil it locates.
-        samples_pupil_stop
-            The number of points along the edge of the pupil stop.
-        """
-        surfaces = self.surfaces_all
-        subsystem = surfaces[: self.index_pupil_stop + 1]
-
-        pupil_stop = subsystem[~0]
-        grid_last = np.moveaxis(
-            a=pupil_stop.aperture.wire(num=samples_pupil_stop),
-            source="wire",
-            destination=self.axis_pupil_stop,
-        )
-        grid_last = na.Cartesian2dVectorArray(grid_last.x, grid_last.y)
-
-        # The field fixes one component of the ray leaving the object, and
-        # the solver finds the other: the position for an object at infinity,
-        # whose field is a direction, and the direction otherwise.
-        if self.object_is_at_infinity:
-            direction = optika.direction(field)
-            grid_first = na.Cartesian2dVectorArray(direction.x, direction.y)
-        else:
-            grid_first = na.Cartesian2dVectorArray(field.x, field.y)
-
-        # Seed the solve at the center of the entrance pupil of the whole
-        # system, which the stops locate, rather than at the first powered
-        # surface: for an off-axis system the pupil can sit far from the axis
-        # of that surface, outside the basin of convergence of a seed aimed
-        # there.  The pupil of any one field point walks only a fraction of
-        # the whole pupil away from its center, so every field point starts
-        # close to its own solution.
-        aim = None
-        if rayfunction_stops is not None and self.object_is_at_infinity:
-            aim = rayfunction_stops.outputs.position.mean(self.axis_stops)
-            # the stop rays are expressed in the object's local coordinates,
-            # while `_solve_rays` aims in global ones
-            obj = subsystem[0]
-            if obj.transformation is not None:
-                aim = obj.transformation(aim)
-
-        rays = self._solve_rays(
-            subsystem=subsystem,
-            grid_first=grid_first,
-            grid_last=grid_last,
-            wavelength=wavelength,
-            aim=aim,
-            hint=(
-                "This is the entrance pupil of one field point, which the "
-                "system falls back to a pupil shared by every field point "
-                "without."
-            ),
-        )
-
-        # `_calc_pupil_fit` fits these against samples taken from the stop
-        # rays, which `_calc_rayfunction_stops` expresses in the object's own
-        # coordinates.  Express these the same way, so that the two are
-        # measured in one frame; otherwise a rotated object trains the fit on
-        # a center sample taken at a different field point than the edges.
-        obj = subsystem[0]
-        if obj.transformation is not None:
-            rays = obj.transformation.inverse(rays)
-
-        # The solved component carries the pupil-stop axis and the fixed one
-        # only the field axes, so broadcast them against each other to keep
-        # reductions over either well-defined downstream.
-        shape = na.shape_broadcasted(rays.position, rays.direction)
-        rays.position = rays.position.broadcast_to(shape)
-        rays.direction = rays.direction.broadcast_to(shape)
-
-        return optika.rays.RayFunctionArray(
-            inputs=optika.vectors.ObjectVectorArray(
-                wavelength=wavelength,
-                field=field,
-                pupil=grid_last,
-            ),
-            outputs=rays,
-        )
-
     def _calc_pupil_fit(
         self,
         wavelength: na.ScalarLike,
@@ -1198,12 +1192,12 @@ class AbstractSequentialSystem(
         The entrance pupil of an off-axis system walks across the field, so
         the bounding box shared by every field point can be many times larger
         than the pupil of any one of them.  The rays which graze both stops
-        already resolve the pupil at every point along the edge of the field,
-        so those make up the bulk of the samples and cost nothing more.  One
-        more sample, at the center of the field, is traced explicitly: the
-        edge of a round field lies on a single conic, along which a quadratic
-        cannot tell a constant from a radial term, so a sample away from the
-        edge is what pins down the size of the pupil in the interior.
+        resolve the pupil at every point along the edge of the field, and the
+        rays through the center of the field stop, solved along with them,
+        resolve it at the center: the edge of a round field lies on a single
+        conic, along which a quadratic cannot tell a constant from a radial
+        term, so a sample away from the edge is what pins down the size of the
+        pupil in the interior.
 
         The fit depends on nothing but the wavelengths, so it is made once and
         evaluated at any field grid for free, which keeps the solves out of
@@ -1214,79 +1208,28 @@ class AbstractSequentialSystem(
         wavelength
             The wavelengths at which to calibrate the pupil.
         rayfunction_stops
-            The result of :meth:`_calc_rayfunction_stops` on `wavelength`.
+            The result of :meth:`_calc_rayfunction_stops` on `wavelength`
+            **with its center**, so that the last sample along the edge of the
+            field stop is the one through its center.  Without it the samples
+            all lie on one conic and the fit is singular.
 
         Returns
         -------
             The fits of the lower-left and upper-right corners of the pupil,
-            or :obj:`None` if the pupil of the center of the field could not
-            be found, in which case the box shared by every field point
-            should be used instead.
+            or :obj:`None` if the fit is singular, in which case the box
+            shared by every field point should be used instead.
         """
         field, pupil = self._field_and_pupil(rayfunction_stops.outputs)
+        axis_wire, axis_edge = self._axes_stops(rayfunction_stops)
 
-        # The stop grids are swept along the two stop axes in the order the
-        # stops appear in the system, not by which stop each belongs to, so
-        # find the axis along the edge of the pupil stop from the input pupil
-        # grid, which is labeled by stop.
-        axis_stops = self.axis_stops
-        axis_wire = tuple(
-            ax for ax in axis_stops if ax in na.shape(rayfunction_stops.inputs.pupil)
-        )
-        (axis_edge,) = tuple(ax for ax in axis_stops if ax not in axis_wire)
-
-        # the field is constant along the edge of the pupil stop
-        field_edge = field.mean(axis_wire)
-        pupil_min_edge = pupil.min(axis_wire)
-        pupil_max_edge = pupil.max(axis_wire)
-
-        # One more sample at the center of the field, traced explicitly.
-        # The center is the middle of the field's extent and not the mean of
-        # these samples: the wire of an aperture closes, so its last point
-        # repeats its first, and averaging it leans toward that point by one
-        # part in `samples_field_stop`. That would make the sample the whole
-        # fit is anchored on depend on how finely the stop was sampled.
-        field_center = (field_edge.min(axis_edge) + field_edge.max(axis_edge)) / 2
-        try:
-            rays_center = self._calc_rayfunction_pupil(
-                wavelength=wavelength,
-                field=field_center,
-                rayfunction_stops=rayfunction_stops,
-            ).outputs
-        except StopSolveError:
-            # The pupil of the center of the field could not be found, so
-            # there is nothing to fit.  The caller then falls back to the box
-            # shared by every field point, which is never worse than before
-            # this fit existed, rather than failing a raytrace which the
-            # shared box would have carried out.
-            return None
-        _, pupil_center = self._field_and_pupil(rays_center)
-        axis_pupil = self.axis_pupil_stop
-        pupil_min_center = pupil_center.min(axis_pupil)
-        pupil_max_center = pupil_center.max(axis_pupil)
-
-        # The samples along the edge come from rays which pass both stops,
-        # but the one at the center traces only the pupil stop, so in a
-        # system limited by its field stop instead the two disagree, and a
-        # polynomial forced through them overshoots between.  No field point
-        # can accept more than the union of every ray which passes both
-        # stops, so hold the center sample to that bound before fitting, the
-        # same bound the fit is held to wherever it is evaluated.
-        pupil_min_center = np.maximum(pupil_min_center, pupil.min(axis_stops))
-        pupil_max_center = np.minimum(pupil_max_center, pupil.max(axis_stops))
-
-        # join the samples along the edge of the field with the one at its
-        # center, along the axis of the edge
-        def join(
-            edge: na.AbstractCartesian2dVectorArray,
-            center: na.AbstractCartesian2dVectorArray,
-        ) -> na.AbstractCartesian2dVectorArray:
-            shape = na.broadcast_shapes(na.shape(center), {axis_edge: 1})
-            return np.concatenate([edge, center.broadcast_to(shape)], axis=axis_edge)
-
-        field = join(field_edge, field_center)
-        pupil_min = join(pupil_min_edge, pupil_min_center)
-        pupil_max = join(pupil_max_edge, pupil_max_center)
+        # One sample per point along the edge of the field stop, and one for
+        # its center, which is the last.  The field is constant along the wire
+        # of the pupil stop, and the pupil's extent along it is the pupil at
+        # that field point.  Every one of these rays passes both stops, the
+        # center included, so none needs holding to the shared box.
+        field = field.mean(axis_wire)
+        pupil_min = pupil.min(axis_wire)
+        pupil_max = pupil.max(axis_wire)
 
         # The wavelength is carried along as a plain broadcast axis, since the
         # fit is only ever evaluated at the wavelengths it was made at, so the
@@ -1311,8 +1254,7 @@ class AbstractSequentialSystem(
             # The least-squares solve is deferred until the coefficients are
             # first read, which would put it outside this method and defeat
             # the fallback below.  Force it here, so that a design matrix
-            # which turns out to be singular falls back to the shared box in
-            # the same way as a field center which cannot be traced.
+            # which turns out to be singular falls back to the shared box.
             result.coefficients
             return result
 
