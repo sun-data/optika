@@ -8,9 +8,13 @@ field of view and entrance pupil of an optical system (see
 :attr:`~optika.systems.AbstractSequentialSystem.pupil_min`, and
 :attr:`~optika.systems.AbstractSequentialSystem.pupil_max`).
 Unlike Zemax, the user never has to specify the extent of the field or pupil.
-This page describes the strategy :mod:`optika` uses to discover that extent and
-to sample the field and pupil for imaging, since the strategy spans several
-methods and the reasoning behind it is easy to lose.
+This page describes how :mod:`optika` discovers that extent and samples the
+field and pupil for imaging, since the machinery spans several methods and the
+reasoning behind it is easy to lose.
+
+Every private method named on this page is defined on
+:class:`~optika.systems.AbstractSequentialSystem`, in
+``optika/systems/_sequential.py``.
 
 
 Overview
@@ -27,15 +31,15 @@ A surface is marked as a stop by setting ``is_field_stop=True`` or
 both stops, so a ray that grazes the *border* of one stop while passing through
 a chosen point of the other traces out the boundary of the accepted light. This
 is what :attr:`~optika.systems.AbstractSequentialSystem.rayfunction_stops`
-returns: a :class:`~optika.rays.RayFunctionArray`, defined on the first surface
-of the system, whose rays are constructed to strike prescribed points on both
-the field stop and the pupil stop. The field of view, the entrance pupil, and
-the sampling of rays used for image simulation are all derived from it.
+holds: a :class:`~optika.rays.RayFunctionArray` of the rays which graze the
+border of both stops, carried back to the object surface and expressed in its
+frame. The field of view, the entrance pupil, and the sampling of rays used for
+image simulation are all derived from it.
 
-The difficulty is that a ray is launched from the *first* surface, but the
-constraints live on the *stop* surfaces further downstream. There is no
-closed-form expression for the launch coordinate that lands a ray on a given
-point of a given stop, so the launch coordinate is found by root-finding.
+The difficulty is that there is no closed-form expression for the ray which
+connects a given point of one stop to a given point of the other, so those rays
+are found by root-finding. The solve runs between the two stops only; the rays
+are then carried back to the object by ordinary propagation.
 
 
 Two principles
@@ -85,7 +89,7 @@ connect those object-space coordinates to the physical stop surfaces.
 Input coordinates
 -----------------
 
-A stop ray is labelled by three input coordinates, gathered together in an
+A ray is labeled by three input coordinates, gathered together in an
 :class:`~optika.vectors.ObjectVectorArray`:
 
 ``wavelength``
@@ -94,10 +98,14 @@ A stop ray is labelled by three input coordinates, gathered together in an
     different wavelengths differently.
 
 ``field``
-    A two-dimensional coordinate locating the ray on the field stop.
+    The ray's object point: a direction if the object is at infinity, and a
+    position on the object surface otherwise.
 
 ``pupil``
-    A two-dimensional coordinate locating the ray on the pupil stop.
+    The ray's coordinate on the entrance pupil, in the same frame: a position
+    on the object surface if the object is at infinity, and a direction
+    otherwise. Field and pupil swap roles with object distance because they
+    are conjugate.
 
 Both ``field`` and ``pupil`` may be given in either **normalized** or
 **physical** units, and the units alone tell :mod:`optika` how to interpret
@@ -112,11 +120,13 @@ them:
       - Interpretation
     * - dimensionless
       - normalized
-      - A value in :math:`[-1, 1]`, denormalized against the bounding box of
-        the relevant stop's aperture.
+      - A value in :math:`[-1, 1]`, mapped onto the field of view (for a
+        field) or onto the entrance pupil of that field point (for a pupil),
+        both read off
+        :attr:`~optika.systems.AbstractSequentialSystem.rayfunction_stops`.
     * - length (e.g. ``mm``)
       - physical position
-      - A position on the relevant surface.
+      - A position on the object surface.
     * - angle (e.g. ``deg``)
       - physical direction
       - A direction, converted to direction cosines with
@@ -133,24 +143,21 @@ which of position and direction the field is.
 The two-point ray solve
 -----------------------
 
-The core primitive is the private method ``_solve_rays``. Given a
-``subsystem`` (a contiguous slice of the system's surfaces), a wavelength, a
-grid ``grid_first`` on the first surface, and a grid ``grid_last`` on the last
-surface, it finds the launch ray that connects them. Both grids are given in
-*physical* units; denormalizing a normalized stop coordinate against its
-aperture is the caller's job, so at this boundary a dimensionless grid is an
-unambiguous direction cosine rather than a normalized coordinate.
+The core primitive is ``_solve_rays``. Given a ``subsystem`` (a contiguous
+slice of the system's surfaces), a wavelength, a grid ``grid_first`` on the
+first surface, and a grid ``grid_last`` on the last surface, it finds the
+launch ray that connects them. Both grids are given in *physical* units, in
+the local frame of their own surface; at this boundary a dimensionless grid is
+an unambiguous direction cosine rather than a normalized coordinate.
 
 A ray leaving the first surface has two degrees of freedom that are *not*
 pinned by ``grid_first``. If ``grid_first`` is a **position**, the free degrees
 of freedom are the launch **direction**; if ``grid_first`` is a **direction**,
 they are the launch **position**. ``_solve_rays`` reads which case applies from
-the units of ``grid_first`` (length means position, angle or dimensionless
-direction cosine means direction), builds a
-:class:`~optika.rays.RayVectorArray` with the fixed coordinate filled in, and
-solves for the free coordinate so that the ray lands on ``grid_last`` at the
-last surface. The residual whose root is sought is the miss distance at the
-last surface,
+the units of ``grid_first``, builds a :class:`~optika.rays.RayVectorArray` with
+the fixed coordinate filled in, and solves for the free coordinate so that the
+ray lands on ``grid_last`` at the last surface. The residual whose root is
+sought is the miss distance at the last surface,
 
 .. math::
 
@@ -163,22 +170,20 @@ position, its direction if ``grid_last`` is a direction). This residual is
 evaluated by ``_ray_error`` and driven to zero with
 :func:`named_arrays.optimize.root_newton`.
 
-Because ``grid_last`` may itself be either a position or a direction, the same
-routine works in either direction along the system. In particular, running it
-with the subsystem reversed and an angular ``grid_last`` back-traces rays to a
-target *direction* on an object at infinity, which is how the field extent on
-the object plane is recovered.
+Because either grid may be a position or a direction, the same routine serves
+whichever of the two stops comes first in the system, and whether the launch
+surface is an internal stop or the object itself with an angular aperture.
 
 Two details make the solve robust across systems of wildly different physical
 scale:
 
 * **Seeding.** The initial guess aims each ray from the first surface toward a
-  sensible target: directly at its point on the last surface when no surface
-  with optical power lies in between (the guess is then nearly exact), and
-  otherwise at the center of the first powered surface (a mirror, a curved sag,
-  or a ruled surface, found by ``_anchor_surface``). This keeps the guess
-  inside the basin of convergence even for strongly off-axis feed or fold
-  mirrors.
+  sensible target, found by ``_aim_point``: directly at its point on the last
+  surface when no surface with optical power lies in between (the guess is
+  then nearly exact), and otherwise at the center of the first powered surface
+  (a mirror, a curved sag, or a ruled surface, found by ``_anchor_surface``).
+  This keeps the guess inside the basin of convergence even for strongly
+  off-axis feed or fold mirrors.
 
 * **Scaling.** Both the convergence tolerance and the finite-difference step
   used to estimate the Jacobian are scaled by the size of the target aperture,
@@ -187,85 +192,76 @@ scale:
   :func:`named_arrays.jacobian` is otherwise below the floating-point noise
   floor of the raytrace and yields a Jacobian made of noise.
 
-``_solve_rays`` returns the launch rays *at the first surface* (in global
-coordinates), with both the given and the solved coordinate filled in, so that
+``_solve_rays`` returns the launch rays *at the first surface*, in global
+coordinates, with both the given and the solved coordinate filled in, so that
 propagating them through the subsystem reproduces ``grid_last``.
 
 
 The strategy
 ------------
 
-The two principles rule out computing a single global field box and a single
-global pupil box, because the entrance-pupil extent depends on field. Instead
-the field of view and the per-field entrance pupil are calibrated in stages,
-and the expensive root-finding is confined to a coarse grid.
+The field of view and the entrance pupil are calibrated in four stages, and
+only the first of them does any root-finding.
 
-**1. Field extent on the object plane.**
-    A small number of rays connecting the field-stop border to the pupil-stop
-    border are traced back to the object plane, and their extent gives the
-    field of view. This is the object-plane field domain that every later stage
-    samples within.
+**1. Connect the stops.**
+    ``_calc_rayfunction_stops_only`` makes one call to ``_solve_rays`` per
+    wavelength, connecting every point on the *wire* (border) of the pupil
+    stop to every point on the wire of the field stop, plus one more point at
+    the field stop's center. Only the wires are needed: the boundary of a stop
+    maps to the boundary of the accepted light. The center of the field stop
+    is a point on that stop like any on its wire, so it rides through the
+    same solve as one more sample and costs a fraction of it; the fit in stage
+    3 needs it.
 
-**2. Per-field entrance-pupil extent.**
-    The object surface is treated as the field stop, and a *coarse* grid of
-    field directions, sampled evenly across the field of view from stage 1, is
-    connected to every point on the *wire* (border) of the pupil stop with
-    ``_solve_rays``. Only the wire is needed: it is the boundary of the pupil
-    stop, so its image on the entrance pupil is the boundary of the entrance
-    pupil, and the minimum and maximum of those positions give a per-field
-    entrance-pupil bounding box. This is the stage that captures the
-    field dependence of the pupil (the pupil distortion), and it is the only
-    stage that pays for dense root-finding, kept affordable by using a coarse
-    field grid and only the one-dimensional pupil-stop wire.
+**2. Carry the rays to the object.**
+    ``_calc_rayfunction_stops`` propagates the solved rays back through the
+    surfaces before the first stop to the object surface, with no further
+    root-finding, and expresses them in the object surface's frame. The
+    direction is flipped there so that the rays point into the system. This
+    is :attr:`~optika.systems.AbstractSequentialSystem.rayfunction_stops`,
+    less the center sample, which is kept in
+    ``_rayfunction_stops_with_center`` for stage 3 since it is not part of the
+    field's outline. :attr:`~optika.systems.AbstractSequentialSystem.field_min`
+    and the other three corners are reductions of these rays over both stop
+    axes.
 
-**3. Interpolation.**
-    The per-field bounding box from stage 2 is a smooth function of field (it is
-    the pupil distortion), so it is fit on the coarse field grid and
-    interpolated onto the dense field grid, in the same spirit as
-    :class:`~optika.distortion.PolynomialDistortionModel` and the vignetting
-    models. The coarse grid must be fine enough to resolve the distortion, not
-    the scene.
+**3. Fit the entrance pupil per field point.**
+    ``_calc_pupil_fit`` fits the corners of the entrance pupil as quadratics
+    in field, from the samples along the field's edge and the one at its
+    center. The next section says why.
 
-**4. Dense forward trace.**
-    For image simulation, each dense ray is fully specified in object space: its
-    direction is an object-plane field angle, and its position is a normalized
-    pupil coordinate mapped onto the interpolated per-field entrance-pupil box.
-    Both coordinates are known without any root-finding, so the dense pass is a
-    pure *forward* trace through the system. This is what keeps a
+**4. Denormalize.**
+    ``_denormalize_grid`` maps a normalized field onto the field of view and a
+    normalized pupil onto each field point's fitted pupil, so that every ray of
+    a dense grid is fully specified in object space and the dense pass through
+    the system is a pure *forward* trace. This is what keeps a
     :math:`1000 \times 1000` field affordable: the Newton solves live entirely
-    in the coarse calibration of stage 2, never in the dense grid.
+    in stage 1, never in the dense grid.
 
 Because a uniform grid on the entrance-pupil box is equal-area in the plane
-where the wavefront is uniform, the vignetted fraction of that grid (with the
-``where`` keyword marking the surviving rays) is the vignetting directly, with
-no Jacobian weight. The axis-aligned bounding box slightly over-covers a
-rotated or astigmatic entrance pupil, but the excess samples fall outside the
-aperture and are removed by vignetting, so the result is correct if marginally
-less sample-efficient.
+where the wavefront is uniform, the vignetted fraction of that grid is the
+vignetting directly, with no Jacobian weight. The axis-aligned box slightly
+over-covers a rotated or astigmatic entrance pupil, but the excess samples fall
+outside the aperture and are removed by vignetting, so the result is correct if
+marginally less sample-efficient.
 
 
 The object as the field stop
 ----------------------------
 
-Stage 2 relies on being able to mark the **object surface itself** as the field
-stop, with an angular (dimensionless, sine-of-half-angle) aperture. The
-``field`` coordinate is then a direction on the object plane rather than a
-position on an internal surface, which is exactly the object-plane anchoring the
-first principle requires. It is also the only workable option in two common
-cases where an internal field stop has no solution:
+The object surface may itself be marked as the field stop, with an angular
+(dimensionless, sine-of-half-angle) aperture. The ``field`` coordinate is then
+a direction on the object plane, which is exactly the object-plane anchoring
+the first principle requires, and stage 2 has nothing to carry back. It is also
+the only workable option for a **spectrograph** whose field stop is the
+detector: a single wavelength illuminates only part of the detector, so
+connecting the *border* of the detector to the pupil stop has no solution at
+that wavelength. When ``_solve_rays`` cannot connect an internal field stop, the
+error it raises points the user toward this option.
 
-* **Spectrographs**, where the field stop is the detector. A single wavelength
-  illuminates only part of the detector, so connecting the *border* of the
-  detector to the pupil stop has no solution at that wavelength.
-
-* **Systems with a tiny entrance aperture**, where a single global pupil box,
-  back-projected to the object, misses the feed optic for most field angles.
-
-When ``_solve_rays`` cannot connect an internal field stop at a single
-wavelength, the raised error points the user toward this option. Whether the
-object is treated as being at infinity is inferred from the units of its
-aperture: a length aperture is a finite object, a dimensionless aperture is an
-object at infinity (see
+Whether the object is treated as being at infinity is inferred from the units
+of its aperture: a length aperture is a finite object, a dimensionless aperture
+is an object at infinity (see
 :attr:`~optika.systems.AbstractSequentialSystem.object_is_at_infinity`).
 
 
@@ -302,88 +298,72 @@ drawn uniformly in it are then mostly outside the pupil of the field point
 they belong to, and are thrown away at the stop.
 
 ``_calc_pupil_fit`` calibrates the pupil per field point instead. It fits a
-quadratic in the field to the corners of the pupil, using the samples along
-the edge of the field stop plus one at its center, and ``_denormalize_grid``
-evaluates that fit at each field point being traced.
-
-The center is not traced on its own. The center of the field stop is one more
-point on that stop, so it rides through the same solve between the two stops
-as one more sample on the field stop's wire, and is carried back to the object
-with the rest. That costs a fraction of a solve between two adjacent surfaces,
-where a trace of its own from the object had to work through every surface
-between and, on ESIS, took four times as long as the whole stop solve. The
-sample is left out of ``rayfunction_stops``, which is the outline of the field,
-and kept in ``_rayfunction_stops_center``, which the fit reads.
+quadratic in the field to the lower-left and upper-right corners of the pupil,
+using the samples along the edge of the field stop plus the one at its center,
+and ``_denormalize_grid`` evaluates that fit at each field point being traced.
+The center sample matters because the edge of a round field lies on a single
+conic, along which a quadratic cannot tell a constant from a radial term; a
+sample away from the edge is what pins down the size of the pupil in the
+interior.
 
 Two things keep it honest:
 
-* The fitted box is clipped to the box shared by every field point, so a fit
-  which extrapolates cannot send rays outside the pupil the stops actually
-  admit.
+* Each field point's fitted box is held inside the box shared by every field
+  point, so a fit which extrapolates cannot send rays outside the pupil the
+  stops actually admit. Where the held box collapses, inverts, or is not a
+  number, which a system limited by its field stop rather than its pupil stop
+  can make it, that field point takes the shared box instead.
 
-* Where the clipped box inverts, the shared box is used instead.
-
-* If the fit is singular, which a field stop degenerate in one component
-  makes it, the whole calibration returns :obj:`None` and the shared box is
-  used. This is never worse than not having the fit at all.
+* If the fit is singular, which a field stop degenerate in one component makes
+  it, the whole calibration returns :obj:`None` and every field point takes
+  the shared box. This is never worse than not having the fit at all.
 
 The fit is in the field alone; the wavelength rides along as a broadcast axis,
 since the fit is only ever evaluated at the wavelengths it was made at. It is
 cached on the system, along with the stop rays it is built from, because both
 depend on nothing but the wavelength.
 
+One consequence for :meth:`~optika.systems.AbstractSequentialSystem.area_effective`:
+it draws each ray at a random position inside its field cell, and once the
+pupil is resolved per field point its box is no larger than the pupil, so the
+box at the center of a cell would clip the rays drawn toward the cell's edges
+by however far the pupil walks across one cell. Each cell is therefore given
+the union of the boxes at its vertices, by ``_pupil_over_field_cells``.
 
-Conventions and assumptions
----------------------------
 
-A few conventions are load-bearing and worth stating explicitly:
+Frames
+------
 
-* **Dimensionless means normalized at the system input, and a direction cosine
-  inside the solve.** A ``field`` or ``pupil`` grid supplied to the system is
-  interpreted as normalized when it is dimensionless (see the table above).
-  Denormalization happens before ``_solve_rays`` is called, so once inside the
-  solve a dimensionless grid is unambiguously a physical direction cosine.
+Every grid and every set of rays belongs to a stated frame, and mixing two of
+them is the most common way to get a wrong answer here. Four conventions are in
+play, and each is load-bearing:
 
-* **The pupil is measured in an object-space plane.** The entrance-pupil extent
-  and the sampling grid live on the entrance pupil, not on the pupil stop.
-  Measuring on the pupil stop would reintroduce the distortion bias the second
-  principle exists to avoid.
+* A grid produced from an aperture is in **that surface's own frame**, since
+  an aperture and a sag are only defined there.
 
-* **Every grid and every set of rays belongs to a stated frame, and mixing two
-  of them is the most common way to get a wrong answer here.** Three
-  conventions are in play, and each is load-bearing:
+* ``_solve_rays`` takes its launch grid in the launch surface's frame and
+  returns the solved rays in the **global** frame, converting once at each
+  end.
 
-  * A grid produced by denormalizing an aperture is in **that surface's own
-    frame**, since an aperture and a sag are only defined there.
+* ``_calc_rayfunction_stops`` returns its rays in the **object surface's**
+  frame, because that is the frame in which the field and pupil of an input
+  grid are read. The entrance pupil is fit from those rays alone, edge and
+  center together, so its samples cannot disagree about the frame.
 
-  * ``_solve_rays`` takes its launch grid in the launch surface's frame and
-    returns the solved rays in the **global** frame, converting once at each
-    end.
+* :meth:`~optika.systems.AbstractSequentialSystem.rayfunction` returns its
+  rays in the **sensor's** frame, which is the sensor's own transformation
+  with the system's
+  :attr:`~optika.systems.SequentialSystem.transformation` composed on top,
+  since that is where ``surfaces_all`` places the sensor. Its counterpart
+  :meth:`~optika.systems.AbstractSequentialSystem.raytrace` returns global
+  rays instead.
 
-  * ``_calc_rayfunction_stops`` returns its rays in the **object surface's**
-    frame, because that is the frame in which ``_calc_rayfunction_input``
-    reads the field and pupil of the input grid. The entrance pupil is fit
-    from those rays alone, edge and center together, so its samples cannot
-    disagree about the frame.
-
-  * :meth:`~optika.systems.AbstractSequentialSystem.rayfunction` returns its
-    rays in the **sensor's** frame, which is the sensor's own transformation
-    with the system's
-    :attr:`~optika.systems.SequentialSystem.transformation` composed on top,
-    since that is where ``surfaces_all`` places the sensor.  Its counterpart
-    :meth:`~optika.systems.AbstractSequentialSystem.raytrace` returns global
-    rays instead.
-
-  Nothing in the type system enforces any of this, so a function which takes
-  or returns rays should say which frame they are in.  What does enforce it is
-  ``test_rayfunction_is_invariant_under_a_rigid_motion``, which moves every
-  surface of a system together.  That describes the same instrument in a
-  different frame, so nothing the system reports may change; a quantity
-  measured in the global frame by mistake moves with the motion and fails.
-  Building a system at an angle on purpose does not test this, because tilting
-  one surface changes the instrument and can stop any light reaching the
-  sensor, which no amount of broken frame handling would then make worse.
-
-* **Angles are direction cosines.** :func:`~optika.direction` and
-  :func:`~optika.angles` convert between a pair of azimuth/elevation angles and
-  a three-dimensional direction cosine, and are inverses of each other.
+Nothing in the type system enforces any of this, so a function which takes or
+returns rays should say which frame they are in. What does enforce it is
+``test_rayfunction_is_invariant_under_a_rigid_motion``, which moves every
+surface of a system together. That describes the same instrument in a
+different frame, so nothing the system reports may change; a quantity measured
+in the global frame by mistake moves with the motion and fails. Building a
+system at an angle on purpose does not test this, because tilting one surface
+changes the instrument and can stop any light reaching the sensor, which no
+amount of broken frame handling would then make worse.

@@ -1481,9 +1481,8 @@ class AbstractSequentialSystem(
         Computes the rays in local coordinates at the last surface in the system
         as a function of input wavelength and position using :attr:`grid_input`.
 
-        This property is cached to increase performance.  See
-        :attr:`rayfunction_stops` for what invalidates it and for the other
-        caches which go with it.
+        Cached; see the notes on :class:`AbstractSequentialSystem` before
+        changing a system in place.
         """
         return self.rayfunction()
 
@@ -1787,11 +1786,8 @@ class AbstractSequentialSystem(
         Field points with no unvignetted rays are excluded from the fit and
         from the normalization.
 
-        The weight matters because the entrance pupil is resolved per field
-        position rather than shared, so two positions which pass the same
-        fraction of their own pupil need not collect the same light. Without
-        it this model and :meth:`area_effective` could not be multiplied
-        together except where every pupil happens to be the same size.
+        The weight is what lets this model and :meth:`area_effective` be
+        multiplied together; see the latter for why.
 
         Parameters
         ----------
