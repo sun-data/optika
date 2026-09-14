@@ -1190,9 +1190,9 @@ def test_rayfunction_stops_leaves_out_the_center_it_was_solved_with():
     of the pupil fit, are not among them.
     """
     a = _system_newtonian
-    with_center = a._rayfunction_stops_center
+    with_center = a._rayfunction_stops_with_center
     outline = a.rayfunction_stops
-    axis_wire, axis_edge = a._axes_stops(outline)
+    axis_wire, axis_edge = a.axis_pupil_stop, a.axis_field_stop
 
     assert na.shape(with_center)[axis_edge] == na.shape(outline)[axis_edge] + 1
 
@@ -1224,7 +1224,7 @@ def test_pupil_fit_resolves_the_entrance_pupil_per_field(
     point, since the pupil of these systems walks across the field.
     """
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength, center=True)
+    stops = a._calc_rayfunction_stops(wavelength)
     fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
 
     # the field and pupil along the edge of both stops, in whichever of angle
@@ -1234,8 +1234,8 @@ def test_pupil_fit_resolves_the_entrance_pupil_per_field(
 
     # the axis along the edge of the pupil stop, whichever stop axis the pupil
     # grid was swept over
-    axis_wire = tuple(ax for ax in a.axis_stops if ax in na.shape(stops.inputs.pupil))
-    axis_edge = tuple(ax for ax in a.axis_stops if ax not in axis_wire)
+    axis_wire = a.axis_pupil_stop
+    axis_edge = a.axis_field_stop
 
     width = pupil.max(a.axis_stops) - pupil.min(a.axis_stops)
     tolerance = 1e-5 * width
@@ -1279,8 +1279,8 @@ def test_pupil_of_the_center_of_the_field_is_measured_on_a_translated_object():
     )
 
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength, center=True)
-    axis_wire, axis_edge = a._axes_stops(stops)
+    stops = a._calc_rayfunction_stops(wavelength)
+    axis_edge = a.axis_field_stop
     center = stops.outputs[{axis_edge: -1}]
 
     # these come back in the object's own coordinates, as the stop rays do, so
@@ -1413,8 +1413,7 @@ def test_a_physical_pupil_at_a_new_wavelength_skips_the_pupil_fit(monkeypatch):
     """
     A grid whose pupil is already physical has no use for the entrance pupil
     fit, so at a wavelength the caches were not built for only the stops are
-    solved, and without the sample at the center of the field which only the
-    fit would have read.
+    solved.
     """
     a = dataclasses.replace(_system_newtonian)
     wavelength = 1.01 * a.grid_input.wavelength
@@ -1431,7 +1430,7 @@ def test_a_physical_pupil_at_a_new_wavelength_skips_the_pupil_fit(monkeypatch):
     assert fit is None
 
     # the outline alone, as many samples as the outline the system exposes
-    _, axis_edge = a._axes_stops(stops)
+    axis_edge = a.axis_field_stop
     assert na.shape(stops)[axis_edge] == na.shape(a.rayfunction_stops)[axis_edge]
 
     # and the same holds all the way through a raytrace
@@ -1546,12 +1545,11 @@ def test_pupil_fit_is_anchored_independently_of_the_stop_sampling():
             wavelength_input=wavelength,
             samples_field_stop=samples,
             samples_pupil_stop=samples,
-            center=True,
         )
 
         # the anchor is at the center of the field at every sampling
         field, _ = a._field_and_pupil(stops.outputs)
-        axis_wire, axis_edge = a._axes_stops(stops)
+        axis_wire, axis_edge = a.axis_pupil_stop, a.axis_field_stop
         center = field[{axis_edge: -1}].mean(axis_wire)
         assert np.abs(center.x) < 1e-12 * na.unit(center.x)
         assert np.abs(center.y) < 1e-12 * na.unit(center.y)
@@ -1583,7 +1581,7 @@ def test_pupil_calibration_does_not_swallow_an_unrelated_error(monkeypatch):
     monkeypatch.setattr(na.PolynomialFitFunctionArray, "from_degree", fail)
 
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength, center=True)
+    stops = a._calc_rayfunction_stops(wavelength)
     with pytest.raises(ValueError, match="not a singular matrix"):
         a._calc_pupil_fit(wavelength, stops)
 
@@ -1601,7 +1599,7 @@ def test_pupil_denormalization_falls_back_when_a_corner_is_not_a_number():
     a = dataclasses.replace(_system_newtonian)
 
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength, center=True)
+    stops = a._calc_rayfunction_stops(wavelength)
     fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
 
     # poison the fit so that it evaluates to NaN at every field point
@@ -1946,7 +1944,7 @@ def test_pupil_denormalization_falls_back_when_the_fit_is_singular():
     )
 
     wavelength = a.grid_input.wavelength
-    stops = a._calc_rayfunction_stops(wavelength, center=True)
+    stops = a._calc_rayfunction_stops(wavelength)
     assert a._calc_pupil_fit(wavelength, stops) is None
 
     # the pupil is the shared box, as it was before the fit existed
