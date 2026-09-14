@@ -205,6 +205,34 @@ class AbstractSequentialSystem(
         in :attr:`shape`, :attr:`axis_wavelength`, and :attr:`axis_field`.
         """
 
+    axis_pupil_stop: ClassVar[str] = "_stop_pupil"
+    """
+    The axis along the edge of the pupil stop.
+
+    This system names the axis rather than taking a name for it, since it is
+    swept internally and not by the caller. The leading underscore marks it as
+    such, and keeps it from colliding with an axis somebody else named.
+    """
+
+    axis_field_stop: ClassVar[str] = "_stop_field"
+    """
+    The axis along the edge of the field stop.
+
+    Named by this system, in the same way and for the same reason as
+    :attr:`axis_pupil_stop`.
+    """
+
+    @property
+    def axis_stops(self) -> tuple[str, str]:
+        """
+        The axes along the edges of the two stop surfaces.
+
+        These are the axes of :attr:`field_boundary` and
+        :attr:`pupil_boundary`, and so the ones to reduce over to turn either
+        outline into a measurement of the system.
+        """
+        return (self.axis_field_stop, self.axis_pupil_stop)
+
     def _normalize_axis_wavelength(
         self,
         axis_wavelength: None | str,
@@ -840,23 +868,6 @@ class AbstractSequentialSystem(
 
         return result
 
-    axis_pupil_stop: ClassVar[str] = "_stop_pupil"
-    """
-    The axis along the edge of the pupil stop.
-
-    This system names the axis rather than taking a name for it, since it is
-    swept internally and not by the caller. The leading underscore marks it as
-    such, and keeps it from colliding with an axis somebody else named.
-    """
-
-    axis_field_stop: ClassVar[str] = "_stop_field"
-    """
-    The axis along the edge of the field stop.
-
-    Named by this system, in the same way and for the same reason as
-    :attr:`axis_pupil_stop`.
-    """
-
     @functools.cached_property
     def rayfunction_stops(self) -> optika.rays.RayFunctionArray:
         """
@@ -929,9 +940,11 @@ class AbstractSequentialSystem(
         if self._wavelength_is_default(wavelength):
             return self.rayfunction_stops, self.pupil_fit if normalized_pupil else None
 
-        stops = self._calc_rayfunction_stops(wavelength)
-        fit = self._calc_pupil_fit(wavelength, stops) if normalized_pupil else None
-        return self._without_center(stops), fit
+        rayfunction_stops = self._calc_rayfunction_stops(wavelength)
+        fit = None
+        if normalized_pupil:
+            fit = self._calc_pupil_fit(wavelength, rayfunction_stops)
+        return self._without_center(rayfunction_stops), fit
 
     def _wavelength_is_default(self, wavelength: na.ScalarLike) -> bool:
         """
@@ -953,16 +966,62 @@ class AbstractSequentialSystem(
 
         return bool(np.all(wavelength == wavelength_default))
 
-    @property
-    def axis_stops(self) -> tuple[str, str]:
+    def _calc_pupil_fit(
+        self,
+        wavelength: na.ScalarLike,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
         """
-        The axes along the edges of the two stop surfaces.
+        Fit the lower-left and upper-right corners of the entrance pupil as
+        quadratics in field, or return :obj:`None` if the fit is singular.
 
-        These are the axes of :attr:`field_boundary` and
-        :attr:`pupil_boundary`, and so the ones to reduce over to turn either
-        outline into a measurement of the system.
+        The samples are the stop rays: the pupil along the edge of the field,
+        and at its center.  The center matters because the edge of a round
+        field lies on one conic, along which a quadratic cannot tell a
+        constant from a radial term.  See :doc:`/stop_finding` for why the
+        pupil is resolved per field point at all.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to calibrate the pupil.
+        rayfunction_stops
+            The result of :meth:`_calc_rayfunction_stops` on `wavelength`,
+            with its center sample, which is the last along
+            :attr:`axis_field_stop`.
         """
-        return (self.axis_field_stop, self.axis_pupil_stop)
+        field, pupil = self._field_and_pupil(rayfunction_stops.outputs)
+
+        # one sample per point along the field stop's wire, its center last:
+        # the field is constant along the pupil stop's wire, and the pupil's
+        # extent along it is the pupil at that field point
+        field = field.mean(self.axis_pupil_stop)
+        pupil_min = pupil.min(self.axis_pupil_stop)
+        pupil_max = pupil.max(self.axis_pupil_stop)
+
+        # The wavelength rides along as a broadcast axis, since the fit is
+        # only ever evaluated at the wavelengths it was made at.  The inputs
+        # are nominal because they enter the least-squares solve through a
+        # matrix inverse; the outputs are linear in it, so their uncertainty
+        # passes through.
+        kwargs = dict(
+            inputs=na.nominal(optika.vectors.SceneVectorArray(wavelength, field)),
+            degree=2,
+            components=("field.x", "field.y"),
+            axis_polynomial=self.axis_field_stop,
+        )
+        fit_min = na.PolynomialFitFunctionArray.from_degree(outputs=pupil_min, **kwargs)
+        fit_max = na.PolynomialFitFunctionArray.from_degree(outputs=pupil_max, **kwargs)
+
+        try:
+            # the least-squares solve is lazy, and it is what can be singular
+            fit_min.coefficients
+            fit_max.coefficients
+        except np.linalg.LinAlgError:
+            # singular design matrix: no per-field pupil, use the shared box
+            return None
+
+        return fit_min, fit_max
 
     def _field_and_pupil(
         self,
@@ -1057,91 +1116,6 @@ class AbstractSequentialSystem(
         physical units.
         """
         return self.pupil_boundary.max(self.axis_stops)
-
-    @property
-    def _field_vertices_default(self) -> na.Cartesian2dVectorArray:
-        """
-        The field grid :meth:`area_effective` and :meth:`linearize` use when
-        given none.
-
-        Its components are cell *vertices*, not the points rays are traced
-        at, which are the centers of the cells these bound.
-        """
-        return na.Cartesian2dVectorArray(
-            x=na.linspace(-1, 1, axis="_field_x", num=12),
-            y=na.linspace(-1, 1, axis="_field_y", num=12),
-        )
-
-    @property
-    def _pupil_vertices_default(self) -> na.Cartesian2dVectorArray:
-        """
-        The pupil grid :meth:`area_effective` and :meth:`linearize` use when
-        given none.
-
-        Its components are cell *vertices*, since the effective area weights
-        each ray by the area of its pupil cell.
-        """
-        return na.Cartesian2dVectorArray(
-            x=na.linspace(-1, 1, axis="_pupil_x", num=12),
-            y=na.linspace(-1, 1, axis="_pupil_y", num=12),
-        )
-
-    def _calc_pupil_fit(
-        self,
-        wavelength: na.ScalarLike,
-        rayfunction_stops: optika.rays.RayFunctionArray,
-    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
-        """
-        Fit the lower-left and upper-right corners of the entrance pupil as
-        quadratics in field, or return :obj:`None` if the fit is singular.
-
-        The samples are the stop rays: the pupil along the edge of the field,
-        and at its center.  The center matters because the edge of a round
-        field lies on one conic, along which a quadratic cannot tell a
-        constant from a radial term.  See :doc:`/stop_finding` for why the
-        pupil is resolved per field point at all.
-
-        Parameters
-        ----------
-        wavelength
-            The wavelengths at which to calibrate the pupil.
-        rayfunction_stops
-            The result of :meth:`_calc_rayfunction_stops` on `wavelength`,
-            with its center sample, which is the last along
-            :attr:`axis_field_stop`.
-        """
-        field, pupil = self._field_and_pupil(rayfunction_stops.outputs)
-
-        # one sample per point along the field stop's wire, its center last:
-        # the field is constant along the pupil stop's wire, and the pupil's
-        # extent along it is the pupil at that field point
-        field = field.mean(self.axis_pupil_stop)
-        pupil_min = pupil.min(self.axis_pupil_stop)
-        pupil_max = pupil.max(self.axis_pupil_stop)
-
-        # The wavelength rides along as a broadcast axis, since the fit is
-        # only ever evaluated at the wavelengths it was made at.  The inputs
-        # are nominal because they enter the least-squares solve through a
-        # matrix inverse; the outputs are linear in it, so their uncertainty
-        # passes through.
-        kwargs = dict(
-            inputs=na.nominal(optika.vectors.SceneVectorArray(wavelength, field)),
-            degree=2,
-            components=("field.x", "field.y"),
-            axis_polynomial=self.axis_field_stop,
-        )
-        fit_min = na.PolynomialFitFunctionArray.from_degree(outputs=pupil_min, **kwargs)
-        fit_max = na.PolynomialFitFunctionArray.from_degree(outputs=pupil_max, **kwargs)
-
-        try:
-            # the least-squares solve is lazy, and it is what can be singular
-            fit_min.coefficients
-            fit_max.coefficients
-        except np.linalg.LinAlgError:
-            # singular design matrix: no per-field pupil, use the shared box
-            return None
-
-        return fit_min, fit_max
 
     def _denormalize_grid(
         self,
@@ -1961,6 +1935,34 @@ class AbstractSequentialSystem(
             where=where,
         )
 
+    @property
+    def _field_vertices_default(self) -> na.Cartesian2dVectorArray:
+        """
+        The field grid :meth:`area_effective` and :meth:`linearize` use when
+        given none.
+
+        Its components are cell *vertices*, not the points rays are traced
+        at, which are the centers of the cells these bound.
+        """
+        return na.Cartesian2dVectorArray(
+            x=na.linspace(-1, 1, axis="_field_x", num=12),
+            y=na.linspace(-1, 1, axis="_field_y", num=12),
+        )
+
+    @property
+    def _pupil_vertices_default(self) -> na.Cartesian2dVectorArray:
+        """
+        The pupil grid :meth:`area_effective` and :meth:`linearize` use when
+        given none.
+
+        Its components are cell *vertices*, since the effective area weights
+        each ray by the area of its pupil cell.
+        """
+        return na.Cartesian2dVectorArray(
+            x=na.linspace(-1, 1, axis="_pupil_x", num=12),
+            y=na.linspace(-1, 1, axis="_pupil_y", num=12),
+        )
+
     @staticmethod
     def _pupil_over_field_cells(
         pupil: na.AbstractCartesian2dVectorArray,
@@ -2321,7 +2323,9 @@ class AbstractSequentialSystem(
         # entrance pupil, both of which depend on nothing but the wavelengths.
         # Solve once here and hand each of them a grid which is already
         # physical.
-        stops, pupil_fit = self._stops_and_pupil_fit(wavelength, normalized_pupil)
+        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
+            wavelength, normalized_pupil
+        )
 
         def denormalize(
             field: na.AbstractCartesian2dVectorArray,
@@ -2333,7 +2337,7 @@ class AbstractSequentialSystem(
                     field=field,
                     pupil=pupil,
                 ),
-                rayfunction_stops=stops,
+                rayfunction_stops=rayfunction_stops,
                 pupil_fit=pupil_fit,
                 normalized_field=normalized_field,
                 normalized_pupil=normalized_pupil,
