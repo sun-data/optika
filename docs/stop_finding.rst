@@ -325,10 +325,15 @@ depend on nothing but the wavelength.
 
 One consequence for :meth:`~optika.systems.AbstractSequentialSystem.area_effective`:
 it draws each ray at a random position inside its field cell, and once the
-pupil is resolved per field point its box is no larger than the pupil, so the
-box at the center of a cell would clip the rays drawn toward the cell's edges
-by however far the pupil walks across one cell. Each cell is therefore given
-the union of the boxes at its vertices, by ``_pupil_over_field_cells``.
+pupil is resolved per field point its box is no larger than the pupil, so one
+box for the whole cell would either clip the rays drawn toward the cell's
+edges, if it is the box at the center, or waste rays outside their own pupil,
+if it is the union of the boxes at the vertices. On FURST, whose entrance pupil
+is a sliver walking eight times its own width across one cell of the default
+grid, that union wastes nine rays in ten. The rays are therefore drawn in
+normalized coordinates and denormalized afterwards, so that each is mapped
+onto the box at its own field position and weighted by the area of its cell
+there.
 
 
 Frames

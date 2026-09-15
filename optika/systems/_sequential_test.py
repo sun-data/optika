@@ -1424,71 +1424,96 @@ def test_models_are_invariant_under_a_rigid_motion():
     assert np.abs(area_b - area_a).max() < 1e-6 * np.abs(area_a).max()
 
 
-def test_pupil_over_field_cells_holds_the_pupil_everywhere_in_the_cell():
+def test_area_effective_gives_each_ray_the_pupil_of_its_own_field_point(
+    monkeypatch,
+):
     """
-    The box a field cell is given holds the boxes at every one of its
-    vertices, so a ray drawn anywhere in the cell finds its whole pupil.
+    Every ray the effective area traces is drawn inside the entrance pupil
+    of the field position it was drawn at, and weighted by the area of its
+    pupil cell there.
 
-    Averaging the vertices instead put the box at the cell's center, which the
-    pupil walks away from toward the cell's edges; on ESIS at the default
-    12 x 12 field that took half a percent off the effective area.
+    The entrance pupil walks across the field, so the pupil at the center of
+    a field cell is not the pupil of a ray drawn near the cell's edge. One box
+    for the whole cell either clips the pupils near the edges, if it is the
+    center's, or wastes rays outside their own pupil, if it is the union of
+    the pupils at the vertices. On FURST the pupil walks eight times its own
+    width across one cell of the default grid, and a union would waste nine
+    rays in ten.
     """
-    axis_field = ("_fx", "_fy")
-    axis_pupil = ("_px", "_py")
-
-    # a pupil 10 mm wide which walks 4 mm in x across three field vertices,
-    # and 1 mm in y, on a 3-vertex pupil grid
-    walk = na.Cartesian2dVectorArray(
-        x=na.ScalarArray(np.array([0.0, 2.0, 4.0]), axes=("_fx",)),
-        y=na.ScalarArray(np.array([0.0, 1.0]), axes=("_fy",)),
+    a = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
     )
-    normalized = na.Cartesian2dVectorLinearSpace(
-        start=-1,
-        stop=1,
-        axis=na.Cartesian2dVectorArray(*axis_pupil),
-        num=3,
-    )
-    pupil = (5 * normalized + walk) * u.mm
+    axis_pupil = ("_pupil_x", "_pupil_y")
+    shape_pupil = na.shape(a._pupil_vertices_default)
+    num_cells = (shape_pupil["_pupil_x"] - 1) * (shape_pupil["_pupil_y"] - 1)
 
-    result = optika.systems.AbstractSequentialSystem._pupil_over_field_cells(
-        pupil=pupil,
-        axis_field=axis_field,
-        axis_pupil=axis_pupil,
-    )
+    # a pupil a fifth of the shared box wide which walks across seven tenths
+    # of it, so the box moves by a third of its width per cell of the default
+    # field grid, and stays inside the shared box at every field position
+    lo, hi = a.pupil_min, a.pupil_max
+    span = hi - lo
+    center = (lo + hi) / 2
+    field_center = (a.field_min + a.field_max) / 2
+    field_half = (a.field_max - a.field_min) / 2
 
-    # one fewer along each field axis, the pupil axes untouched
-    shape = na.shape(result)
-    assert shape["_fx"] == 2 and shape["_fy"] == 1
-    assert shape["_px"] == 3 and shape["_py"] == 3
+    def walk(sign):
+        def fit(x: optika.vectors.SceneVectorArray) -> na.FunctionArray:
+            normalized = (x.field - field_center) / field_half
+            box_center = center + 0.35 * span * normalized
+            return na.FunctionArray(x, box_center + sign * 0.1 * span)
 
-    lo = result.min(axis_pupil)
-    hi = result.max(axis_pupil)
+        return fit
 
-    # cell 0 spans the boxes at x-vertices 0 and 2 mm: [-5, 7]; cell 1: [-3, 9]
-    assert np.allclose(lo.x.ndarray, [-5, -3] * u.mm)
-    assert np.allclose(hi.x.ndarray, [7, 9] * u.mm)
-    # the one y cell spans the boxes at 0 and 1 mm: [-5, 6]
-    assert np.allclose(lo.y.ndarray, -5 * u.mm)
-    assert np.allclose(hi.y.ndarray, 6 * u.mm)
+    # `pupil_fit` is a cached property, so this is what `_denormalize_grid` reads
+    a.__dict__["pupil_fit"] = (walk(-1), walk(+1))
 
-    # the grid inside each box is the same normalized grid, not an average
-    inner = (result - lo) / (hi - lo)
-    expected = (normalized + 1) / 2
-    assert np.allclose(
-        inner.x.ndarray, expected.x.broadcast_to(na.shape(inner.x)).ndarray
-    )
-    assert np.allclose(
-        inner.y.ndarray, expected.y.broadcast_to(na.shape(inner.y)).ndarray
-    )
+    captured = {}
+    rayfunction = optika.systems.AbstractSequentialSystem.rayfunction
 
-    # a grid carrying no field axis is returned untouched
-    plain = 5 * normalized * u.mm
-    assert (
-        optika.systems.AbstractSequentialSystem._pupil_over_field_cells(
-            pupil=plain, axis_field=axis_field, axis_pupil=axis_pupil
-        )
-        is plain
-    )
+    def capture(self, **kwargs):
+        captured.update(kwargs)
+        return rayfunction(self, **kwargs)
+
+    monkeypatch.setattr(optika.systems.AbstractSequentialSystem, "rayfunction", capture)
+    result = a.area_effective(seed=42)
+    assert np.all(np.isfinite(result.area))
+
+    field = captured["field"]
+    pupil = captured["pupil"]
+    area = captured["intensity"]
+
+    # the box at each ray's own field position, from the same calibration
+    corners = a._denormalize_grid_from_rays(
+        grid=optika.vectors.ObjectVectorArray(
+            wavelength=captured["wavelength"],
+            field=field,
+            pupil=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray(*axis_pupil),
+                num=2,
+            ),
+        ),
+        rayfunction_stops=a.rayfunction_stops,
+        pupil_fit=a.pupil_fit,
+        normalized_field=False,
+    ).pupil
+    box_lo = corners.min(axis_pupil)
+    box_hi = corners.max(axis_pupil)
+
+    # the walk is real: the boxes are not all the same
+    assert box_lo.x.ptp() > 0.5 * span.x.min()
+
+    # every ray lies inside its own pupil
+    assert np.all((box_lo.x <= pupil.x) & (pupil.x <= box_hi.x))
+    assert np.all((box_lo.y <= pupil.y) & (pupil.y <= box_hi.y))
+
+    # and is weighted by its share of that pupil and no other box
+    box = box_hi - box_lo
+    expected = box.x * box.y / num_cells
+    assert np.all(np.abs(area - expected) <= 1e-9 * expected)
 
 
 def test_a_physical_pupil_at_a_new_wavelength_skips_the_pupil_fit(monkeypatch):

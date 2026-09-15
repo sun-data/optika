@@ -1942,7 +1942,7 @@ class AbstractSequentialSystem(
         given none.
 
         Its components are cell *vertices*, not the points rays are traced
-        at, which are the centers of the cells these bound.
+        at, which lie inside the cells these bound.
         """
         return na.Cartesian2dVectorArray(
             x=na.linspace(-1, 1, axis="_field_x", num=12),
@@ -1962,63 +1962,6 @@ class AbstractSequentialSystem(
             x=na.linspace(-1, 1, axis="_pupil_x", num=12),
             y=na.linspace(-1, 1, axis="_pupil_y", num=12),
         )
-
-    @staticmethod
-    def _pupil_over_field_cells(
-        pupil: na.AbstractCartesian2dVectorArray,
-        axis_field: tuple[str, str],
-        axis_pupil: tuple[str, str],
-    ) -> na.AbstractCartesian2dVectorArray:
-        """
-        Bring a pupil grid given at the vertices of the field to its cells, as
-        the union of the boxes at each cell's vertices.
-
-        The pupil walks across the field, and once it is resolved per field
-        position its box is no larger than the pupil, so the box at the
-        center of a cell does not hold the pupil at the cell's edges. A ray
-        drawn anywhere in the cell must find its whole pupil inside the box
-        it is given, so the box for the cell is the smallest one holding the
-        boxes at all of the cell's vertices.
-
-        Parameters
-        ----------
-        pupil
-            The vertices of the pupil grid, carrying some or all of
-            `axis_field` at the resolution of the field vertices. Each field
-            vertex is assumed to carry the same normalized grid mapped
-            affinely onto its own box, which is how every grid this class
-            denormalizes is built.
-        axis_field
-            The axes of the field grid.
-        axis_pupil
-            The axes of the pupil grid.
-
-        Returns
-        -------
-            The pupil grid, carrying those field axes at the resolution of
-            the field cells. Field axes the grid does not carry are left
-            alone, and a grid carrying none is returned unchanged.
-        """
-        axis_field = tuple(ax for ax in axis_field if ax in na.shape(pupil))
-        if not axis_field:
-            return pupil
-
-        lo = pupil.min(axis_pupil)
-        hi = pupil.max(axis_pupil)
-
-        # the grid is affine in its box and the same at every field vertex,
-        # so any one vertex gives it back in normalized form; a box of no
-        # width in some component has no grid to recover along it
-        width = hi - lo
-        unit = na.unit_normalized(width.x)
-        safe = np.where(width > 0 * unit, width, 1 * unit)
-        normalized = ((pupil - lo) / safe)[{ax: 0 for ax in axis_field}]
-
-        for ax in axis_field:
-            lo = np.minimum(lo[{ax: slice(None, -1)}], lo[{ax: slice(1, None)}])
-            hi = np.maximum(hi[{ax: slice(None, -1)}], hi[{ax: slice(1, None)}])
-
-        return (hi - lo) * normalized + lo
 
     def area_effective(
         self,
@@ -2055,8 +1998,11 @@ class AbstractSequentialSystem(
         not the same size across the field.
 
         The components of `pupil` are interpreted as the vertices of a grid of
-        cells, and the rays are traced at the corresponding cell centers, so
-        that each ray can be weighted by the physical area of its cell.
+        cells, and one ray is traced per cell, so that each ray can be weighted
+        by the physical area of its cell.  A normalized pupil is mapped onto
+        the entrance pupil of each ray's own field position, which is where
+        the cell's area is measured, so a pupil which walks across the field
+        is sampled in full at every field position.
 
         The throughput includes the absorbance of the sensor but not its charge
         collection efficiency, which is applied separately, so this is the
@@ -2114,31 +2060,11 @@ class AbstractSequentialSystem(
         if pupil is None:
             pupil = self._pupil_vertices_default
 
-        grid = optika.vectors.ObjectVectorArray(
-            wavelength=wavelength,
-            field=field,
-            pupil=pupil,
-        )
-
-        grid = self._denormalize_grid(
-            grid=grid,
-            normalized_field=normalized_field,
-            normalized_pupil=normalized_pupil,
-        )
-
-        wavelength = grid.wavelength
-        field = grid.field
-        pupil = grid.pupil
-
-        axis_wavelength = self._normalize_axis_wavelength(
-            axis_wavelength=None,
-            wavelength=wavelength,
-        )
-        axis_field = self._normalize_axis_field(
-            axis_field=None,
-            axis_wavelength=axis_wavelength,
-            field=field,
-        )
+        # named explicitly rather than taken from the shape of each grid, which
+        # would also collapse any axis the grid carries beyond the two being
+        # sampled, such as one of :attr:`shape`
+        axis_wavelength = self._normalize_axis_wavelength(None, wavelength)
+        axis_field = self._normalize_axis_field(None, axis_wavelength, field)
         axis_pupil = self._normalize_axis_pupil(
             axis_pupil=None,
             axis_field=axis_field,
@@ -2146,23 +2072,87 @@ class AbstractSequentialSystem(
             pupil=pupil,
         )
 
+        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
+            wavelength,
+            normalized_pupil,
+        )
+
+        return self._calc_area_effective(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+            seed=seed,
+            rayfunction_stops=rayfunction_stops,
+            pupil_fit=pupil_fit,
+        )
+
+    def _calc_area_effective(
+        self,
+        wavelength: na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+        pupil: na.AbstractCartesian2dVectorArray,
+        axis_wavelength: tuple[str, ...],
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+        normalized_field: bool,
+        normalized_pupil: bool,
+        seed: None | int,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+        pupil_fit: (
+            None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
+        ),
+    ) -> optika.radiometry.InterpolatedEffectiveAreaModel:
+        """
+        Estimate the effective area from grids whose axes are known and whose
+        stops have already been solved.
+
+        Separated from :meth:`area_effective` so that a caller which has
+        solved the stops for its own purposes, such as :meth:`linearize`,
+        can hand them over instead of solving them again.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to evaluate the effective area.
+        field
+            The vertices of the field grid.
+        pupil
+            The vertices of the pupil grid.
+        axis_wavelength
+            The normalized wavelength axis, which must have exactly one
+            element.
+        axis_field
+            The logical axes of the field grid.
+        axis_pupil
+            The logical axes of the pupil grid.
+        normalized_field
+            Whether `field` is normalized.
+        normalized_pupil
+            Whether `pupil` is normalized.
+        seed
+            The seed of the sampling, see :meth:`area_effective`.
+        rayfunction_stops
+            The result of :meth:`_calc_rayfunction_stops` on `wavelength`.
+        pupil_fit
+            The result of :meth:`_calc_pupil_fit` on `wavelength`, or
+            :obj:`None` if `pupil` is physical.
+
+        Raises
+        ------
+        ValueError
+            If the wavelength grid does not vary along a single logical axis.
+        """
         if len(axis_wavelength) != 1:
             raise ValueError(
                 "Computing the effective area requires that there be only "
                 f"one wavelength axis, got {axis_wavelength}"
             )
         (axis_wavelength,) = axis_wavelength
-
-        # bring the pupil from the field vertices to the field cells, each
-        # cell taking the union of the boxes at its vertices; see
-        # `_pupil_over_field_cells`
-        pupil = self._pupil_over_field_cells(
-            pupil=pupil,
-            axis_field=axis_field,
-            axis_pupil=axis_pupil,
-        )
-
-        area = np.abs(pupil.volume_cell(axis=axis_pupil))
 
         # Both grids are sampled once per cell, at a point drawn uniformly
         # inside it.  Stratifying this way rather than taking the cell centers
@@ -2171,31 +2161,67 @@ class AbstractSequentialSystem(
         # where that edge happens to fall between samples.
         #
         # The field is drawn once per cell per wavelength, and the pupil once
-        # per cell for every field position, so that no two rays share an
-        # offset and the errors average down instead of accumulating.
+        # per cell for every field position, and both independently along
+        # every axis of the system itself, such as its channels, so that no
+        # two rays share an offset and the errors average down instead of
+        # accumulating.
         # The two grids are sampled from two streams rather than one, since
         # a seed shared between them would offset a field cell and a pupil
         # cell by the same fraction wherever the two grids happen to agree
         # in shape.
         seed_field, seed_pupil = np.random.SeedSequence(seed).generate_state(2)
 
-        field = field.broadcast_to(
-            na.broadcast_shapes(na.shape(wavelength), na.shape(field)),
+        field_samples = field.broadcast_to(
+            na.broadcast_shapes(self.shape, na.shape(wavelength), na.shape(field)),
         ).cell_centers(axis=axis_field, random=True, seed=int(seed_field))
 
-        pupil = pupil.broadcast_to(
+        pupil_samples = pupil.broadcast_to(
             na.broadcast_shapes(
+                self.shape,
                 na.shape(wavelength),
-                na.shape(field),
+                na.shape(field_samples),
                 na.shape(pupil),
             ),
         ).cell_centers(axis=axis_pupil, random=True, seed=int(seed_pupil))
 
+        # The samples are drawn in the coordinates the grids were given in
+        # and only then made physical, so that a normalized pupil is mapped
+        # onto the entrance pupil of each ray's own field position, wherever
+        # in its field cell that ray was drawn.  The entrance pupil walks
+        # across the field, and a ray handed the pupil of any other point,
+        # such as the center of its cell, would miss part of its own.
+        grid = self._denormalize_grid_from_rays(
+            grid=optika.vectors.ObjectVectorArray(
+                wavelength=wavelength,
+                field=field_samples,
+                pupil=pupil_samples,
+            ),
+            rayfunction_stops=rayfunction_stops,
+            pupil_fit=pupil_fit,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
+
+        # the vertices of every pupil cell, mapped onto that same entrance
+        # pupil, give the area each ray stands for
+        vertices = self._denormalize_grid_from_rays(
+            grid=optika.vectors.ObjectVectorArray(
+                wavelength=grid.wavelength,
+                field=grid.field,
+                pupil=pupil,
+            ),
+            rayfunction_stops=rayfunction_stops,
+            pupil_fit=pupil_fit,
+            normalized_field=False,
+            normalized_pupil=normalized_pupil,
+        )
+        area = np.abs(vertices.pupil.volume_cell(axis=axis_pupil))
+
         rays = self.rayfunction(
             intensity=area,
-            wavelength=wavelength,
-            field=field,
-            pupil=pupil,
+            wavelength=grid.wavelength,
+            field=grid.field,
+            pupil=grid.pupil,
             normalized_field=False,
             normalized_pupil=False,
         )
@@ -2318,33 +2344,27 @@ class AbstractSequentialSystem(
         field_centers = field.cell_centers(axis=axis_field)
         pupil_centers = pupil.cell_centers(axis=axis_pupil)
 
-        # Each of the three fits below denormalizes its own grid, and the
+        # Each of the three models below denormalizes a grid, and the
         # expensive part of that is solving for the stops and calibrating the
         # entrance pupil, both of which depend on nothing but the wavelengths.
-        # Solve once here and hand each of them a grid which is already
-        # physical.
+        # Solve once here, and hand the fits a grid which is already physical
+        # and the effective area the solution itself, since it samples its
+        # own grid before denormalizing it.
         rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
             wavelength, normalized_pupil
         )
 
-        def denormalize(
-            field: na.AbstractCartesian2dVectorArray,
-            pupil: na.AbstractCartesian2dVectorArray,
-        ) -> optika.vectors.ObjectVectorArray:
-            return self._denormalize_grid_from_rays(
-                grid=optika.vectors.ObjectVectorArray(
-                    wavelength=wavelength,
-                    field=field,
-                    pupil=pupil,
-                ),
-                rayfunction_stops=rayfunction_stops,
-                pupil_fit=pupil_fit,
-                normalized_field=normalized_field,
-                normalized_pupil=normalized_pupil,
-            )
-
-        grid_area = denormalize(field, pupil)
-        grid_fit = denormalize(field_centers, pupil_centers)
+        grid_fit = self._denormalize_grid_from_rays(
+            grid=optika.vectors.ObjectVectorArray(
+                wavelength=wavelength,
+                field=field_centers,
+                pupil=pupil_centers,
+            ),
+            rayfunction_stops=rayfunction_stops,
+            pupil_fit=pupil_fit,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        )
 
         kwargs = dict(
             wavelength=wavelength,
@@ -2384,10 +2404,18 @@ class AbstractSequentialSystem(
         )
 
         return LinearSystem(
-            area_effective=self.area_effective(
-                field=grid_area.field,
-                pupil=grid_area.pupil,
-                **kwargs,
+            area_effective=self._calc_area_effective(
+                wavelength=wavelength,
+                field=field,
+                pupil=pupil,
+                axis_wavelength=axis_wavelength,
+                axis_field=axis_field,
+                axis_pupil=axis_pupil,
+                normalized_field=normalized_field,
+                normalized_pupil=normalized_pupil,
+                seed=None,
+                rayfunction_stops=rayfunction_stops,
+                pupil_fit=pupil_fit,
             ),
             distortion=self._fit_distortion(
                 rays=rays,
