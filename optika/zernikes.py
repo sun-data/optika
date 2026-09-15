@@ -247,15 +247,20 @@ def zernike_gradient(
 
 
 @functools.lru_cache
-def _tables(num: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _tables(num: int) -> tuple[list[tuple[int, int, list[int]]], np.ndarray]:
     r"""
-    Tabulate the signed azimuthal degree, the normalization constant, and the
-    monomial coefficients of the radial polynomial, for the first `num` Noll
-    indices.
+    Tabulate how the first `num` Zernike polynomials collect into azimuthal
+    harmonics.
 
-    Element ``radial[i, e]`` is the coefficient of :math:`\rho^e` in the
-    radial polynomial of the Zernike polynomial with Noll index
-    :math:`j = i + 1`.
+    The result is a list of ``(mu, sign, columns)`` and a weight matrix.
+    Each harmonic is a polynomial in :math:`\rho^2` scaled by
+    :math:`\rho^\mu` and by the cosine (positive ``sign``) or sine (negative
+    ``sign``) of :math:`\mu \phi`, and ``columns[k]`` is the column of the
+    weight matrix which gives the coefficient of :math:`\rho^{\mu + 2 k}`
+    in that polynomial.
+    Element ``weights[i, column]`` is the contribution of the Zernike
+    polynomial with Noll index :math:`j = i + 1` to that coefficient,
+    including the normalization constant.
 
     Parameters
     ----------
@@ -267,17 +272,40 @@ def _tables(num: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     n = np.array([n for n, m in quantum_numbers])
     m = np.array([m for n, m in quantum_numbers])
 
-    radial = np.zeros((num, n.max() + 1))
+    degree = n.max()
+
+    radial = np.zeros((num, degree + 1))
     for i, (n_i, m_i) in enumerate(quantum_numbers):
         for c, e in _coefficients_radial(n_i, abs(m_i)):
             radial[i, e] += c
 
     norm = np.where(m == 0, np.sqrt(n + 1), np.sqrt(2 * (n + 1)))
 
-    for array in (m, norm, radial):
-        array.flags.writeable = False
+    harmonics = []
+    columns = []
+    for mu in range(degree + 1):
+        for sign in (1, -1):
 
-    return m, norm, radial
+            if mu == 0 and sign < 0:  # the sine of zero is not a harmonic
+                continue
+
+            where = m == (sign * mu)
+            if not where.any():
+                continue
+
+            # the radial polynomial of R_n^mu has only the powers
+            # rho ** mu, rho ** (mu + 2), ...
+            index = []
+            for e in range(mu, degree + 1, 2):
+                index.append(len(columns))
+                columns.append(np.where(where, norm * radial[:, e], 0))
+
+            harmonics.append((mu, sign, index))
+
+    weights = np.stack(columns, axis=~0)
+    weights.flags.writeable = False
+
+    return harmonics, weights
 
 
 def _harmonics(
@@ -297,7 +325,13 @@ def _harmonics(
     and :math:`T` is the cosine if ``sign`` is positive and the sine if it is
     negative.
     Since this sums over the Noll axis, which is small, the coefficients are
-    contracted before any array of evaluation points is touched.
+    contracted before any array of evaluation points is touched, and every
+    collected coefficient comes out of one contraction against a tabulated
+    weight matrix.
+
+    The first harmonic is always the :math:`m = 0` cosine, since every basis
+    contains piston, so it can be used to find the unit and the shape of the
+    collected coefficients.
 
     Parameters
     ----------
@@ -312,34 +346,19 @@ def _harmonics(
             f"got an array with shape {coefficients.shape}."
         )
 
-    m, norm, radial = _tables(coefficients.shape[axis])
+    harmonics, weights = _tables(coefficients.shape[axis])
 
-    degree = radial.shape[~0] - 1
+    axis_column = f"{axis}_harmonic"
+    while axis_column in coefficients.shape:
+        axis_column = f"{axis_column}_"
 
-    result = []
-    for mu in range(degree + 1):
-        for sign in (1, -1):
+    weights = na.ScalarArray(weights, axes=(axis, axis_column))
+    a = (coefficients * weights).sum(axis=axis)
 
-            if mu == 0 and sign < 0:  # the sine of zero is not a harmonic
-                continue
-
-            where = m == (sign * mu)
-            if not where.any():
-                continue
-
-            # the radial polynomial of R_n^mu has only the powers
-            # rho ** mu, rho ** (mu + 2), ...
-            a = []
-            for e in range(mu, degree + 1, 2):
-                weight = na.ScalarArray(
-                    ndarray=np.where(where, norm * radial[:, e], 0),
-                    axes=axis,
-                )
-                a.append((coefficients * weight).sum(axis=axis))
-
-            result.append((mu, sign, a))
-
-    return result
+    return [
+        (mu, sign, [a[{axis_column: i}] for i in index])
+        for mu, sign, index in harmonics
+    ]
 
 
 def zernike_sum(
@@ -422,13 +441,32 @@ def zernike_sum(
     is why the cost grows with the radial degree, roughly the square root of
     the number of terms.
     """
-    harmonics = _harmonics(coefficients, axis)
+    return _sum(position, _harmonics(coefficients, axis))
 
+
+def _sum(
+    position: na.AbstractCartesian2dVectorArray,
+    harmonics: list[tuple[int, int, list[na.AbstractScalar]]],
+) -> na.AbstractScalar:
+    """
+    Evaluate a sum of Zernike polynomials from its collected harmonics.
+
+    This is the evaluation half of :func:`zernike_sum`, split out so that a
+    caller which evaluates the same sum many times, such as an iterative
+    intercept solver, can collect the harmonics once.
+
+    Parameters
+    ----------
+    position
+        The normalized, dimensionless points at which to evaluate the sum.
+    harmonics
+        The collected harmonics, as returned by :func:`_harmonics`.
+    """
     rho2 = np.square(position.x) + np.square(position.y)
     rho = np.sqrt(rho2)
     phi = np.arctan2(position.y, position.x)
 
-    result = 0 * rho * coefficients[{axis: 0}]
+    result = 0 * rho * harmonics[0][2][0]
 
     for mu, sign, a in harmonics:
 
@@ -514,15 +552,35 @@ def zernike_sum_gradient(
     Nothing divides by :math:`\rho`, so the gradient is exact at the center of
     the pupil, as it is in :func:`zernike_gradient`.
     """
-    harmonics = _harmonics(coefficients, axis)
+    return _sum_gradient(position, _harmonics(coefficients, axis))
 
+
+def _sum_gradient(
+    position: na.AbstractCartesian2dVectorArray,
+    harmonics: list[tuple[int, int, list[na.AbstractScalar]]],
+) -> na.Cartesian2dVectorArray:
+    """
+    Evaluate the gradient of a sum of Zernike polynomials from its collected
+    harmonics.
+
+    This is the evaluation half of :func:`zernike_sum_gradient`, split out
+    for the same reason as :func:`_sum`.
+
+    Parameters
+    ----------
+    position
+        The normalized, dimensionless points at which to evaluate the
+        gradient.
+    harmonics
+        The collected harmonics, as returned by :func:`_harmonics`.
+    """
     rho2 = np.square(position.x) + np.square(position.y)
     rho = np.sqrt(rho2)
     phi = np.arctan2(position.y, position.x)
     cos_phi = np.cos(phi)
     sin_phi = np.sin(phi)
 
-    zero = 0 * rho * coefficients[{axis: 0}]
+    zero = 0 * rho * harmonics[0][2][0]
     d_rho = zero
     d_phi_over_rho = zero
 

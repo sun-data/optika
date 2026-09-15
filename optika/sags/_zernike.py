@@ -92,16 +92,22 @@ class ZernikeSag(
     @property
     def _coefficients_normalized(self) -> na.AbstractScalar:
         """
-        The coefficients as a named array.
+        The coefficients as a named array guaranteed to vary along `axis`.
 
         A bare array or scalar is interpreted as being along `axis`.
-        Whether the result actually varies along `axis` is checked by
-        :func:`optika.zernikes.zernike_sum`.
+        A named array which does not vary along `axis` is rejected here, so
+        that :attr:`shape` fails fast instead of reporting the misnamed axis
+        as if it were a batch axis.
         """
         result = self.coefficients
         if not isinstance(result, na.AbstractArray):
             result = np.atleast_1d(u.Quantity(result))
             result = na.ScalarArray(result, axes=(self.axis,))
+        if self.axis not in result.shape:
+            raise ValueError(
+                f"`coefficients` must vary along `axis`, {self.axis!r}, "
+                f"got an array with shape {result.shape}."
+            )
         return result
 
     @property
@@ -134,6 +140,65 @@ class ZernikeSag(
             axis=self.axis,
         )
 
+    def intercept(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> optika.rays.RayVectorArray:
+        """
+        A set of new rays with the same direction as the input rays,
+        but with the :attr:`optika.rays.RayVectorArray.position` updated to
+        their interception point with this sag function.
+
+        Parameters
+        ----------
+        rays
+            input rays that will intercept this sag function
+
+        Notes
+        -----
+        There is no closed-form intercept with an arbitrary Zernike sum, so
+        this is found iteratively, as in
+        :meth:`optika.sags.AbstractSag.intercept`.
+        Since the perturbation is usually small compared to the base profile,
+        the search is seeded from the intercept with the base profile alone,
+        and the Zernike sum is collected into its harmonics once rather than
+        on every evaluation.
+        """
+        transformation = self.transformation
+        if transformation is not None:
+            rays = transformation.inverse(rays)
+
+        rays = self.base.intercept(rays)
+
+        base = self.base
+        radius = self.radius
+        harmonics = optika.zernikes._harmonics(
+            coefficients=self._coefficients_normalized,
+            axis=self.axis,
+        )
+
+        def line(t: na.AbstractScalar) -> na.Cartesian3dVectorArray:
+            return rays.position + rays.direction * t
+
+        def func(t: na.AbstractScalar) -> na.AbstractScalar:
+            a = line(t)
+            z = base(a) + optika.zernikes._sum(a.xy / radius, harmonics)
+            return a.z - z
+
+        t_intercept = na.optimize.root_secant(
+            function=func,
+            guess=0 * u.mm,
+            min_step_size=1e-6 * u.mm,
+        )
+
+        result = rays.copy_shallow()
+        result.position = line(t_intercept)
+
+        if transformation is not None:
+            result = transformation(result)
+
+        return result
+
     def normal(
         self,
         position: na.AbstractCartesian3dVectorArray,
@@ -144,9 +209,6 @@ class ZernikeSag(
 
         normal_base = self.base.normal(position)
 
-        gradient_x = normal_base.x / -normal_base.z
-        gradient_y = normal_base.y / -normal_base.z
-
         radius = self.radius
 
         gradient = optika.zernikes.zernike_sum_gradient(
@@ -154,14 +216,17 @@ class ZernikeSag(
             coefficients=self._coefficients_normalized,
             axis=self.axis,
         )
+        gradient = gradient / radius
 
-        gradient_x = gradient_x + gradient.x / radius
-        gradient_y = gradient_y + gradient.y / radius
-
-        norm = np.sqrt(np.square(gradient_x) + np.square(gradient_y) + 1)
-
-        return na.Cartesian3dVectorArray(
-            x=gradient_x / norm,
-            y=gradient_y / norm,
-            z=-1 / norm,
+        # The unnormalized normal of the perturbed surface is the base
+        # gradient plus the perturbation gradient, with a `z` component of -1.
+        # Scaling that by the length of the base normal gives the form below,
+        # which unlike dividing the base normal by its `z` component stays
+        # finite where the base surface is vertical.
+        result = na.Cartesian3dVectorArray(
+            x=normal_base.x - normal_base.z * gradient.x,
+            y=normal_base.y - normal_base.z * gradient.y,
+            z=normal_base.z,
         )
+
+        return result / result.length
