@@ -140,6 +140,12 @@ _coefficients = [
         ndarray=np.linspace(1, 0.1, num=24).reshape(12, 2),
         axes=("zernike", "config"),
     ),
+    # a batch axis which collides with the scratch axis used to collect
+    # the harmonics, which must be renamed rather than broadcast against
+    na.ScalarArray(
+        ndarray=np.linspace(1, 0.1, num=24).reshape(12, 2),
+        axes=("zernike", "zernike_harmonic"),
+    ),
 ]
 
 
