@@ -20,9 +20,10 @@ class ZernikeSag(
     polynomials.
 
     This is useful for representing measured or modeled figure errors of an
-    optical surface, since the perturbation modifies the actual shape of the
-    surface, it is seen consistently by both geometric raytraces and
-    physical-optics calculations.
+    optical surface.
+    Since the perturbation modifies the actual shape of the surface, it is
+    seen consistently by both geometric raytraces and physical-optics
+    calculations.
 
     Examples
     --------
@@ -85,12 +86,15 @@ class ZernikeSag(
     axis: str = "zernike"
     """The logical axis of `coefficients` indexing the Noll terms."""
 
-    def __post_init__(self):
+    @property
+    def base_(self) -> AbstractSag:
+        """The base sag profile, with :obj:`None` resolved to a flat profile."""
         if self.base is None:
-            self.base = NoSag()
+            return NoSag()
+        return self.base
 
     @property
-    def _coefficients_normalized(self) -> na.AbstractScalar:
+    def coefficients_(self) -> na.AbstractScalar:
         """
         The coefficients as a named array guaranteed to vary along `axis`.
 
@@ -112,10 +116,10 @@ class ZernikeSag(
 
     @property
     def shape(self) -> dict[str, int]:
-        shape_coefficients = dict(self._coefficients_normalized.shape)
+        shape_coefficients = dict(self.coefficients_.shape)
         shape_coefficients.pop(self.axis, None)
         return na.broadcast_shapes(
-            optika.shape(self.base),
+            optika.shape(self.base_),
             shape_coefficients,
             optika.shape(self.radius),
             optika.shape(self.transformation),
@@ -132,11 +136,11 @@ class ZernikeSag(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        result = self.base(position)
+        result = self.base_(position)
 
         return result + optika.zernikes.zernike_sum(
             position=position.xy / self.radius,
-            coefficients=self._coefficients_normalized,
+            coefficients=self.coefficients_,
             axis=self.axis,
         )
 
@@ -164,18 +168,20 @@ class ZernikeSag(
         and the Zernike sum is collected into its harmonics once rather than
         on every evaluation.
         """
+        base = self.base_
+        radius = self.radius
+        harmonics = optika.zernikes._harmonics(
+            coefficients=self.coefficients_,
+            axis=self.axis,
+        )
+
         transformation = self.transformation
         if transformation is not None:
             rays = transformation.inverse(rays)
 
-        rays = self.base.intercept(rays)
-
-        base = self.base
-        radius = self.radius
-        harmonics = optika.zernikes._harmonics(
-            coefficients=self._coefficients_normalized,
-            axis=self.axis,
-        )
+        # Start the search from the base profile, which the perturbation
+        # usually moves by nanometres.
+        rays = base.intercept(rays)
 
         def line(t: na.AbstractScalar) -> na.Cartesian3dVectorArray:
             return rays.position + rays.direction * t
@@ -207,22 +213,22 @@ class ZernikeSag(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        normal_base = self.base.normal(position)
+        normal_base = self.base_.normal(position)
 
         radius = self.radius
 
         gradient = optika.zernikes.zernike_sum_gradient(
             position=position.xy / radius,
-            coefficients=self._coefficients_normalized,
+            coefficients=self.coefficients_,
             axis=self.axis,
         )
         gradient = gradient / radius
 
-        # The unnormalized normal of the perturbed surface is the base
-        # gradient plus the perturbation gradient, with a `z` component of -1.
-        # Scaling that by the length of the base normal gives the form below,
-        # which unlike dividing the base normal by its `z` component stays
-        # finite where the base surface is vertical.
+        # The perturbed normal is parallel to (gradient_base + gradient, -1),
+        # where gradient_base is the slope of the base profile.
+        # Multiplying through by -normal_base.z turns the first term into
+        # normal_base.xy without ever dividing by normal_base.z, so the result
+        # stays finite where the base profile is vertical.
         result = na.Cartesian3dVectorArray(
             x=normal_base.x - normal_base.z * gradient.x,
             y=normal_base.y - normal_base.z * gradient.y,
