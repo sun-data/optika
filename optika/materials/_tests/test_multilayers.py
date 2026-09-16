@@ -288,6 +288,53 @@ def test_multilayer_efficiency_vs_file(
     assert np.allclose(efficiency, efficiency_file, rtol=1e-4)
 
 
+@pytest.mark.parametrize(
+    argnames="num",
+    argvalues=[None, 8, 64],
+)
+def test_interpolate_incidence(num: None | int):
+    """
+    A smooth function of the angle of incidence is reproduced from a few
+    nodes, exactly at the nodes and closely between them, and evaluated
+    directly when there are no nodes or nothing to interpolate over.
+    """
+    angle = na.linspace(0, 10, axis="ray", num=101) * u.deg
+    direction = np.cos(angle)
+    calls = []
+
+    def function(direction: na.ScalarLike) -> tuple[na.ScalarLike, na.ScalarLike]:
+        calls.append(na.shape(direction))
+        return np.sqrt(direction), direction**2
+
+    result = optika.materials.interpolate_incidence(
+        function=function,
+        direction=direction,
+        num=num,
+        shape=dict(),
+    )
+    expected = np.sqrt(direction), direction**2
+
+    assert len(result) == 2
+    assert len(calls) == 1
+    for r, e in zip(result, expected):
+        assert na.shape(r) == na.shape(e)
+        if num is None:
+            assert np.all(r == e)
+        else:
+            assert np.abs(r - e).max() < 1e-3 / num
+            assert calls[0] == {"_incidence": num}
+
+    # with every axis of the direction accounted for by `shape`, there is
+    # nothing to span with nodes, so the function is called directly
+    direct = optika.materials.interpolate_incidence(
+        function=function,
+        direction=direction,
+        num=num,
+        shape=na.shape(direction),
+    )
+    assert all(np.all(r == e) for r, e in zip(direct, expected))
+
+
 class AbstractTestAbstractMultilayerMaterial(
     test_materials.AbstractTestAbstractMaterial,
 ):

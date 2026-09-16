@@ -2109,6 +2109,22 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
     @property
     @abc.abstractmethod
+    def num_interpolation(self) -> None | int:
+        """
+        The number of nodes used to interpolate the absorbance of this sensor
+        over the angle of incidence, or :obj:`None` to compute it for every
+        ray.
+
+        The absorbance is the response of a stack of layers, the oxide over
+        the substrate, and costs as much to compute as any other stack; see
+        :attr:`optika.materials.AbstractMultilayerMaterial.num_interpolation`.
+        Only :meth:`efficiency`, which the raytrace calls, interpolates;
+        :meth:`absorbance` is always computed for every direction it is
+        given.
+        """
+
+    @property
+    @abc.abstractmethod
     def cce_backsurface(self) -> float | na.AbstractScalar:
         """
         The charge collection efficiency on the illuminated surface of the sensor.
@@ -2210,9 +2226,26 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         if normal is None:
             normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-        return absorbance(
+        return self._absorbance(
             wavelength=wavelength,
             direction=-direction @ normal,
+            n=n,
+        )
+
+    def _absorbance(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
+        n: complex | na.AbstractScalar,
+    ) -> optika.vectors.PolarizationVectorArray:
+        """
+        The absorbance of this sensor as a function of the cosine of the
+        angle of incidence, which is what :meth:`absorbance` computes and
+        :meth:`efficiency` interpolates.
+        """
+        return absorbance(
+            wavelength=wavelength,
+            direction=direction,
             n=n,
             thickness_oxide=self.thickness_oxide,
             thickness_substrate=self.thickness_substrate,
@@ -2592,14 +2625,23 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
-        result = self.absorbance(
-            wavelength=rays.wavelength,
-            direction=rays.direction,
-            n=rays.n,
-            normal=normal,
-        )
+        wavelength = rays.wavelength
+        n = rays.n
 
-        return result.average
+        def stack(direction: na.ScalarLike) -> tuple[na.ScalarLike]:
+            return (self._absorbance(wavelength, direction, n).average,)
+
+        (result,) = optika.materials.interpolate_incidence(
+            function=stack,
+            direction=-rays.direction @ normal,
+            num=self.num_interpolation,
+            shape=na.broadcast_shapes(
+                na.shape(wavelength),
+                na.shape(n),
+                self.shape,
+            ),
+        )
+        return result
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -2634,6 +2676,13 @@ class BackIlluminatedSiliconSensorMaterial(
 
     eqe_measured: None | na.FunctionArray = None
     """An optional measurement of the effective quantum efficiency."""
+
+    num_interpolation: None | int = None
+    """
+    The number of nodes used to interpolate the absorbance over the angle of
+    incidence, or :obj:`None` to compute it for every ray.
+    See :attr:`~optika.materials.AbstractMultilayerMaterial.num_interpolation`.
+    """
 
     @property
     def shape(self) -> dict[str, int]:

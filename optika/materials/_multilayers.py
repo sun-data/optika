@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Sequence
+from typing import Sequence, Callable
 import abc
 import dataclasses
 import numpy as np
@@ -22,6 +22,7 @@ __all__ = [
     "multilayer_coefficients",
     "multilayer_efficiency",
     "layer_absorbance",
+    "interpolate_incidence",
     "AbstractMultilayerMaterial",
     "AbstractMultilayerFilm",
     "MultilayerFilm",
@@ -772,6 +773,92 @@ _axis_interpolation = "_incidence"
 """The logical axis of the angle-of-incidence interpolation table."""
 
 
+def interpolate_incidence(
+    function: Callable[[na.ScalarLike], tuple[na.ScalarLike, ...]],
+    direction: na.ScalarLike,
+    num: None | int,
+    shape: dict[str, int],
+) -> tuple[na.ScalarLike, ...]:
+    """
+    Evaluate a function of the angle of incidence at a few nodes spanning
+    the angles the rays actually cover, and interpolate it for the rest.
+
+    Solving a stack of layers usually costs far more than the raytrace it
+    belongs to, and its response is a smooth function of the angle of
+    incidence, over which a given surface typically spans only a few
+    degrees. Evaluating it at `num` angles and interpolating is much cheaper
+    whenever there are more rays than nodes, which is the case for every
+    material in this package which uses it.
+
+    The error this introduces grows with the angular range the rays span,
+    measured against the width of the features in the response; see
+    :attr:`AbstractMultilayerMaterial.num_interpolation`.
+
+    Parameters
+    ----------
+    function
+        A function of the cosine of the angle of incidence which returns a
+        :obj:`tuple` of arrays, such as a reflectivity and a transmissivity.
+        It is called once, either with `direction` or with the nodes.
+    direction
+        The cosine of the angle of incidence of each ray.
+    num
+        The number of nodes, or :obj:`None` to call `function` on
+        `direction` directly.
+    shape
+        The shape of everything `function` depends on other than the angle
+        of incidence: the wavelength, the ambient medium, the stack itself.
+        The nodes span the axes of `direction` which are not in `shape`, so
+        that one table is built for each element of `shape`.
+
+    Examples
+    --------
+
+    Interpolate a function which is expensive to evaluate for every ray.
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # the cosine of the angle of incidence of many rays
+        angle = na.linspace(0, 10, axis="ray", num=1001) * u.deg
+        direction = np.cos(angle)
+
+        # evaluated at 8 nodes and interpolated for the 1001 rays
+        (result,) = optika.materials.interpolate_incidence(
+            function=lambda d: (np.sqrt(d),),
+            direction=direction,
+            num=8,
+            shape=dict(),
+        )
+
+        # against the exact answer
+        np.abs(result - np.sqrt(direction)).max()
+    """
+    if num is None:
+        return function(direction)
+
+    axis = tuple(a for a in na.shape(direction) if a not in shape)
+    if not axis:
+        return function(direction)
+
+    nodes = na.linspace(
+        start=direction.min(axis),
+        stop=direction.max(axis),
+        axis=_axis_interpolation,
+        num=num,
+    )
+
+    tables = function(nodes)
+
+    return tuple(
+        na.interp(direction, nodes, table, axis=_axis_interpolation) for table in tables
+    )
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractMultilayerMaterial(
     AbstractMaterial,
@@ -874,53 +961,29 @@ class AbstractMultilayerMaterial(
         wavelength = rays.wavelength
         k = rays.attenuation * wavelength / (4 * np.pi)
         n = rays.index_refraction + k * 1j
-        direction = -rays.direction @ normal
 
-        kwargs = dict(
-            wavelength=wavelength,
-            n=n,
-            layers=self.layers,
-            substrate=self._substrate,
-        )
-
-        def exact() -> tuple[na.ScalarLike, na.ScalarLike]:
-            r, t = multilayer_efficiency(direction=direction, **kwargs)
-            return r.average, t.average
-
-        num = self.num_interpolation
-        if num is None:
-            return exact()
+        def stack(direction: na.ScalarLike) -> tuple[na.ScalarLike, na.ScalarLike]:
+            reflectivity, transmissivity = multilayer_efficiency(
+                wavelength=wavelength,
+                direction=direction,
+                n=n,
+                layers=self.layers,
+                substrate=self._substrate,
+            )
+            return reflectivity.average, transmissivity.average
 
         # the table is built along the axes which only the angle of incidence
         # varies over, so the wavelength, the index of refraction of the
         # ambient medium, and any axis of the stack itself are kept
-        shape_kept = na.broadcast_shapes(
-            na.shape(wavelength),
-            na.shape(n),
-            self.shape,
-        )
-        axis = tuple(a for a in na.shape(direction) if a not in shape_kept)
-        if not axis:
-            return exact()
-
-        nodes = na.linspace(
-            start=direction.min(axis),
-            stop=direction.max(axis),
-            axis=_axis_interpolation,
-            num=num,
-        )
-
-        reflectivity, transmissivity = multilayer_efficiency(
-            direction=nodes,
-            **kwargs,
-        )
-
-        def interpolate(table: na.ScalarLike) -> na.ScalarLike:
-            return na.interp(direction, nodes, table, axis=_axis_interpolation)
-
-        return (
-            interpolate(reflectivity.average),
-            interpolate(transmissivity.average),
+        return interpolate_incidence(
+            function=stack,
+            direction=-rays.direction @ normal,
+            num=self.num_interpolation,
+            shape=na.broadcast_shapes(
+                na.shape(wavelength),
+                na.shape(n),
+                self.shape,
+            ),
         )
 
     @abc.abstractmethod
