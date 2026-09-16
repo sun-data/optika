@@ -270,7 +270,6 @@ def multilayer_efficiency(
         A layer representing the substrate supporting the multilayer stack.
         The thickness of this layer is ignored.
         If :obj:`None`, then the substrate is assumed to be a vacuum.
-
     num_interpolation
         The number of nodes used to interpolate the result over the angle of
         incidence, or :obj:`None` (the default) to solve the stack for every
@@ -622,7 +621,6 @@ def layer_absorbance(
         A layer representing the substrate supporting the multilayer stack.
         The thickness of this layer is ignored.
         If :obj:`None`, then the substrate is assumed to be a vacuum.
-
     num_interpolation
         The number of nodes used to interpolate the result over the angle of
         incidence, or :obj:`None` (the default) to solve the stack for every
