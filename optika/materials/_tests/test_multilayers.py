@@ -288,51 +288,94 @@ def test_multilayer_efficiency_vs_file(
     assert np.allclose(efficiency, efficiency_file, rtol=1e-4)
 
 
-@pytest.mark.parametrize(
-    argnames="num",
-    argvalues=[None, 8, 64],
-)
-def test_interpolate_incidence(num: None | int):
-    """
-    A smooth function of the angle of incidence is reproduced from a few
-    nodes, exactly at the nodes and closely between them, and evaluated
-    directly when there are no nodes or nothing to interpolate over.
-    """
-    angle = na.linspace(0, 10, axis="ray", num=101) * u.deg
-    direction = np.cos(angle)
-    calls = []
+_layers_interpolated = [
+    optika.materials.Layer(chemical="SiO2", thickness=50 * u.AA),
+]
+_substrate_interpolated = optika.materials.Layer(chemical="Si", thickness=1 * u.um)
+_direction_interpolated = np.cos(na.linspace(0, 10, axis="ray", num=101) * u.deg)
 
-    def function(direction: na.ScalarLike) -> tuple[na.ScalarLike, na.ScalarLike]:
-        calls.append(na.shape(direction))
-        return np.sqrt(direction), direction**2
 
-    result = optika.materials.interpolate_incidence(
-        function=function,
-        direction=direction,
-        num=num,
-        shape=dict(),
+@pytest.mark.parametrize("wavelength", [_wavelength])
+@pytest.mark.parametrize("num_interpolation", [None, 8, 64])
+def test_multilayer_efficiency_interpolated(
+    wavelength: u.Quantity | na.AbstractScalar,
+    num_interpolation: None | int,
+):
+    """
+    Interpolating the stack over the angle of incidence reproduces solving
+    it for every direction, each polarization state on its own, and a single
+    direction is solved directly.
+    """
+    kwargs = dict(
+        wavelength=wavelength,
+        n=1,
+        layers=_layers_interpolated,
+        substrate=_substrate_interpolated,
     )
-    expected = np.sqrt(direction), direction**2
-
-    assert len(result) == 2
-    assert len(calls) == 1
+    expected = optika.materials.multilayer_efficiency(
+        direction=_direction_interpolated,
+        **kwargs,
+    )
+    result = optika.materials.multilayer_efficiency(
+        direction=_direction_interpolated,
+        num_interpolation=num_interpolation,
+        **kwargs,
+    )
     for r, e in zip(result, expected):
+        assert isinstance(r, optika.vectors.PolarizationVectorArray)
         assert na.shape(r) == na.shape(e)
-        if num is None:
-            assert np.all(r == e)
-        else:
-            assert np.abs(r - e).max() < 1e-3 / num
-            assert calls[0] == {"_incidence": num}
+        for component in ["s", "p"]:
+            r_c, e_c = getattr(r, component), getattr(e, component)
+            scale = np.abs(e_c).max()
+            if num_interpolation is None:
+                assert np.all(r_c == e_c)
+            else:
+                assert np.abs(r_c - e_c).max() < 1e-3 * scale
 
-    # with every axis of the direction accounted for by `shape`, there is
-    # nothing to span with nodes, so the function is called directly
-    direct = optika.materials.interpolate_incidence(
-        function=function,
-        direction=direction,
-        num=num,
-        shape=na.shape(direction),
+    # with nothing to interpolate over the stack is solved directly
+    direct = optika.materials.multilayer_efficiency(
+        direction=1,
+        num_interpolation=num_interpolation,
+        **kwargs,
     )
-    assert all(np.all(r == e) for r, e in zip(direct, expected))
+    exact = optika.materials.multilayer_efficiency(direction=1, **kwargs)
+    for r, e in zip(direct, exact):
+        assert np.all(r.s == e.s) and np.all(r.p == e.p)
+
+
+@pytest.mark.parametrize("wavelength", [_wavelength])
+@pytest.mark.parametrize("num_interpolation", [None, 8, 64])
+def test_layer_absorbance_interpolated(
+    wavelength: u.Quantity | na.AbstractScalar,
+    num_interpolation: None | int,
+):
+    """
+    The absorbance of a layer interpolates over the angle of incidence the
+    same way the reflectivity and transmissivity of the stack do.
+    """
+    kwargs = dict(
+        index=1,
+        wavelength=wavelength,
+        n=1,
+        layers=_layers_interpolated + [_substrate_interpolated],
+    )
+    expected = optika.materials.layer_absorbance(
+        direction=_direction_interpolated,
+        **kwargs,
+    )
+    result = optika.materials.layer_absorbance(
+        direction=_direction_interpolated,
+        num_interpolation=num_interpolation,
+        **kwargs,
+    )
+    assert isinstance(result, optika.vectors.PolarizationVectorArray)
+    assert na.shape(result) == na.shape(expected)
+    for component in ["s", "p"]:
+        r_c, e_c = getattr(result, component), getattr(expected, component)
+        if num_interpolation is None:
+            assert np.all(r_c == e_c)
+        else:
+            assert np.abs(r_c - e_c).max() < 1e-3 * np.abs(e_c).max()
 
 
 class AbstractTestAbstractMultilayerMaterial(

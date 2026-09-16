@@ -104,6 +104,7 @@ def transmittance(
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
+    num_interpolation: None | int = None,
 ) -> optika.vectors.PolarizationVectorArray:
     """
     The fraction of incident energy transmitted through the oxide layer into
@@ -134,6 +135,11 @@ def transmittance(
         The RMS roughness the oxide layer surface.
     roughness_substrate
         The RMS roughness of the substrate surface.
+    num_interpolation
+        The number of nodes used to interpolate the response of the oxide and
+        substrate over the angle of incidence, or :obj:`None` (the default)
+        to solve it for every element of `direction`.
+        See :func:`optika.materials.multilayer_efficiency`.
 
     Examples
     --------
@@ -193,6 +199,7 @@ def transmittance(
                 width=roughness_substrate,
             ),
         ),
+        num_interpolation=num_interpolation,
     )
 
     return transmission
@@ -209,6 +216,7 @@ def absorbance(
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
     method: Literal["exact", "Beer-Lambert"] = "Beer-Lambert",
+    num_interpolation: None | int = None,
 ) -> optika.vectors.PolarizationVectorArray:
     """
     The fraction of incident energy absorbed by the light-sensitive
@@ -246,6 +254,11 @@ def absorbance(
         If ``Beer-Lambert``, this method assumes no interference effects.
         These methods only differ in the infrared, where the wavelength is
         commensurate with the thickness of the light-sensitive region.
+    num_interpolation
+        The number of nodes used to interpolate the response of the oxide and
+        substrate over the angle of incidence, or :obj:`None` (the default)
+        to solve it for every element of `direction`.
+        See :func:`optika.materials.multilayer_efficiency`.
 
     Examples
     --------
@@ -333,6 +346,7 @@ def absorbance(
                     ),
                 ),
             ],
+            num_interpolation=num_interpolation,
         )
 
     elif method == "Beer-Lambert":
@@ -347,6 +361,7 @@ def absorbance(
             chemical_substrate=chemical_substrate,
             roughness_oxide=roughness_oxide,
             roughness_substrate=roughness_substrate,
+            num_interpolation=num_interpolation,
         )
 
         n_substrate = chemical_substrate.n(wavelength)
@@ -2113,14 +2128,11 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         """
         The number of nodes used to interpolate the absorbance of this sensor
         over the angle of incidence, or :obj:`None` to compute it for every
-        ray.
+        direction.
 
         The absorbance is the response of a stack of layers, the oxide over
         the substrate, and costs as much to compute as any other stack; see
-        :attr:`optika.materials.AbstractMultilayerMaterial.num_interpolation`.
-        Only :meth:`efficiency`, which the raytrace calls, interpolates;
-        :meth:`absorbance` is always computed for every direction it is
-        given.
+        :func:`optika.materials.multilayer_efficiency`.
         """
 
     @property
@@ -2226,26 +2238,9 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         if normal is None:
             normal = na.Cartesian3dVectorArray(0, 0, -1)
 
-        return self._absorbance(
-            wavelength=wavelength,
-            direction=-direction @ normal,
-            n=n,
-        )
-
-    def _absorbance(
-        self,
-        wavelength: u.Quantity | na.AbstractScalar,
-        direction: float | na.AbstractScalar,
-        n: complex | na.AbstractScalar,
-    ) -> optika.vectors.PolarizationVectorArray:
-        """
-        The absorbance of this sensor as a function of the cosine of the
-        angle of incidence, which is what :meth:`absorbance` computes and
-        :meth:`efficiency` interpolates.
-        """
         return absorbance(
             wavelength=wavelength,
-            direction=direction,
+            direction=-direction @ normal,
             n=n,
             thickness_oxide=self.thickness_oxide,
             thickness_substrate=self.thickness_substrate,
@@ -2253,6 +2248,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             chemical_substrate=self._chemical,
             roughness_oxide=self.roughness_oxide,
             roughness_substrate=self.roughness_substrate,
+            num_interpolation=self.num_interpolation,
         )
 
     def charge_collection_efficiency(
@@ -2625,23 +2621,14 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         rays: optika.rays.AbstractRayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
-        wavelength = rays.wavelength
-        n = rays.n
-
-        def stack(direction: na.ScalarLike) -> tuple[na.ScalarLike]:
-            return (self._absorbance(wavelength, direction, n).average,)
-
-        (result,) = optika.materials.interpolate_incidence(
-            function=stack,
-            direction=-rays.direction @ normal,
-            num=self.num_interpolation,
-            shape=na.broadcast_shapes(
-                na.shape(wavelength),
-                na.shape(n),
-                self.shape,
-            ),
+        result = self.absorbance(
+            wavelength=rays.wavelength,
+            direction=rays.direction,
+            n=rays.n,
+            normal=normal,
         )
-        return result
+
+        return result.average
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -2680,8 +2667,8 @@ class BackIlluminatedSiliconSensorMaterial(
     num_interpolation: None | int = None
     """
     The number of nodes used to interpolate the absorbance over the angle of
-    incidence, or :obj:`None` to compute it for every ray.
-    See :attr:`~optika.materials.AbstractMultilayerMaterial.num_interpolation`.
+    incidence, or :obj:`None` to compute it for every direction.
+    See :func:`optika.materials.multilayer_efficiency`.
     """
 
     @property
