@@ -1,4 +1,4 @@
-from typing import Sequence, Callable, Any, ClassVar
+from typing import Sequence, Callable, Any, ClassVar, Literal
 import abc
 import dataclasses
 import functools
@@ -14,6 +14,16 @@ import named_arrays as na
 import optika
 from . import AbstractSystem
 from . import LinearSystem
+
+PupilFit = (
+    tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
+    | na.PolynomialFitFunctionArray
+)
+"""
+The entrance pupil fit as a function of field: a pair of fits of the corners
+of its box in rectangular pupil coordinates, or one fit of every point along
+its edge in polar coordinates.
+"""
 
 __all__ = [
     "StopSolveError",
@@ -205,6 +215,40 @@ class AbstractSequentialSystem(
         in :attr:`shape`, :attr:`axis_wavelength`, and :attr:`axis_field`.
         """
 
+    @property
+    @abc.abstractmethod
+    def coordinates_pupil(self) -> Literal["rectangular", "polar"]:
+        """
+        The coordinate system a normalized pupil is read in.
+
+        ``"rectangular"`` maps the normalized pupil onto the box around the
+        entrance pupil of each field point, component by component.
+        ``"polar"`` maps its first component onto the azimuth around the
+        outer edge of that entrance pupil and its second onto the distance
+        from the inner edge to the outer, so that every ray lands inside the
+        pupil stop.  Which to use depends on the shape of the pupil stop:
+        a pupil which fills its box, such as a rectangle, is sampled evenly
+        by the first, while a thin annulus, such as the pupil of a grazing
+        incidence telescope, is almost entirely missed by it and is
+        resolved by the second.  See :doc:`/stop_finding`.
+        """
+
+    @property
+    def _pupil_is_polar(self) -> bool:
+        """
+        Whether :attr:`coordinates_pupil` is polar, checking that it is one
+        of the two coordinate systems on the way.
+        """
+        coordinates = self.coordinates_pupil
+        if coordinates == "polar":
+            return True
+        if coordinates == "rectangular":
+            return False
+        raise ValueError(
+            f"`coordinates_pupil` must be 'rectangular' or 'polar', "
+            f"got {coordinates!r}."
+        )
+
     axis_pupil_stop: ClassVar[str] = "_stop_pupil"
     """
     The axis along the edge of the pupil stop.
@@ -286,8 +330,10 @@ class AbstractSequentialSystem(
             A grid of field coordinates.
         """
         if axis_field is None:
-            axis_field = set(field.shape) - set(self.shape)
-            axis_field = tuple(axis_field - set(axis_wavelength))
+            # in the order the array carries them, so that the result does
+            # not change from one process to the next with the hash seed
+            excluded = set(self.shape) | set(axis_wavelength)
+            axis_field = tuple(ax for ax in field.shape if ax not in excluded)
             if len(axis_field) != 2:  # pragma: nocover
                 raise ValueError(
                     "if `axis_field` is `None`, "
@@ -320,8 +366,10 @@ class AbstractSequentialSystem(
             A grid of pupil coordinates.
         """
         if axis_pupil is None:
-            axis_pupil = set(pupil.shape) - set(self.shape)
-            axis_pupil = tuple(axis_pupil - set(axis_wavelength) - set(axis_field))
+            # in the order the array carries them, so that the result does
+            # not change from one process to the next with the hash seed
+            excluded = set(self.shape) | set(axis_wavelength) | set(axis_field)
+            axis_pupil = tuple(ax for ax in pupil.shape if ax not in excluded)
             if len(axis_pupil) != 2:  # pragma: nocover
                 raise ValueError(
                     "if `axis_pupil` is `None`, "
@@ -749,8 +797,17 @@ class AbstractSequentialSystem(
             pupil_stop = surfaces[index_pupil_stop]
             field_stop = surfaces[index_field_stop]
 
+            if self._pupil_is_polar:
+                # the outer ring first, then the inner, so that the point
+                # `i` of one pairs with the point `i + num` of the other
+                grid_pupil = np.concatenate(
+                    pupil_stop.aperture.rings(num=samples_pupil_stop),
+                    axis="wire",
+                )
+            else:
+                grid_pupil = pupil_stop.aperture.wire(num=samples_pupil_stop)
             grid_pupil = np.moveaxis(
-                a=pupil_stop.aperture.wire(num=samples_pupil_stop),
+                a=grid_pupil,
                 source="wire",
                 destination=axis_pupil_stop,
             )
@@ -810,7 +867,8 @@ class AbstractSequentialSystem(
         axis_field_stop
             The axis along the edge of the field stop.
         samples_pupil_stop
-            The number of points along the edge of the pupil stop.
+            The number of points along the edge of the pupil stop, or along
+            each of its two rings if :attr:`coordinates_pupil` is polar.
         samples_field_stop
             The number of points along the edge of the field stop, not
             counting its center.
@@ -882,15 +940,16 @@ class AbstractSequentialSystem(
         return self._without_center(self._rayfunction_stops_with_center)
 
     @functools.cached_property
-    def pupil_fit(
-        self,
-    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
+    def pupil_fit(self) -> None | PupilFit:
         """
         The entrance pupil of the system, fit as a function of field position
         at the wavelengths of :attr:`grid_input`.
 
-        :obj:`None` if the fit is singular, in which case the box shared by
-        every field point is used instead.  Cached; see the notes on
+        A pair of fits, of the lower-left and upper-right corners of the
+        pupil, if :attr:`coordinates_pupil` is rectangular, or one fit of
+        every point along its edge if polar.  :obj:`None` if the fit is
+        singular, in which case the pupil shared by every field point is
+        used instead.  Cached; see the notes on
         :class:`AbstractSequentialSystem` before changing a system in place.
         """
         return self._calc_pupil_fit(
@@ -923,10 +982,7 @@ class AbstractSequentialSystem(
         self,
         wavelength: na.ScalarLike,
         normalized_pupil: bool = True,
-    ) -> tuple[
-        optika.rays.RayFunctionArray,
-        None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray],
-    ]:
+    ) -> tuple[optika.rays.RayFunctionArray, None | PupilFit]:
         """
         Return the stop rays at `wavelength` and the entrance-pupil fit made
         from them.
@@ -966,14 +1022,46 @@ class AbstractSequentialSystem(
 
         return bool(np.all(wavelength == wavelength_default))
 
+    def _field_of_stop_samples(
+        self,
+        field: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        The field of each sample along the edge of the field stop, from the
+        field of the stop rays through it.
+
+        Those rays share a point of the field stop and differ in their point
+        on the pupil stop, so their field is one field position to the extent
+        the two stops are conjugate, and is averaged along the edge of the
+        pupil stop where they are not.  In polar coordinates the average is
+        over the outer ring alone: the inner ring of a pupil stop with no
+        hole is its center repeated, which would weigh the ray through the
+        center as much as the whole edge.
+
+        Parameters
+        ----------
+        field
+            The field of the stop rays, from :meth:`_field_and_pupil`.
+        """
+        axis = self.axis_pupil_stop
+        if self._pupil_is_polar:
+            field = field[{axis: slice(None, field.shape[axis] // 2)}]
+        return field.mean(axis)
+
     def _calc_pupil_fit(
         self,
         wavelength: na.ScalarLike,
         rayfunction_stops: optika.rays.RayFunctionArray,
-    ) -> None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]:
+    ) -> None | PupilFit:
         """
-        Fit the lower-left and upper-right corners of the entrance pupil as
-        quadratics in field, or return :obj:`None` if the fit is singular.
+        Fit the entrance pupil as a quadratic in field, or return :obj:`None`
+        if the fit is singular.
+
+        In rectangular coordinates the lower-left and upper-right corners of
+        the pupil are fit, as a pair; in polar coordinates every point along
+        the edge of the pupil is fit on its own, since the rays are mapped
+        onto the edge itself rather than onto its box, and the fit keeps the
+        edge along :attr:`axis_pupil_stop`.
 
         The samples are the stop rays: the pupil along the edge of the field,
         and at its center.  The center matters because the edge of a round
@@ -995,9 +1083,7 @@ class AbstractSequentialSystem(
         # one sample per point along the field stop's wire, its center last:
         # the field is constant along the pupil stop's wire, and the pupil's
         # extent along it is the pupil at that field point
-        field = field.mean(self.axis_pupil_stop)
-        pupil_min = pupil.min(self.axis_pupil_stop)
-        pupil_max = pupil.max(self.axis_pupil_stop)
+        field = self._field_of_stop_samples(field)
 
         # The wavelength rides along as a broadcast axis, since the fit is
         # only ever evaluated at the wavelengths it was made at.  The inputs
@@ -1010,18 +1096,35 @@ class AbstractSequentialSystem(
             components=("field.x", "field.y"),
             axis_polynomial=self.axis_field_stop,
         )
-        fit_min = na.PolynomialFitFunctionArray.from_degree(outputs=pupil_min, **kwargs)
-        fit_max = na.PolynomialFitFunctionArray.from_degree(outputs=pupil_max, **kwargs)
+
+        if self._pupil_is_polar:
+            # the edge of the pupil rides along as a broadcast axis of the
+            # outputs, so this is one fit per point along it
+            fits = (na.PolynomialFitFunctionArray.from_degree(outputs=pupil, **kwargs),)
+        else:
+            fits = (
+                na.PolynomialFitFunctionArray.from_degree(
+                    outputs=pupil.min(self.axis_pupil_stop),
+                    **kwargs,
+                ),
+                na.PolynomialFitFunctionArray.from_degree(
+                    outputs=pupil.max(self.axis_pupil_stop),
+                    **kwargs,
+                ),
+            )
 
         try:
             # the least-squares solve is lazy, and it is what can be singular
-            fit_min.coefficients
-            fit_max.coefficients
+            for fit in fits:
+                fit.coefficients
         except np.linalg.LinAlgError:
-            # singular design matrix: no per-field pupil, use the shared box
+            # singular design matrix: no per-field pupil, use the shared one
             return None
 
-        return fit_min, fit_max
+        if self._pupil_is_polar:
+            (fit,) = fits
+            return fit
+        return fits
 
     def _field_and_pupil(
         self,
@@ -1152,13 +1255,255 @@ class AbstractSequentialSystem(
         """
         return (upper - lower) * (normalized + 1) / 2 + lower
 
+    @classmethod
+    def _denormalize_polar(
+        cls,
+        normalized: na.AbstractCartesian2dVectorArray,
+        edge: na.AbstractCartesian2dVectorArray,
+        axis: str,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Map normalized polar coordinates in :math:`[-1, 1]^2` onto the region
+        between the inner and outer rings of an edge.
+
+        The first component is the position along the rings: :math:`-1` is
+        their first point and :math:`+1` their last, which is the first
+        again for a ring which closes on itself, and the values between run
+        once along them.  The second is the distance across: :math:`-1` is
+        the inner ring and :math:`+1` the outer.
+
+        Between the samples of a ring, the ring is interpolated in polar
+        coordinates about the center of the outer one, so that a round ring
+        stays round between its samples.  Interpolated along a chord instead,
+        a ring sampled every 18 degrees would sag by more than half
+        the width of the annulus of a grazing-incidence telescope, and the
+        rays mapped onto it would miss the pupil stop.
+
+        Parameters
+        ----------
+        normalized
+            The normalized coordinates to map.
+        edge
+            The outer ring followed by the inner, along `axis`, as
+            :meth:`optika.apertures.AbstractAperture.rings` lays them out.
+            Its other axes broadcast against those of `normalized`.
+        axis
+            The axis of `edge` along the rings.
+        """
+        num = edge.shape[axis] // 2
+        outer = edge[{axis: slice(None, num)}]
+        inner = edge[{axis: slice(num, None)}]
+
+        # the last sample of each ring repeats the first, so it is left out
+        # of the center
+        center = outer[{axis: slice(None, -1)}].mean(axis)
+
+        # the position along the rings, in units of their samples, split into
+        # the sample before it and the fraction of the way to the next
+        t = (num - 1) * np.clip(normalized.x + 1, 0, 2) / 2
+        index = np.clip(np.floor(t).astype(int), 0, num - 2)
+        weight = t - index
+
+        def along(
+            ring: na.AbstractCartesian2dVectorArray,
+        ) -> na.AbstractCartesian2dVectorArray:
+            """
+            The point of `ring` at `t`, interpolated in polar coordinates
+            about `center` between the samples on either side of `t`.
+            """
+            ring = ring - center
+
+            radius = ring.length
+            azimuth = np.arctan2(ring.y, ring.x)
+
+            def gather(a: na.AbstractScalar, offset: int) -> na.AbstractScalar:
+                indices = na.indices(a.shape)
+                indices[axis] = index + offset
+                return a[indices]
+
+            radius_0 = gather(radius, 0)
+            radius_1 = gather(radius, 1)
+            azimuth_0 = gather(azimuth, 0)
+            azimuth_1 = gather(azimuth, 1)
+
+            # the shorter way round between the two samples, so that a ring
+            # which crosses the branch cut of `arctan2` does not unwind
+            delta = (azimuth_1 - azimuth_0 + np.pi * u.rad) % (2 * np.pi * u.rad)
+            delta = delta - np.pi * u.rad
+
+            radius = (1 - weight) * radius_0 + weight * radius_1
+            azimuth = azimuth_0 + weight * delta
+
+            return center + na.Cartesian2dVectorArray(
+                x=radius * np.cos(azimuth),
+                y=radius * np.sin(azimuth),
+            )
+
+        return cls._denormalize_interval(
+            normalized.y,
+            lower=along(inner),
+            upper=along(outer),
+        )
+
+    def _edge_polar(
+        self,
+        wavelength: na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+        pupil_fit: None | PupilFit,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        The edge of the entrance pupil at the given field positions, in the
+        layout :meth:`_denormalize_polar` takes.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths of the field positions.
+        field
+            The physical field positions to evaluate the edge at.
+        rayfunction_stops
+            The result of :meth:`_calc_rayfunction_stops` on `wavelength`,
+            which bounds the shared pupil.
+        pupil_fit
+            The result of :meth:`_calc_pupil_fit` on `wavelength`.  If
+            :obj:`None`, every field position takes the edge averaged along
+            the edge of the field.
+        """
+        axis_stops = self.axis_stops
+        _, pupil = self._field_and_pupil(rayfunction_stops.outputs)
+
+        if pupil_fit is None:
+            edge = pupil.mean(self.axis_field_stop)
+        else:
+            x = optika.vectors.SceneVectorArray(wavelength, field)
+            edge = pupil_fit(x).outputs
+
+        # the box shared by every field point still bounds the edge, so a fit
+        # which extrapolates cannot send rays outside the pupil the stops
+        # actually admit
+        edge = np.maximum(edge, pupil.min(axis_stops))
+        edge = np.minimum(edge, pupil.max(axis_stops))
+        return edge
+
+    @staticmethod
+    def _area_quadrilateral(
+        a: na.AbstractCartesian2dVectorArray,
+        b: na.AbstractCartesian2dVectorArray,
+        c: na.AbstractCartesian2dVectorArray,
+        d: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        The unsigned area of the quadrilateral with the given corners, taken
+        in order around it.
+        """
+        result = a.x * b.y - b.x * a.y
+        result = result + b.x * c.y - c.x * b.y
+        result = result + c.x * d.y - d.x * c.y
+        result = result + d.x * a.y - a.x * d.y
+        return np.abs(result) / 2
+
+    def _area_pupil_cells(
+        self,
+        wavelength: na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+        pupil: na.AbstractCartesian2dVectorArray,
+        axis_pupil: tuple[str, str],
+        rayfunction_stops: optika.rays.RayFunctionArray,
+        pupil_fit: None | PupilFit,
+        normalized_pupil: bool,
+    ) -> na.AbstractScalar:
+        """
+        The area of each cell of a grid of pupil vertices, mapped onto the
+        entrance pupil of the field position it is given at.
+
+        In rectangular coordinates, and for a physical pupil, each cell is
+        the quadrilateral of its four vertices.  In polar coordinates it is
+        not: a cell spans an arc of the ring, and one cell spanning the whole
+        ring has corners which coincide and no area at all as a
+        quadrilateral.  Each cell is therefore cut into as many pieces along
+        the ring as it spans intervals between the samples of the ring, and
+        the pieces, which are quadrilaterals to the accuracy the ring is
+        known to, are summed.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths of the cells.
+        field
+            The physical field position each cell is mapped at, which for
+            :meth:`area_effective` is the field position of its own ray.
+        pupil
+            The vertices of the pupil grid, normalized if
+            `normalized_pupil`.
+        axis_pupil
+            The logical axes of the pupil grid.
+        rayfunction_stops
+            The result of :meth:`_calc_rayfunction_stops` on `wavelength`.
+        pupil_fit
+            The result of :meth:`_calc_pupil_fit` on `wavelength`.
+        normalized_pupil
+            Whether `pupil` is normalized.
+        """
+        if not (normalized_pupil and self._pupil_is_polar):
+            vertices = self._denormalize_grid_from_rays(
+                grid=optika.vectors.ObjectVectorArray(
+                    wavelength=wavelength,
+                    field=field,
+                    pupil=pupil,
+                ),
+                rayfunction_stops=rayfunction_stops,
+                pupil_fit=pupil_fit,
+                normalized_field=False,
+                normalized_pupil=normalized_pupil,
+            )
+            return np.abs(vertices.pupil.volume_cell(axis=axis_pupil))
+
+        edge = self._edge_polar(
+            wavelength=wavelength,
+            field=field,
+            rayfunction_stops=rayfunction_stops,
+            pupil_fit=pupil_fit,
+        )
+        axis_edge = self.axis_pupil_stop
+
+        # the axis the azimuth varies along is the one to cut the cells
+        # along, whichever order the two were given in
+        def extent(axis: str) -> float:
+            lower = pupil.x[{axis: slice(None, -1)}]
+            upper = pupil.x[{axis: slice(1, None)}]
+            return float(np.abs(upper - lower).max().ndarray)
+
+        axis_azimuth, axis_radius = sorted(axis_pupil, key=extent, reverse=True)
+
+        lower = pupil[{axis_azimuth: slice(None, -1)}]
+        upper = pupil[{axis_azimuth: slice(1, None)}]
+
+        # enough pieces that none spans more than one interval between the
+        # samples of the ring, which run from -1 to +1 along the azimuth
+        num_samples = edge.shape[axis_edge] // 2
+        width = np.abs(upper.x - lower.x).max().ndarray
+        num_pieces = max(int(np.ceil(width * (num_samples - 1) / 2)), 1)
+
+        area = 0
+        for i in range(num_pieces):
+            a = lower + (upper - lower) * (i / num_pieces)
+            b = lower + (upper - lower) * ((i + 1) / num_pieces)
+            a = self._denormalize_polar(a, edge=edge, axis=axis_edge)
+            b = self._denormalize_polar(b, edge=edge, axis=axis_edge)
+            area = area + self._area_quadrilateral(
+                a[{axis_radius: slice(None, -1)}],
+                b[{axis_radius: slice(None, -1)}],
+                b[{axis_radius: slice(1, None)}],
+                a[{axis_radius: slice(1, None)}],
+            )
+        return area
+
     def _denormalize_grid_from_rays(
         self,
         grid: optika.vectors.ObjectVectorArray,
         rayfunction_stops: optika.rays.RayFunctionArray,
-        pupil_fit: (
-            None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
-        ) = None,
+        pupil_fit: None | PupilFit = None,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
     ) -> optika.vectors.ObjectVectorArray:
@@ -1194,7 +1539,19 @@ class AbstractSequentialSystem(
                 upper=field.max(axis_stops),
             )
 
-        if normalized_pupil:
+        if normalized_pupil and self._pupil_is_polar:
+            result.pupil = self._denormalize_polar(
+                result.pupil,
+                edge=self._edge_polar(
+                    wavelength=result.wavelength,
+                    field=result.field,
+                    rayfunction_stops=rayfunction_stops,
+                    pupil_fit=pupil_fit,
+                ),
+                axis=self.axis_pupil_stop,
+            )
+
+        elif normalized_pupil:
             # the box shared by every field point: the union of every ray
             # which passes both stops
             pupil_min_shared = pupil.min(axis_stops)
@@ -1518,6 +1875,17 @@ class AbstractSequentialSystem(
             pupil=pupil,
         )
 
+        if normalized_pupil and self._pupil_is_polar:
+            return self._rayfunction_from_vertices_polar(
+                radiance=radiance,
+                grid=grid,
+                axis_wavelength=axis_wavelength,
+                axis_field=axis_field,
+                axis_pupil=axis_pupil,
+                normalized_field=normalized_field,
+                seed=seed,
+            )
+
         grid = self._denormalize_grid(
             grid=grid,
             normalized_field=normalized_field,
@@ -1544,6 +1912,139 @@ class AbstractSequentialSystem(
             wavelength=grid_centered.wavelength,
             field=grid_centered.field,
             pupil=grid_centered.pupil,
+            normalized_field=False,
+            normalized_pupil=False,
+        )
+
+    def _rayfunction_from_vertices_polar(
+        self,
+        radiance: na.AbstractScalar,
+        grid: optika.vectors.ObjectVectorArray,
+        axis_wavelength: str,
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+        normalized_field: bool,
+        seed: None | int,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        :meth:`_rayfunction_from_vertices` for a normalized pupil in polar
+        coordinates.
+
+        A polar pupil cell is an arc of the ring rather than the
+        quadrilateral of its four corners, so the corners cannot be made
+        physical first and the rays read off them afterwards.  The rays are
+        instead drawn in normalized coordinates and made physical one by one,
+        as :meth:`area_effective` draws them, and the area of each pupil cell
+        is integrated around the ring at the field position of its own ray.
+        The stops are solved once, at the wavelength of each ray.
+
+        Parameters
+        ----------
+        radiance
+            The spectral radiance of each cell.
+        grid
+            The vertices of the wavelength, field, and pupil grids, the pupil
+            normalized.
+        axis_wavelength
+            The logical axis corresponding to changing wavelength.
+        axis_field
+            The two logical axes corresponding to changing field positions.
+        axis_pupil
+            The two logical axes corresponding to changing pupil positions.
+        normalized_field
+            Whether the field of `grid` is normalized.
+        seed
+            The seed of the random position of each ray within its cell.
+        """
+        seeds = np.random.SeedSequence(seed).generate_state(3)
+        seed_wavelength, seed_field, seed_pupil = (int(s) for s in seeds)
+
+        # the width of each wavelength cell, and a wavelength drawn in it
+        wavelength = grid.wavelength
+        area_wavelength = wavelength.volume_cell(axis_wavelength)
+        wavelength = wavelength.broadcast_to(
+            na.broadcast_shapes(self.shape, wavelength.shape),
+        ).cell_centers(axis=axis_wavelength, random=True, seed=seed_wavelength)
+
+        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
+            wavelength,
+            normalized_pupil=True,
+        )
+
+        # the field vertices at the wavelength of each ray, made physical
+        field = grid.field
+        if axis_wavelength in field.shape:
+            field = field.cell_centers(axis=axis_wavelength)
+        field = field.broadcast_to(
+            na.broadcast_shapes(self.shape, na.shape(wavelength), field.shape),
+        )
+        if normalized_field:
+            field = self._denormalize_grid_from_rays(
+                grid=optika.vectors.ObjectVectorArray(
+                    wavelength=wavelength,
+                    field=field,
+                    pupil=grid.pupil,
+                ),
+                rayfunction_stops=rayfunction_stops,
+                pupil_fit=pupil_fit,
+                normalized_field=True,
+                normalized_pupil=False,
+            ).field
+
+        # the extent of each field cell, as `ObjectVectorArray.cell_area`
+        # reads it, and a field position drawn in it
+        if na.unit_normalized(field).is_equivalent(u.deg):
+            area_field = optika.direction(field).solid_angle_cell(axis_field)
+        else:
+            area_field = field.volume_cell(axis_field)
+        area_field = np.abs(area_field)
+        field = field.cell_centers(axis=axis_field, random=True, seed=seed_field)
+
+        # the pupil vertices, still normalized, at the field of each ray
+        pupil = grid.pupil
+        for axis in (axis_wavelength,) + axis_field:
+            if axis in pupil.shape:
+                pupil = pupil.cell_centers(axis=axis)
+        pupil = pupil.broadcast_to(
+            na.broadcast_shapes(
+                self.shape,
+                na.shape(wavelength),
+                na.shape(field),
+                pupil.shape,
+            ),
+        )
+
+        # the area of each pupil cell in the entrance pupil of its own ray,
+        # and a pupil position drawn in it
+        area_pupil = self._area_pupil_cells(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            axis_pupil=axis_pupil,
+            rayfunction_stops=rayfunction_stops,
+            pupil_fit=pupil_fit,
+            normalized_pupil=True,
+        )
+        pupil = pupil.cell_centers(axis=axis_pupil, random=True, seed=seed_pupil)
+        pupil = self._denormalize_grid_from_rays(
+            grid=optika.vectors.ObjectVectorArray(
+                wavelength=wavelength,
+                field=field,
+                pupil=pupil,
+            ),
+            rayfunction_stops=rayfunction_stops,
+            pupil_fit=pupil_fit,
+            normalized_field=False,
+            normalized_pupil=True,
+        ).pupil
+
+        flux = radiance * area_wavelength * area_field * area_pupil
+
+        return self.rayfunction(
+            intensity=flux,
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
             normalized_field=False,
             normalized_pupil=False,
         )
@@ -1913,13 +2414,21 @@ class AbstractSequentialSystem(
 
         # The illumination is weighted by the size of each field position's
         # pupil, so that this model and `area_effective` multiply together;
-        # see the latter.  The span of the sampled pupil stands in for its
-        # area: one normalized grid is mapped onto every field position's
-        # pupil affinely, so the span is proportional to the area with a
-        # constant which divides out below.
-        span = rays.inputs.pupil.ptp(axis_pupil)
+        # see the latter.
+        if self._pupil_is_polar:
+            # The cells between the sampled rays stand in for the area of the
+            # pupil: they fall short of it by a rim less than one cell wide,
+            # a fraction which is nearly the same at every field position.
+            area = np.abs(rays.inputs.pupil.volume_cell(axis_pupil)).sum(axis_pupil)
+            illumination = unvignetted.mean(axis_pupil) * area
+        else:
+            # The span of the sampled pupil stands in for its area: one
+            # normalized grid is mapped onto every field position's pupil
+            # affinely, so the span is proportional to the area with a
+            # constant which divides out below.
+            span = rays.inputs.pupil.ptp(axis_pupil)
+            illumination = unvignetted.mean(axis_pupil) * span.x * span.y
 
-        illumination = unvignetted.mean(axis_pupil) * span.x * span.y
         illumination = illumination / np.mean(
             illumination,
             axis=axis_field,
@@ -2103,9 +2612,7 @@ class AbstractSequentialSystem(
         normalized_pupil: bool,
         seed: None | int,
         rayfunction_stops: optika.rays.RayFunctionArray,
-        pupil_fit: (
-            None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
-        ),
+        pupil_fit: None | PupilFit,
     ) -> optika.radiometry.InterpolatedEffectiveAreaModel:
         """
         Estimate the effective area from grids whose axes are known and whose
@@ -2204,18 +2711,15 @@ class AbstractSequentialSystem(
 
         # the vertices of every pupil cell, mapped onto that same entrance
         # pupil, give the area each ray stands for
-        vertices = self._denormalize_grid_from_rays(
-            grid=optika.vectors.ObjectVectorArray(
-                wavelength=grid.wavelength,
-                field=grid.field,
-                pupil=pupil,
-            ),
+        area = self._area_pupil_cells(
+            wavelength=grid.wavelength,
+            field=grid.field,
+            pupil=pupil,
+            axis_pupil=axis_pupil,
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
-            normalized_field=False,
             normalized_pupil=normalized_pupil,
         )
-        area = np.abs(vertices.pupil.volume_cell(axis=axis_pupil))
 
         rays = self.rayfunction(
             intensity=area,
@@ -3061,6 +3565,22 @@ class SequentialSystem(
     transformation: None | na.transformations.AbstractTransformation = None
     """
     A optional coordinate transformation to apply to the entire optical system.
+    """
+
+    coordinates_pupil: Literal["rectangular", "polar"] = "rectangular"
+    """
+    The coordinate system a normalized pupil is read in.
+
+    ``"rectangular"`` maps the normalized pupil onto the box around the
+    entrance pupil of each field point, component by component.
+    ``"polar"`` maps its first component onto the azimuth around the
+    outer edge of that entrance pupil and its second onto the distance
+    from the inner edge to the outer, so that every ray lands inside the
+    pupil stop.  Which to use depends on the shape of the pupil stop:
+    a pupil which fills its box, such as a rectangle, is sampled evenly
+    by the first, while a thin annulus, such as the pupil of a grazing
+    incidence telescope, is almost entirely missed by it and is
+    resolved by the second.  See :doc:`/stop_finding`.
     """
 
     kwargs_plot: None | dict[str, Any] = None
