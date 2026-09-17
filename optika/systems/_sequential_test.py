@@ -1338,7 +1338,7 @@ class TestSequentialSystemWolter(
         assert isinstance(fit, na.PolynomialFitFunctionArray)
 
         field, pupil = a._field_and_pupil(stops.outputs)
-        x = optika.vectors.SceneVectorArray(wavelength, field.mean(a.axis_pupil_stop))
+        x = optika.vectors.SceneVectorArray(wavelength, a._field_of_stop_samples(field))
         error = (fit(x).outputs - pupil).length
         width = (pupil.max(a.axis_stops) - pupil.min(a.axis_stops)).length
         assert np.all(error < 1e-5 * width)
@@ -2454,3 +2454,154 @@ def test_coordinates_pupil_must_be_rectangular_or_polar():
     a = dataclasses.replace(_system_newtonian, coordinates_pupil="cylindrical")
     with pytest.raises(ValueError, match="coordinates_pupil"):
         a.rayfunction_stops
+
+
+def _scene_normalized(
+    wavelength: na.AbstractScalar,
+    num: int = 11,
+) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+    """A uniform-ish scene on a normalized field, for :meth:`image`."""
+    return na.FunctionArray(
+        inputs=na.SpectralPositionalVectorArray(
+            wavelength=wavelength,
+            position=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=+1,
+                axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                num=num,
+            ),
+        ),
+        outputs=na.random.uniform(
+            low=0 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm,
+            high=100 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm,
+            shape_random=dict(field_x=num - 1, field_y=num - 1),
+        ),
+    )
+
+
+def test_image_in_polar_coordinates_with_a_finite_object():
+    """
+    With the object at a finite distance the pupil is angular and the extent
+    of a field cell is an area rather than a solid angle; the polar image
+    path handles both.
+    """
+    a = dataclasses.replace(_system_rotated_object, coordinates_pupil="polar")
+    assert not a.object_is_at_infinity
+
+    scene = _scene_normalized(
+        wavelength=na.linspace(530, 531, axis="wavelength", num=3) * u.nm,
+    )
+    result = a.image(scene, noise=False)
+    assert result.outputs.sum() != 0 * u.electron
+
+
+def test_image_in_polar_coordinates_with_grids_which_share_axes():
+    """
+    The field vertices may carry the wavelength axis and the pupil vertices
+    the field axes; each is reduced to its cell centers along the axes it
+    shares before the rays are drawn in it.
+    """
+    a = _system_wolter
+    num = 11
+
+    scene = _scene_normalized(
+        wavelength=na.linspace(15, 20, axis="wavelength", num=3) * u.AA,
+        num=num,
+    )
+    scene.inputs.position = scene.inputs.position * na.ScalarArray(
+        np.ones(3),
+        axes=("wavelength",),
+    )
+    pupil = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=+1,
+        axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+        num=3,
+    ) * na.ScalarArray(np.ones(num), axes=("field_x",))
+
+    result = a.image(scene, pupil=pupil, noise=False)
+    assert "wavelength" not in result.outputs.shape
+    assert result.outputs.sum() != 0 * u.electron
+
+
+@pytest.mark.parametrize("axis_pupil", [("pupil_x", "pupil_y"), ("pupil_y", "pupil_x")])
+def test_area_of_polar_cells_does_not_depend_on_the_order_of_the_axes(
+    axis_pupil: tuple[str, str],
+):
+    """
+    One cell spanning the whole ring has the area of the annulus, whichever
+    order its two axes are named in: the cells are cut along the axis the
+    azimuth varies along, not the first one given.
+    """
+    a = _system_wolter
+    wavelength = a.grid_input.wavelength
+    stops, fit = a._stops_and_pupil_fit(wavelength)
+    field, pupil = a._field_and_pupil(stops.outputs)
+
+    grid = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=+1,
+        axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+        num=2,
+    )
+    area = a._area_pupil_cells(
+        wavelength=wavelength,
+        field=a.field_boundary.mean(a.axis_stops),
+        pupil=grid,
+        axis_pupil=axis_pupil,
+        rayfunction_stops=stops,
+        pupil_fit=fit,
+        normalized_pupil=True,
+    )
+
+    # the area of the annulus, from the stop rays at the center of the field
+    edge = pupil[{a.axis_field_stop: ~0}]
+    num = edge.shape[a.axis_pupil_stop] // 2
+    axis = a.axis_pupil_stop
+
+    def shoelace(ring: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+        ring = ring[{axis: slice(None, -1)}]
+        other = np.roll(ring, -1, axis=axis)
+        return np.abs((ring.x * other.y - other.x * ring.y).sum(axis)) / 2
+
+    expected = shoelace(edge[{axis: slice(None, num)}])
+    expected = expected - shoelace(edge[{axis: slice(num, None)}])
+
+    assert np.allclose(area.sum(axis_pupil), expected, rtol=1e-2)
+
+
+def test_inferred_axes_follow_the_order_of_the_grid():
+    """
+    The field and pupil axes inferred from a grid come in the order the grid
+    carries them, so that nothing drawn along them changes from one process
+    to the next with the hash seed.
+    """
+    a = _system_newtonian
+    axis_wavelength = ("wavelength",)
+
+    for axes in (("_a", "_b"), ("_b", "_a")):
+        field = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=+1,
+            axis=na.Cartesian2dVectorArray(*axes),
+            num=3,
+        )
+        pupil = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=+1,
+            axis=na.Cartesian2dVectorArray(*reversed(axes)),
+            num=3,
+        )
+        axis_field = a._normalize_axis_field(
+            axis_field=None,
+            axis_wavelength=axis_wavelength,
+            field=field,
+        )
+        assert axis_field == tuple(field.shape)
+        axis_pupil = a._normalize_axis_pupil(
+            axis_pupil=None,
+            axis_field=("_c", "_d"),
+            axis_wavelength=axis_wavelength,
+            pupil=pupil,
+        )
+        assert axis_pupil == tuple(pupil.shape)

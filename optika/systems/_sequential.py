@@ -330,8 +330,10 @@ class AbstractSequentialSystem(
             A grid of field coordinates.
         """
         if axis_field is None:
-            axis_field = set(field.shape) - set(self.shape)
-            axis_field = tuple(axis_field - set(axis_wavelength))
+            # in the order the array carries them, so that the result does
+            # not change from one process to the next with the hash seed
+            excluded = set(self.shape) | set(axis_wavelength)
+            axis_field = tuple(ax for ax in field.shape if ax not in excluded)
             if len(axis_field) != 2:  # pragma: nocover
                 raise ValueError(
                     "if `axis_field` is `None`, "
@@ -364,8 +366,10 @@ class AbstractSequentialSystem(
             A grid of pupil coordinates.
         """
         if axis_pupil is None:
-            axis_pupil = set(pupil.shape) - set(self.shape)
-            axis_pupil = tuple(axis_pupil - set(axis_wavelength) - set(axis_field))
+            # in the order the array carries them, so that the result does
+            # not change from one process to the next with the hash seed
+            excluded = set(self.shape) | set(axis_wavelength) | set(axis_field)
+            axis_pupil = tuple(ax for ax in pupil.shape if ax not in excluded)
             if len(axis_pupil) != 2:  # pragma: nocover
                 raise ValueError(
                     "if `axis_pupil` is `None`, "
@@ -1018,6 +1022,32 @@ class AbstractSequentialSystem(
 
         return bool(np.all(wavelength == wavelength_default))
 
+    def _field_of_stop_samples(
+        self,
+        field: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        The field of each sample along the edge of the field stop, from the
+        field of the stop rays through it.
+
+        Those rays share a point of the field stop and differ in their point
+        on the pupil stop, so their field is one field position to the extent
+        the two stops are conjugate, and is averaged along the edge of the
+        pupil stop where they are not.  In polar coordinates the average is
+        over the outer ring alone: the inner ring of a pupil stop with no
+        hole is its center repeated, which would weigh the ray through the
+        center as much as the whole edge.
+
+        Parameters
+        ----------
+        field
+            The field of the stop rays, from :meth:`_field_and_pupil`.
+        """
+        axis = self.axis_pupil_stop
+        if self._pupil_is_polar:
+            field = field[{axis: slice(None, field.shape[axis] // 2)}]
+        return field.mean(axis)
+
     def _calc_pupil_fit(
         self,
         wavelength: na.ScalarLike,
@@ -1053,7 +1083,7 @@ class AbstractSequentialSystem(
         # one sample per point along the field stop's wire, its center last:
         # the field is constant along the pupil stop's wire, and the pupil's
         # extent along it is the pupil at that field point
-        field = field.mean(self.axis_pupil_stop)
+        field = self._field_of_stop_samples(field)
 
         # The wavelength rides along as a broadcast axis, since the fit is
         # only ever evaluated at the wavelengths it was made at.  The inputs
@@ -1245,7 +1275,7 @@ class AbstractSequentialSystem(
         Between the samples of a ring, the ring is interpolated in polar
         coordinates about the center of the outer one, so that a round ring
         stays round between its samples.  Interpolated along a chord instead,
-        a ring sampled every :math:`18^\circ` would sag by more than half
+        a ring sampled every 18 degrees would sag by more than half
         the width of the annulus of a grazing-incidence telescope, and the
         rays mapped onto it would miss the pupil stop.
 
@@ -1436,7 +1466,15 @@ class AbstractSequentialSystem(
             pupil_fit=pupil_fit,
         )
         axis_edge = self.axis_pupil_stop
-        axis_azimuth, axis_radius = axis_pupil
+
+        # the axis the azimuth varies along is the one to cut the cells
+        # along, whichever order the two were given in
+        def extent(axis: str) -> float:
+            lower = pupil.x[{axis: slice(None, -1)}]
+            upper = pupil.x[{axis: slice(1, None)}]
+            return float(np.abs(upper - lower).max().ndarray)
+
+        axis_azimuth, axis_radius = sorted(axis_pupil, key=extent, reverse=True)
 
         lower = pupil[{axis_azimuth: slice(None, -1)}]
         upper = pupil[{axis_azimuth: slice(1, None)}]
