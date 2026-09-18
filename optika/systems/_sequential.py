@@ -1936,10 +1936,22 @@ class AbstractSequentialSystem(
                 where=unvignetted,
             )
 
-        illumination = illumination / np.mean(
-            illumination,
-            axis=axis_field,
-            where=where,
+        # Normalized over the field positions inside the field of view, the
+        # same ones :meth:`_fit_area_effective` averages over.  Written as a
+        # sum over a count rather than as a mean with `where`, so that a
+        # wavelength which no sampled field position admits leaves the
+        # illumination at zero rather than at the undefined average of an
+        # empty set.  The effective area is zero there too, and
+        # :class:`~optika.systems.LinearSystem` multiplies the two, so a
+        # `nan` here would turn every image at that wavelength into `nan`.
+        num = where.sum(axis_field)
+        mean = illumination.sum(axis=axis_field, where=where) / np.where(
+            num > 0, num, 1
+        )
+        illumination = illumination / np.where(
+            num > 0,
+            mean,
+            1 * na.unit_normalized(mean),
         )
 
         return optika.radiometry.PolynomialVignettingModel(
@@ -2171,10 +2183,20 @@ class AbstractSequentialSystem(
 
         Raises
         ------
+        Returns
+        -------
+        rays
+            The traced rays, whose intensity is the area of each ray's pupil
+            cell times its throughput.
+        area
+            The area of the pupil cell each ray stands for, for the models
+            which weight by it but do not read the throughput.
+
+        Raises
+        ------
         ValueError
-            If the wavelength grid does not vary along a single logical axis.
-            Every model fit to these rays needs one, and the trace is the
-            expensive part, so it is checked here before tracing.
+            If the wavelength grid does not vary along a single logical axis,
+            which every model fit to these rays needs.
         """
         if len(axis_wavelength) != 1:
             raise ValueError(
@@ -2287,7 +2309,17 @@ class AbstractSequentialSystem(
             The normalized field axes of `rays`.
         axis_pupil
             The normalized pupil axes of `rays`.
+
+        Raises
+        ------
+        ValueError
+            If the wavelength grid does not vary along a single logical axis.
         """
+        if len(axis_wavelength) != 1:
+            raise ValueError(
+                "Computing the effective area requires that there be only "
+                f"one wavelength axis, got {axis_wavelength}"
+            )
         (axis_wavelength,) = axis_wavelength
 
         unvignetted = rays.outputs.unvignetted
@@ -2332,7 +2364,7 @@ class AbstractSequentialSystem(
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         degree: int = 2,
-        seed: None | int = None,
+        seed: None | int = 0,
     ) -> LinearSystem:
         """
         Construct a linear approximation of this system by fitting its
@@ -2376,8 +2408,8 @@ class AbstractSequentialSystem(
             the normalized pupil is used.
 
             Both grids are the ones :meth:`area_effective` uses when given
-            none, so passing these defaults back reproduces what leaving them
-            out does.
+            none, so passing these defaults back describes the same grid as
+            leaving them out.
         normalized_field
             A boolean flag indicating whether the `field` parameter is given
             in normalized or physical units.
@@ -2388,9 +2420,13 @@ class AbstractSequentialSystem(
             The degree of the polynomial distortion and vignetting models.
         seed
             The seed of the sampling described above.
-            If :obj:`None` (the default), the sampling differs from one call
-            to the next, and so do all three models.  Give a seed to any
-            system which is meant to be reproducible.
+            Zero by default, so that linearizing the same system twice gives
+            the same forward model: code which builds one linear system to
+            make images and another to invert them would otherwise be using
+            two different operators.  Pass :obj:`None` to draw a fresh
+            sample on every call, which is how the spread of these models
+            over the sampling is measured, or any other integer for a
+            different fixed sample.
 
         Raises
         ------
