@@ -2207,6 +2207,31 @@ def test_linearize_is_reproducible():
         assert np.any(x != z)
 
 
+def test_fit_area_effective_needs_one_wavelength_axis():
+    """
+    Fitting an effective area to rays which do not vary along a single
+    wavelength axis raises, rather than failing to unpack.
+
+    The trace and the fit were split so that a caller needing several models
+    can trace once and fit each of them, which makes the fit reachable on
+    its own, so it checks its own arguments as its two siblings do.
+    """
+    a = _system_linearize()
+
+    rays = optika.rays.RayFunctionArray(
+        inputs=optika.vectors.ObjectVectorArray(),
+        outputs=optika.rays.RayVectorArray(),
+    )
+
+    with pytest.raises(ValueError):
+        a._fit_area_effective(
+            rays=rays,
+            axis_wavelength=(),
+            axis_field=("field_x", "field_y"),
+            axis_pupil=("pupil_x", "pupil_y"),
+        )
+
+
 def test_linearize_without_any_illuminated_field():
     """
     A wavelength which no sampled field position admits gives no light,
