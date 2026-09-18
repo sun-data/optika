@@ -1586,15 +1586,21 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
         * u.mm
     )
 
-    inputs = optika.vectors.ObjectVectorArray(
-        wavelength=na.linspace(500, 600, axis=axis_wavelength[0], num=2) * u.nm,
-        field=na.Cartesian2dVectorLinearSpace(
+    vertices_field = (
+        na.Cartesian2dVectorLinearSpace(
             start=-1,
             stop=1,
             axis=na.Cartesian2dVectorArray(*axis_field),
-            num=2,
+            num=3,
         )
-        * u.deg,
+        * u.deg
+    )
+
+    inputs = optika.vectors.ObjectVectorArray(
+        wavelength=na.linspace(500, 600, axis=axis_wavelength[0], num=2) * u.nm,
+        field=vertices_field.broadcast_to(na.shape(vertices_field)).cell_centers(
+            axis=axis_field,
+        ),
         pupil=pupil,
     )
     shape = na.shape_broadcasted(inputs.wavelength, inputs.field, inputs.pupil)
@@ -1605,8 +1611,13 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
         ),
     )
 
+    # one ray per cell, each carrying the area of its own cell, as every
+    # model fit to a stratified trace does
+    area = np.abs(pupil.volume_cell(axis=axis_pupil))
     model = a._fit_vignetting(
-        rays=rays,
+        rays=rays[{axis_pupil[0]: slice(None, -1), axis_pupil[1]: slice(None, -1)}],
+        area=area,
+        vertices_field=vertices_field,
         axis_wavelength=axis_wavelength,
         axis_field=axis_field,
         axis_pupil=axis_pupil,
@@ -1615,22 +1626,6 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
 
     # every ray survives, so the whole difference is the size of the pupil
     illumination = model.illumination
-    narrow = illumination[{"_vfx": 0}].mean()
-    wide = illumination[{"_vfx": 1}].mean()
-    assert np.allclose((wide / narrow).ndarray, 4)
-
-    # the same holds when the rays carry the area of their pupil cells, as
-    # the rays `linearize` fits to do
-    area = np.abs(pupil.volume_cell(axis=axis_pupil))
-    model_area = a._fit_vignetting(
-        rays=rays[{axis_pupil[0]: slice(None, -1), axis_pupil[1]: slice(None, -1)}],
-        axis_wavelength=axis_wavelength,
-        axis_field=axis_field,
-        axis_pupil=axis_pupil,
-        degree=1,
-        area=area,
-    )
-    illumination = model_area.illumination
     narrow = illumination[{"_vfx": 0}].mean()
     wide = illumination[{"_vfx": 1}].mean()
     assert np.allclose((wide / narrow).ndarray, 4)
@@ -2077,26 +2072,15 @@ def test_area_effective_is_reproducible_when_seeded():
 
 def _spy(monkeypatch, name: str) -> list:
     """
-    Record every call to the named method of :class:`SequentialSystem`.
-
-    Returns a list which the wrapper appends to: the result of the call for
-    ``rayfunction``, and the arguments for ``_denormalize_grid_from_rays``.
+    Record the arguments of every call to the named method of
+    :class:`SequentialSystem`, as ``(args, kwargs)``.
     """
     method = getattr(optika.systems.SequentialSystem, name)
     calls = []
 
-    if name == "rayfunction":
-
-        def spy(self, *args, **kwargs):
-            result = method(self, *args, **kwargs)
-            calls.append(result)
-            return result
-
-    else:
-
-        def spy(self, *args, **kwargs):
-            calls.append((args, kwargs))
-            return method(self, *args, **kwargs)
+    def spy(self, *args, **kwargs):
+        calls.append((args, kwargs))
+        return method(self, *args, **kwargs)
 
     monkeypatch.setattr(optika.systems.SequentialSystem, name, spy)
     return calls
@@ -2205,6 +2189,100 @@ def test_linearize_is_reproducible():
     # sampling of any of them cannot hide behind the other two
     for x, z in zip(models(a), models(c)):
         assert np.any(x != z)
+
+
+def test_vignetting_is_the_model_linearize_fits():
+    """
+    Handed the same grids, degree, and seed, :meth:`vignetting` returns the
+    model :meth:`linearize` carries.
+
+    The two used to sample differently: one traced the grids as given and the
+    other drew a point inside every cell of them, so a vignetting model asked
+    for on its own was not the one the linear system was actually using, and
+    the figure in a paper could not be the model behind the numbers beside it.
+    Both grids are left at their defaults here, which is the sharpest form of
+    the claim: the two methods agree on what a grid is down to the one they
+    reach for when given none.
+    """
+    system = _system_linearize()
+
+    a = system.vignetting(degree=1)
+    b = system.linearize(degree=1).vignetting
+
+    assert np.all(a.illumination == b.illumination)
+    assert np.all(a.where == b.where)
+    assert np.all(a.coordinates_scene.position == b.coordinates_scene.position)
+    assert np.all(a.vertices_field == b.vertices_field)
+
+
+def test_vignetting_carries_the_cells_it_was_measured_over():
+    """
+    The fitted model knows the corners of the field cell each of its
+    measurements came from.
+
+    The measurements are drawn inside their cells rather than at the centers,
+    so they are not a mesh, and the model can only be plotted on the cells it
+    was measured over if it carries them.
+    """
+    system = _system_linearize()
+
+    num = 5
+    field = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+        num=num + 1,
+    )
+
+    model = system.vignetting(field=field, degree=1)
+
+    shape = na.shape(model.vertices_field)
+    for ax in model.axis_field:
+        assert shape[ax] == num + 1
+        assert na.shape(model.illumination)[ax] == num
+
+    # in the physical coordinates the measurements are in, and bounding them
+    position = model.coordinates_scene.position
+    vertices = model.vertices_field
+    assert na.unit(vertices.x).is_equivalent(na.unit(position.x))
+    assert vertices.x.min() < position.x.min()
+    assert position.x.max() < vertices.x.max()
+
+
+def test_vignetting_follows_its_seed():
+    """
+    Fitting the same system twice gives the same vignetting model, and a
+    different seed gives a different one.
+
+    The samples are drawn at random inside each cell, so without a fixed seed
+    a model plotted in one place and quoted in another would be two models.
+    """
+    system = _system_linearize()
+
+    a = system.vignetting(degree=1)
+    b = system.vignetting(degree=1)
+    c = system.vignetting(degree=1, seed=43)
+
+    assert np.all(a.illumination == b.illumination)
+    assert np.any(a.illumination != c.illumination)
+
+
+def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
+    """
+    The vignetting fit traces without the efficiency of any surface.
+
+    It reads where the rays went and which of them survived, never what they
+    carry, and the efficiency of every surface at every ray is the expensive
+    part of a trace: the model here is fit to as many rays as
+    :meth:`area_effective` uses, and would pay the same price for a number it
+    then discards.
+    """
+    calls = _spy(monkeypatch, "rayfunction")
+
+    _system_linearize().vignetting(degree=1)
+
+    ((args, kwargs),) = calls
+    assert kwargs["efficiency"] is False
 
 
 def test_fit_area_effective_needs_one_wavelength_axis():
