@@ -974,14 +974,14 @@ def test_area_effective_without_any_illuminated_field():
     assert np.all(result.area == 0 * result.area.unit)
 
 
-def test_linearize_keeps_axes_it_is_not_centering():
+def test_linearize_keeps_axes_it_is_not_sampling():
     """
     Only the two field axes and the two pupil axes are collapsed from
-    vertices to centers.
+    vertices to samples.
 
     A grid may carry axes of its own, such as one of ``system.shape``, and
-    those have to survive.  Taking the axes to center from the shape of the
-    grid rather than naming them would average such an axis into itself.
+    those have to survive.  Taking the axes to sample from the shape of the
+    grid rather than naming them would collapse such an axis into itself.
     """
     system = optika.systems.SequentialSystem(
         surfaces=_surfaces,
@@ -994,7 +994,7 @@ def test_linearize_keeps_axes_it_is_not_centering():
     num_wavelength = na.shape(wavelength)["wavelength"]
 
     # a field grid which drifts with wavelength, so that it carries an axis
-    # which is not one of the two being centered
+    # which is not one of the two being sampled
     drift = 1e-6 * na.linspace(0, 1, axis="wavelength", num=num_wavelength)
     field = na.Cartesian2dVectorArray(
         x=na.linspace(0, 1, axis="field_x", num=num) + drift,
@@ -1012,9 +1012,9 @@ def test_linearize_keeps_axes_it_is_not_centering():
         degree=1,
     )
 
-    # the scene the distortion is fit to is defined on the cell centers, so
-    # each field axis loses exactly one sample and the wavelength axis, which
-    # is not being centered, keeps all of its own
+    # the scene the distortion is fit to has one sample per cell, so each
+    # field axis loses exactly one sample and the wavelength axis, which is
+    # not being sampled, keeps all of its own
     shape = na.shape(result.distortion.coordinates_scene.position)
     assert shape["field_x"] == num - 1
     assert shape["field_y"] == num - 1
@@ -1619,6 +1619,22 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
     wide = illumination[{"_vfx": 1}].mean()
     assert np.allclose((wide / narrow).ndarray, 4)
 
+    # the same holds when the rays carry the area of their pupil cells, as
+    # the rays `linearize` fits to do
+    area = np.abs(pupil.volume_cell(axis=axis_pupil))
+    model_area = a._fit_vignetting(
+        rays=rays[{axis_pupil[0]: slice(None, -1), axis_pupil[1]: slice(None, -1)}],
+        axis_wavelength=axis_wavelength,
+        axis_field=axis_field,
+        axis_pupil=axis_pupil,
+        degree=1,
+        area=area,
+    )
+    illumination = model_area.illumination
+    narrow = illumination[{"_vfx": 0}].mean()
+    wide = illumination[{"_vfx": 1}].mean()
+    assert np.allclose((wide / narrow).ndarray, 4)
+
 
 def test_pupil_fit_is_anchored_at_the_center_of_the_field_at_every_sampling():
     """
@@ -2057,6 +2073,191 @@ def test_area_effective_is_reproducible_when_seeded():
 
     assert np.all(a == b)
     assert np.any(a != c)
+
+
+def _spy(monkeypatch, name: str) -> list:
+    """
+    Record every call to the named method of :class:`SequentialSystem`.
+
+    Returns a list which the wrapper appends to: the result of the call for
+    ``rayfunction``, and the arguments for ``_denormalize_grid_from_rays``.
+    """
+    method = getattr(optika.systems.SequentialSystem, name)
+    calls = []
+
+    if name == "rayfunction":
+
+        def spy(self, *args, **kwargs):
+            result = method(self, *args, **kwargs)
+            calls.append(result)
+            return result
+
+    else:
+
+        def spy(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return method(self, *args, **kwargs)
+
+    monkeypatch.setattr(optika.systems.SequentialSystem, name, spy)
+    return calls
+
+
+def _system_linearize() -> optika.systems.SequentialSystem:
+    """The system the `linearize` tests below are run on."""
+    return optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+
+
+def test_linearize_traces_once(monkeypatch):
+    """
+    Every model of the linearized system is fit to one set of rays.
+
+    The distortion and vignetting models used to be fit at the cell centers
+    and the effective area to a sample drawn inside each cell, which cost a
+    second trace and gave the two halves of the system different quadrature
+    errors.
+    """
+    calls = _spy(monkeypatch, "rayfunction")
+
+    _system_linearize().linearize(degree=1)
+
+    assert len(calls) == 1
+
+
+def test_linearize_draws_the_pupil_at_every_field_point(monkeypatch):
+    """
+    Each field point of the linearized system gets its own sample of the
+    pupil.
+
+    A single sample reused at every field point has a bias which depends on
+    where the edge of an aperture falls across it, and in a dispersive
+    system that is nearly a function of one field coordinate alone, so every
+    field point along the other coordinate inherits the same bias and the
+    vignetting model comes out in bands (sun-data/optika#234).
+
+    The assertion is on the *normalized* pupil, before it is mapped onto the
+    entrance pupil of each field point.  The physical pupil varies across the
+    field whatever the sampling, since each field point has its own entrance
+    pupil, so asserting on it would hold even for one shared lattice.
+    """
+    calls = _spy(monkeypatch, "_denormalize_grid_from_rays")
+
+    axis_field = ("field_x", "field_y")
+    axis_pupil = ("pupil_x", "pupil_y")
+    num = 5
+    field = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray(*axis_field),
+        num=num,
+    )
+    pupil = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray(*axis_pupil),
+        num=num,
+    )
+
+    _system_linearize().linearize(field=field, pupil=pupil, degree=1)
+
+    # the first call is the one which makes the sampled grid physical
+    args, kwargs = calls[0]
+    pupil_sampled = kwargs["grid"].pupil
+
+    # the sampled pupil carries the field axes, and two field points in the
+    # same column do not share a lattice
+    shape = na.shape(pupil_sampled)
+    assert all(ax in shape for ax in axis_field)
+    assert np.any((pupil_sampled.x[{"field_y": 0}] != pupil_sampled.x[{"field_y": 1}]))
+
+
+def test_linearize_is_reproducible():
+    """
+    Linearizing the same system twice gives the same models.
+
+    Every model is fit to rays drawn at random inside each cell, so without
+    a fixed seed a linear system would be a different forward operator on
+    every call, and code which builds one to make images and another to
+    invert them would silently be using two of them.
+    """
+    system = _system_linearize()
+    wavelength = _grid_input_wavelength.wavelength
+
+    a = system.linearize(degree=1)
+    b = system.linearize(degree=1)
+    c = system.linearize(degree=1, seed=43)
+
+    def models(system: optika.systems.LinearSystem):
+        return (
+            system.area_effective(wavelength),
+            system.distortion.coordinates_sensor,
+            system.vignetting.illumination,
+        )
+
+    # the default seed, so two calls agree
+    for x, y in zip(models(a), models(b)):
+        assert np.all(x == y)
+
+    # every one of the three models follows the seed, so a change to the
+    # sampling of any of them cannot hide behind the other two
+    for x, z in zip(models(a), models(c)):
+        assert np.any(x != z)
+
+
+def test_fit_area_effective_needs_one_wavelength_axis():
+    """
+    Fitting an effective area to rays which do not vary along a single
+    wavelength axis raises, rather than failing to unpack.
+
+    The trace and the fit were split so that a caller needing several models
+    can trace once and fit each of them, which makes the fit reachable on
+    its own, so it checks its own arguments as its two siblings do.
+    """
+    a = _system_linearize()
+
+    rays = optika.rays.RayFunctionArray(
+        inputs=optika.vectors.ObjectVectorArray(),
+        outputs=optika.rays.RayVectorArray(),
+    )
+
+    with pytest.raises(ValueError):
+        a._fit_area_effective(
+            rays=rays,
+            axis_wavelength=(),
+            axis_field=("field_x", "field_y"),
+            axis_pupil=("pupil_x", "pupil_y"),
+        )
+
+
+def test_linearize_without_any_illuminated_field():
+    """
+    A wavelength which no sampled field position admits gives no light,
+    rather than `nan`.
+
+    :meth:`_fit_area_effective` returns no effective area there, and the
+    vignetting model normalizes its illumination over the same empty set of
+    field positions.  Averaging over nothing gives `nan`, and
+    :class:`~optika.systems.LinearSystem` multiplies the two models
+    together, so a `nan` in either would turn every image at that wavelength
+    into `nan` silently.
+    """
+    system = _system_linearize()
+
+    # cells lying entirely beyond the normalized field, so nothing gets through
+    vertices = np.array([5, 6, 7])
+    field = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(vertices, axes="field_x"),
+        y=na.ScalarArray(vertices, axes="field_y"),
+    )
+
+    result = system.linearize(field=field, degree=1)
+
+    assert np.all(np.isfinite(result.vignetting.illumination))
+    assert np.all(result.vignetting.illumination == 0)
+    assert np.all(result.area_effective.area == 0 * result.area_effective.area.unit)
 
 
 def _system_with_launch_surface(transformation, fold: bool = False):
