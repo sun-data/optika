@@ -1225,6 +1225,44 @@ class AbstractSequentialSystem(
 
         return result
 
+    def _denormalize_field_from_rays(
+        self,
+        wavelength: na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+        normalized_field: bool,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Place a field grid in the physical coordinates of the object surface,
+        leaving the pupil out of it.
+
+        The vertices of the cells the rays were drawn from are wanted in the
+        same coordinates as the rays, so that a model fit to those rays can
+        say which cell each of them stands for.  Only the field is needed,
+        and each field position's pupil is the expensive half of
+        :meth:`_denormalize_grid_from_rays`, so this asks for the field alone.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths the grid is placed at.
+        field
+            The field grid, normalized or physical.
+        rayfunction_stops
+            The result of :meth:`_calc_rayfunction_stops` on `wavelength`.
+        normalized_field
+            Whether `field` is normalized.
+        """
+        return self._denormalize_grid_from_rays(
+            grid=optika.vectors.ObjectVectorArray(
+                wavelength=wavelength,
+                field=field,
+            ),
+            rayfunction_stops=rayfunction_stops,
+            normalized_field=normalized_field,
+            normalized_pupil=False,
+        ).field
+
     def _calc_rayfunction_input(
         self,
         grid_input: optika.vectors.ObjectVectorArray,
@@ -1861,6 +1899,12 @@ class AbstractSequentialSystem(
         return self._fit_vignetting(
             rays=rays,
             area=area,
+            vertices_field=self._denormalize_field_from_rays(
+                wavelength=wavelength,
+                field=field,
+                rayfunction_stops=rayfunction_stops,
+                normalized_field=normalized_field,
+            ),
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             axis_pupil=axis_pupil,
@@ -1932,6 +1976,7 @@ class AbstractSequentialSystem(
         self,
         rays: optika.rays.RayFunctionArray,
         area: na.AbstractScalar,
+        vertices_field: na.AbstractCartesian2dVectorArray,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
@@ -1949,6 +1994,12 @@ class AbstractSequentialSystem(
             The traced rays, from :meth:`_rayfunction_stratified`.
         area
             The area of the pupil cell each ray stands for, from the same.
+        vertices_field
+            The vertices of the field grid the rays were drawn from, in the
+            physical coordinates the rays are in, from
+            :meth:`_denormalize_field_from_rays`.  The fitted model carries
+            them so that it can be plotted on the cells it was measured over
+            rather than on points inside them.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2008,6 +2059,7 @@ class AbstractSequentialSystem(
             axis_field=axis_field,
             degree=degree,
             where=where,
+            vertices_field=vertices_field,
         )
 
     @property
@@ -2568,11 +2620,17 @@ class AbstractSequentialSystem(
             direction=direction,
             vignetting=self._fit_vignetting(
                 rays=rays,
+                area=area,
+                vertices_field=self._denormalize_field_from_rays(
+                    wavelength=wavelength,
+                    field=field,
+                    rayfunction_stops=rayfunction_stops,
+                    normalized_field=normalized_field,
+                ),
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
                 degree=degree,
-                area=area,
             ),
         )
 

@@ -1586,15 +1586,21 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
         * u.mm
     )
 
-    inputs = optika.vectors.ObjectVectorArray(
-        wavelength=na.linspace(500, 600, axis=axis_wavelength[0], num=2) * u.nm,
-        field=na.Cartesian2dVectorLinearSpace(
+    vertices_field = (
+        na.Cartesian2dVectorLinearSpace(
             start=-1,
             stop=1,
             axis=na.Cartesian2dVectorArray(*axis_field),
-            num=2,
+            num=3,
         )
-        * u.deg,
+        * u.deg
+    )
+
+    inputs = optika.vectors.ObjectVectorArray(
+        wavelength=na.linspace(500, 600, axis=axis_wavelength[0], num=2) * u.nm,
+        field=vertices_field.broadcast_to(na.shape(vertices_field)).cell_centers(
+            axis=axis_field,
+        ),
         pupil=pupil,
     )
     shape = na.shape_broadcasted(inputs.wavelength, inputs.field, inputs.pupil)
@@ -1611,6 +1617,7 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
     model = a._fit_vignetting(
         rays=rays[{axis_pupil[0]: slice(None, -1), axis_pupil[1]: slice(None, -1)}],
         area=area,
+        vertices_field=vertices_field,
         axis_wavelength=axis_wavelength,
         axis_field=axis_field,
         axis_pupil=axis_pupil,
@@ -2205,6 +2212,41 @@ def test_vignetting_is_the_model_linearize_fits():
     assert np.all(a.illumination == b.illumination)
     assert np.all(a.where == b.where)
     assert np.all(a.coordinates_scene.position == b.coordinates_scene.position)
+    assert np.all(a.vertices_field == b.vertices_field)
+
+
+def test_vignetting_carries_the_cells_it_was_measured_over():
+    """
+    The fitted model knows the corners of the field cell each of its
+    measurements came from.
+
+    The measurements are drawn inside their cells rather than at the centers,
+    so they are not a mesh, and the model can only be plotted on the cells it
+    was measured over if it carries them.
+    """
+    system = _system_linearize()
+
+    num = 5
+    field = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+        num=num + 1,
+    )
+
+    model = system.vignetting(field=field, degree=1)
+
+    shape = na.shape(model.vertices_field)
+    for ax in model.axis_field:
+        assert shape[ax] == num + 1
+        assert na.shape(model.illumination)[ax] == num
+
+    # in the physical coordinates the measurements are in, and bounding them
+    position = model.coordinates_scene.position
+    vertices = model.vertices_field
+    assert na.unit(vertices.x).is_equivalent(na.unit(position.x))
+    assert vertices.x.min() < position.x.min()
+    assert position.x.max() < vertices.x.max()
 
 
 def test_vignetting_follows_its_seed():

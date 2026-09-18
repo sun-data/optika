@@ -1,3 +1,4 @@
+import warnings
 import pytest
 import numpy as np
 import astropy.units as u
@@ -17,6 +18,19 @@ def _scene() -> na.SpectralPositionalVectorArray:
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
             num=5,
         ),
+    )
+
+
+def _vertices() -> na.AbstractCartesian2dVectorArray:
+    """
+    The corners of the cells :func:`_scene` measures, one longer along each
+    field axis, with each of its points at the center of one of them.
+    """
+    return na.Cartesian2dVectorLinearSpace(
+        start=-1.25 * u.deg,
+        stop=+1.25 * u.deg,
+        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+        num=6,
     )
 
 
@@ -81,8 +95,10 @@ class AbstractTestAbstractInterpolatedVignettingModel(
             axis_wavelength="wavelength",
             axis_field=("field_x", "field_y"),
             degree=degree,
+            vertices_field=vertices,
         )
         for degree in [1, 2]
+        for vertices in [None, _vertices()]
     ],
 )
 class TestPolynomialVignettingModel(
@@ -273,5 +289,57 @@ def test_plot_residual_where():
 
     norm = ax.ndarray.reshape(-1)[0].collections[0].norm
     assert norm.vmax == pytest.approx(residual_inside)
+
+    plt.close(fig)
+
+
+def test_plot_draws_the_cells_the_vertices_describe():
+    """
+    Calibration points drawn at random inside their cells are plotted on the
+    cells, not on the points.
+
+    Such points are not monotonic, and matplotlib cannot work out where one
+    cell ends and the next begins from points alone: it says as much, and
+    draws a mesh with warped cells and a ragged outline. Given the corners it
+    draws the cells where they are, and the measurement sits wherever inside
+    its own cell it was made.
+    """
+    axis_field = ("field_x", "field_y")
+    vertices = _vertices()
+
+    scene = na.SpectralPositionalVectorArray(
+        wavelength=_scene().wavelength,
+        position=vertices.broadcast_to(na.shape(vertices)).cell_centers(
+            axis=axis_field,
+            random=True,
+            seed=0,
+        ),
+    )
+
+    kwargs = dict(
+        coordinates_scene=scene,
+        illumination=1 - 0.1 * (scene.position.length / u.deg) ** 2,
+        axis_wavelength="wavelength",
+        axis_field=axis_field,
+        degree=1,
+    )
+
+    # without the corners, matplotlib is left to guess at them and says so
+    with pytest.warns(UserWarning, match="not monotonically increasing"):
+        fig, ax = optika.radiometry.PolynomialVignettingModel(**kwargs).plot()
+    plt.close(fig)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fig, ax = optika.radiometry.PolynomialVignettingModel(
+            **kwargs,
+            vertices_field=vertices,
+        ).plot()
+
+    # the mesh is rectilinear: its corners take one value per column of the
+    # grid, rather than one per measurement
+    coordinates = ax.ndarray.reshape(-1)[0].collections[0].get_coordinates()
+    assert np.unique(coordinates[..., 0]).size == na.shape(vertices)["field_x"]
+    assert np.unique(coordinates[..., 1]).size == na.shape(vertices)["field_y"]
 
     plt.close(fig)

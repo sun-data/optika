@@ -176,6 +176,25 @@ class PolynomialVignettingModel(
     where: bool | na.AbstractScalar = True
     """A boolean mask selecting which calibration points to use for fitting."""
 
+    vertices_field: None | na.AbstractCartesian2dVectorArray = None
+    """
+    The corners of the field cell each calibration point was measured in,
+    one longer than :attr:`illumination` along each of :attr:`axis_field`.
+
+    A calibration point need not sit at the center of its cell, and a point
+    drawn at random inside it is the better estimate of the cell's average:
+    a rule which always samples the same place inside a cell aliases against
+    the edge of an aperture falling between two of them.  Such points are not
+    monotonic, though, and :meth:`plot` cannot work out where one cell ends
+    and the next begins from points alone, so it draws a mesh with warped
+    cells and a ragged outline.
+
+    Given the corners, it draws the cells where they are and lets the
+    measurement sit wherever inside its own cell it was made.
+    If :obj:`None`, the calibration points are taken to be the centers of
+    their cells, which is right for a grid which was sampled that way.
+    """
+
     @property
     def shape(self) -> dict[str, int]:
         shape = na.broadcast_shapes(
@@ -351,9 +370,15 @@ class PolynomialVignettingModel(
         subplot for each wavelength.
         """
         scene = self.coordinates_scene
-        position = scene.position
         wavelength = na.as_named_array(scene.wavelength)
         axis_wavelength = self.axis_wavelength
+
+        # the corners of each cell if they are known, and the measurements
+        # themselves if they are not, in which case each one is taken to be
+        # the center of its own cell
+        position = self.vertices_field
+        if position is None:
+            position = scene.position
 
         if unit is not None:
             position = position.to(unit)
