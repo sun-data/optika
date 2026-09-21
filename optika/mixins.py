@@ -40,8 +40,36 @@ class Shaped(abc.ABC):
 
 @dataclasses.dataclass(repr=False)
 class Replaceable(abc.ABC):
-    """An object which can be copied with some of its fields changed."""
+    """
+    An object which can be copied with some of its fields changed.
 
+    Examples
+    --------
+    Move a surface without disturbing the one it was copied from.
+
+    .. jupyter-execute::
+
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        surface = optika.surfaces.Surface(
+            sag=optika.sags.SphericalSag(radius=100 * u.mm),
+        )
+
+        moved = surface.replace(
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=10 * u.mm,
+            ),
+        )
+
+        moved.transformation, surface.transformation
+    """
+
+    # The executed example lives on the class rather than on `replace()`.
+    # The class pages in the docs render inherited members, so an example
+    # on the method would be executed again, in a fresh kernel, on the page
+    # of every class that inherits it.
     def replace(self, /, **changes) -> Self:
         """
         A copy of this object with the given fields replaced.
@@ -67,28 +95,6 @@ class Replaceable(abc.ABC):
         ----------
         changes
             The fields to overwrite in the copy.
-
-        Examples
-        --------
-        Move a surface without disturbing the one it was copied from.
-
-        .. jupyter-execute::
-
-            import astropy.units as u
-            import named_arrays as na
-            import optika
-
-            surface = optika.surfaces.Surface(
-                sag=optika.sags.SphericalSag(radius=100 * u.mm),
-            )
-
-            moved = surface.replace(
-                transformation=na.transformations.Cartesian3dTranslation(
-                    z=10 * u.mm,
-                ),
-            )
-
-            moved.transformation, surface.transformation
         """
         return dataclasses.replace(self, **changes)
 

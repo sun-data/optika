@@ -1,3 +1,4 @@
+import dataclasses
 import pytest
 import numpy as np
 import astropy.units as u
@@ -675,6 +676,64 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
     ):
         result = a.cce_backsurface
         assert result >= 0
+
+    def test_num_interpolation(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+    ):
+        result = a.num_interpolation
+        assert (result is None) or (result > 0)
+
+    def test_efficiency_interpolated(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+    ):
+        """
+        Interpolating the absorbance over the angle of incidence reproduces
+        computing it for every ray, and does so better the more nodes it is
+        given.
+        """
+        angle = na.linspace(0, 20, axis="angle", num=25) * u.deg
+        rays = optika.rays.RayVectorArray(
+            wavelength=na.linspace(100, 1000, axis="wavelength", num=5) * u.AA,
+            direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        expected = a.efficiency(rays, normal)
+        scale = np.abs(expected).max()
+
+        def error(num: int) -> float:
+            result = dataclasses.replace(a, num_interpolation=num).efficiency(
+                rays=rays,
+                normal=normal,
+            )
+            assert na.shape(result) == na.shape(expected)
+            return np.abs(result - expected).max() / scale
+
+        coarse, fine = error(4), error(32)
+
+        assert coarse < 0.01
+        assert fine <= coarse
+
+    def test_efficiency_interpolated_scalar(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+    ):
+        """With a single angle of incidence there is nothing to interpolate
+        over, so the absorbance is computed directly."""
+        rays = optika.rays.RayVectorArray(
+            wavelength=200 * u.AA,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        result = dataclasses.replace(a, num_interpolation=8).efficiency(
+            rays=rays,
+            normal=normal,
+        )
+
+        assert np.all(result == a.efficiency(rays, normal))
 
     def test_depletion(
         self,

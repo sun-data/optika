@@ -104,6 +104,7 @@ def transmittance(
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
+    num_interpolation: None | int = None,
 ) -> optika.vectors.PolarizationVectorArray:
     """
     The fraction of incident energy transmitted through the oxide layer into
@@ -134,6 +135,11 @@ def transmittance(
         The RMS roughness the oxide layer surface.
     roughness_substrate
         The RMS roughness of the substrate surface.
+    num_interpolation
+        The number of nodes used to interpolate the response of the oxide and
+        substrate over the angle of incidence, or :obj:`None` (the default)
+        to solve it for every element of `direction`.
+        See :func:`optika.materials.multilayer_efficiency`.
 
     Examples
     --------
@@ -193,6 +199,7 @@ def transmittance(
                 width=roughness_substrate,
             ),
         ),
+        num_interpolation=num_interpolation,
     )
 
     return transmission
@@ -209,6 +216,7 @@ def absorbance(
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
     method: Literal["exact", "Beer-Lambert"] = "Beer-Lambert",
+    num_interpolation: None | int = None,
 ) -> optika.vectors.PolarizationVectorArray:
     """
     The fraction of incident energy absorbed by the light-sensitive
@@ -246,6 +254,11 @@ def absorbance(
         If ``Beer-Lambert``, this method assumes no interference effects.
         These methods only differ in the infrared, where the wavelength is
         commensurate with the thickness of the light-sensitive region.
+    num_interpolation
+        The number of nodes used to interpolate the response of the oxide and
+        substrate over the angle of incidence, or :obj:`None` (the default)
+        to solve it for every element of `direction`.
+        See :func:`optika.materials.multilayer_efficiency`.
 
     Examples
     --------
@@ -333,6 +346,7 @@ def absorbance(
                     ),
                 ),
             ],
+            num_interpolation=num_interpolation,
         )
 
     elif method == "Beer-Lambert":
@@ -347,6 +361,7 @@ def absorbance(
             chemical_substrate=chemical_substrate,
             roughness_oxide=roughness_oxide,
             roughness_substrate=roughness_substrate,
+            num_interpolation=num_interpolation,
         )
 
         n_substrate = chemical_substrate.n(wavelength)
@@ -2109,6 +2124,19 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
     @property
     @abc.abstractmethod
+    def num_interpolation(self) -> None | int:
+        """
+        The number of nodes used to interpolate the absorbance of this sensor
+        over the angle of incidence, or :obj:`None` to compute it for every
+        direction.
+
+        The absorbance is the response of a stack of layers, the oxide over
+        the substrate, and costs as much to compute as any other stack; see
+        :func:`optika.materials.multilayer_efficiency`.
+        """
+
+    @property
+    @abc.abstractmethod
     def cce_backsurface(self) -> float | na.AbstractScalar:
         """
         The charge collection efficiency on the illuminated surface of the sensor.
@@ -2220,6 +2248,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             chemical_substrate=self._chemical,
             roughness_oxide=self.roughness_oxide,
             roughness_substrate=self.roughness_substrate,
+            num_interpolation=self.num_interpolation,
         )
 
     def charge_collection_efficiency(
@@ -2634,6 +2663,13 @@ class BackIlluminatedSiliconSensorMaterial(
 
     eqe_measured: None | na.FunctionArray = None
     """An optional measurement of the effective quantum efficiency."""
+
+    num_interpolation: None | int = None
+    """
+    The number of nodes used to interpolate the absorbance over the angle of
+    incidence, or :obj:`None` to compute it for every direction.
+    See :func:`optika.materials.multilayer_efficiency`.
+    """
 
     @property
     def shape(self) -> dict[str, int]:

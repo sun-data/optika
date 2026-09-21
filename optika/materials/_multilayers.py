@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Sequence
+from typing import Sequence, Callable
 import abc
 import dataclasses
 import numpy as np
@@ -243,6 +243,7 @@ def multilayer_efficiency(
     n: float | na.AbstractScalar = 1,
     layers: None | Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
     substrate: None | Layer = None,
+    num_interpolation: None | int = None,
 ) -> tuple[
     optika.vectors.PolarizationVectorArray,
     optika.vectors.PolarizationVectorArray,
@@ -269,6 +270,25 @@ def multilayer_efficiency(
         A layer representing the substrate supporting the multilayer stack.
         The thickness of this layer is ignored.
         If :obj:`None`, then the substrate is assumed to be a vacuum.
+    num_interpolation
+        The number of nodes used to interpolate the result over the angle of
+        incidence, or :obj:`None` (the default) to solve the stack for every
+        element of `direction`.
+
+        Solving the stack usually costs far more than the raytrace it belongs
+        to, and its response is a smooth function of the angle of incidence,
+        over which a surface typically spans only a few degrees. Given an
+        integer, the stack is solved at that many angles spanning the range
+        `direction` covers, along the axes over which only `direction`
+        varies, and each polarization state is interpolated linearly for the
+        rest. The error grows as the fourth power of the angular span,
+        measured against the width of the features in the response: a
+        near-normal system whose surfaces each span a few degrees is
+        reproduced to one part in :math:`10^5` by a handful of nodes, while a
+        stack with a Bragg resonance sampled across tens of degrees needs
+        many more. Since the nodes cost almost nothing next to the rays,
+        prefer more of them than seem necessary, and check a new system
+        against :obj:`None` before trusting it.
 
     Examples
     --------
@@ -482,6 +502,42 @@ def multilayer_efficiency(
     then the :class:`tuple` :math:`(\vec{R}, \vec{T})` is the quantity returned
     by this function.
     """
+    # the table is built along the axes over which only the direction
+    # varies, so the wavelength, the ambient medium and the stack are kept
+    shape = na.broadcast_shapes(
+        na.shape(wavelength),
+        na.shape(n),
+        optika.shape(LayerSequence(layers) if isinstance(layers, Sequence) else layers),
+        optika.shape(substrate),
+    )
+
+    def exact(direction):
+        r, t = _multilayer_efficiency(wavelength, direction, n, layers, substrate)
+        return r.s, r.p, t.s, t.p
+
+    rs, rp, ts, tp = _interpolate_incidence(
+        function=exact,
+        direction=direction,
+        num=num_interpolation,
+        shape=shape,
+    )
+    return (
+        optika.vectors.PolarizationVectorArray(s=rs, p=rp),
+        optika.vectors.PolarizationVectorArray(s=ts, p=tp),
+    )
+
+
+def _multilayer_efficiency(
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar = 1,
+    n: float | na.AbstractScalar = 1,
+    layers: None | Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
+    substrate: None | Layer = None,
+) -> tuple[
+    optika.vectors.PolarizationVectorArray,
+    optika.vectors.PolarizationVectorArray,
+]:
+    """The body of :func:`multilayer_efficiency`, solved for every direction."""
     direction_ambient = direction
     n_ambient = n
 
@@ -539,6 +595,7 @@ def layer_absorbance(
     n: float | na.AbstractScalar = 1,
     layers: None | Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
     substrate: None | Layer = None,
+    num_interpolation: None | int = None,
 ) -> optika.vectors.PolarizationVectorArray:
     """
     Compute the fraction of energy absorbed for a particular layer in the
@@ -564,6 +621,25 @@ def layer_absorbance(
         A layer representing the substrate supporting the multilayer stack.
         The thickness of this layer is ignored.
         If :obj:`None`, then the substrate is assumed to be a vacuum.
+    num_interpolation
+        The number of nodes used to interpolate the result over the angle of
+        incidence, or :obj:`None` (the default) to solve the stack for every
+        element of `direction`.
+
+        Solving the stack usually costs far more than the raytrace it belongs
+        to, and its response is a smooth function of the angle of incidence,
+        over which a surface typically spans only a few degrees. Given an
+        integer, the stack is solved at that many angles spanning the range
+        `direction` covers, along the axes over which only `direction`
+        varies, and each polarization state is interpolated linearly for the
+        rest. The error grows as the fourth power of the angular span,
+        measured against the width of the features in the response: a
+        near-normal system whose surfaces each span a few degrees is
+        reproduced to one part in :math:`10^5` by a handful of nodes, while a
+        stack with a Bragg resonance sampled across tens of degrees needs
+        many more. Since the nodes cost almost nothing next to the rays,
+        prefer more of them than seem necessary, and check a new system
+        against :obj:`None` before trusting it.
 
     Examples
     --------
@@ -628,6 +704,37 @@ def layer_absorbance(
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("incident energy fraction");
     """
+    # the table is built along the axes over which only the direction
+    # varies, so the wavelength, the ambient medium and the stack are kept
+    shape = na.broadcast_shapes(
+        na.shape(wavelength),
+        na.shape(n),
+        optika.shape(LayerSequence(layers) if isinstance(layers, Sequence) else layers),
+        optika.shape(substrate),
+    )
+
+    def exact(direction):
+        result = _layer_absorbance(index, wavelength, direction, n, layers, substrate)
+        return result.s, result.p
+
+    rs, rp = _interpolate_incidence(
+        function=exact,
+        direction=direction,
+        num=num_interpolation,
+        shape=shape,
+    )
+    return optika.vectors.PolarizationVectorArray(s=rs, p=rp)
+
+
+def _layer_absorbance(
+    index: int,
+    wavelength: u.Quantity | na.AbstractScalar,
+    direction: float | na.AbstractScalar = 1,
+    n: float | na.AbstractScalar = 1,
+    layers: None | Sequence[AbstractLayer] | optika.materials.AbstractLayer = None,
+    substrate: None | Layer = None,
+) -> optika.vectors.PolarizationVectorArray:
+    """The body of :func:`layer_absorbance`, solved for every direction."""
     if not isinstance(layers, AbstractLayer):
         layers = LayerSequence(layers)
     layers = layers.layer_sequence
@@ -772,6 +879,43 @@ _axis_interpolation = "_incidence"
 """The logical axis of the angle-of-incidence interpolation table."""
 
 
+def _interpolate_incidence(
+    function: Callable[[na.ScalarLike], tuple[na.ScalarLike, ...]],
+    direction: na.ScalarLike,
+    num: None | int,
+    shape: dict[str, int],
+) -> tuple[na.ScalarLike, ...]:
+    """
+    Evaluate a function of the cosine of the angle of incidence at `num`
+    nodes spanning the range of `direction` and interpolate it for the rest,
+    or call it on `direction` directly if `num` is :obj:`None` or every axis
+    of `direction` is in `shape`.
+
+    `function` returns a :obj:`tuple` of arrays and is called exactly once.
+    `shape` is the shape of everything else `function` depends on; the nodes
+    span the axes of `direction` which are not in it.
+    """
+    if num is None:
+        return function(direction)
+
+    axis = tuple(a for a in na.shape(direction) if a not in shape)
+    if not axis:
+        return function(direction)
+
+    nodes = na.linspace(
+        start=direction.min(axis),
+        stop=direction.max(axis),
+        axis=_axis_interpolation,
+        num=num,
+    )
+
+    tables = function(nodes)
+
+    return tuple(
+        na.interp(direction, nodes, table, axis=_axis_interpolation) for table in tables
+    )
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractMultilayerMaterial(
     AbstractMaterial,
@@ -809,14 +953,8 @@ class AbstractMultilayerMaterial(
 
         If :obj:`None` (the default), the stack is solved for every ray.
 
-        The error this introduces grows with the angular range the rays span,
-        measured against the width of the features in the response.  A
-        near-normal system whose surfaces each span a few degrees is
-        reproduced to one part in :math:`10^5` by a handful of nodes, while a
-        stack with a Bragg resonance sampled across tens of degrees needs many
-        more.  Since the nodes cost almost nothing next to the rays, prefer
-        more of them than seems necessary, and check a new system against
-        :obj:`None` before trusting it.
+        See :func:`multilayer_efficiency` for the error this introduces and
+        how to choose the number of nodes.
         """
 
     @property
@@ -850,19 +988,11 @@ class AbstractMultilayerMaterial(
         averaged over polarization state.
 
         Nothing in this package tracks polarization yet, so the two states are
-        averaged as early as possible: the table below is averaged before it
-        is interpolated rather than after, which halves the interpolation and
-        gives the same answer, since interpolation is linear.
-
-        To return the two states separately, drop the two calls to
-        :attr:`~optika.vectors.AbstractPolarizationVectorArray.average` here
-        and interpolate ``.s`` and ``.p`` on their own.  The angle of
-        incidence is still the only variable worth tabulating: what
-        polarization adds is a rotation into the plane of incidence, which
-        varies over the pupil but costs almost nothing next to the stack.
-        Note that a table accurate for the average is not automatically
-        accurate for the two states, and that :func:`multilayer_efficiency`
-        has already discarded the phase, which a coherent treatment needs.
+        averaged here. To return them separately, drop the two calls to
+        :attr:`~optika.vectors.AbstractPolarizationVectorArray.average`:
+        :func:`multilayer_efficiency` interpolates each state on its own,
+        though it has already discarded the phase, which a coherent treatment
+        needs.
 
         Parameters
         ----------
@@ -874,54 +1004,16 @@ class AbstractMultilayerMaterial(
         wavelength = rays.wavelength
         k = rays.attenuation * wavelength / (4 * np.pi)
         n = rays.index_refraction + k * 1j
-        direction = -rays.direction @ normal
 
-        kwargs = dict(
+        reflectivity, transmissivity = multilayer_efficiency(
             wavelength=wavelength,
+            direction=-rays.direction @ normal,
             n=n,
             layers=self.layers,
             substrate=self._substrate,
+            num_interpolation=self.num_interpolation,
         )
-
-        def exact() -> tuple[na.ScalarLike, na.ScalarLike]:
-            r, t = multilayer_efficiency(direction=direction, **kwargs)
-            return r.average, t.average
-
-        num = self.num_interpolation
-        if num is None:
-            return exact()
-
-        # the table is built along the axes which only the angle of incidence
-        # varies over, so the wavelength, the index of refraction of the
-        # ambient medium, and any axis of the stack itself are kept
-        shape_kept = na.broadcast_shapes(
-            na.shape(wavelength),
-            na.shape(n),
-            self.shape,
-        )
-        axis = tuple(a for a in na.shape(direction) if a not in shape_kept)
-        if not axis:
-            return exact()
-
-        nodes = na.linspace(
-            start=direction.min(axis),
-            stop=direction.max(axis),
-            axis=_axis_interpolation,
-            num=num,
-        )
-
-        reflectivity, transmissivity = multilayer_efficiency(
-            direction=nodes,
-            **kwargs,
-        )
-
-        def interpolate(table: na.ScalarLike) -> na.ScalarLike:
-            return na.interp(direction, nodes, table, axis=_axis_interpolation)
-
-        return (
-            interpolate(reflectivity.average),
-            interpolate(transmissivity.average),
-        )
+        return reflectivity.average, transmissivity.average
 
     @abc.abstractmethod
     def plot_layers(

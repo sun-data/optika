@@ -10,6 +10,80 @@ import optika
 from .._tests import test_mixins
 from ._systems_test import AbstractTestAbstractSystem
 
+_motion_rigid = na.transformations.compose(
+    na.transformations.Cartesian3dTranslation(
+        x=7 * u.mm,
+        y=-13 * u.mm,
+        z=29 * u.mm,
+    ),
+    na.transformations.compose(
+        na.transformations.Cartesian3dRotationZ(23 * u.deg),
+        na.transformations.Cartesian3dRotationY(17 * u.deg),
+    ),
+)
+"""
+A rigid motion used to describe a system in a different frame.
+
+The angles and distances are deliberately unrounded, so that a frame error
+cannot hide behind a symmetry of the system it is applied to, and moderate,
+so that no system is carried near the pole of the chart the launch solve
+parametrizes a ray direction on.
+"""
+
+
+def _moved_rigidly(
+    system: optika.systems.AbstractSequentialSystem,
+    motion: na.transformations.AbstractTransformation,
+) -> optika.systems.AbstractSequentialSystem:
+    """
+    Describe `system` in a frame moved by `motion`.
+
+    Every surface moves together, so this is a relabeling of the same
+    instrument rather than a different instrument, and every result of the
+    system must survive it unchanged.
+    :attr:`~optika.systems.AbstractSequentialSystem.transformation` already
+    carries onto every surface except the object, so moving the object is all
+    that is left to do.
+    """
+    obj = system.object
+    if obj is not None:
+        obj = dataclasses.replace(
+            obj,
+            transformation=na.transformations.compose(motion, obj.transformation),
+        )
+    return dataclasses.replace(
+        system,
+        object=obj,
+        transformation=na.transformations.compose(motion, system.transformation),
+    )
+
+
+_grid_field_rigid = na.Cartesian2dVectorLinearSpace(
+    start=-0.9,
+    stop=0.9,
+    axis=na.Cartesian2dVectorArray("_rigid_field_x", "_rigid_field_y"),
+    num=4,
+)
+"""
+The normalized field grid the rigid-motion tests trace.
+
+It stops short of the edge of the field so that no ray lands exactly on the
+boundary of an aperture, where the roundoff a rigid motion introduces would
+decide which side of it the ray falls on.
+"""
+
+_grid_pupil_rigid = dataclasses.replace(
+    _grid_field_rigid,
+    axis=na.Cartesian2dVectorArray("_rigid_pupil_x", "_rigid_pupil_y"),
+)
+"""
+The normalized pupil grid the rigid-motion tests trace.
+
+The same grid as :obj:`_grid_field_rigid` on its own pair of axes, so that the
+two sweep a four-dimensional grid instead of being broadcast against each
+other.
+"""
+
 
 class AbstractTestAbstractSequentialSystem(
     test_mixins.AbstractTestDxfWritable,
@@ -226,6 +300,59 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(raytrace.outputs, optika.rays.RayVectorArray)
         if accumulate:
             assert a.axis_surface in raytrace.shape
+
+    def test_rayfunction_is_invariant_under_a_rigid_motion(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        """
+        Moving every surface of a system together describes the same
+        instrument in a different frame, so :meth:`rayfunction` must return
+        what it did before.
+
+        Specifically: the field and the pupil it was traced at, the position
+        and the direction of every ray, and which rays were vignetted. Each is
+        measured in a frame the system carries with it, the first two in the
+        frame of the object and the rays in the frame of the sensor, so any of
+        them measured in the global frame instead moves with the motion, and
+        any solve anchored to the global frame finds a different answer. That
+        exercises every frame the system works in at once.
+
+        It is an invariance rather than a system built at an angle on purpose,
+        since tilting one surface of a system changes the instrument and can
+        quietly stop any light reaching the sensor, which no amount of broken
+        frame handling would then make worse.
+
+        What this does not cover: :meth:`raytrace`, whose output is global and
+        so moves with the motion rather than staying put, though it is pinned
+        indirectly, since the sensor frame these rays are in is the moved
+        sensor's; and the three models fit from these rays, which
+        :func:`test_models_are_invariant_under_a_rigid_motion` takes.
+        """
+        b = _moved_rigidly(a, _motion_rigid)
+
+        kwargs = dict(
+            field=_grid_field_rigid,
+            pupil=_grid_pupil_rigid,
+        )
+        expected = a.rayfunction(**kwargs)
+        result = b.rayfunction(**kwargs)
+
+        # the field and the pupil are denormalized against the stops, which
+        # the system solves for in the frame of its object surface, and the
+        # rays are measured in the frame of the sensor
+        for r, e in [
+            (result.inputs.field, expected.inputs.field),
+            (result.inputs.pupil, expected.inputs.pupil),
+            (result.outputs.position, expected.outputs.position),
+            (result.outputs.direction, expected.outputs.direction),
+        ]:
+            error = (r - e).length.max()
+            assert error < 1e-6 * e.length.max()
+
+        # no ray sits on the edge of an aperture, so the motion cannot move
+        # one across it and every ray must be vignetted exactly as before
+        assert np.all(result.outputs.unvignetted == expected.outputs.unvignetted)
 
     @pytest.mark.parametrize(
         argnames="wavelength,field,pupil",
@@ -812,9 +939,10 @@ def test_linearize_conserves_flux():
     expected = system.image(scene, noise=False).outputs.sum()
     result = system.linearize(degree=2).image(scene, noise=False).outputs.sum()
 
-    # the two discretize the problem differently, and `area_effective` traces
-    # at randomly placed pupil cell centers, so they agree to a few percent
-    # rather than exactly.  An average of the effective area taken over a
+    # the two discretize the problem differently, and every model of the
+    # linearized system is fit to randomly placed samples inside the cells of
+    # its grids, so they agree to a few percent rather than exactly.  The
+    # sampling is seeded, so the comparison itself is deterministic.  An average of the effective area taken over a
     # different set of field positions than the vignetting model is
     # normalized over would put this near 0.56, which the tolerance excludes.
     assert np.allclose(result, expected, rtol=0.15)
@@ -847,14 +975,14 @@ def test_area_effective_without_any_illuminated_field():
     assert np.all(result.area == 0 * result.area.unit)
 
 
-def test_linearize_keeps_axes_it_is_not_centering():
+def test_linearize_keeps_axes_it_is_not_sampling():
     """
     Only the two field axes and the two pupil axes are collapsed from
-    vertices to centers.
+    vertices to samples.
 
     A grid may carry axes of its own, such as one of ``system.shape``, and
-    those have to survive.  Taking the axes to center from the shape of the
-    grid rather than naming them would average such an axis into itself.
+    those have to survive.  Taking the axes to sample from the shape of the
+    grid rather than naming them would collapse such an axis into itself.
     """
     system = optika.systems.SequentialSystem(
         surfaces=_surfaces,
@@ -867,7 +995,7 @@ def test_linearize_keeps_axes_it_is_not_centering():
     num_wavelength = na.shape(wavelength)["wavelength"]
 
     # a field grid which drifts with wavelength, so that it carries an axis
-    # which is not one of the two being centered
+    # which is not one of the two being sampled
     drift = 1e-6 * na.linspace(0, 1, axis="wavelength", num=num_wavelength)
     field = na.Cartesian2dVectorArray(
         x=na.linspace(0, 1, axis="field_x", num=num) + drift,
@@ -885,9 +1013,9 @@ def test_linearize_keeps_axes_it_is_not_centering():
         degree=1,
     )
 
-    # the scene the distortion is fit to is defined on the cell centers, so
-    # each field axis loses exactly one sample and the wavelength axis, which
-    # is not being centered, keeps all of its own
+    # the scene the distortion is fit to has one sample per cell, so each
+    # field axis loses exactly one sample and the wavelength axis, which is
+    # not being sampled, keeps all of its own
     shape = na.shape(result.distortion.coordinates_scene.position)
     assert shape["field_x"] == num - 1
     assert shape["field_y"] == num - 1
@@ -1054,6 +1182,683 @@ class TestSequentialSystemGrazingSpectrograph(
         result = a.field_max
         assert np.abs(result.x - _radius_field_grazing) < 1e-6 * u.deg
         assert np.abs(result.y - _radius_field_grazing) < 1e-6 * u.deg
+
+
+_radius_field_rotated = 2 * u.mm
+_decenter_field_rotated = 3 * u.mm
+
+_system_rotated_object = optika.systems.SequentialSystem(
+    object=optika.surfaces.Surface(
+        name="source",
+        aperture=optika.apertures.CircularAperture(
+            radius=_radius_field_rotated,
+            transformation=na.transformations.Cartesian3dTranslation(
+                x=_decenter_field_rotated,
+            ),
+        ),
+        is_field_stop=True,
+        transformation=na.transformations.Cartesian3dRotationY(180 * u.deg),
+    ),
+    surfaces=[
+        optika.surfaces.Surface(
+            name="mirror",
+            sag=optika.sags.SphericalSag(radius=240 * u.mm),
+            material=optika.materials.Mirror(),
+            aperture=optika.apertures.CircularAperture(radius=15 * u.mm),
+            is_pupil_stop=True,
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=-200 * u.mm,
+            ),
+        ),
+    ],
+    sensor=optika.sensors.ImagingSensor(
+        name="sensor",
+        width_pixel=150 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        timedelta_exposure=1 * u.s,
+        num_pixel=na.Cartesian2dVectorArray(128, 128),
+        transformation=na.transformations.Cartesian3dTranslation(
+            z=100 * u.mm,
+        ),
+    ),
+    grid_input=_grid_input,
+)
+
+
+@pytest.mark.parametrize(argnames="a", argvalues=[_system_rotated_object])
+class TestSequentialSystemRotatedObject(
+    AbstractTestAbstractSequentialSystem,
+):
+    """
+    A finite-conjugate relay whose object surface is rotated 180 degrees
+    about :math:`y`, so its local coordinate frame differs from the global
+    frame. This guards the object-local frame handling of the stop
+    root-finding problem: the solved stop rays must be expressed in the
+    object surface's local coordinates before their direction is flipped,
+    since that is the frame in which the field and pupil coordinates of the
+    input grid are interpreted.
+    """
+
+    def test_field_bounds_match_decentered_aperture(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        x_min = _decenter_field_rotated - _radius_field_rotated
+        x_max = _decenter_field_rotated + _radius_field_rotated
+        assert np.abs(a.field_min.x - x_min) < 1 * u.um
+        assert np.abs(a.field_max.x - x_max) < 1 * u.um
+
+    def test_rays_reach_the_sensor(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ):
+        # the square field/pupil grids overfill the circular apertures, so
+        # the unvignetted fraction is well below 1 even for a healthy trace;
+        # with a mirrored object frame it is exactly 0
+        unvignetted = a.rayfunction_default.outputs.unvignetted
+        assert unvignetted.mean().ndarray > 0.25
+
+
+def _pupil_shared_box(
+    a: optika.systems.AbstractSequentialSystem,
+    grid: optika.vectors.ObjectVectorArray,
+) -> na.AbstractCartesian2dVectorArray:
+    """
+    The pupil of `grid` denormalized onto the box shared by every field
+    point, which is what the system falls back to without a per-field fit.
+    """
+    return a._denormalize_interval(grid.pupil, lower=a.pupil_min, upper=a.pupil_max)
+
+
+def test_rayfunction_stops_leaves_out_the_center_it_was_solved_with():
+    """
+    :attr:`rayfunction_stops` is the outline of the field, so the rays through
+    the center of the field stop, which are solved along with it for the sake
+    of the pupil fit, are not among them.
+    """
+    a = _system_newtonian
+    with_center = a._rayfunction_stops_with_center
+    outline = a.rayfunction_stops
+    axis_wire, axis_edge = a.axis_pupil_stop, a.axis_field_stop
+
+    assert na.shape(with_center)[axis_edge] == na.shape(outline)[axis_edge] + 1
+
+    # and it is the same solve, not a second one
+    kept = with_center.outputs[{axis_edge: slice(None, -1)}]
+    assert np.all(kept.position == outline.outputs.position)
+
+    # the extra sample sits inside the outline of the field
+    field, _ = a._field_and_pupil(with_center.outputs)
+    center = field[{axis_edge: -1}].mean(axis_wire)
+    edge = field[{axis_edge: slice(None, -1)}]
+    assert np.all(center.x > edge.x.min())
+    assert np.all(center.x < edge.x.max())
+    assert np.all(center.y > edge.y.min())
+    assert np.all(center.y < edge.y.max())
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[_system_newtonian, _system_grazing],
+)
+def test_pupil_fit_resolves_the_entrance_pupil_per_field(
+    a: optika.systems.AbstractSequentialSystem,
+):
+    """
+    The entrance pupil is denormalized per field point, from a fit which
+    reproduces the pupil of every point along the edge of the field, and which
+    is narrower at the center of the field than the box shared by every field
+    point, since the pupil of these systems walks across the field.
+    """
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
+
+    # the field and pupil along the edge of both stops, in whichever of angle
+    # and position each is measured in for this object
+    field = a.field_boundary
+    pupil = a.pupil_boundary
+
+    # the axis along the edge of the pupil stop, whichever stop axis the pupil
+    # grid was swept over
+    axis_wire = a.axis_pupil_stop
+    axis_edge = a.axis_field_stop
+
+    width = pupil.max(a.axis_stops) - pupil.min(a.axis_stops)
+    tolerance = 1e-5 * width
+
+    # the fit reproduces the pupil at every point along the edge of the field
+    field_edge = field.mean(axis_wire)
+    x = optika.vectors.SceneVectorArray(wavelength, field_edge)
+    error_min = np.abs(fit_min(x).outputs - pupil.min(axis_wire))
+    error_max = np.abs(fit_max(x).outputs - pupil.max(axis_wire))
+    assert np.all(error_min.x < tolerance.x)
+    assert np.all(error_min.y < tolerance.y)
+    assert np.all(error_max.x < tolerance.x)
+    assert np.all(error_max.y < tolerance.y)
+
+    # the pupil at the center of the field is narrower than the box shared by
+    # every field point
+    x_center = optika.vectors.SceneVectorArray(wavelength, field_edge.mean(axis_edge))
+    width_center = fit_max(x_center).outputs - fit_min(x_center).outputs
+    assert np.all(width_center.x < width.x)
+    assert np.all(width_center.y < width.y)
+
+
+def test_pupil_of_the_center_of_the_field_is_measured_on_a_translated_object():
+    """
+    The rays which find the pupil at the center of the field lie on the object
+    surface itself, even when it is translated along the axis, since the
+    entrance pupil is measured on the object.
+
+    They are solved along with the rays which graze both stops and carried
+    back to the object with them, so this holds for the same reason it holds
+    for the outline of the field.
+    """
+    base = _system_newtonian
+    shift = -500 * u.mm
+    a = dataclasses.replace(
+        base,
+        object=dataclasses.replace(
+            base.object,
+            transformation=na.transformations.Cartesian3dTranslation(z=shift),
+        ),
+    )
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    axis_edge = a.axis_field_stop
+    center = stops.outputs[{axis_edge: -1}]
+
+    # these come back in the object's own coordinates, as the stop rays do, so
+    # carry them into the world's to say where the object actually is
+    position = a.object.transformation(center.position)
+
+    assert np.allclose(position.z, shift)
+
+
+def test_models_are_invariant_under_a_rigid_motion():
+    """
+    The three models fit from a raytrace survive a rigid motion of the whole
+    system, in the same way and for the same reason the rays do.
+
+    Fit on one system rather than on all of them, since these need a
+    wavelength grid on an axis of its own which not every system in this
+    module has, and each one costs a raytrace of its own.
+
+    The grid stops short of the edge of the field, for a sharper reason than
+    :func:`AbstractTestAbstractSequentialSystem.test_rayfunction_is_invariant_under_a_rigid_motion`
+    has. Both models fit through a mask built from ``unvignetted``, so a ray
+    which the roundoff of a motion carries across an aperture edge does not
+    merely move, it joins or leaves the fitted set, and a vignetted ray landed
+    wherever it landed. With a grid running to the edge that moves the
+    distortion model by tens of pixels; an interior grid holds it to roundoff.
+    That is a fact about sampling on aperture edges rather than about frames,
+    and the reason :obj:`_grid_field_rigid` stops short as well.
+    """
+    a = _system_grazing
+    b = _moved_rigidly(a, _motion_rigid)
+
+    wavelength = na.linspace(500, 600, axis="_rigid_wavelength", num=3) * u.nm
+    kwargs = dict(
+        wavelength=wavelength,
+        field=_grid_field_rigid,
+        pupil=_grid_pupil_rigid,
+        degree=1,
+    )
+
+    distortion_a = a.distortion(**kwargs)
+    distortion_b = b.distortion(**kwargs)
+    sensor_a = distortion_a.coordinates_sensor
+    sensor_b = distortion_b.coordinates_sensor
+    assert (sensor_b - sensor_a).length.max() < 1e-6 * sensor_a.length.max()
+
+    vignetting_a = a.vignetting(**kwargs)
+    vignetting_b = b.vignetting(**kwargs)
+    illumination_a = vignetting_a.illumination
+    illumination_b = vignetting_b.illumination
+    assert np.abs(illumination_b - illumination_a).max() < 1e-6
+
+    # the sampling of this one is random, so hold it to a seed
+    area_a = a.area_effective(wavelength=wavelength, seed=42).area
+    area_b = b.area_effective(wavelength=wavelength, seed=42).area
+    assert np.abs(area_b - area_a).max() < 1e-6 * np.abs(area_a).max()
+
+
+def test_area_effective_gives_each_ray_the_pupil_of_its_own_field_point(
+    monkeypatch,
+):
+    """
+    Every ray the effective area traces is drawn inside the entrance pupil
+    of the field position it was drawn at, and weighted by the area of its
+    pupil cell there.
+
+    The entrance pupil walks across the field, so the pupil at the center of
+    a field cell is not the pupil of a ray drawn near the cell's edge. One box
+    for the whole cell either clips the pupils near the edges, if it is the
+    center's, or wastes rays outside their own pupil, if it is the union of
+    the pupils at the vertices. On FURST the pupil walks eight times its own
+    width across one cell of the default grid, and a union would waste nine
+    rays in ten.
+    """
+    a = optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+    axis_pupil = ("_pupil_x", "_pupil_y")
+    shape_pupil = na.shape(a._pupil_vertices_default)
+    num_cells = (shape_pupil["_pupil_x"] - 1) * (shape_pupil["_pupil_y"] - 1)
+
+    # a pupil a fifth of the shared box wide which walks across seven tenths
+    # of it, so the box moves by a third of its width per cell of the default
+    # field grid, and stays inside the shared box at every field position
+    lo, hi = a.pupil_min, a.pupil_max
+    span = hi - lo
+    center = (lo + hi) / 2
+    field_center = (a.field_min + a.field_max) / 2
+    field_half = (a.field_max - a.field_min) / 2
+
+    def walk(sign):
+        def fit(x: optika.vectors.SceneVectorArray) -> na.FunctionArray:
+            normalized = (x.field - field_center) / field_half
+            box_center = center + 0.35 * span * normalized
+            return na.FunctionArray(x, box_center + sign * 0.1 * span)
+
+        return fit
+
+    # `pupil_fit` is a cached property, so this is what `_denormalize_grid` reads
+    a.__dict__["pupil_fit"] = (walk(-1), walk(+1))
+
+    captured = {}
+    rayfunction = optika.systems.AbstractSequentialSystem.rayfunction
+
+    def capture(self, **kwargs):
+        captured.update(kwargs)
+        return rayfunction(self, **kwargs)
+
+    monkeypatch.setattr(optika.systems.AbstractSequentialSystem, "rayfunction", capture)
+    result = a.area_effective(seed=42)
+    assert np.all(np.isfinite(result.area))
+
+    field = captured["field"]
+    pupil = captured["pupil"]
+    area = captured["intensity"]
+
+    # the box at each ray's own field position, from the same calibration
+    corners = a._denormalize_grid_from_rays(
+        grid=optika.vectors.ObjectVectorArray(
+            wavelength=captured["wavelength"],
+            field=field,
+            pupil=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray(*axis_pupil),
+                num=2,
+            ),
+        ),
+        rayfunction_stops=a.rayfunction_stops,
+        pupil_fit=a.pupil_fit,
+        normalized_field=False,
+    ).pupil
+    box_lo = corners.min(axis_pupil)
+    box_hi = corners.max(axis_pupil)
+
+    # the walk is real: the boxes are not all the same
+    assert box_lo.x.ptp() > 0.5 * span.x.min()
+
+    # every ray lies inside its own pupil
+    assert np.all((box_lo.x <= pupil.x) & (pupil.x <= box_hi.x))
+    assert np.all((box_lo.y <= pupil.y) & (pupil.y <= box_hi.y))
+
+    # and is weighted by its share of that pupil and no other box
+    box = box_hi - box_lo
+    expected = box.x * box.y / num_cells
+    assert np.all(np.abs(area - expected) <= 1e-9 * expected)
+
+
+def test_a_physical_pupil_at_a_new_wavelength_skips_the_pupil_fit(monkeypatch):
+    """
+    A grid whose pupil is already physical has no use for the entrance pupil
+    fit, so at a wavelength the caches were not built for only the stops are
+    solved.
+    """
+    a = dataclasses.replace(_system_newtonian)
+    wavelength = 1.01 * a.grid_input.wavelength
+
+    # take the calibration away altogether, so that anything asking for it
+    # fails by name rather than through a stub whose body must never run
+    monkeypatch.delattr(optika.systems.AbstractSequentialSystem, "_calc_pupil_fit")
+
+    # a grid which does need it now cannot be served, which is the control
+    with pytest.raises(AttributeError, match="_calc_pupil_fit"):
+        a._stops_and_pupil_fit(wavelength, normalized_pupil=True)
+
+    stops, fit = a._stops_and_pupil_fit(wavelength, normalized_pupil=False)
+    assert fit is None
+
+    # the outline alone, as many samples as the outline the system exposes
+    axis_edge = a.axis_field_stop
+    assert na.shape(stops)[axis_edge] == na.shape(a.rayfunction_stops)[axis_edge]
+
+    # and the same holds all the way through a raytrace
+    grid = a.grid_input
+    pupil = _pupil_shared_box(a, grid)
+    rays = a.raytrace(
+        wavelength=wavelength,
+        field=grid.field,
+        pupil=pupil,
+        normalized_pupil=False,
+        accumulate=False,
+    )
+    assert np.any(rays.outputs.unvignetted)
+
+
+def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
+    """
+    A field point which collects the same fraction of a pupil twice as wide
+    collects four times the light, and the vignetting model says so.
+
+    :meth:`area_effective` weights by the area of each pupil cell and averages
+    the product over the field, so the two models multiply together to give
+    the light collected at one field point only if this one carries how large
+    that field point's pupil is.  Once the pupil is resolved per field point
+    that is no longer shared, which is what makes the weight necessary.
+
+    Every fixture in this module has a pupil whose area is the same across its
+    field, so the rays are built here rather than traced.
+    """
+    a = _system_newtonian
+
+    axis_wavelength = ("_vw",)
+    axis_field = ("_vfx", "_vfy")
+    axis_pupil = ("_vpx", "_vpy")
+
+    # the pupil of the second column of the field is twice as wide
+    width = na.ScalarArray(np.array([1.0, 2.0]), axes=("_vfx",))
+    pupil = (
+        na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(*axis_pupil),
+            num=3,
+        )
+        * width
+        * u.mm
+    )
+
+    inputs = optika.vectors.ObjectVectorArray(
+        wavelength=na.linspace(500, 600, axis=axis_wavelength[0], num=2) * u.nm,
+        field=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(*axis_field),
+            num=2,
+        )
+        * u.deg,
+        pupil=pupil,
+    )
+    shape = na.shape_broadcasted(inputs.wavelength, inputs.field, inputs.pupil)
+    rays = optika.rays.RayFunctionArray(
+        inputs=inputs,
+        outputs=optika.rays.RayVectorArray(
+            unvignetted=na.broadcast_to(na.ScalarArray(np.array(True)), shape),
+        ),
+    )
+
+    model = a._fit_vignetting(
+        rays=rays,
+        axis_wavelength=axis_wavelength,
+        axis_field=axis_field,
+        axis_pupil=axis_pupil,
+        degree=1,
+    )
+
+    # every ray survives, so the whole difference is the size of the pupil
+    illumination = model.illumination
+    narrow = illumination[{"_vfx": 0}].mean()
+    wide = illumination[{"_vfx": 1}].mean()
+    assert np.allclose((wide / narrow).ndarray, 4)
+
+    # the same holds when the rays carry the area of their pupil cells, as
+    # the rays `linearize` fits to do
+    area = np.abs(pupil.volume_cell(axis=axis_pupil))
+    model_area = a._fit_vignetting(
+        rays=rays[{axis_pupil[0]: slice(None, -1), axis_pupil[1]: slice(None, -1)}],
+        axis_wavelength=axis_wavelength,
+        axis_field=axis_field,
+        axis_pupil=axis_pupil,
+        degree=1,
+        area=area,
+    )
+    illumination = model_area.illumination
+    narrow = illumination[{"_vfx": 0}].mean()
+    wide = illumination[{"_vfx": 1}].mean()
+    assert np.allclose((wide / narrow).ndarray, 4)
+
+
+def test_pupil_fit_is_anchored_at_the_center_of_the_field_at_every_sampling():
+    """
+    The sample the pupil fit is anchored on sits at the center of the field
+    however finely the stops are sampled, and the fit there is the same
+    between samplings which resolve the pupil's extent.
+
+    The center is the middle of the field stop's wire, which is exact at every
+    sampling. The extent of the pupil found there is read off a polygon with
+    `samples_pupil_stop` vertices, like every other sample of the fit, and a
+    polygon too coarse to reach the pupil's extrema falls short at the center
+    exactly as it does along the edge: an 11-point wire, whose ten distinct
+    vertices sit 36 degrees apart and never at 90, misses a circle's extent
+    in y. The two samplings compared below both reach it.
+    """
+    a = _system_newtonian
+    wavelength = a.grid_input.wavelength
+    zero = optika.vectors.SceneVectorArray(
+        wavelength,
+        na.Cartesian2dVectorArray(0, 0) * na.unit(a.field_boundary.x),
+    )
+
+    fits = {}
+    for samples in [11, 21, 41]:
+        stops = a._calc_rayfunction_stops(
+            wavelength_input=wavelength,
+            samples_field_stop=samples,
+            samples_pupil_stop=samples,
+        )
+
+        # the anchor is at the center of the field at every sampling
+        field, _ = a._field_and_pupil(stops.outputs)
+        center = field[{a.axis_field_stop: -1}].mean(a.axis_pupil_stop)
+        assert np.abs(center.x) < 1e-12 * na.unit(center.x)
+        assert np.abs(center.y) < 1e-12 * na.unit(center.y)
+
+        if samples > 11:
+            fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
+            fits[samples] = fit_min(zero).outputs, fit_max(zero).outputs
+
+    lo_coarse, hi_coarse = fits[21]
+    lo_fine, hi_fine = fits[41]
+    width = (hi_fine - lo_fine).length
+    assert (lo_coarse - lo_fine).length < 1e-9 * width
+    assert (hi_coarse - hi_fine).length < 1e-9 * width
+
+
+def test_pupil_calibration_does_not_swallow_an_unrelated_error(monkeypatch):
+    """
+    Only a design matrix which cannot be inverted falls back to the shared
+    box.
+
+    A :class:`ValueError` from anywhere else in the fit is a system built
+    wrong or a mistake in the fit itself, and turning it into a pupil which
+    silently stops being resolved per field point would hide it.
+    """
+    a = dataclasses.replace(_system_newtonian)
+
+    def fail(*args, **kwargs):
+        raise ValueError("this is not a singular matrix")
+
+    monkeypatch.setattr(na.PolynomialFitFunctionArray, "from_degree", fail)
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    with pytest.raises(ValueError, match="not a singular matrix"):
+        a._calc_pupil_fit(wavelength, stops)
+
+
+def test_pupil_denormalization_falls_back_when_a_corner_is_not_a_number():
+    """
+    A pupil corner which is not a number falls back to the box shared by every
+    field point, in the same way a collapsed one does.
+
+    Testing the healthy case and negating it, rather than testing for the
+    broken one, is what makes this hold: a comparison against a NaN is false
+    either way round, so a guard written the other way would pass the NaN
+    through and turn every ray at that field point into a NaN silently.
+    """
+    a = dataclasses.replace(_system_newtonian)
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
+
+    # poison the fit so that it evaluates to NaN at every field point
+    nan = np.nan * na.unit(fit_min.outputs.x)
+    fit_min = dataclasses.replace(
+        fit_min,
+        outputs=na.Cartesian2dVectorArray(x=nan, y=nan),
+    )
+    # `pupil_fit` is a cached property, so this is what `_denormalize_grid` reads
+    a.__dict__["pupil_fit"] = (fit_min, fit_max)
+
+    grid = a.grid_input
+    result = a._denormalize_grid(grid)
+
+    assert not np.any(np.isnan(result.pupil.x.ndarray))
+    assert not np.any(np.isnan(result.pupil.y.ndarray))
+
+    # the fallback is the shared box, exactly as when the fit is singular
+    expected = _pupil_shared_box(a, grid)
+    assert np.allclose(result.pupil.x, expected.x)
+    assert np.allclose(result.pupil.y, expected.y)
+
+
+def test_pupil_denormalization_falls_back_when_the_fit_is_singular():
+    """
+    A field stop whose outline is degenerate in one component leaves the
+    least-squares fit of the pupil with a singular design matrix.  That is the
+    one way the calibration can fail on its own, since the rays through the
+    center of the field are solved along with the stops and fail only with
+    them, and it falls back to the box shared by every field point rather than
+    failing a raytrace which the shared box would have carried out.
+
+    The fit solves for its coefficients lazily, so forcing the solve is what
+    keeps this failure inside the fallback.
+    """
+    base = _system_newtonian
+    a = dataclasses.replace(
+        base,
+        object=dataclasses.replace(
+            base.object,
+            aperture=optika.apertures.RectangularAperture(
+                half_width=na.Cartesian2dVectorArray(
+                    x=np.sin(0.05 * u.deg),
+                    y=0 * u.dimensionless_unscaled,
+                ),
+            ),
+        ),
+    )
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    assert a._calc_pupil_fit(wavelength, stops) is None
+
+    # the pupil is the shared box, as it was before the fit existed
+    grid = a.grid_input
+    result = a._denormalize_grid(grid)
+    expected = _pupil_shared_box(a, grid)
+    assert np.allclose(result.pupil.x, expected.x)
+    assert np.allclose(result.pupil.y, expected.y)
+
+    rays = a.raytrace(accumulate=False)
+    assert np.any(rays.outputs.unvignetted)
+
+
+def test_stops_and_pupil_are_solved_once_at_the_default_wavelength(monkeypatch):
+    """
+    Denormalizing a grid needs the stop rays and the entrance-pupil fit, and
+    both depend on nothing but the wavelength.  A caller working at the
+    system's own input wavelengths must pay for each of them once, however
+    many times it traces.
+    """
+    a = dataclasses.replace(_system_newtonian)
+
+    calls = dict(stops=0, fit=0)
+
+    solve_stops = type(a)._calc_rayfunction_stops
+    solve_fit = type(a)._calc_pupil_fit
+
+    def count_stops(self, *args, **kwargs):
+        calls["stops"] += 1
+        return solve_stops(self, *args, **kwargs)
+
+    def count_fit(self, *args, **kwargs):
+        calls["fit"] += 1
+        return solve_fit(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(a), "_calc_rayfunction_stops", count_stops)
+    monkeypatch.setattr(type(a), "_calc_pupil_fit", count_fit)
+
+    grid = a.grid_input
+    for _ in range(3):
+        a.raytrace(field=grid.field, pupil=grid.pupil, accumulate=False)
+
+    assert calls["stops"] == 1
+    assert calls["fit"] == 1
+
+    # a wavelength the caches were not solved at is solved from scratch
+    a.raytrace(
+        wavelength=grid.wavelength + 1 * u.nm,
+        field=grid.field,
+        pupil=grid.pupil,
+        accumulate=False,
+    )
+
+    assert calls["stops"] == 2
+    assert calls["fit"] == 2
+
+
+def test_solve_rays_launches_from_a_translated_surface():
+    """
+    The rays the stop solver finds are launched from the surface it is given,
+    in global coordinates, even when that surface is translated along the
+    axis.  The solver fixes them in the local coordinates of that surface, so
+    it must carry every trial, and the result, into global coordinates, or a
+    translated surface launches them from the wrong depth and a ray with any
+    angle to the axis misses the surfaces it should strike.
+    """
+    base = _system_newtonian
+    shift = -500 * u.mm
+    a = dataclasses.replace(
+        base,
+        object=dataclasses.replace(
+            base.object,
+            transformation=na.transformations.Cartesian3dTranslation(z=shift),
+        ),
+    )
+
+    surfaces = a.surfaces_all
+    subsystem = surfaces[: a.index_pupil_stop + 1]
+    obj = subsystem[0]
+    pupil_stop = subsystem[~0]
+
+    grid_first = obj.aperture.wire(num=5)
+    grid_first = na.Cartesian2dVectorArray(grid_first.x, grid_first.y)
+    grid_last = pupil_stop.aperture.wire(num=5)
+    grid_last = na.Cartesian2dVectorArray(grid_last.x, grid_last.y)
+
+    rays = a._solve_rays(subsystem, grid_first, grid_last, a.grid_input.wavelength)
+
+    assert np.allclose(rays.position.z, shift)
 
 
 def test_plot_unit():
@@ -1269,3 +2074,347 @@ def test_area_effective_is_reproducible_when_seeded():
 
     assert np.all(a == b)
     assert np.any(a != c)
+
+
+def _spy_results(monkeypatch, name: str) -> list:
+    """Record what each call to the named method of the system returns."""
+    method = getattr(optika.systems.SequentialSystem, name)
+    results = []
+
+    def spy(self, *args, **kwargs):
+        result = method(self, *args, **kwargs)
+        results.append(result)
+        return result
+
+    monkeypatch.setattr(optika.systems.SequentialSystem, name, spy)
+    return results
+
+
+def _spy_arguments(monkeypatch, name: str) -> list:
+    """Record the keyword arguments of each call to the named method."""
+    method = getattr(optika.systems.SequentialSystem, name)
+    arguments = []
+
+    def spy(self, *args, **kwargs):
+        arguments.append(kwargs)
+        return method(self, *args, **kwargs)
+
+    monkeypatch.setattr(optika.systems.SequentialSystem, name, spy)
+    return arguments
+
+
+def _system_linearize() -> optika.systems.SequentialSystem:
+    """The system the `linearize` tests below are run on."""
+    return optika.systems.SequentialSystem(
+        surfaces=_surfaces,
+        sensor=_sensor,
+        grid_input=_grid_input_wavelength,
+    )
+
+
+def test_linearize_traces_once(monkeypatch):
+    """
+    Every model of the linearized system is fit to one set of rays.
+
+    The distortion and vignetting models used to be fit at the cell centers
+    and the effective area to a sample drawn inside each cell, which cost a
+    second trace and gave the two halves of the system different quadrature
+    errors.
+    """
+    calls = _spy_results(monkeypatch, "rayfunction")
+
+    _system_linearize().linearize(degree=1)
+
+    assert len(calls) == 1
+
+
+def test_linearize_draws_the_pupil_at_every_field_point(monkeypatch):
+    """
+    Each field point of the linearized system gets its own sample of the
+    pupil.
+
+    A single sample reused at every field point has a bias which depends on
+    where the edge of an aperture falls across it, and in a dispersive
+    system that is nearly a function of one field coordinate alone, so every
+    field point along the other coordinate inherits the same bias and the
+    vignetting model comes out in bands (sun-data/optika#234).
+
+    The assertion is on the *normalized* pupil, before it is mapped onto the
+    entrance pupil of each field point.  The physical pupil varies across the
+    field whatever the sampling, since each field point has its own entrance
+    pupil, so asserting on it would hold even for one shared lattice.
+    """
+    calls = _spy_arguments(monkeypatch, "_denormalize_grid_from_rays")
+
+    axis_field = ("field_x", "field_y")
+    axis_pupil = ("pupil_x", "pupil_y")
+    num = 5
+    field = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray(*axis_field),
+        num=num,
+    )
+    pupil = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray(*axis_pupil),
+        num=num,
+    )
+
+    _system_linearize().linearize(field=field, pupil=pupil, degree=1)
+
+    # the first call is the one which makes the sampled grid physical
+    pupil_sampled = calls[0]["grid"].pupil
+
+    # the sampled pupil carries the field axes, and two field points in the
+    # same column do not share a lattice
+    shape = na.shape(pupil_sampled)
+    assert all(ax in shape for ax in axis_field)
+    assert np.any((pupil_sampled.x[{"field_y": 0}] != pupil_sampled.x[{"field_y": 1}]))
+
+
+def test_linearize_is_reproducible():
+    """
+    Linearizing the same system twice gives the same models.
+
+    Every model is fit to rays drawn at random inside each cell, so without
+    a fixed seed a linear system would be a different forward operator on
+    every call, and code which builds one to make images and another to
+    invert them would silently be using two of them.
+    """
+    system = _system_linearize()
+    wavelength = _grid_input_wavelength.wavelength
+
+    a = system.linearize(degree=1)
+    b = system.linearize(degree=1)
+    c = system.linearize(degree=1, seed=43)
+
+    def models(system: optika.systems.LinearSystem):
+        return (
+            system.area_effective(wavelength),
+            system.distortion.coordinates_sensor,
+            system.vignetting.illumination,
+        )
+
+    # the default seed, so two calls agree
+    for x, y in zip(models(a), models(b)):
+        assert np.all(x == y)
+
+    # every one of the three models follows the seed, so a change to the
+    # sampling of any of them cannot hide behind the other two
+    for x, z in zip(models(a), models(c)):
+        assert np.any(x != z)
+
+
+def test_linearize_refuses_a_wavelength_with_no_light():
+    """
+    Linearizing a system whose sampled field admits nothing at some
+    wavelength raises, rather than returning a model which is silently
+    wrong.
+
+    Every model is a polynomial in wavelength and field position, fit only
+    to the field positions which admit light.  A wavelength which admits
+    none leaves that polynomial unconstrained there, and the fit does not
+    fail: it extrapolates without bound, at the wavelengths which do have
+    light as well.
+    """
+    system = _system_linearize()
+
+    # cells lying entirely beyond the normalized field, so nothing gets through
+    vertices = np.array([5, 6, 7])
+    field = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(vertices, axes="field_x"),
+        y=na.ScalarArray(vertices, axes="field_y"),
+    )
+
+    with pytest.raises(ValueError, match="admit at least one"):
+        system.linearize(field=field, degree=1)
+
+
+def test_linearize_weights_the_illumination_by_the_pupil_cell_areas(monkeypatch):
+    """
+    The vignetting model of a linearized system is fit to the unvignetted
+    *area* of each field point's pupil.
+
+    :meth:`_fit_vignetting` falls back to the size of the sampled pupil
+    times the fraction of rays which survive, which is the same thing only
+    while every pupil cell is the same size.  The area is the physical
+    quantity, and carrying it is what lets this model and the effective area
+    multiply together, so `linearize` has to hand over the one its trace
+    measured.
+    """
+    traces = _spy_results(monkeypatch, "_rayfunction_stratified")
+    fits = _spy_arguments(monkeypatch, "_fit_vignetting")
+
+    _system_linearize().linearize(degree=1)
+
+    (trace,) = traces
+    (fit,) = fits
+
+    _, area = trace
+    assert fit["area"] is area
+
+
+def test_normalized_axes_do_not_depend_on_set_ordering():
+    """
+    The field and pupil axes are normalized in the order the grid carries
+    them, not the order a :obj:`set` iterates in.
+
+    Set iteration order over strings varies with the interpreter's hash
+    seed, so deriving the axes from one made a seeded sample of the grid
+    reproducible only within a single process: the axes came back
+    transposed, and the sampler drew a different point in each cell.
+    """
+    system = _system_linearize()
+
+    axis_field = ("field_x", "field_y")
+    axis_pupil = ("pupil_x", "pupil_y")
+
+    field = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray(*axis_field),
+        num=5,
+    )
+    pupil = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray(*axis_pupil),
+        num=5,
+    )
+
+    axis_wavelength_ = system._normalize_axis_wavelength(
+        None,
+        _grid_input_wavelength.wavelength,
+    )
+    axis_field_ = system._normalize_axis_field(None, axis_wavelength_, field)
+    axis_pupil_ = system._normalize_axis_pupil(
+        axis_pupil=None,
+        axis_field=axis_field_,
+        axis_wavelength=axis_wavelength_,
+        pupil=pupil,
+    )
+
+    assert axis_field_ == axis_field
+    assert axis_pupil_ == axis_pupil
+
+
+def _system_with_launch_surface(transformation, fold: bool = False):
+    """
+    A system whose pupil stop comes first and carries a physical aperture, so
+    that the solver's free variable is the launch direction, with that stop
+    placed by the given transformation.
+
+    With `fold`, a 45 degree mirror ahead of the stop turns the beam onto the
+    world's :math:`x` axis, and the surfaces after the stop are placed along
+    that axis instead.
+    """
+    turn = na.transformations.Cartesian3dRotationY(90 * u.deg)
+
+    mirror = optika.surfaces.Surface(
+        name="mirror",
+        sag=optika.sags.SphericalSag(radius=-600 * u.mm),
+        material=optika.materials.Mirror(),
+        aperture=optika.apertures.CircularAperture(60 * u.mm),
+        transformation=(
+            (na.transformations.Cartesian3dTranslation(x=400 * u.mm) @ turn)
+            if fold
+            else na.transformations.Cartesian3dTranslation(z=300 * u.mm)
+        ),
+    )
+
+    stop = optika.surfaces.Surface(
+        name="stop",
+        aperture=optika.apertures.CircularAperture(15 * u.mm),
+        transformation=transformation,
+        is_pupil_stop=True,
+    )
+
+    fold_mirror = optika.surfaces.Surface(
+        name="fold",
+        material=optika.materials.Mirror(),
+        aperture=optika.apertures.CircularAperture(40 * u.mm),
+        transformation=na.transformations.Cartesian3dRotationY(-45 * u.deg),
+    )
+
+    return optika.systems.SequentialSystem(
+        object=optika.surfaces.Surface(
+            name="object",
+            aperture=optika.apertures.CircularAperture(np.sin(0.5 * u.deg)),
+            transformation=na.transformations.Cartesian3dTranslation(z=-400 * u.mm),
+        ),
+        surfaces=([fold_mirror] if fold else []) + [stop, mirror],
+        sensor=optika.sensors.ImagingSensor(
+            name="sensor",
+            width_pixel=10 * u.um,
+            axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+            num_pixel=na.Cartesian2dVectorArray(256, 256),
+            transformation=(
+                (na.transformations.Cartesian3dTranslation(x=100 * u.mm) @ turn)
+                if fold
+                else None
+            ),
+            is_field_stop=True,
+        ),
+        grid_input=optika.vectors.ObjectVectorArray(
+            wavelength=500 * u.nm,
+            field=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                num=3,
+            ),
+            pupil=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                num=3,
+            ),
+        ),
+    )
+
+
+def test_stops_solve_with_a_folded_beam():
+    """
+    A 45 degree fold ahead of the pupil stop, so that the beam reaching it runs
+    along the world's :math:`x` axis rather than its :math:`z` axis.
+
+    The launch rays are solved in the local coordinates of the surface they are
+    launched from, where that beam runs along the surface's own normal.
+    Solving in world coordinates instead puts the parametrization of the free
+    direction exactly on its pole here, since the beam is then perpendicular to
+    the axis the two free components are measured against.
+    """
+    a = _system_with_launch_surface(
+        na.transformations.Cartesian3dTranslation(x=150 * u.mm)
+        @ na.transformations.Cartesian3dRotationY(90 * u.deg),
+        fold=True,
+    )
+    result = a._calc_rayfunction_stops(500 * u.nm)
+    assert np.all(np.isfinite(result.outputs.position.length))
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the free direction is charted on the launch surface's transverse "
+        "plane, which is singular for a beam grazing that surface (#227)"
+    ),
+)
+def test_stops_solve_when_the_launch_surface_is_nearly_edge_on():
+    """
+    A launch surface turned nearly edge-on to the beam, as a grazing-incidence
+    optic modeled as a tilted segment would be.
+    """
+    a = _system_with_launch_surface(
+        na.transformations.Cartesian3dRotationY(88 * u.deg),
+    )
+    result = a._calc_rayfunction_stops(500 * u.nm)
+
+    # unreachable until the solve above stops raising, which is the point
+    assert np.all(np.isfinite(result.outputs.position.length))  # pragma: nocover
+
+
+# the field stop is decentered so that a mirrored field frame is observable:
+# rays aimed using global-frame field bounds miss the aperture entirely

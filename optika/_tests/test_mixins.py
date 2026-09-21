@@ -12,6 +12,9 @@ import optika
 transformation_parameterization = [
     None,
     na.transformations.Cartesian3dTranslation(x=5 * u.mm),
+    # A translation along z. Every other entry leaves z unchanged, which is
+    # what let a sag intercept solved in the wrong frame go unnoticed.
+    na.transformations.Cartesian3dTranslation(z=7 * u.mm),
     na.transformations.TransformationList(
         [
             na.transformations.Cartesian3dTranslation(x=5 * u.mm),
