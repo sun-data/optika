@@ -196,6 +196,11 @@ class AbstractRulings(
             The light rays incident on the rulings
         normal
             The vector normal to the surface on which the rulings are placed.
+        index_refraction_new
+            The index of refraction of the medium the diffracted light
+            propagates in. Ignored.
+        is_mirror
+            Whether the rulings are on a reflective surface. Ignored.
         """
 
         kappa = self.spacing_(
@@ -222,17 +227,128 @@ class AbstractRulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar = None,
+        is_mirror: bool | na.AbstractScalar = True,
     ) -> float | na.AbstractScalar:
-        """
+        r"""
         The fraction of light that is diffracted into a given order.
 
         Parameters
         ----------
         rays
-            The light rays incident on the rulings
+            The light rays incident on the rulings, before diffraction.
         normal
             The vector normal to the surface on which the rulings are placed.
+        index_refraction_new
+            The index of refraction of the medium the diffracted light
+            propagates in. If :obj:`None`, it is taken to be the same as
+            that of the incident light. Ignored if ``is_mirror`` is true.
+        is_mirror
+            Whether the rulings are on a reflective surface, in which case
+            the diffracted light propagates back into the incident medium.
+
+        Notes
+        -----
+        The thin-grating efficiencies implemented by the subclasses of this
+        class are taken from :cite:t:`Magnusson1978`, who consider a
+        *volume* phase grating: a slab of thickness :math:`d` whose index
+        of refraction is modulated by :math:`n_1 f(x)`, so that a ray
+        crossing it at angle :math:`\theta` accumulates a phase
+        proportional to :math:`n_1 d / \cos \theta`, the more the more
+        obliquely it crosses.
+
+        The rulings here are instead a *relief* on a surface, a groove
+        profile of height :math:`h(x)` between a medium of index
+        :math:`n_1` and one of index :math:`n_2`. Under the scalar
+        (Kirchhoff) approximation, the phase a ray picks up from the
+        relief is the path difference across the height of the profile,
+
+        .. math::
+
+            \phi(x) = \frac{2 \pi}{\lambda} h(x) (n_1 \cos \alpha - n_2 \cos \beta),
+
+        where :math:`\alpha` and :math:`\beta` are the angles of incidence
+        and diffraction and :math:`\lambda` is the free-space wavelength.
+        A reflection grating is the case :math:`n_2 = -n_1`, for which the
+        factor becomes :math:`n_1 (\cos \alpha + \cos \beta)`, twice the
+        height times the cosine at normal incidence, and which falls with
+        obliquity rather than rising. A transmission relief grating at
+        normal incidence has the factor :math:`n_1 - n_2`, the index
+        contrast.
+
+        So the formulas of :cite:t:`Magnusson1978` are used with their
+        normalized amplitude :math:`\gamma` replaced by
+
+        .. math::
+
+            \gamma = \frac{\pi h_1}{\lambda}
+                \frac{|n_1 \cos \alpha - n_2 \cos \beta|}{2},
+
+        where :math:`h_1` is the amplitude of the fundamental Fourier
+        component of the groove profile, which each profile relates to its
+        :attr:`depth`. Orders which are evanescent, for which no real
+        :math:`\beta` exists, have zero efficiency.
         """
+
+    def _gamma(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar,
+        is_mirror: bool | na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        r"""
+        The normalized amplitude of the phase modulation,
+        :math:`\gamma = \pi h_1 |n_1 \cos \alpha - n_2 \cos \beta| / 2 \lambda`,
+        as defined in the notes of :meth:`efficiency`.
+
+        :obj:`numpy.nan` for orders which are evanescent.
+
+        Parameters
+        ----------
+        depth
+            The amplitude of the fundamental Fourier component of the
+            groove profile, :math:`h_1`.
+        rays
+            The light rays incident on the rulings, before diffraction.
+        normal
+            The vector normal to the surface on which the rulings are placed.
+        index_refraction_new
+            The index of refraction of the medium the diffracted light
+            propagates in, or :obj:`None` for that of the incident light.
+        is_mirror
+            Whether the rulings are on a reflective surface.
+        """
+        n1 = rays.index_refraction
+        if index_refraction_new is None:
+            n2 = n1
+        else:
+            n2 = index_refraction_new
+
+        # the diffracted light of a mirror goes back into the incident
+        # medium, which is the same as transmitting into its negative
+        n2 = np.where(is_mirror, -n1, n2)
+
+        direction = rays.direction
+        cos_alpha = -(direction @ normal)
+
+        # the sine of the diffracted angle, in the incident medium, is the
+        # in-plane component of the effective incident direction
+        direction_effective = self.incident_effective(rays, normal).direction
+        sin_beta_1 = direction_effective - (direction_effective @ normal) * normal
+        sin_beta_1 = sin_beta_1.length
+
+        # Snell's law carries it into the diffracted medium
+        cos_beta_squared = 1 - np.square(n1 * sin_beta_1 / n2)
+        cos_beta = np.sqrt(np.where(cos_beta_squared < 0, np.nan, cos_beta_squared))
+
+        obliquity = np.abs(n1 * cos_alpha - n2 * cos_beta) / 2
+
+        result = np.pi * depth * obliquity / rays.wavelength
+        result = na.as_named_array(result).to(u.dimensionless_unscaled)
+
+        return result
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -261,6 +377,8 @@ class Rulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar = None,
+        is_mirror: bool | na.AbstractScalar = True,
     ) -> float:
         return 1
 
@@ -302,6 +420,8 @@ class MeasuredRulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar = None,
+        is_mirror: bool | na.AbstractScalar = True,
     ) -> na.AbstractScalar:
 
         measurement = self.efficiency_measured
@@ -419,6 +539,8 @@ class SinusoidalRulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar = None,
+        is_mirror: bool | na.AbstractScalar = True,
     ) -> float | na.AbstractScalar:
         r"""
         The fraction of light diffracted into a given order.
@@ -431,6 +553,12 @@ class SinusoidalRulings(
             The light rays incident on the rulings
         normal
             The vector normal to the surface on which the rulings are placed.
+        index_refraction_new
+            The index of refraction of the medium the diffracted light
+            propagates in. If :obj:`None`, it is taken to be the same as
+            that of the incident light. Ignored if ``is_mirror`` is true.
+        is_mirror
+            Whether the rulings are on a reflective surface.
 
         Notes
         -----
@@ -445,28 +573,32 @@ class SinusoidalRulings(
 
         where :math:`\eta_i` is the groove efficiency for diffraction order
         :math:`i`, :math:`J_i(x)` is a Bessel function of the first kind,
-        :math:`\gamma = \pi d n_1 / \lambda \cos \theta` is the
-        normalized amplitude of the fundamental grating, :math:`d` is the
-        thickness of the grating, :math:`n_1` is the amplitude of the fundamental
-        grating, :math:`\lambda` is the free-space wavelength of the incident
-        light, and :math:`\theta` is the angle of incidence inside the medium.
+        :math:`\gamma = \pi h_1 |n_1 \cos \alpha - n_2 \cos \beta| / 2 \lambda`
+        is the normalized amplitude of the phase modulation, in which
+        :math:`h_1` is the amplitude of the fundamental Fourier component
+        of the groove profile, :math:`\lambda` is the free-space
+        wavelength, :math:`n_1` and :math:`n_2` are the indices of
+        refraction of the incident and diffracted media, and :math:`\alpha`
+        and :math:`\beta` are the angles of incidence and diffraction.
+        See the notes of :meth:`AbstractRulings.efficiency` for where this
+        factor comes from.
         """
 
-        normal_rulings = self.spacing_(rays.position, normal).normalized
-
-        parallel_rulings = normal.cross(normal_rulings).normalized
-
-        direction = rays.direction
-        direction = direction - direction @ parallel_rulings
-
-        wavelength = rays.wavelength
-        cos_theta = -direction @ normal
         d = self.depth
         i = self.diffraction_order
 
-        gamma = np.pi * d / (wavelength * cos_theta)
+        gamma = self._gamma(
+            depth=d,
+            rays=rays,
+            normal=normal,
+            index_refraction_new=index_refraction_new,
+            is_mirror=is_mirror,
+        )
 
         result = np.square(scipy.special.jv(i, 2 * gamma))
+
+        # orders which are evanescent carry no light
+        result = np.where(np.isfinite(gamma), result, 0)
 
         return result
 
@@ -563,6 +695,8 @@ class SquareRulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar = None,
+        is_mirror: bool | na.AbstractScalar = True,
     ) -> float | na.AbstractScalar:
         r"""
         The fraction of light diffracted into a given order.
@@ -575,6 +709,12 @@ class SquareRulings(
             The light rays incident on the rulings
         normal
             The vector normal to the surface on which the rulings are placed.
+        index_refraction_new
+            The index of refraction of the medium the diffracted light
+            propagates in. If :obj:`None`, it is taken to be the same as
+            that of the incident light. Ignored if ``is_mirror`` is true.
+        is_mirror
+            Whether the rulings are on a reflective surface.
 
         Notes
         -----
@@ -592,27 +732,28 @@ class SquareRulings(
             \end{cases}
 
         where :math:`\eta_i` is the groove efficiency for diffraction order
-        :math:`i`, :math:`\gamma = \pi d n_1 / \lambda \cos \theta` is the
-        normalized amplitude of the fundamental grating, :math:`d` is the
-        thickness of the grating, :math:`n_1` is the amplitude of the fundamental
-        grating, :math:`\lambda` is the free-space wavelength of the incident
-        light, and :math:`\theta` is the angle of incidence inside the medium.
+        :math:`i`, :math:`\gamma = \pi h_1 |n_1 \cos \alpha - n_2 \cos \beta| / 2 \lambda`
+        is the normalized amplitude of the phase modulation, in which
+        :math:`h_1` is the amplitude of the fundamental Fourier component
+        of the groove profile, :math:`\lambda` is the free-space
+        wavelength, :math:`n_1` and :math:`n_2` are the indices of
+        refraction of the incident and diffracted media, and :math:`\alpha`
+        and :math:`\beta` are the angles of incidence and diffraction.
+        See the notes of :meth:`AbstractRulings.efficiency` for where this
+        factor comes from.
         """
 
-        normal_rulings = self.spacing_(rays.position, normal).normalized
-
-        parallel_rulings = normal.cross(normal_rulings).normalized
-
-        direction = rays.direction
-        direction = direction - direction @ parallel_rulings
-
-        wavelength = rays.wavelength
-        cos_theta = -direction @ normal
         amplitude = np.pi / 4
         d = self.depth / amplitude
         i = self.diffraction_order
 
-        gamma = np.pi * d / (wavelength * cos_theta)
+        gamma = self._gamma(
+            depth=d,
+            rays=rays,
+            normal=normal,
+            index_refraction_new=index_refraction_new,
+            is_mirror=is_mirror,
+        )
 
         result = np.where(
             i % 2 == 0,
@@ -624,6 +765,9 @@ class SquareRulings(
             np.square(np.cos(np.pi * gamma / 2 * u.rad)),
             result,
         )
+
+        # orders which are evanescent carry no light
+        result = np.where(np.isfinite(gamma), result, 0)
 
         return result
 
@@ -720,6 +864,8 @@ class SawtoothRulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar = None,
+        is_mirror: bool | na.AbstractScalar = True,
     ) -> float | na.AbstractScalar:
         r"""
         The fraction of light diffracted into a given order.
@@ -732,6 +878,12 @@ class SawtoothRulings(
             The light rays incident on the rulings
         normal
             The vector normal to the surface on which the rulings are placed.
+        index_refraction_new
+            The index of refraction of the medium the diffracted light
+            propagates in. If :obj:`None`, it is taken to be the same as
+            that of the incident light. Ignored if ``is_mirror`` is true.
+        is_mirror
+            Whether the rulings are on a reflective surface.
 
         Notes
         -----
@@ -745,32 +897,36 @@ class SawtoothRulings(
             \eta_i = [\pi (\gamma + i)]^{-2} \sin^2(\pi \gamma)
 
         where :math:`\eta_i` is the groove efficiency for diffraction order
-        :math:`i`, :math:`\gamma = \pi d n_1 / \lambda \cos \theta` is the
-        normalized amplitude of the fundamental grating, :math:`d` is the
-        thickness of the grating, :math:`n_1` is the amplitude of the fundamental
-        grating, :math:`\lambda` is the free-space wavelength of the incident
-        light, and :math:`\theta` is the angle of incidence inside the medium.
+        :math:`i`, :math:`\gamma = \pi h_1 |n_1 \cos \alpha - n_2 \cos \beta| / 2 \lambda`
+        is the normalized amplitude of the phase modulation, in which
+        :math:`h_1` is the amplitude of the fundamental Fourier component
+        of the groove profile, :math:`\lambda` is the free-space
+        wavelength, :math:`n_1` and :math:`n_2` are the indices of
+        refraction of the incident and diffracted media, and :math:`\alpha`
+        and :math:`\beta` are the angles of incidence and diffraction.
+        See the notes of :meth:`AbstractRulings.efficiency` for where this
+        factor comes from.
         """
 
-        normal_rulings = self.spacing_(rays.position, normal).normalized
-
-        parallel_rulings = normal.cross(normal_rulings).normalized
-
-        direction = rays.direction
-        direction = direction - direction @ parallel_rulings
-
-        wavelength = rays.wavelength
-        cos_theta = -direction @ normal
         amplitude = np.pi / 2
         d = self.depth / amplitude
         i = self.diffraction_order
 
-        gamma = np.pi * d / (wavelength * cos_theta)
+        gamma = self._gamma(
+            depth=d,
+            rays=rays,
+            normal=normal,
+            index_refraction_new=index_refraction_new,
+            is_mirror=is_mirror,
+        )
 
         # Since sin(pi gamma) = (-1)^i sin(pi (gamma + i)), this is the
         # squared sinc of gamma + i, which is finite when the profile is
         # a whole number of waves deep and the formula above is 0 / 0.
         result = np.square(_sinc(gamma + i))
+
+        # orders which are evanescent carry no light
+        result = np.where(np.isfinite(gamma), result, 0)
 
         return result
 
@@ -867,6 +1023,8 @@ class TriangularRulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar = None,
+        is_mirror: bool | na.AbstractScalar = True,
     ) -> float | na.AbstractScalar:
         r"""
         The fraction of light diffracted into a given order.
@@ -879,6 +1037,12 @@ class TriangularRulings(
             The light rays incident on the rulings
         normal
             The vector normal to the surface on which the rulings are placed.
+        index_refraction_new
+            The index of refraction of the medium the diffracted light
+            propagates in. If :obj:`None`, it is taken to be the same as
+            that of the incident light. Ignored if ``is_mirror`` is true.
+        is_mirror
+            Whether the rulings are on a reflective surface.
 
         Notes
         -----
@@ -895,27 +1059,28 @@ class TriangularRulings(
             \end{cases}
 
         where :math:`\eta_i` is the groove efficiency for diffraction order
-        :math:`i`, :math:`\gamma = \pi d n_1 / \lambda \cos \theta` is the
-        normalized amplitude of the fundamental grating, :math:`d` is the
-        thickness of the grating, :math:`n_1` is the amplitude of the fundamental
-        grating, :math:`\lambda` is the free-space wavelength of the incident
-        light, and :math:`\theta` is the angle of incidence inside the medium.
+        :math:`i`, :math:`\gamma = \pi h_1 |n_1 \cos \alpha - n_2 \cos \beta| / 2 \lambda`
+        is the normalized amplitude of the phase modulation, in which
+        :math:`h_1` is the amplitude of the fundamental Fourier component
+        of the groove profile, :math:`\lambda` is the free-space
+        wavelength, :math:`n_1` and :math:`n_2` are the indices of
+        refraction of the incident and diffracted media, and :math:`\alpha`
+        and :math:`\beta` are the angles of incidence and diffraction.
+        See the notes of :meth:`AbstractRulings.efficiency` for where this
+        factor comes from.
         """
 
-        normal_rulings = self.spacing_(rays.position, normal).normalized
-
-        parallel_rulings = normal.cross(normal_rulings).normalized
-
-        direction = rays.direction
-        direction = direction - direction @ parallel_rulings
-
-        wavelength = rays.wavelength
-        cos_theta = -direction @ normal
         amplitude = np.square(np.pi) / 8
         d = self.depth / amplitude
         i = self.diffraction_order
 
-        gamma = np.pi * d / (wavelength * cos_theta)
+        gamma = self._gamma(
+            depth=d,
+            rays=rays,
+            normal=normal,
+            index_refraction_new=index_refraction_new,
+            is_mirror=is_mirror,
+        )
 
         # Writing beta = pi gamma / 2 and k = |i|, the trigonometric factor
         # for either parity is sin(pi (beta - k) / 2) up to sign, so the
@@ -932,6 +1097,9 @@ class TriangularRulings(
 
         # zero depth in the zeroth order, where the limit is one
         result = np.where(denominator == 0, 1, result)
+
+        # orders which are evanescent carry no light
+        result = np.where(np.isfinite(gamma), result, 0)
 
         return result
 
@@ -1034,6 +1202,8 @@ class RectangularRulings(
         self,
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
+        index_refraction_new: None | float | na.AbstractScalar = None,
+        is_mirror: bool | na.AbstractScalar = True,
     ) -> float | na.AbstractScalar:
         r"""
         The fraction of light diffracted into a given order.
@@ -1046,6 +1216,12 @@ class RectangularRulings(
             The light rays incident on the rulings
         normal
             The vector normal to the surface on which the rulings are placed.
+        index_refraction_new
+            The index of refraction of the medium the diffracted light
+            propagates in. If :obj:`None`, it is taken to be the same as
+            that of the incident light. Ignored if ``is_mirror`` is true.
+        is_mirror
+            Whether the rulings are on a reflective surface.
 
         Notes
         -----
@@ -1063,28 +1239,29 @@ class RectangularRulings(
 
         where :math:`\eta_i` is the groove efficiency for diffraction order :math:`i`,
         :math:`a` :math:`(0 < a < 2 \pi)` is the duty cycle of the rectangular wave,
-        :math:`\gamma = \pi d n_1 / \lambda \cos \theta` is the
-        normalized amplitude of the fundamental grating, :math:`d` is the
-        thickness of the grating, :math:`n_1` is the amplitude of the fundamental
-        grating, :math:`\lambda` is the free-space wavelength of the incident
-        light, and :math:`\theta` is the angle of incidence inside the medium.
+        :math:`\gamma = \pi h_1 |n_1 \cos \alpha - n_2 \cos \beta| / 2 \lambda`
+        is the normalized amplitude of the phase modulation, in which
+        :math:`h_1` is the amplitude of the fundamental Fourier component
+        of the groove profile, :math:`\lambda` is the free-space
+        wavelength, :math:`n_1` and :math:`n_2` are the indices of
+        refraction of the incident and diffracted media, and :math:`\alpha`
+        and :math:`\beta` are the angles of incidence and diffraction.
+        See the notes of :meth:`AbstractRulings.efficiency` for where this
+        factor comes from.
         """
 
-        normal_rulings = self.spacing_(rays.position, normal).normalized
-
-        parallel_rulings = normal.cross(normal_rulings).normalized
-
-        direction = rays.direction
-        direction = direction - direction @ parallel_rulings
-
-        wavelength = rays.wavelength
-        cos_theta = -direction @ normal
         a = 2 * np.pi * self.ratio_duty
         amplitude = np.pi / (2 * np.sqrt(2 * (1 - np.cos(a))))
         d = self.depth / amplitude
         i = self.diffraction_order
 
-        gamma = np.pi * d / (wavelength * cos_theta)
+        gamma = self._gamma(
+            depth=d,
+            rays=rays,
+            normal=normal,
+            index_refraction_new=index_refraction_new,
+            is_mirror=is_mirror,
+        )
 
         b = np.sin(np.pi * gamma / np.sqrt(2 * (1 - np.cos(a * u.rad))) * u.rad)
         b = np.square(b)
@@ -1094,5 +1271,8 @@ class RectangularRulings(
             1 - ((2 * a / np.pi) - np.square(a / np.pi)) * b,
             (2 / np.square(i * np.pi)) * (1 - np.cos(i * a * u.rad)) * b,
         )
+
+        # orders which are evanescent carry no light
+        result = np.where(np.isfinite(gamma), result, 0)
 
         return result
