@@ -246,4 +246,3 @@ def test_sinusoidal_rulings_efficiency_conserved():
     result = rulings.efficiency(rays, normal).sum("m")
 
     assert np.isclose(result, 1)
-
