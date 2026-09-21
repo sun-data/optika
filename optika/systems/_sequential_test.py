@@ -1344,6 +1344,63 @@ def test_pupil_fit_resolves_the_entrance_pupil_per_field(
     assert np.all(width_center.y < width.y)
 
 
+def test_pupil_fit_is_made_against_an_uncertain_field():
+    """
+    The fit is made against the field as it actually is, uncertainty and all,
+    so it reproduces the pupil of every sample of the distribution rather than
+    only of the nominal value.
+
+    An uncertain field stop is what makes the field uncertain here. The optics
+    are untouched, so every sample sees the same quadratic relation between
+    the pupil and the field, sampled at a different set of field points. A fit
+    made against the nominal field alone would reproduce the nominal pupil and
+    miss each sample by roughly the width of the distribution.
+    """
+    base = _system_newtonian
+    radius = base.object.aperture.radius
+    a = dataclasses.replace(
+        base,
+        object=dataclasses.replace(
+            base.object,
+            aperture=dataclasses.replace(
+                base.object.aperture,
+                radius=na.NormalUncertainScalarArray(
+                    nominal=radius,
+                    width=0.05 * radius,
+                    num_distribution=5,
+                    seed=42,
+                ),
+            ),
+        ),
+    )
+
+    wavelength = a.grid_input.wavelength
+    stops = a._calc_rayfunction_stops(wavelength)
+    fit_min, fit_max = a._calc_pupil_fit(wavelength, stops)
+
+    field = a.field_boundary
+    pupil = a.pupil_boundary
+
+    assert isinstance(field.x, na.AbstractUncertainScalarArray)
+    assert isinstance(pupil.x, na.AbstractUncertainScalarArray)
+
+    axis_wire = a.axis_pupil_stop
+
+    width = pupil.max(a.axis_stops) - pupil.min(a.axis_stops)
+    tolerance = 1e-5 * width
+
+    x = optika.vectors.SceneVectorArray(wavelength, field.mean(axis_wire))
+    error_min = np.abs(fit_min(x).outputs - pupil.min(axis_wire))
+    error_max = np.abs(fit_max(x).outputs - pupil.max(axis_wire))
+
+    # `np.all` leaves the distribution alone, since it is a batch axis, so
+    # these hold sample by sample and not merely on the nominal value
+    assert np.all(error_min.x < tolerance.x)
+    assert np.all(error_min.y < tolerance.y)
+    assert np.all(error_max.x < tolerance.x)
+    assert np.all(error_max.y < tolerance.y)
+
+
 def test_pupil_of_the_center_of_the_field_is_measured_on_a_translated_object():
     """
     The rays which find the pupil at the center of the field lie on the object

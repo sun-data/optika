@@ -1000,12 +1000,9 @@ class AbstractSequentialSystem(
         pupil_max = pupil.max(self.axis_pupil_stop)
 
         # The wavelength rides along as a broadcast axis, since the fit is
-        # only ever evaluated at the wavelengths it was made at.  The inputs
-        # are nominal because they enter the least-squares solve through a
-        # matrix inverse; the outputs are linear in it, so their uncertainty
-        # passes through.
+        # only ever evaluated at the wavelengths it was made at.
         kwargs = dict(
-            inputs=na.nominal(optika.vectors.SceneVectorArray(wavelength, field)),
+            inputs=optika.vectors.SceneVectorArray(wavelength, field),
             degree=2,
             components=("field.x", "field.y"),
             axis_polynomial=self.axis_field_stop,
