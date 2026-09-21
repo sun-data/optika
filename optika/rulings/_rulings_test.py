@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import scipy.special
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -196,3 +197,127 @@ class TestRectangularRulings(
     AbstractTestAbstractRulings,
 ):
     pass
+
+
+def test_sinusoidal_rulings_efficiency_bessel():
+    """
+    The efficiency of sinusoidal rulings is the square of the Bessel
+    function, per Table 1 of Magnusson and Gaylord (1978), not the Bessel
+    function itself.
+    """
+    depth = 42 * u.nm
+    wavelength = 150 * u.nm
+    rulings = optika.rulings.SinusoidalRulings(
+        spacing=1 / (2200 / u.mm),
+        depth=depth,
+        diffraction_order=1,
+    )
+    rays = optika.rays.RayVectorArray(
+        wavelength=wavelength,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+    result = rulings.efficiency(rays, normal)
+
+    gamma = (np.pi * depth / wavelength).to_value(u.dimensionless_unscaled)
+    expected = np.square(scipy.special.jv(1, 2 * gamma))
+    assert np.isclose(result, expected)
+
+
+def test_sinusoidal_rulings_efficiency_conserved():
+    """
+    A thin phase grating absorbs nothing, so the efficiency summed over
+    all orders is one.
+    """
+    rulings = optika.rulings.SinusoidalRulings(
+        spacing=1 / (2200 / u.mm),
+        depth=42 * u.nm,
+        diffraction_order=na.ScalarArray(np.arange(-10, 11), axes="m"),
+    )
+    rays = optika.rays.RayVectorArray(
+        wavelength=150 * u.nm,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+    result = rulings.efficiency(rays, normal).sum("m")
+
+    assert np.isclose(result, 1)
+
+
+def _rays(wavelength: u.Quantity) -> optika.rays.RayVectorArray:
+    return optika.rays.RayVectorArray(
+        wavelength=wavelength,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+
+
+_normal = na.Cartesian3dVectorArray(0, 0, -1)
+_orders = na.ScalarArray(np.arange(-100, 101), axes="m")
+
+
+@pytest.mark.parametrize(
+    argnames="rulings",
+    argvalues=[
+        optika.rulings.SinusoidalRulings(
+            spacing=1 / (2200 / u.mm),
+            depth=42 * u.nm,
+            diffraction_order=_orders,
+        ),
+        optika.rulings.TriangularRulings(
+            spacing=1 / (2200 / u.mm),
+            depth=42 * u.nm,
+            diffraction_order=_orders,
+        ),
+    ],
+)
+def test_efficiency_conserved(rulings: optika.rulings.AbstractRulings):
+    """
+    A thin phase grating absorbs nothing, so the efficiency summed over
+    all orders is one. Only the profiles whose efficiency falls off faster
+    than the square of the order can be checked to high precision with a
+    finite sum.
+    """
+    wavelength = na.ScalarArray([100, 150, 200, 400] * u.nm, axes="w")
+    result = rulings.efficiency(_rays(wavelength), _normal).sum("m")
+    assert np.allclose(result, 1)
+
+
+def test_sawtooth_rulings_efficiency_blazed():
+    """
+    A sawtooth profile a whole wave deep sends all of the light into the
+    blazed order. This is a removable singularity of the formula.
+    """
+    wavelength = 150 * u.nm
+    rulings = optika.rulings.SawtoothRulings(
+        spacing=1 / (2200 / u.mm),
+        depth=wavelength / 2,
+        diffraction_order=_orders,
+    )
+    result = rulings.efficiency(_rays(wavelength), _normal)
+    assert np.isfinite(result).all()
+    assert np.isclose(result.sum("m"), 1)
+    assert np.isclose(result.max("m"), 1)
+
+
+def test_triangular_rulings_efficiency_resonant():
+    """
+    A triangular profile a whole wave deep puts a quarter of the light
+    into each of the two orders its slopes are blazed for. This is a
+    removable singularity of the formula.
+    """
+    wavelength = 150 * u.nm
+    rulings = optika.rulings.TriangularRulings(
+        spacing=1 / (2200 / u.mm),
+        depth=wavelength / 2,
+        diffraction_order=_orders,
+    )
+    result = rulings.efficiency(_rays(wavelength), _normal)
+    assert np.isfinite(result).all()
+    assert np.isclose(result.sum("m"), 1)
+    assert np.isclose(result[dict(m=100 - 2)], 1 / 4)
+    assert np.isclose(result[dict(m=100 + 2)], 1 / 4)

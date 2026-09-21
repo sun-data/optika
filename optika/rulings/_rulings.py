@@ -128,6 +128,19 @@ def incident_effective(
     return result
 
 
+def _sinc(x: na.ScalarLike) -> na.ScalarLike:
+    """
+    The normalized sinc function, :math:`\\sin(\\pi x) / (\\pi x)`, which is
+    one at zero.
+    """
+    x_safe = np.where(x == 0, 1, x)
+    return np.where(
+        x == 0,
+        1,
+        np.sin(np.pi * x_safe * u.rad) / (np.pi * x_safe),
+    )
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulings(
     optika.mixins.Printable,
@@ -453,7 +466,7 @@ class SinusoidalRulings(
 
         gamma = np.pi * d / (wavelength * cos_theta)
 
-        result = scipy.special.jv(i, 2 * gamma)
+        result = np.square(scipy.special.jv(i, 2 * gamma))
 
         return result
 
@@ -754,7 +767,10 @@ class SawtoothRulings(
 
         gamma = np.pi * d / (wavelength * cos_theta)
 
-        result = np.square(np.sin(np.pi * gamma * u.rad) / (np.pi * (gamma + i)))
+        # Since sin(pi gamma) = (-1)^i sin(pi (gamma + i)), this is the
+        # squared sinc of gamma + i, which is finite when the profile is
+        # a whole number of waves deep and the formula above is 0 / 0.
+        result = np.square(_sinc(gamma + i))
 
         return result
 
@@ -901,13 +917,21 @@ class TriangularRulings(
 
         gamma = np.pi * d / (wavelength * cos_theta)
 
-        a = gamma / (np.square(np.pi * gamma / 2) + np.square(i))
+        # Writing beta = pi gamma / 2 and k = |i|, the trigonometric factor
+        # for either parity is sin(pi (beta - k) / 2) up to sign, so the
+        # formula above is the squared sinc of (beta - k) / 2 divided by
+        # beta + k, which is finite when the profile is a whole number of
+        # waves deep and the formula above is 0 / 0.
+        beta = np.pi * gamma / 2
+        k = np.abs(i)
+        denominator = beta + k
+        denominator_safe = np.where(denominator == 0, 1, denominator)
 
-        result = np.where(
-            i % 2 == 0,
-            np.square(a * np.sin(np.square(np.pi) * gamma / 4 * u.rad)),
-            np.square(a * np.cos(np.square(np.pi) * gamma / 4 * u.rad)),
-        )
+        result = np.pi * gamma * _sinc((beta - k) / 2) / (2 * denominator_safe)
+        result = np.square(result)
+
+        # zero depth in the zeroth order, where the limit is one
+        result = np.where(denominator == 0, 1, result)
 
         return result
 
