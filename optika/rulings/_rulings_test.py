@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import scipy.special
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -196,3 +197,53 @@ class TestRectangularRulings(
     AbstractTestAbstractRulings,
 ):
     pass
+
+
+def test_sinusoidal_rulings_efficiency_bessel():
+    """
+    The efficiency of sinusoidal rulings is the square of the Bessel
+    function, per Table 1 of Magnusson and Gaylord (1978), not the Bessel
+    function itself.
+    """
+    depth = 42 * u.nm
+    wavelength = 150 * u.nm
+    rulings = optika.rulings.SinusoidalRulings(
+        spacing=1 / (2200 / u.mm),
+        depth=depth,
+        diffraction_order=1,
+    )
+    rays = optika.rays.RayVectorArray(
+        wavelength=wavelength,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+    result = rulings.efficiency(rays, normal)
+
+    gamma = (np.pi * depth / wavelength).to_value(u.dimensionless_unscaled)
+    expected = np.square(scipy.special.jv(1, 2 * gamma))
+    assert np.isclose(result, expected)
+
+
+def test_sinusoidal_rulings_efficiency_conserved():
+    """
+    A thin phase grating absorbs nothing, so the efficiency summed over
+    all orders is one.
+    """
+    rulings = optika.rulings.SinusoidalRulings(
+        spacing=1 / (2200 / u.mm),
+        depth=42 * u.nm,
+        diffraction_order=na.ScalarArray(np.arange(-10, 11), axes="m"),
+    )
+    rays = optika.rays.RayVectorArray(
+        wavelength=150 * u.nm,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+    result = rulings.efficiency(rays, normal).sum("m")
+
+    assert np.isclose(result, 1)
+

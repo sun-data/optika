@@ -453,7 +453,7 @@ class SinusoidalRulings(
 
         gamma = np.pi * d / (wavelength * cos_theta)
 
-        result = scipy.special.jv(i, 2 * gamma)
+        result = np.square(scipy.special.jv(i, 2 * gamma))
 
         return result
 
