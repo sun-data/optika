@@ -216,6 +216,11 @@ def test_dielectric_mgf2():
             efficiency_measured=_efficiency_measured,
             medium=optika.materials.Glass.n_bk7(),
         ),
+        optika.materials.MeasuredFilter(
+            efficiency_measured=_efficiency_measured,
+            medium=optika.materials.Dielectric("MgF2"),
+            is_medium_measured=False,
+        ),
     ],
 )
 class TestMeasuredFilter(
@@ -286,3 +291,56 @@ def test_measured_filter_window():
         rays_back.position.x[dict(wavelength=0)]
         < rays_back.position.x[dict(wavelength=~0)]
     )
+
+
+@pytest.mark.parametrize("is_medium_measured", [True, False])
+def test_measured_filter_is_medium_measured(is_medium_measured: bool):
+    """
+    Trace a ray through a window of an absorbing medium and check that the
+    absorption of the medium is only applied when the measurement does not
+    already include it.
+    """
+    wavelength = na.linspace(90, 110, axis="wavelength", num=3) * u.nm
+    efficiency_measured = na.FunctionArray(
+        inputs=na.SpectralDirectionalVectorArray(
+            wavelength=wavelength,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+        ),
+        outputs=na.ScalarArray(np.array([0.3, 0.5, 0.7]), axes="wavelength"),
+    )
+
+    # magnesium fluoride absorbs strongly below its band edge
+    medium = optika.materials.Dielectric("MgF2")
+    material = optika.materials.MeasuredFilter(
+        efficiency_measured=efficiency_measured,
+        medium=medium,
+        is_medium_measured=is_medium_measured,
+    )
+
+    thickness = 10 * u.nm
+    front = optika.surfaces.Surface(material=material)
+    back = optika.surfaces.Surface(
+        material=optika.materials.Vacuum(),
+        transformation=na.transformations.Cartesian3dTranslation(z=thickness),
+    )
+
+    rays = optika.rays.RayVectorArray(
+        wavelength=100 * u.nm,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    rays_back = back.propagate_rays(front.propagate_rays(rays))
+
+    normal = na.Cartesian3dVectorArray(0, 0, -1)
+    efficiency = material.efficiency(rays, normal)
+    attenuation = medium.attenuation(rays)
+    assert attenuation > 0 / u.mm
+
+    if is_medium_measured:
+        assert material.attenuation(rays) == 0 / u.mm
+        assert np.allclose(rays_back.intensity, efficiency)
+    else:
+        assert material.attenuation(rays) == attenuation
+        transmission = np.exp(-(attenuation * thickness).to(u.dimensionless_unscaled))
+        assert transmission < 0.9
+        assert np.allclose(rays_back.intensity, efficiency * transmission)

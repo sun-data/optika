@@ -597,6 +597,17 @@ class MeasuredFilter(
     a front surface made of this material, with :attr:`medium` set to the
     window material, and a back surface made of :class:`Vacuum`.
 
+    A transmissivity can only be measured through the substrate of the coating,
+    so by default (:attr:`is_medium_measured` is :obj:`True`) the measurement
+    is taken to include the absorption of :attr:`medium` and the reflection
+    from its back face, and the attenuation of :attr:`medium` is ignored to
+    avoid counting it twice.
+    Set :attr:`is_medium_measured` to :obj:`False` if the measurement has
+    been reduced to the transmissivity of the interface alone,
+    in which case the attenuation of :attr:`medium` is applied along the path
+    of the transmitted rays, for example to model a window of a different
+    thickness than the measured one.
+
     Examples
     --------
 
@@ -687,6 +698,16 @@ class MeasuredFilter(
     which determines the refraction and absorption of the transmitted light.
     """
 
+    is_medium_measured: bool = True
+    """
+    Whether :attr:`efficiency_measured` already includes the absorption of
+    :attr:`medium`.
+    If :obj:`True`, only the index of refraction of :attr:`medium` is used
+    and its attenuation is ignored.
+    If :obj:`False`, the attenuation of :attr:`medium` is applied along the
+    path of the transmitted rays.
+    """
+
     serial_number: None | str | na.AbstractArray = None
     """A unique number associated with this material"""
 
@@ -716,7 +737,10 @@ class MeasuredFilter(
         self,
         rays: optika.rays.RayVectorArray,
     ) -> na.ScalarLike:
-        return self.medium.attenuation(rays)
+        if self.is_medium_measured:
+            return 0 / u.mm
+        else:
+            return self.medium.attenuation(rays)
 
     def efficiency(
         self,
