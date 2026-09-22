@@ -199,77 +199,174 @@ class TestRectangularRulings(
     pass
 
 
-def test_sinusoidal_rulings_efficiency_bessel():
-    """
-    The efficiency of sinusoidal rulings is the square of the Bessel
-    function, per Table 1 of Magnusson and Gaylord (1978), not the Bessel
-    function itself.
-    """
-    depth = 42 * u.nm
-    wavelength = 150 * u.nm
-    rulings = optika.rulings.SinusoidalRulings(
-        spacing=1 / (2200 / u.mm),
-        depth=depth,
-        diffraction_order=1,
-    )
-    rays = optika.rays.RayVectorArray(
-        wavelength=wavelength,
-        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
-        direction=na.Cartesian3dVectorArray(0, 0, 1),
-    )
-    normal = na.Cartesian3dVectorArray(0, 0, -1)
-
-    result = rulings.efficiency(rays, normal)
-
-    gamma = (np.pi * depth / wavelength).to_value(u.dimensionless_unscaled)
-    expected = np.square(scipy.special.jv(1, 2 * gamma))
-    assert np.isclose(result, expected)
-
-
-def test_sinusoidal_rulings_efficiency_conserved():
-    """
-    A thin phase grating absorbs nothing, so the efficiency summed over
-    all orders is one.
-    """
-    rulings = optika.rulings.SinusoidalRulings(
-        spacing=1 / (2200 / u.mm),
-        depth=42 * u.nm,
-        diffraction_order=na.ScalarArray(np.arange(-10, 11), axes="m"),
-    )
-    rays = optika.rays.RayVectorArray(
-        wavelength=150 * u.nm,
-        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
-        direction=na.Cartesian3dVectorArray(0, 0, 1),
-    )
-    normal = na.Cartesian3dVectorArray(0, 0, -1)
-
-    result = rulings.efficiency(rays, normal).sum("m")
-
-    assert np.isclose(result, 1)
-
-
-def _rays(wavelength: u.Quantity) -> optika.rays.RayVectorArray:
+def _rays(
+    wavelength: u.Quantity,
+    direction: None | na.AbstractCartesian3dVectorArray = None,
+) -> optika.rays.RayVectorArray:
+    if direction is None:
+        direction = na.Cartesian3dVectorArray(0, 0, 1)
     return optika.rays.RayVectorArray(
         wavelength=wavelength,
         position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
-        direction=na.Cartesian3dVectorArray(0, 0, 1),
+        direction=direction,
     )
 
 
 _normal = na.Cartesian3dVectorArray(0, 0, -1)
 _orders = na.ScalarArray(np.arange(-100, 101), axes="m")
 
+# a fine grating, for which the diffracted orders leave at angles that
+# matter, and a coarse one, for which every order of consequence leaves
+# close to the normal and the thin-grating formulas conserve energy
+_spacing_fine = 1 / (2200 / u.mm)
+_spacing_coarse = 100 * u.um
+
+
+def test_sinusoidal_rulings_efficiency_bessel():
+    """
+    The efficiency of sinusoidal rulings is the square of the Bessel
+    function, per Table 1 of Magnusson and Gaylord (1978), not the Bessel
+    function itself, of the phase modulation of a relief grating, which
+    for the first order at normal incidence is the depth times half of
+    one plus the cosine of the angle the order leaves at.
+    """
+    depth = 42 * u.nm
+    wavelength = 150 * u.nm
+    rulings = optika.rulings.SinusoidalRulings(
+        spacing=_spacing_fine,
+        depth=depth,
+        diffraction_order=1,
+    )
+
+    result = rulings.efficiency(_rays(wavelength), _normal)
+
+    sin_beta = (wavelength / _spacing_fine).to_value(u.dimensionless_unscaled)
+    cos_beta = np.sqrt(1 - np.square(sin_beta))
+    gamma = (np.pi * depth / wavelength).to_value(u.dimensionless_unscaled)
+    gamma = gamma * (1 + cos_beta) / 2
+    expected = np.square(scipy.special.jv(1, 2 * gamma))
+    assert np.isclose(result, expected)
+
+
+def test_sinusoidal_rulings_efficiency_glass():
+    """
+    On a transmissive surface the phase modulation is the index contrast
+    across the relief, so a grating carrying light from vacuum into glass
+    is much weaker than the same relief on a mirror.
+    """
+    depth = 42 * u.nm
+    wavelength = 150 * u.nm
+    n2 = 1.5
+    rulings = optika.rulings.SinusoidalRulings(
+        spacing=_spacing_fine,
+        depth=depth,
+        diffraction_order=1,
+    )
+
+    result = rulings.efficiency(
+        rays=_rays(wavelength),
+        normal=_normal,
+        index_refraction_new=n2,
+        is_mirror=False,
+    )
+
+    sin_beta_1 = (wavelength / _spacing_fine).to_value(u.dimensionless_unscaled)
+    cos_beta = np.sqrt(1 - np.square(sin_beta_1 / n2))
+    gamma = (np.pi * depth / wavelength).to_value(u.dimensionless_unscaled)
+    gamma = gamma * np.abs(1 - n2 * cos_beta) / 2
+    expected = np.square(scipy.special.jv(1, 2 * gamma))
+    assert np.isclose(result, expected)
+
+    result_mirror = rulings.efficiency(_rays(wavelength), _normal)
+    assert result < result_mirror
+
 
 @pytest.mark.parametrize(
     argnames="rulings",
     argvalues=[
         optika.rulings.SinusoidalRulings(
-            spacing=1 / (2200 / u.mm),
+            spacing=_spacing_fine,
+            depth=42 * u.nm,
+            diffraction_order=1,
+        ),
+        optika.rulings.SquareRulings(
+            spacing=_spacing_fine,
+            depth=42 * u.nm,
+            diffraction_order=1,
+        ),
+        optika.rulings.SawtoothRulings(
+            spacing=_spacing_fine,
+            depth=42 * u.nm,
+            diffraction_order=1,
+        ),
+        optika.rulings.TriangularRulings(
+            spacing=_spacing_fine,
+            depth=42 * u.nm,
+            diffraction_order=1,
+        ),
+        optika.rulings.RectangularRulings(
+            spacing=_spacing_fine,
+            depth=42 * u.nm,
+            diffraction_order=1,
+            ratio_duty=0.3,
+        ),
+    ],
+)
+def test_efficiency_reciprocal(rulings: optika.rulings.AbstractRulings):
+    """
+    Sending the diffracted light back along its path returns it to the
+    incident direction with the same efficiency, since the phase
+    modulation of a relief grating is symmetric in the angles of
+    incidence and diffraction.
+    """
+    wavelength = 150 * u.nm
+    alpha = 30 * u.deg
+    direction = na.Cartesian3dVectorArray(
+        x=np.sin(alpha),
+        y=0,
+        z=np.cos(alpha),
+    )
+    rays = _rays(wavelength, direction)
+
+    result = rulings.efficiency(rays, _normal)
+
+    rays_effective = rulings.incident_effective(rays, _normal)
+    direction_diffracted = optika.materials.snells_law(
+        direction=rays_effective.direction,
+        index_refraction=1,
+        index_refraction_new=1,
+        is_mirror=True,
+        normal=_normal,
+    )
+    rays_reversed = _rays(wavelength, -direction_diffracted)
+
+    result_reversed = rulings.efficiency(rays_reversed, _normal)
+
+    assert np.isclose(result, result_reversed)
+
+
+def test_efficiency_evanescent():
+    """An order that cannot propagate carries no light."""
+    rulings = optika.rulings.SinusoidalRulings(
+        spacing=_spacing_fine,
+        depth=42 * u.nm,
+        diffraction_order=5,
+    )
+    result = rulings.efficiency(_rays(150 * u.nm), _normal)
+    assert np.isfinite(result)
+    assert result == 0
+
+
+@pytest.mark.parametrize(
+    argnames="rulings",
+    argvalues=[
+        optika.rulings.SinusoidalRulings(
+            spacing=_spacing_coarse,
             depth=42 * u.nm,
             diffraction_order=_orders,
         ),
         optika.rulings.TriangularRulings(
-            spacing=1 / (2200 / u.mm),
+            spacing=_spacing_coarse,
             depth=42 * u.nm,
             diffraction_order=_orders,
         ),
@@ -280,7 +377,8 @@ def test_efficiency_conserved(rulings: optika.rulings.AbstractRulings):
     A thin phase grating absorbs nothing, so the efficiency summed over
     all orders is one. Only the profiles whose efficiency falls off faster
     than the square of the order can be checked to high precision with a
-    finite sum.
+    finite sum, and only for a grating coarse enough that every order of
+    consequence leaves close to the normal.
     """
     wavelength = na.ScalarArray([100, 150, 200, 400] * u.nm, axes="w")
     result = rulings.efficiency(_rays(wavelength), _normal).sum("m")
@@ -294,7 +392,7 @@ def test_sawtooth_rulings_efficiency_blazed():
     """
     wavelength = 150 * u.nm
     rulings = optika.rulings.SawtoothRulings(
-        spacing=1 / (2200 / u.mm),
+        spacing=_spacing_coarse,
         depth=wavelength / 2,
         diffraction_order=_orders,
     )
@@ -312,7 +410,7 @@ def test_triangular_rulings_efficiency_resonant():
     """
     wavelength = 150 * u.nm
     rulings = optika.rulings.TriangularRulings(
-        spacing=1 / (2200 / u.mm),
+        spacing=_spacing_coarse,
         depth=wavelength / 2,
         diffraction_order=_orders,
     )

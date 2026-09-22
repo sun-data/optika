@@ -27,6 +27,30 @@ surfaces = [
         transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
         rulings=optika.rulings.Rulings(spacing=1 * u.um, diffraction_order=1),
     ),
+    optika.surfaces.Surface(
+        name="reflection grating",
+        sag=optika.sags.SphericalSag(radius=1000 * u.mm),
+        material=optika.materials.Mirror(),
+        aperture=optika.apertures.RectangularAperture(half_width=10 * u.mm),
+        transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
+        rulings=optika.rulings.SinusoidalRulings(
+            spacing=1 * u.um,
+            depth=20 * u.nm,
+            diffraction_order=1,
+        ),
+    ),
+    optika.surfaces.Surface(
+        name="transmission grating",
+        sag=optika.sags.SphericalSag(radius=1000 * u.mm),
+        material=optika.materials.Glass(b1=1),
+        aperture=optika.apertures.RectangularAperture(half_width=10 * u.mm),
+        transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
+        rulings=optika.rulings.SinusoidalRulings(
+            spacing=1 * u.um,
+            depth=20 * u.nm,
+            diffraction_order=1,
+        ),
+    ),
 ]
 
 
