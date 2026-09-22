@@ -46,7 +46,9 @@ Features
 * Spherical, conical, and toroidal surface sag profiles
 * Circular, rectangular, and polygonal apertures
 * Support for mirrors and arbitrary multilayer coatings
-* Refractive glass materials with Sellmeier dispersion (e.g. N-BK7, F2)
+* Refractive materials with Sellmeier dispersion (e.g. N-BK7, F2) or
+  tabulated optical constants (e.g. MgF2, CaF2)
+* Mirrors and filters with measured reflectivity or transmissivity
 * Diffraction grating support
 
   * Constant, polynomial and holographic ruling spacing

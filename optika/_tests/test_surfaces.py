@@ -51,6 +51,21 @@ surfaces = [
             diffraction_order=1,
         ),
     ),
+    optika.surfaces.Surface(
+        name="coated window",
+        material=optika.materials.MeasuredFilter(
+            efficiency_measured=na.FunctionArray(
+                inputs=na.SpectralDirectionalVectorArray(
+                    wavelength=na.linspace(100, 1000, axis="wavelength", num=11) * u.nm,
+                    direction=na.Cartesian3dVectorArray(0, 0, 1),
+                ),
+                outputs=na.ScalarArray(np.full(11, 0.5), axes="wavelength"),
+            ),
+            medium=optika.materials.Dielectric("MgF2"),
+        ),
+        aperture=optika.apertures.RectangularAperture(half_width=10 * u.mm),
+        transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
+    ),
 ]
 
 

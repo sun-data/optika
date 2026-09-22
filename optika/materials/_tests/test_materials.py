@@ -148,3 +148,199 @@ def test_glass_dispersion(
 
     # a glass transmits rather than reflects.
     assert not glass.is_mirror
+
+
+_efficiency_measured = na.FunctionArray(
+    inputs=na.SpectralDirectionalVectorArray(
+        wavelength=_wavelength,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    ),
+    outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2),
+)
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.materials.Dielectric("MgF2"),
+        optika.materials.Dielectric(
+            chemical=optika.chemicals.Chemical("SiO2"),
+        ),
+    ],
+)
+class TestDielectric(
+    AbstractTestAbstractMaterial,
+):
+    pass
+
+
+def test_dielectric_mgf2():
+    mgf2 = optika.materials.Dielectric("MgF2")
+
+    # the index of refraction at Lyman alpha should match the tabulated
+    # ordinary-ray value from Palik.
+    rays = optika.rays.RayVectorArray(wavelength=121.6 * u.nm)
+    n = mgf2.index_refraction(rays)
+    assert np.isclose(n.ndarray, 1.630, atol=1e-2)
+
+    # the material must be dispersive: a higher index toward the blue end of
+    # the spectrum (normal dispersion).
+    rays_red = optika.rays.RayVectorArray(wavelength=250 * u.nm)
+    assert mgf2.index_refraction(rays) > mgf2.index_refraction(rays_red)
+
+    # magnesium fluoride is transparent in its transmission window, but
+    # absorbs strongly below the band edge.
+    assert mgf2.attenuation(rays_red) == 0 / u.mm
+    rays_blue = optika.rays.RayVectorArray(wavelength=100 * u.nm)
+    assert mgf2.attenuation(rays_blue) > 0 / u.mm
+
+    # a dielectric transmits rather than reflects.
+    assert not mgf2.is_mirror
+
+    # a formula and the equivalent chemical give the same index
+    chemical = optika.chemicals.Chemical("MgF2")
+    assert optika.materials.Dielectric(chemical).index_refraction(rays) == n
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.materials.MeasuredFilter(
+            efficiency_measured=_efficiency_measured,
+        ),
+        optika.materials.MeasuredFilter(
+            efficiency_measured=_efficiency_measured,
+            medium=optika.materials.Dielectric("MgF2"),
+        ),
+        optika.materials.MeasuredFilter(
+            efficiency_measured=_efficiency_measured,
+            medium=optika.materials.Glass.n_bk7(),
+        ),
+        optika.materials.MeasuredFilter(
+            efficiency_measured=_efficiency_measured,
+            medium=optika.materials.Dielectric("MgF2"),
+            is_medium_measured=False,
+        ),
+    ],
+)
+class TestMeasuredFilter(
+    AbstractTestAbstractMaterial,
+):
+    def test_medium(self, a: optika.materials.MeasuredFilter):
+        assert isinstance(a.medium, optika.materials.AbstractMaterial)
+        assert not a.medium.is_mirror
+
+
+def test_measured_filter_window():
+    """
+    Trace a ray obliquely through a coated window modeled as a pair of
+    surfaces and check it against the analytic result for a parallel plate.
+    """
+    wavelength = na.linspace(120, 250, axis="wavelength", num=14) * u.nm
+    efficiency_measured = na.FunctionArray(
+        inputs=na.SpectralDirectionalVectorArray(
+            wavelength=wavelength,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+        ),
+        outputs=0.2 * np.exp(-np.square((wavelength - 170 * u.nm) / (50 * u.nm))),
+    )
+    medium = optika.materials.Dielectric("MgF2")
+    material = optika.materials.MeasuredFilter(
+        efficiency_measured=efficiency_measured,
+        medium=medium,
+    )
+
+    thickness = 2 * u.mm
+    front = optika.surfaces.Surface(
+        material=material,
+    )
+    back = optika.surfaces.Surface(
+        material=optika.materials.Vacuum(),
+        transformation=na.transformations.Cartesian3dTranslation(z=thickness),
+    )
+
+    angle = 30 * u.deg
+    rays = optika.rays.RayVectorArray(
+        wavelength=na.linspace(125, 245, axis="wavelength", num=7) * u.nm,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+    )
+
+    rays_front = front.propagate_rays(rays)
+    rays_back = back.propagate_rays(rays_front)
+
+    # the transmissivity is applied once, at the front surface, and the
+    # tabulated absorption of magnesium fluoride is zero in this band.
+    efficiency = material.efficiency(rays, normal=na.Cartesian3dVectorArray(0, 0, -1))
+    assert np.allclose(rays_front.intensity, efficiency)
+    assert np.allclose(rays_back.intensity, efficiency)
+    assert np.all(rays_front.index_refraction == medium.index_refraction(rays))
+
+    # a ray exits a parallel plate travelling in its original direction,
+    # displaced by the refraction inside the plate.
+    n = medium.index_refraction(rays)
+    x = thickness * np.sin(angle) / np.sqrt(np.square(n) - np.square(np.sin(angle)))
+    assert np.allclose(rays_back.direction.x, rays.direction.x)
+    assert np.allclose(rays_back.direction.z, rays.direction.z)
+    assert np.allclose(rays_back.position.x, x)
+    assert np.allclose(rays_back.position.z, thickness)
+    assert np.all(rays_back.index_refraction == 1)
+
+    # the shorter wavelengths see a higher index and are displaced less
+    assert (
+        rays_back.position.x[dict(wavelength=0)]
+        < rays_back.position.x[dict(wavelength=~0)]
+    )
+
+
+@pytest.mark.parametrize("is_medium_measured", [True, False])
+def test_measured_filter_is_medium_measured(is_medium_measured: bool):
+    """
+    Trace a ray through a window of an absorbing medium and check that the
+    absorption of the medium is only applied when the measurement does not
+    already include it.
+    """
+    wavelength = na.linspace(90, 110, axis="wavelength", num=3) * u.nm
+    efficiency_measured = na.FunctionArray(
+        inputs=na.SpectralDirectionalVectorArray(
+            wavelength=wavelength,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+        ),
+        outputs=na.ScalarArray(np.array([0.3, 0.5, 0.7]), axes="wavelength"),
+    )
+
+    # magnesium fluoride absorbs strongly below its band edge
+    medium = optika.materials.Dielectric("MgF2")
+    material = optika.materials.MeasuredFilter(
+        efficiency_measured=efficiency_measured,
+        medium=medium,
+        is_medium_measured=is_medium_measured,
+    )
+
+    thickness = 10 * u.nm
+    front = optika.surfaces.Surface(material=material)
+    back = optika.surfaces.Surface(
+        material=optika.materials.Vacuum(),
+        transformation=na.transformations.Cartesian3dTranslation(z=thickness),
+    )
+
+    rays = optika.rays.RayVectorArray(
+        wavelength=100 * u.nm,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    rays_back = back.propagate_rays(front.propagate_rays(rays))
+
+    normal = na.Cartesian3dVectorArray(0, 0, -1)
+    efficiency = material.efficiency(rays, normal)
+    attenuation = medium.attenuation(rays)
+    assert attenuation > 0 / u.mm
+
+    if is_medium_measured:
+        assert material.attenuation(rays) == 0 / u.mm
+        assert np.allclose(rays_back.intensity, efficiency)
+    else:
+        assert material.attenuation(rays) == attenuation
+        transmission = np.exp(-(attenuation * thickness).to(u.dimensionless_unscaled))
+        assert transmission < 0.9
+        assert np.allclose(rays_back.intensity, efficiency * transmission)
