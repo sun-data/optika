@@ -2215,14 +2215,16 @@ def test_vignetting_is_the_model_linearize_fits():
     assert np.all(a.vertices_field == b.vertices_field)
 
 
-def test_vignetting_carries_the_cells_it_was_measured_over():
+def test_models_carry_the_cells_they_were_measured_over():
     """
-    The fitted model knows the corners of the field cell each of its
-    measurements came from.
+    Every model fit to a stratified trace knows the corners of the field cell
+    each of its measurements came from.
 
     The measurements are drawn inside their cells rather than at the centers,
-    so they are not a mesh, and the model can only be plotted on the cells it
-    was measured over if it carries them.
+    so they are not a mesh, and a model can only be plotted on the cells it
+    was measured over if it carries them.  The distortion model is fit to
+    those same rays by :meth:`linearize`, so it needs them too; asked for on
+    its own it is still traced at the grid as given, and has none.
     """
     system = _system_linearize()
 
@@ -2234,12 +2236,23 @@ def test_vignetting_carries_the_cells_it_was_measured_over():
         num=num + 1,
     )
 
-    model = system.vignetting(field=field, degree=1)
+    linear = system.linearize(field=field, degree=1)
 
+    for model in (system.vignetting(field=field, degree=1), linear.vignetting):
+        _assert_cells(model, model.illumination, num)
+
+    _assert_cells(linear.distortion, linear.distortion.coordinates_sensor, num)
+
+    # traced at the points it was handed, so each of them is its own center
+    assert system.distortion(field=field, degree=1).vertices_field is None
+
+
+def _assert_cells(model, measurements, num: int) -> None:
+    """One more vertex than measurement along each field axis, bounding them."""
     shape = na.shape(model.vertices_field)
     for ax in model.axis_field:
         assert shape[ax] == num + 1
-        assert na.shape(model.illumination)[ax] == num
+        assert na.shape(measurements)[ax] == num
 
     # in the physical coordinates the measurements are in, and bounding them
     position = model.coordinates_scene.position

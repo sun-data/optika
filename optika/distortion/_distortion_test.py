@@ -1,3 +1,4 @@
+import warnings
 import pytest
 import numpy as np
 import astropy.units as u
@@ -17,6 +18,19 @@ def _scene() -> na.SpectralPositionalVectorArray:
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
             num=5,
         ),
+    )
+
+
+def _vertices() -> na.AbstractCartesian2dVectorArray:
+    """
+    The corners of the cells :func:`_scene` measures, one longer along each
+    field axis, with each of its points at the center of one of them.
+    """
+    return na.Cartesian2dVectorLinearSpace(
+        start=-1.25 * u.deg,
+        stop=+1.25 * u.deg,
+        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+        num=6,
     )
 
 
@@ -121,8 +135,10 @@ class AbstractTestAbstractInterpolatedDistortionModel(
             axis_wavelength="wavelength",
             axis_field=("field_x", "field_y"),
             degree=degree,
+            vertices_field=vertices,
         )
         for degree in [1, 2]
+        for vertices in [None, _vertices()]
     ],
 )
 class TestPolynomialDistortionModel(
@@ -257,3 +273,61 @@ def test_polynomial_distortion_model_channel():
     ).position
     assert "channel" in undistorted.shape
     assert np.all((undistorted - scene.position).length < 1e-9 * u.deg)
+
+
+def test_plot_residual_draws_the_cells_the_vertices_describe():
+    """
+    Calibration points measured at random inside their cells have their
+    residual plotted on the cells, not on the points.
+
+    Such points are not monotonic, and matplotlib cannot work out where one
+    cell ends and the next begins from points alone: it says as much, and
+    draws a mesh with warped cells and a ragged outline. Given the corners it
+    draws the cells where they are, and the measurement sits wherever inside
+    its own cell it was made.
+    """
+    axis_field = ("field_x", "field_y")
+    vertices = _vertices()
+
+    scene = na.SpectralPositionalVectorArray(
+        wavelength=_scene().wavelength,
+        position=vertices.broadcast_to(na.shape(vertices)).cell_centers(
+            axis=axis_field,
+            random=True,
+            seed=0,
+        ),
+    )
+    sensor = na.Cartesian2dVectorArray(
+        x=scene.position.x * (10 * u.mm / u.deg),
+        y=scene.position.y * (10 * u.mm / u.deg),
+    )
+
+    kwargs = dict(
+        coordinates_scene=scene,
+        coordinates_sensor=sensor,
+        axis_wavelength="wavelength",
+        axis_field=axis_field,
+        degree=1,
+    )
+
+    # without the corners, matplotlib is left to guess at them and says so
+    with pytest.warns(UserWarning, match="not monotonically increasing"):
+        fig, ax = optika.distortion.PolynomialDistortionModel(
+            **kwargs,
+        ).plot_residual()
+    plt.close(fig)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fig, ax = optika.distortion.PolynomialDistortionModel(
+            **kwargs,
+            vertices_field=vertices,
+        ).plot_residual()
+
+    # the mesh is rectilinear: its corners take one value per column of the
+    # grid, rather than one per measurement
+    coordinates = ax.ndarray.reshape(-1)[0].collections[0].get_coordinates()
+    assert np.unique(coordinates[..., 0]).size == na.shape(vertices)["field_x"]
+    assert np.unique(coordinates[..., 1]).size == na.shape(vertices)["field_y"]
+
+    plt.close(fig)

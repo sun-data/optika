@@ -1918,6 +1918,7 @@ class AbstractSequentialSystem(
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
         degree: int,
+        vertices_field: None | na.AbstractCartesian2dVectorArray = None,
     ) -> optika.distortion.PolynomialDistortionModel:
         """
         Fit a polynomial distortion model to rays which have already been traced.
@@ -1928,7 +1929,8 @@ class AbstractSequentialSystem(
         Parameters
         ----------
         rays
-            The traced rays, from :meth:`_rayfunction_and_axes`.
+            The traced rays, from :meth:`_rayfunction_and_axes` or
+            :meth:`_rayfunction_stratified`.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -1937,6 +1939,14 @@ class AbstractSequentialSystem(
             The normalized pupil axes of `rays`.
         degree
             The degree of the polynomial model.
+        vertices_field
+            The vertices of the field grid the rays were drawn from, in the
+            physical coordinates the rays are in, from
+            :meth:`_denormalize_field_from_rays`.  The fitted model carries
+            them so that its residual can be plotted on the cells it was
+            measured over rather than on points inside them.
+            :obj:`None` where the rays were traced at the grid as given, in
+            which case each of them is the center of its own cell.
         """
         if not axis_wavelength:
             raise ValueError(
@@ -1970,6 +1980,7 @@ class AbstractSequentialSystem(
             axis_field=axis_field,
             degree=degree,
             where=where,
+            vertices_field=vertices_field,
         )
 
     def _fit_vignetting(
@@ -2581,6 +2592,15 @@ class AbstractSequentialSystem(
             pupil_fit=pupil_fit,
         )
 
+        # the cells the rays were drawn from, which the two fitted models
+        # carry so that they can be plotted on them
+        vertices_field = self._denormalize_field_from_rays(
+            wavelength=wavelength,
+            field=field,
+            rayfunction_stops=rayfunction_stops,
+            normalized_field=normalized_field,
+        )
+
         # the cosine of the refracted angle at which light strikes the sensor,
         # computed the same way as
         # :meth:`~optika.sensors.AbstractImagingSensor.collect`.
@@ -2615,18 +2635,14 @@ class AbstractSequentialSystem(
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
                 degree=degree,
+                vertices_field=vertices_field,
             ),
             sensor=self.sensor,
             direction=direction,
             vignetting=self._fit_vignetting(
                 rays=rays,
                 area=area,
-                vertices_field=self._denormalize_field_from_rays(
-                    wavelength=wavelength,
-                    field=field,
-                    rayfunction_stops=rayfunction_stops,
-                    normalized_field=normalized_field,
-                ),
+                vertices_field=vertices_field,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
