@@ -260,11 +260,20 @@ class MeasuredMirror(
     A function array that maps wavelengths and incidence angles to the
     measured reflectivity.
 
-    If the reflectivity was measured at a single angle, it is used at every
-    angle of incidence.
-    If it was measured at more than one, the directions must be a
-    one-dimensional, increasing array of angles of incidence, measured from
-    the surface normal, and the reflectivity is interpolated linearly in both
+    See :attr:`axis_angle` for measurements at more than one angle of
+    incidence.
+    """
+
+    axis_angle: None | str = None
+    """
+    The logical axis of :attr:`efficiency_measured` along which the angle
+    of incidence varies.
+
+    If :obj:`None`, the reflectivity was measured at a single angle and is
+    used at every angle of incidence.
+    Otherwise, the directions of :attr:`efficiency_measured` must be angles
+    of incidence, measured from the surface normal and increasing along
+    this axis, and the reflectivity is interpolated linearly in both
     wavelength and angle of incidence, holding the nearest measurement
     outside the measured range.
     Each angle may have its own wavelength samples.
@@ -279,7 +288,10 @@ class MeasuredMirror(
     @property
     def shape(self) -> dict[str, int]:
         return na.broadcast_shapes(
-            optika._util._shape_efficiency_measured(self.efficiency_measured),
+            optika._util._shape_efficiency_measured(
+                measurement=self.efficiency_measured,
+                axis_angle=self.axis_angle,
+            ),
             optika.shape(self.substrate),
             optika.shape(self.serial_number),
         )
@@ -294,6 +306,7 @@ class MeasuredMirror(
             measurement=self.efficiency_measured,
             rays=rays,
             normal=normal,
+            axis_angle=self.axis_angle,
         )
 
 
@@ -663,11 +676,20 @@ class MeasuredFilter(
     A function array that maps wavelengths and incidence angles to the
     measured transmissivity.
 
-    If the transmissivity was measured at a single angle, it is used at every
-    angle of incidence.
-    If it was measured at more than one, the directions must be a
-    one-dimensional, increasing array of angles of incidence, measured from
-    the surface normal, and the transmissivity is interpolated linearly in both
+    See :attr:`axis_angle` for measurements at more than one angle of
+    incidence.
+    """
+
+    axis_angle: None | str = None
+    """
+    The logical axis of :attr:`efficiency_measured` along which the angle
+    of incidence varies.
+
+    If :obj:`None`, the transmissivity was measured at a single angle and is
+    used at every angle of incidence.
+    Otherwise, the directions of :attr:`efficiency_measured` must be angles
+    of incidence, measured from the surface normal and increasing along
+    this axis, and the transmissivity is interpolated linearly in both
     wavelength and angle of incidence, holding the nearest measurement
     outside the measured range.
     Each angle may have its own wavelength samples.
@@ -695,7 +717,10 @@ class MeasuredFilter(
     @property
     def shape(self) -> dict[str, int]:
         return na.broadcast_shapes(
-            optika._util._shape_efficiency_measured(self.efficiency_measured),
+            optika._util._shape_efficiency_measured(
+                measurement=self.efficiency_measured,
+                axis_angle=self.axis_angle,
+            ),
             optika.shape(self.medium),
             optika.shape(self.serial_number),
         )
@@ -728,6 +753,7 @@ class MeasuredFilter(
             measurement=self.efficiency_measured,
             rays=rays,
             normal=normal,
+            axis_angle=self.axis_angle,
         )
         return result * self.medium.efficiency(rays, normal)
 

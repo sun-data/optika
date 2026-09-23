@@ -112,6 +112,7 @@ class TestMirror(
                 outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2)
                 * np.cos(_angle),
             ),
+            axis_angle="angle",
         ),
     ],
 )
@@ -243,6 +244,7 @@ def test_dielectric_mgf2():
         ),
         optika.materials.MeasuredFilter(
             efficiency_measured=_efficiency_measured_angle,
+            axis_angle="angle",
             medium=optika.materials.Dielectric("MgF2"),
         ),
     ],

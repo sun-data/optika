@@ -99,6 +99,7 @@ def angles(
 
 def _shape_efficiency_measured(
     measurement: na.FunctionArray[na.SpectralDirectionalVectorArray, na.AbstractScalar],
+    axis_angle: None | str = None,
 ) -> dict[str, int]:
     """
     The shape of a measured efficiency, less the axes that
@@ -109,11 +110,13 @@ def _shape_efficiency_measured(
     measurement
         A function array mapping wavelength and angle of incidence to the
         measured efficiency.
+    axis_angle
+        The logical axis along which the angle of incidence varies, or
+        :obj:`None` if the efficiency was measured at a single angle.
     """
-    inputs = measurement.inputs
-    axes = list(shape(inputs.wavelength))
-    if na.as_named_array(inputs.direction).size != 1:
-        axes += list(shape(inputs.direction))
+    axes = list(shape(measurement.inputs.wavelength))
+    if axis_angle is not None:
+        axes.append(axis_angle)
     result = shape(measurement.outputs)
     for ax in axes:
         result.pop(ax, None)
@@ -124,6 +127,7 @@ def _interp_efficiency_measured(
     measurement: na.FunctionArray[na.SpectralDirectionalVectorArray, na.AbstractScalar],
     rays: "optika.rays.RayVectorArray",
     normal: na.AbstractCartesian3dVectorArray,
+    axis_angle: None | str = None,
 ) -> na.ScalarLike:
     """
     Interpolate a measured efficiency onto the wavelengths and angles of
@@ -140,24 +144,31 @@ def _interp_efficiency_measured(
     measurement
         A function array mapping wavelength and angle of incidence to the
         measured efficiency.
-        If the efficiency was measured at a single angle, it is used at
-        every angle of incidence and ``measurement.inputs.direction`` is
-        ignored.
-        Otherwise, ``measurement.inputs.direction`` must be a
-        one-dimensional, increasing array of angles of incidence, and
-        ``measurement.inputs.wavelength`` may vary along the same axis,
-        so that each angle can have its own wavelength samples.
     rays
         The rays at which to evaluate the efficiency.
     normal
         The vector normal to the surface.
+    axis_angle
+        The logical axis along which the angle of incidence varies.
+        If :obj:`None`, the efficiency was measured at a single angle and is
+        used at every angle of incidence, and
+        ``measurement.inputs.direction`` is otherwise ignored.
+        If not :obj:`None`, ``measurement.inputs.direction`` must be scalar
+        angles of incidence, increasing along this axis, and
+        ``measurement.inputs.wavelength`` may vary along it too, so that each
+        angle can have its own wavelength samples.
     """
 
     wavelength = measurement.inputs.wavelength
     direction = na.as_named_array(measurement.inputs.direction)
     efficiency = measurement.outputs
 
-    if direction.size == 1:
+    if axis_angle is None:
+        if direction.size != 1:
+            raise ValueError(
+                "the efficiency was measured at more than one direction, "
+                "specify the axis along which the angle of incidence varies"
+            )
         if wavelength.ndim != 1:
             raise ValueError(
                 f"wavelength must be one dimensional, got shape {wavelength.shape}"
@@ -170,28 +181,33 @@ def _interp_efficiency_measured(
 
     if not isinstance(direction, na.AbstractScalar):
         raise TypeError(
-            "to interpolate over more than one direction, the directions must "
-            f"be given as scalar angles of incidence, got {type(direction)}"
+            "to interpolate over the angle of incidence, the directions must be "
+            f"given as scalar angles of incidence, got {type(direction)}"
         )
 
     direction = direction.explicit
 
-    if direction.ndim != 1:
+    if axis_angle not in direction.shape:
         raise ValueError(
-            f"angles of incidence must be one dimensional, got shape {direction.shape}"
+            f"the angles of incidence, with shape {direction.shape}, "
+            f"have no axis {axis_angle!r}"
         )
 
     unit = na.unit_normalized(direction)
     if not unit.is_equivalent(u.deg):
         raise ValueError(f"angles of incidence must be angles, got unit {unit}")
 
-    if not np.all(np.diff(direction.ndarray) > 0):
+    step = (
+        direction[{axis_angle: slice(1, None)}]
+        - direction[{axis_angle: slice(None, ~0)}]
+    )
+    if not np.all(step > 0):
         raise ValueError(
-            f"angles of incidence must be increasing, got {direction.ndarray}"
+            f"angles of incidence must increase along {axis_angle!r}, "
+            f"got {direction}"
         )
 
-    axis = next(iter(direction.shape))
-    num = direction.shape[axis]
+    num = direction.shape[axis_angle]
 
     d = rays.direction
     cos_angle = np.abs(d @ normal) / (d.length * normal.length)
@@ -199,7 +215,7 @@ def _interp_efficiency_measured(
 
     result = 0
     for i in range(num):
-        index = {axis: i}
+        index = {axis_angle: i}
 
         wavelength_i = wavelength[index]
         if wavelength_i.ndim != 1:
@@ -214,8 +230,8 @@ def _interp_efficiency_measured(
         weight = na.interp(
             x=angle,
             xp=direction.value,
-            fp=na.ScalarArray(np.eye(num)[i], axes=axis),
-            axis=axis,
+            fp=na.ScalarArray(np.eye(num)[i], axes=axis_angle),
+            axis=axis_angle,
         )
 
         efficiency_i = na.interp(

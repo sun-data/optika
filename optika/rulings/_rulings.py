@@ -428,6 +428,7 @@ class MeasuredRulings(
                 ),
                 outputs=efficiency,
             ),
+            axis_angle="angle",
         )
 
         # Evaluate the efficiency at 150 nm over a range of angles of incidence
@@ -474,11 +475,20 @@ class MeasuredRulings(
     A function array that maps wavelengths and incidence angles to the
     measured efficiency.
 
-    If the efficiency was measured at a single angle, it is used at every
-    angle of incidence.
-    If it was measured at more than one, the directions must be a
-    one-dimensional, increasing array of angles of incidence, measured from
-    the surface normal, and the efficiency is interpolated linearly in both
+    See :attr:`axis_angle` for measurements at more than one angle of
+    incidence.
+    """
+
+    axis_angle: None | str = None
+    """
+    The logical axis of :attr:`efficiency_measured` along which the angle
+    of incidence varies.
+
+    If :obj:`None`, the efficiency was measured at a single angle and is
+    used at every angle of incidence.
+    Otherwise, the directions of :attr:`efficiency_measured` must be angles
+    of incidence, measured from the surface normal and increasing along
+    this axis, and the efficiency is interpolated linearly in both
     wavelength and angle of incidence, holding the nearest measurement
     outside the measured range.
     Each angle may have its own wavelength samples.
@@ -489,7 +499,10 @@ class MeasuredRulings(
         return na.broadcast_shapes(
             optika.shape(self.spacing),
             optika.shape(self.diffraction_order),
-            optika._util._shape_efficiency_measured(self.efficiency_measured),
+            optika._util._shape_efficiency_measured(
+                measurement=self.efficiency_measured,
+                axis_angle=self.axis_angle,
+            ),
         )
 
     def efficiency(
@@ -504,6 +517,7 @@ class MeasuredRulings(
             measurement=self.efficiency_measured,
             rays=rays,
             normal=normal,
+            axis_angle=self.axis_angle,
         )
 
 
