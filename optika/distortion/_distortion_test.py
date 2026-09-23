@@ -10,28 +10,44 @@ from .._tests import test_mixins
 
 
 def _scene() -> na.SpectralPositionalVectorArray:
+    """The corners of the cells the calibration points were measured in."""
     return na.SpectralPositionalVectorArray(
         wavelength=na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
         position=na.Cartesian2dVectorLinearSpace(
             start=-1 * u.deg,
             stop=+1 * u.deg,
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-            num=5,
+            num=6,
         ),
     )
 
 
-def _vertices() -> na.AbstractCartesian2dVectorArray:
-    """
-    The corners of the cells :func:`_scene` measures, one longer along each
-    field axis, with each of its points at the center of one of them.
-    """
-    return na.Cartesian2dVectorLinearSpace(
-        start=-1.25 * u.deg,
-        stop=+1.25 * u.deg,
-        axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-        num=6,
+def _centers() -> na.SpectralPositionalVectorArray:
+    """The centers of those cells, where a measurement is made by default."""
+    return _scene().cell_centers(("field_x", "field_y"))
+
+
+def _sample() -> na.SpectralPositionalVectorArray:
+    """A point drawn at random inside each cell, rather than at its center."""
+    scene = _scene()
+    position = scene.position.broadcast_to(na.shape(scene.position))
+    return na.SpectralPositionalVectorArray(
+        wavelength=scene.wavelength,
+        position=position.cell_centers(
+            axis=("field_x", "field_y"),
+            random=True,
+            seed=0,
+        ),
     )
+
+
+def _sensor(
+    coordinates: None | na.SpectralPositionalVectorArray = None,
+) -> na.Cartesian2dVectorArray:
+    """A plate scale, measured wherever the calibration points are."""
+    if coordinates is None:
+        coordinates = _centers()
+    return coordinates.position * (10 * u.mm / u.deg)
 
 
 class AbstractTestAbstractDistortionModel(
@@ -128,17 +144,14 @@ class AbstractTestAbstractInterpolatedDistortionModel(
     argvalues=[
         optika.distortion.PolynomialDistortionModel(
             coordinates_scene=_scene(),
-            coordinates_sensor=na.Cartesian2dVectorArray(
-                x=_scene().position.x * (10 * u.mm / u.deg),
-                y=_scene().position.y * (10 * u.mm / u.deg),
-            ),
+            coordinates_sample=sample,
+            coordinates_sensor=_sensor(sample),
             axis_wavelength="wavelength",
             axis_field=("field_x", "field_y"),
             degree=degree,
-            vertices_field=vertices,
         )
         for degree in [1, 2]
-        for vertices in [None, _vertices()]
+        for sample in [None, _sample()]
     ],
 )
 class TestPolynomialDistortionModel(
@@ -243,14 +256,15 @@ def test_polynomial_distortion_model_channel():
     the channels.
     """
     scene = _scene()
+    centers = _centers()
 
     scale = na.ScalarArray([10, 12, 8] * u.mm / u.deg, axes="channel")
     angle = na.ScalarArray([0, 10, -15] * u.deg, axes="channel")
 
     cos, sin = np.cos(angle), np.sin(angle)
     sensor = na.Cartesian2dVectorArray(
-        x=scale * (cos * scene.position.x - sin * scene.position.y),
-        y=scale * (sin * scene.position.x + cos * scene.position.y),
+        x=scale * (cos * centers.position.x - sin * centers.position.y),
+        y=scale * (sin * centers.position.x + cos * centers.position.y),
     )
 
     a = optika.distortion.PolynomialDistortionModel(
@@ -261,73 +275,65 @@ def test_polynomial_distortion_model_channel():
         degree=1,
     )
 
-    distorted = a.distort(scene).position
+    distorted = a.distort(centers).position
     assert "channel" in distorted.shape
     assert np.all((distorted - sensor).length < 1e-9 * u.mm)
 
     undistorted = a.undistort(
         na.SpectralPositionalVectorArray(
-            wavelength=scene.wavelength,
+            wavelength=centers.wavelength,
             position=sensor,
         )
     ).position
     assert "channel" in undistorted.shape
-    assert np.all((undistorted - scene.position).length < 1e-9 * u.deg)
+    assert np.all((undistorted - centers.position).length < 1e-9 * u.deg)
 
 
-def test_plot_residual_draws_the_cells_the_vertices_describe():
+def test_plot_residual_draws_the_cells_and_not_the_samples():
     """
-    Calibration points measured at random inside their cells have their
-    residual plotted on the cells, not on the points.
+    A model measured at points drawn inside its cells still has its residual
+    plotted on the cells.
 
     Such points are not monotonic, and matplotlib cannot work out where one
     cell ends and the next begins from points alone: it says as much, and
-    draws a mesh with warped cells and a ragged outline. Given the corners it
-    draws the cells where they are, and the measurement sits wherever inside
-    its own cell it was made.
+    draws a mesh with warped cells and a ragged outline. The mesh is
+    `coordinates_scene`, which is the corners, so this holds however the
+    measurements inside them are placed.
     """
-    axis_field = ("field_x", "field_y")
-    vertices = _vertices()
+    scene = _scene()
+    sample = _sample()
 
-    scene = na.SpectralPositionalVectorArray(
-        wavelength=_scene().wavelength,
-        position=vertices.broadcast_to(na.shape(vertices)).cell_centers(
-            axis=axis_field,
-            random=True,
-            seed=0,
-        ),
-    )
-    sensor = na.Cartesian2dVectorArray(
-        x=scene.position.x * (10 * u.mm / u.deg),
-        y=scene.position.y * (10 * u.mm / u.deg),
-    )
-
-    kwargs = dict(
+    a = optika.distortion.PolynomialDistortionModel(
         coordinates_scene=scene,
-        coordinates_sensor=sensor,
+        coordinates_sample=sample,
+        coordinates_sensor=_sensor(sample),
         axis_wavelength="wavelength",
-        axis_field=axis_field,
+        axis_field=("field_x", "field_y"),
         degree=1,
     )
 
-    # without the corners, matplotlib is left to guess at them and says so
-    with pytest.warns(UserWarning, match="not monotonically increasing"):
-        fig, ax = optika.distortion.PolynomialDistortionModel(
-            **kwargs,
-        ).plot_residual()
-    plt.close(fig)
-
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        fig, ax = optika.distortion.PolynomialDistortionModel(
-            **kwargs,
-            vertices_field=vertices,
-        ).plot_residual()
+        fig, ax = a.plot_residual()
 
     # the mesh is rectilinear: its corners take one value per column of the
     # grid, rather than one per measurement
     coordinates = ax.ndarray.reshape(-1)[0].collections[0].get_coordinates()
-    assert np.unique(coordinates[..., 0]).size == na.shape(vertices)["field_x"]
-    assert np.unique(coordinates[..., 1]).size == na.shape(vertices)["field_y"]
+    assert np.unique(coordinates[..., 0]).size == na.shape(scene.position)["field_x"]
+    assert np.unique(coordinates[..., 1]).size == na.shape(scene.position)["field_y"]
 
     plt.close(fig)
+
+
+def test_coordinates_sample_defaults_to_the_cell_centers():
+    """A model which does not say where it was measured was measured at the
+    centers of its cells."""
+    a = optika.distortion.PolynomialDistortionModel(
+        coordinates_scene=_scene(),
+        coordinates_sensor=_sensor(),
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+    )
+
+    assert np.all(a.coordinates_sample_.position == _centers().position)

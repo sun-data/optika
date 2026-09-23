@@ -1012,13 +1012,18 @@ def test_linearize_keeps_axes_it_is_not_sampling():
         degree=1,
     )
 
-    # the scene the distortion is fit to has one sample per cell, so each
-    # field axis loses exactly one sample and the wavelength axis, which is
-    # not being sampled, keeps all of its own
-    shape = na.shape(result.distortion.coordinates_scene.position)
-    assert shape["field_x"] == num - 1
-    assert shape["field_y"] == num - 1
-    assert shape["wavelength"] == num_wavelength
+    # the cells the distortion is fit over are the grid it was given, and
+    # there is one sample inside each of them, so each field axis loses
+    # exactly one sample while the wavelength axis, which is not being
+    # sampled, keeps all of its own
+    distortion = result.distortion
+    shape_cells = na.shape(distortion.coordinates_scene.position)
+    shape_samples = na.shape(distortion.coordinates_sample.position)
+    for ax in ("field_x", "field_y"):
+        assert shape_cells[ax] == num
+        assert shape_samples[ax] == num - 1
+    assert shape_cells["wavelength"] == num_wavelength
+    assert shape_samples["wavelength"] == num_wavelength
 
 
 def test__anchor_surface():
@@ -1617,7 +1622,10 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
     model = a._fit_vignetting(
         rays=rays[{axis_pupil[0]: slice(None, -1), axis_pupil[1]: slice(None, -1)}],
         area=area,
-        vertices_field=vertices_field,
+        coordinates_scene=na.SpectralPositionalVectorArray(
+            wavelength=inputs.wavelength,
+            position=vertices_field,
+        ),
         axis_wavelength=axis_wavelength,
         axis_field=axis_field,
         axis_pupil=axis_pupil,
@@ -2212,19 +2220,19 @@ def test_vignetting_is_the_model_linearize_fits():
     assert np.all(a.illumination == b.illumination)
     assert np.all(a.where == b.where)
     assert np.all(a.coordinates_scene.position == b.coordinates_scene.position)
-    assert np.all(a.vertices_field == b.vertices_field)
+    assert np.all(a.coordinates_sample.position == b.coordinates_sample.position)
 
 
 def test_models_carry_the_cells_they_were_measured_over():
     """
-    Every model fit to a stratified trace knows the corners of the field cell
-    each of its measurements came from.
+    Every model fit to a stratified trace describes the field cells it was
+    measured over, and says where inside each of them the measurement was
+    made.
 
     The measurements are drawn inside their cells rather than at the centers,
     so they are not a mesh, and a model can only be plotted on the cells it
-    was measured over if it carries them.  The distortion model is fit to
-    those same rays by :meth:`linearize`, so it needs them too; asked for on
-    its own it is still traced at the grid as given, and has none.
+    was measured over if it carries them.  Asked for on its own, each model
+    samples the same way, so each of them carries the same pair.
     """
     system = _system_linearize()
 
@@ -2238,28 +2246,31 @@ def test_models_carry_the_cells_they_were_measured_over():
 
     linear = system.linearize(field=field, degree=1)
 
-    for model in (system.vignetting(field=field, degree=1), linear.vignetting):
-        _assert_cells(model, model.illumination, num)
+    models = (
+        linear.vignetting,
+        linear.distortion,
+        system.vignetting(field=field, degree=1),
+        system.distortion(field=field, degree=1),
+    )
 
-    _assert_cells(linear.distortion, linear.distortion.coordinates_sensor, num)
+    for model in models:
+        cells = model.coordinates_scene
+        samples = model.coordinates_sample
 
-    # traced at the points it was handed, so each of them is its own center
-    assert system.distortion(field=field, degree=1).vertices_field is None
+        for ax in model.axis_field:
+            assert na.shape(cells.position)[ax] == num + 1
+            assert na.shape(samples.position)[ax] == num
 
+        # in the physical coordinates the measurements are in, and bounding
+        # them
+        assert na.unit(cells.position.x).is_equivalent(na.unit(samples.position.x))
+        assert cells.position.x.min() < samples.position.x.min()
+        assert samples.position.x.max() < cells.position.x.max()
 
-def _assert_cells(model, measurements, num: int) -> None:
-    """One more vertex than measurement along each field axis, bounding them."""
-    shape = na.shape(model.vertices_field)
-    for ax in model.axis_field:
-        assert shape[ax] == num + 1
-        assert na.shape(measurements)[ax] == num
-
-    # in the physical coordinates the measurements are in, and bounding them
-    position = model.coordinates_scene.position
-    vertices = model.vertices_field
-    assert na.unit(vertices.x).is_equivalent(na.unit(position.x))
-    assert vertices.x.min() < position.x.min()
-    assert position.x.max() < vertices.x.max()
+        # drawn inside their cells rather than taken from the centers, which
+        # is the whole reason the cells have to be carried separately
+        centers = cells.cell_centers(model.axis_field)
+        assert np.any(samples.position.x != centers.position.x)
 
 
 def test_vignetting_follows_its_seed():

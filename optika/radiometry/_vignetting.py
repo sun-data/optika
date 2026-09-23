@@ -67,11 +67,11 @@ class AbstractInterpolatedVignettingModel(
     AbstractVignettingModel,
 ):
     """
-    A vignetting model defined by interpolating between known scene coordinates
-    and their measured illumination.
+    A vignetting model defined by interpolating between the measured
+    illumination of a grid of cells in the scene.
 
     This class has two main members, :attr:`coordinates_scene` and
-    :attr:`illumination`, the calibration points between which subclasses
+    :attr:`illumination`, the calibration cells between which subclasses
     interpolate.
     """
 
@@ -79,14 +79,16 @@ class AbstractInterpolatedVignettingModel(
     @abc.abstractmethod
     def coordinates_scene(self) -> na.AbstractSpectralPositionalVectorArray:
         """
-        The wavelength and position of each calibration point in the scene.
+        The wavelength of each calibration point, and the corners of the
+        field cell it was measured in, one longer than :attr:`illumination`
+        along each of :attr:`axis_field`.
         """
 
     @property
     @abc.abstractmethod
     def illumination(self) -> na.AbstractScalar:
         """
-        The relative illumination at each calibration point.
+        The relative illumination of each calibration cell.
         """
 
     @property
@@ -105,8 +107,13 @@ class PolynomialVignettingModel(
     AbstractInterpolatedVignettingModel,
 ):
     """
-    A vignetting model which fits a polynomial to the measured illumination at
-    known scene coordinates.
+    A vignetting model which fits a polynomial to the measured illumination of
+    a grid of cells in the scene.
+
+    :attr:`coordinates_scene` describes the corners of those cells, one more
+    than the measurements along each field axis.  Where inside its cell each
+    measurement was made is :attr:`coordinates_sample`, the centers of them
+    unless it says otherwise.
 
     Examples
     --------
@@ -128,10 +135,11 @@ class PolynomialVignettingModel(
                 start=-1 * u.deg,
                 stop=+1 * u.deg,
                 axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-                num=13,
+                num=14,
             ),
         )
-        illumination = 1 - 0.1 * (scene.position.length / u.deg) ** 2
+        centers = scene.cell_centers(("field_x", "field_y"))
+        illumination = 1 - 0.1 * (centers.position.length / u.deg) ** 2
 
         model = optika.radiometry.PolynomialVignettingModel(
             coordinates_scene=scene,
@@ -159,10 +167,20 @@ class PolynomialVignettingModel(
     """
 
     coordinates_scene: na.AbstractSpectralPositionalVectorArray = dataclasses.MISSING
-    """The wavelength and position of each calibration point in the scene."""
+    """
+    The wavelength of each calibration point, and the corners of the field
+    cell it was measured in, one longer than :attr:`illumination` along each
+    of :attr:`axis_field`.
+
+    The illumination is a property of a cell rather than of a point: it is the
+    unvignetted area of the pupil seen from somewhere inside that cell, and
+    the average which normalizes it is a quadrature over the cells.  Saying so
+    is also what lets the model be plotted, since the mesh it is drawn on is
+    these corners.
+    """
 
     illumination: na.AbstractScalar = dataclasses.MISSING
-    """The relative illumination at each calibration point."""
+    """The relative illumination of each cell."""
 
     axis_wavelength: str = dataclasses.MISSING
     """The logical axis corresponding to changing wavelength."""
@@ -176,32 +194,51 @@ class PolynomialVignettingModel(
     where: bool | na.AbstractScalar = True
     """A boolean mask selecting which calibration points to use for fitting."""
 
-    vertices_field: None | na.AbstractCartesian2dVectorArray = None
+    coordinates_sample: None | na.AbstractSpectralPositionalVectorArray = None
     """
-    The corners of the field cell each calibration point was measured in,
-    one longer than :attr:`illumination` along each of :attr:`axis_field`.
+    Where inside its cell each calibration point was measured.
 
-    A calibration point need not sit at the center of its cell, and a point
-    drawn at random inside it is the better estimate of the cell's average:
-    a rule which always samples the same place inside a cell aliases against
-    the edge of an aperture falling between two of them.  Such points are not
-    monotonic, though, and :meth:`plot` cannot work out where one cell ends
-    and the next begins from points alone, so it draws a mesh with warped
-    cells and a ragged outline.
+    A measurement need not be made at the center of its cell, and one made at
+    a point drawn uniformly inside it is the better estimate of the cell's
+    average: a rule which always samples the same place aliases against the
+    edge of an aperture falling between two of them.  The fit reads these
+    rather than the corners, so a measurement counts at the place it was
+    actually made.
 
-    Given the corners, it draws the cells where they are and lets the
-    measurement sit wherever inside its own cell it was made.
-    If :obj:`None`, the calibration points are taken to be the centers of
-    their cells, which is right for a grid which was sampled that way.
+    If :obj:`None` (the default), the centers of the cells
+    :attr:`coordinates_scene` describes, which is right for a grid sampled
+    that way.  See :attr:`coordinates_sample_`.
     """
 
     @property
+    def coordinates_sample_(self) -> na.AbstractSpectralPositionalVectorArray:
+        """
+        :attr:`coordinates_sample`, or the centers of the cells
+        :attr:`coordinates_scene` describes where it is :obj:`None`.
+        """
+        result = self.coordinates_sample
+        if result is None:
+            result = self.coordinates_scene.cell_centers(self.axis_field)
+        return result
+
+    @property
     def shape(self) -> dict[str, int]:
-        shape = na.broadcast_shapes(
-            optika.shape(self.coordinates_scene),
-            optika.shape(self.illumination),
+        return na.broadcast_shapes(
+            self._shape_orthogonal(self.coordinates_scene),
+            self._shape_orthogonal(self.illumination),
         )
-        return {ax: n for ax, n in shape.items() if ax not in self._axis_scene}
+
+    def _shape_orthogonal(self, a: na.AbstractArray) -> dict[str, int]:
+        """
+        The shape of `a` with the axes the calibration points run along
+        dropped.
+
+        They are dropped rather than broadcast because the corners and the
+        measurements deliberately disagree along them, by one.
+        """
+        return {
+            ax: n for ax, n in optika.shape(a).items() if ax not in self._axis_scene
+        }
 
     @property
     def _axis_scene(self) -> tuple[str, ...]:
@@ -211,7 +248,7 @@ class PolynomialVignettingModel(
     @functools.cached_property
     def fit(self) -> na.PolynomialFitFunctionArray:
         """The polynomial fit mapping scene coordinates to illumination."""
-        scene = self.coordinates_scene
+        scene = self.coordinates_sample_
         return na.PolynomialFitFunctionArray.from_degree(
             inputs=scene,
             outputs=self.illumination,
@@ -373,12 +410,9 @@ class PolynomialVignettingModel(
         wavelength = na.as_named_array(scene.wavelength)
         axis_wavelength = self.axis_wavelength
 
-        # the corners of each cell if they are known, and the measurements
-        # themselves if they are not, in which case each one is taken to be
-        # the center of its own cell
-        position = self.vertices_field
-        if position is None:
-            position = scene.position
+        # each value is drawn across the whole cell it belongs to, so the mesh
+        # is the corners of those cells rather than the points inside them
+        position = scene.position
 
         if unit is not None:
             position = position.to(unit)

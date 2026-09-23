@@ -250,11 +250,11 @@ class AbstractInterpolatedDistortionModel(
     AbstractDistortionModel,
 ):
     """
-    A distortion model defined by interpolating between known scene/sensor
-    coordinates.
+    A distortion model defined by interpolating between the measured sensor
+    positions of a grid of cells in the scene.
 
     This class has two main members, :attr:`coordinates_scene` and
-    :attr:`coordinates_sensor`, the calibration points between which subclasses
+    :attr:`coordinates_sensor`, the calibration cells between which subclasses
     interpolate.
     """
 
@@ -262,14 +262,16 @@ class AbstractInterpolatedDistortionModel(
     @abc.abstractmethod
     def coordinates_scene(self) -> na.AbstractSpectralPositionalVectorArray:
         """
-        The wavelength and position of each calibration point in the scene.
+        The wavelength of each calibration point, and the corners of the
+        field cell it was measured in, one longer than
+        :attr:`coordinates_sensor` along each of :attr:`axis_field`.
         """
 
     @property
     @abc.abstractmethod
     def coordinates_sensor(self) -> na.AbstractCartesian2dVectorArray:
         """
-        The position of each calibration point mapped onto the sensor.
+        The position of each calibration cell mapped onto the sensor.
         """
 
     @property
@@ -296,6 +298,11 @@ class PolynomialDistortionModel(
     opposite direction, so the round trip is exact only to the accuracy of the
     two fits.
 
+    :attr:`coordinates_scene` describes the corners of the cells the sensor
+    positions were measured over, one more than the measurements along each
+    field axis.  Where inside its cell each measurement was made is
+    :attr:`coordinates_sample`, the centers of them unless it says otherwise.
+
     Examples
     --------
 
@@ -315,14 +322,13 @@ class PolynomialDistortionModel(
                 start=-1 * u.deg,
                 stop=+1 * u.deg,
                 axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-                num=13,
+                num=14,
             ),
         )
+        centers = scene.cell_centers(("field_x", "field_y")).position
         sensor = na.Cartesian2dVectorArray(
-            x=scene.position.x * (10 * u.mm / u.deg)
-            + scene.position.x**2 * (1 * u.mm / u.deg**2),
-            y=scene.position.y * (10 * u.mm / u.deg)
-            + scene.position.y**2 * (1 * u.mm / u.deg**2),
+            x=centers.x * (10 * u.mm / u.deg) + centers.x**2 * (1 * u.mm / u.deg**2),
+            y=centers.y * (10 * u.mm / u.deg) + centers.y**2 * (1 * u.mm / u.deg**2),
         )
 
         model = optika.distortion.PolynomialDistortionModel(
@@ -338,10 +344,18 @@ class PolynomialDistortionModel(
     """
 
     coordinates_scene: na.AbstractSpectralPositionalVectorArray = dataclasses.MISSING
-    """The wavelength and position of each calibration point in the scene."""
+    """
+    The wavelength of each calibration point, and the corners of the field
+    cell it was measured in, one longer than :attr:`coordinates_sensor` along
+    each of :attr:`axis_field`.
+
+    Saying where the cells are is what lets :meth:`plot_residual` draw each
+    residual across the cell it belongs to, since the mesh it is drawn on is
+    these corners.
+    """
 
     coordinates_sensor: na.AbstractCartesian2dVectorArray = dataclasses.MISSING
-    """The position of each calibration point mapped onto the sensor."""
+    """The position of each calibration cell mapped onto the sensor."""
 
     axis_wavelength: str = dataclasses.MISSING
     """The logical axis corresponding to changing wavelength."""
@@ -355,34 +369,49 @@ class PolynomialDistortionModel(
     where: bool | na.AbstractScalar = True
     """A boolean mask selecting which calibration points to use for fitting."""
 
-    vertices_field: None | na.AbstractCartesian2dVectorArray = None
+    coordinates_sample: None | na.AbstractSpectralPositionalVectorArray = None
     """
-    The corners of the field cell each calibration point was measured in,
-    one longer than :attr:`coordinates_sensor` along each of
-    :attr:`axis_field`.
+    Where inside its cell each calibration point was measured.
 
-    Read only by :meth:`plot_residual`, which draws each residual across the
-    cell it belongs to.  A calibration point need not sit at the center of
-    its cell, and a point drawn at random inside it is the better place to
-    measure: a rule which always samples the same place aliases against
-    whatever in the system varies on the scale of a cell.  Such points are
-    not monotonic, though, and the plot cannot work out where one cell ends
-    and the next begins from points alone, so it draws a mesh with warped
-    cells and a ragged outline.
+    A measurement need not be made at the center of its cell, and one made at
+    a point drawn uniformly inside it does not alias against whatever in the
+    system varies on the scale of a cell.  The fit reads these rather than the
+    corners, so a measurement counts at the place it was actually made.
 
-    Given the corners, it draws the cells where they are and lets the
-    measurement sit wherever inside its own cell it was made.
-    If :obj:`None`, the calibration points are taken to be the centers of
-    their cells, which is right for a grid which was sampled that way.
+    If :obj:`None` (the default), the centers of the cells
+    :attr:`coordinates_scene` describes, which is right for a grid sampled
+    that way.  See :attr:`coordinates_sample_`.
     """
 
     @property
+    def coordinates_sample_(self) -> na.AbstractSpectralPositionalVectorArray:
+        """
+        :attr:`coordinates_sample`, or the centers of the cells
+        :attr:`coordinates_scene` describes where it is :obj:`None`.
+        """
+        result = self.coordinates_sample
+        if result is None:
+            result = self.coordinates_scene.cell_centers(self.axis_field)
+        return result
+
+    @property
     def shape(self) -> dict[str, int]:
-        shape = na.broadcast_shapes(
-            optika.shape(self.coordinates_scene),
-            optika.shape(self.coordinates_sensor),
+        return na.broadcast_shapes(
+            self._shape_orthogonal(self.coordinates_scene),
+            self._shape_orthogonal(self.coordinates_sensor),
         )
-        return {ax: n for ax, n in shape.items() if ax not in self._axis_scene}
+
+    def _shape_orthogonal(self, a: na.AbstractArray) -> dict[str, int]:
+        """
+        The shape of `a` with the axes the calibration points run along
+        dropped.
+
+        They are dropped rather than broadcast because the corners and the
+        measurements deliberately disagree along them, by one.
+        """
+        return {
+            ax: n for ax, n in optika.shape(a).items() if ax not in self._axis_scene
+        }
 
     @property
     def _axis_scene(self) -> tuple[str, ...]:
@@ -392,7 +421,7 @@ class PolynomialDistortionModel(
     @functools.cached_property
     def fit(self) -> na.PolynomialFitFunctionArray:
         """The polynomial fit mapping scene position to sensor position."""
-        scene = self.coordinates_scene
+        scene = self.coordinates_sample_
         return na.PolynomialFitFunctionArray.from_degree(
             inputs=scene,
             outputs=self.coordinates_sensor,
@@ -405,7 +434,7 @@ class PolynomialDistortionModel(
     @functools.cached_property
     def fit_inverse(self) -> na.PolynomialFitFunctionArray:
         """The polynomial fit mapping sensor position back to scene position."""
-        scene = self.coordinates_scene
+        scene = self.coordinates_sample_
         inputs = na.SpectralPositionalVectorArray(
             wavelength=scene.wavelength,
             position=self.coordinates_sensor,
@@ -491,12 +520,9 @@ class PolynomialDistortionModel(
         wavelength = na.as_named_array(scene.wavelength)
         axis_wavelength = self.axis_wavelength
 
-        # the corners of each cell if they are known, and the measurements
-        # themselves if they are not, in which case each one is taken to be
-        # the center of its own cell
-        position = self.vertices_field
-        if position is None:
-            position = scene.position
+        # each residual is drawn across the whole cell it belongs to, so the
+        # mesh is the corners of those cells rather than the points inside them
+        position = scene.position
 
         if unit is not None:
             position = position.to(unit)
