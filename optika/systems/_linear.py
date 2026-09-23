@@ -95,6 +95,41 @@ class AbstractLinearSystem(
         electrical signal.
         """
 
+    def footprint(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        num: None | int = None,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        The outline of the field stop on the sensor at the given wavelengths.
+
+        The wire of :attr:`field_stop` mapped through :attr:`distortion`:
+        where the edge of the field of view lands, which is the outline of
+        the window each wavelength illuminates.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to map the outline.
+        num
+            The number of points along each edge of the field stop,
+            see :meth:`optika.apertures.AbstractAperture.wire`.
+
+        Raises
+        ------
+        ValueError
+            If this system carries no field stop.
+        """
+        field_stop = self.field_stop
+        if field_stop is None:
+            raise ValueError("this system carries no field stop to outline")
+        wire = field_stop.wire(num=num)
+        coordinates = na.SpectralPositionalVectorArray(
+            wavelength=wavelength,
+            position=na.Cartesian2dVectorArray(x=wire.x, y=wire.y),
+        )
+        return self.distortion.distort(coordinates).position
+
     @property
     @abc.abstractmethod
     def direction(self):
