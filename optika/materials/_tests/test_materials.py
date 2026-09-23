@@ -8,6 +8,8 @@ import optika.rays._tests.test_ray_vectors
 
 _wavelength = na.linspace(100, 300, axis="wavelength", num=11) * u.AA
 
+_angle = na.linspace(0, 40, axis="angle", num=3) * u.deg
+
 
 class AbstractTestAbstractMaterial(
     optika._tests.test_mixins.AbstractTestTransformable,
@@ -100,7 +102,17 @@ class TestMirror(
                 ),
                 outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2),
             ),
-        )
+        ),
+        optika.materials.MeasuredMirror(
+            efficiency_measured=na.FunctionArray(
+                inputs=na.SpectralDirectionalVectorArray(
+                    wavelength=_wavelength,
+                    direction=_angle,
+                ),
+                outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2)
+                * np.cos(_angle),
+            ),
+        ),
     ],
 )
 class TestMeasuredMirror(
@@ -156,6 +168,14 @@ _efficiency_measured = na.FunctionArray(
         direction=na.Cartesian3dVectorArray(0, 0, 1),
     ),
     outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2),
+)
+
+_efficiency_measured_angle = na.FunctionArray(
+    inputs=na.SpectralDirectionalVectorArray(
+        wavelength=_wavelength,
+        direction=_angle,
+    ),
+    outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2) * np.cos(_angle),
 )
 
 
@@ -220,6 +240,10 @@ def test_dielectric_mgf2():
             efficiency_measured=_efficiency_measured,
             medium=optika.materials.Dielectric("MgF2"),
             is_medium_measured=False,
+        ),
+        optika.materials.MeasuredFilter(
+            efficiency_measured=_efficiency_measured_angle,
+            medium=optika.materials.Dielectric("MgF2"),
         ),
     ],
 )

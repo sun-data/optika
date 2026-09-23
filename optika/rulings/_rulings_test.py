@@ -109,7 +109,19 @@ class TestRulings(
                 ),
                 outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2),
             ),
-        )
+        ),
+        optika.rulings.MeasuredRulings(
+            spacing=1 * u.um,
+            diffraction_order=1,
+            efficiency_measured=na.FunctionArray(
+                inputs=na.SpectralDirectionalVectorArray(
+                    wavelength=_wavelength,
+                    direction=na.linspace(0, 40, axis="angle", num=3) * u.deg,
+                ),
+                outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2)
+                * np.cos(na.linspace(0, 40, axis="angle", num=3) * u.deg),
+            ),
+        ),
     ],
 )
 class TestMeasuredRulings(

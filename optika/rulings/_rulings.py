@@ -390,6 +390,74 @@ class MeasuredRulings(
     """
     A set of rulings where the efficiency has been measured or calculated
     by an independent source.
+
+    Examples
+    --------
+
+    Define rulings whose efficiency was calculated at three angles of
+    incidence, and interpolate it between them.
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        # The wavelengths and angles of incidence of the calculation
+        wavelength = na.linspace(120, 190, axis="wavelength", num=8) * u.nm
+        angle = na.ScalarArray([10, 14, 18] * u.deg, axes="angle")
+
+        # An efficiency which falls with wavelength and rises with angle
+        efficiency = (
+            0.35
+            - 0.001 * (wavelength.to(u.nm).value - 120)
+            + 0.002 * (angle.to(u.deg).value - 10)
+        )
+
+        # Define the rulings
+        rulings = optika.rulings.MeasuredRulings(
+            spacing=1 / (2200 / u.mm),
+            diffraction_order=1,
+            efficiency_measured=na.FunctionArray(
+                inputs=na.SpectralDirectionalVectorArray(
+                    wavelength=wavelength,
+                    direction=angle,
+                ),
+                outputs=efficiency,
+            ),
+        )
+
+        # Evaluate the efficiency at 150 nm over a range of angles of incidence
+        angle_rays = na.linspace(5, 23, axis="angle_rays", num=91) * u.deg
+        rays = optika.rays.RayVectorArray(
+            wavelength=150 * u.nm,
+            direction=na.Cartesian3dVectorArray(
+                x=np.sin(angle_rays),
+                y=0,
+                z=np.cos(angle_rays),
+            ),
+        )
+        efficiency_rays = rulings.efficiency(
+            rays=rays,
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+        )
+
+        # Plot the interpolated efficiency against the calculation
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(constrained_layout=True)
+            na.plt.plot(angle_rays, efficiency_rays, ax=ax, label="interpolated");
+            na.plt.scatter(
+                angle,
+                efficiency[dict(wavelength=3)],
+                ax=ax,
+                label="calculated",
+            );
+            ax.set_xlabel(f"angle of incidence ({ax.get_xlabel()})");
+            ax.set_ylabel("efficiency at 150 nm");
+            ax.legend();
     """
 
     spacing: u.Quantity | na.AbstractScalar | AbstractRulingSpacing = MISSING
@@ -402,18 +470,26 @@ class MeasuredRulings(
         na.SpectralDirectionalVectorArray,
         na.AbstractScalar,
     ] = MISSING
-    """The discrete measurements of the efficiency."""
+    """
+    A function array that maps wavelengths and incidence angles to the
+    measured efficiency.
+
+    If the efficiency was measured at a single angle, it is used at every
+    angle of incidence.
+    If it was measured at more than one, the directions must be a
+    one-dimensional, increasing array of angles of incidence, measured from
+    the surface normal, and the efficiency is interpolated linearly in both
+    wavelength and angle of incidence, holding the nearest measurement
+    outside the measured range.
+    Each angle may have its own wavelength samples.
+    """
 
     @property
     def shape(self) -> dict[str, int]:
-        axis_wavelength = self.efficiency_measured.inputs.wavelength.axes
-        shape = optika.shape(self.efficiency_measured.outputs)
-        for ax in axis_wavelength:
-            shape.pop(ax, None)
         return na.broadcast_shapes(
             optika.shape(self.spacing),
             optika.shape(self.diffraction_order),
-            shape,
+            optika._util._shape_efficiency_measured(self.efficiency_measured),
         )
 
     def efficiency(
@@ -424,26 +500,10 @@ class MeasuredRulings(
         is_mirror: bool | na.AbstractScalar = True,
     ) -> na.AbstractScalar:
 
-        measurement = self.efficiency_measured
-
-        wavelength = measurement.inputs.wavelength
-        direction = measurement.inputs.direction
-        efficiency = measurement.outputs
-
-        if direction.size != 1:  # pragma: nocover
-            raise ValueError(
-                "Interpolating over different incidence angles is not supported."
-            )
-
-        if wavelength.ndim != 1:  # pragma: nocover
-            raise ValueError(
-                f"wavelength must be one dimensional, got shape {wavelength.shape}"
-            )
-
-        return na.interp(
-            x=rays.wavelength,
-            xp=wavelength,
-            fp=efficiency,
+        return optika._util._interp_efficiency_measured(
+            measurement=self.efficiency_measured,
+            rays=rays,
+            normal=normal,
         )
 
 

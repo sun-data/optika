@@ -176,43 +176,6 @@ class Mirror(
         )
 
 
-def _interp_efficiency_measured(
-    measurement: na.FunctionArray[na.SpectralDirectionalVectorArray, na.AbstractScalar],
-    rays: optika.rays.RayVectorArray,
-) -> na.ScalarLike:
-    """
-    Interpolate a measured efficiency onto the wavelengths of the given rays.
-
-    Parameters
-    ----------
-    measurement
-        A function array mapping wavelength and incidence angle to the
-        measured efficiency.
-    rays
-        The rays at which to evaluate the efficiency.
-    """
-
-    wavelength = measurement.inputs.wavelength
-    direction = measurement.inputs.direction
-    efficiency = measurement.outputs
-
-    if direction.size != 1:  # pragma: nocover
-        raise ValueError(
-            "Interpolating over different incidence angles is not supported."
-        )
-
-    if wavelength.ndim != 1:  # pragma: nocover
-        raise ValueError(
-            f"wavelength must be one dimensional, got shape {wavelength.shape}"
-        )
-
-    return na.interp(
-        x=rays.wavelength,
-        xp=wavelength,
-        fp=efficiency,
-    )
-
-
 @dataclasses.dataclass(eq=False, repr=False)
 class MeasuredMirror(
     AbstractMirror,
@@ -296,6 +259,15 @@ class MeasuredMirror(
     """
     A function array that maps wavelengths and incidence angles to the
     measured reflectivity.
+
+    If the reflectivity was measured at a single angle, it is used at every
+    angle of incidence.
+    If it was measured at more than one, the directions must be a
+    one-dimensional, increasing array of angles of incidence, measured from
+    the surface normal, and the reflectivity is interpolated linearly in both
+    wavelength and angle of incidence, holding the nearest measurement
+    outside the measured range.
+    Each angle may have its own wavelength samples.
     """
 
     substrate: None | Layer = None
@@ -306,12 +278,8 @@ class MeasuredMirror(
 
     @property
     def shape(self) -> dict[str, int]:
-        axis_wavelength = self.efficiency_measured.inputs.wavelength.axes
-        shape = optika.shape(self.efficiency_measured.outputs)
-        for ax in axis_wavelength:
-            shape.pop(ax, None)
         return na.broadcast_shapes(
-            shape,
+            optika._util._shape_efficiency_measured(self.efficiency_measured),
             optika.shape(self.substrate),
             optika.shape(self.serial_number),
         )
@@ -322,7 +290,11 @@ class MeasuredMirror(
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
 
-        return _interp_efficiency_measured(self.efficiency_measured, rays)
+        return optika._util._interp_efficiency_measured(
+            measurement=self.efficiency_measured,
+            rays=rays,
+            normal=normal,
+        )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -690,6 +662,15 @@ class MeasuredFilter(
     """
     A function array that maps wavelengths and incidence angles to the
     measured transmissivity.
+
+    If the transmissivity was measured at a single angle, it is used at every
+    angle of incidence.
+    If it was measured at more than one, the directions must be a
+    one-dimensional, increasing array of angles of incidence, measured from
+    the surface normal, and the transmissivity is interpolated linearly in both
+    wavelength and angle of incidence, holding the nearest measurement
+    outside the measured range.
+    Each angle may have its own wavelength samples.
     """
 
     medium: AbstractMaterial = dataclasses.field(default_factory=Vacuum)
@@ -713,12 +694,8 @@ class MeasuredFilter(
 
     @property
     def shape(self) -> dict[str, int]:
-        axis_wavelength = self.efficiency_measured.inputs.wavelength.axes
-        shape = optika.shape(self.efficiency_measured.outputs)
-        for ax in axis_wavelength:
-            shape.pop(ax, None)
         return na.broadcast_shapes(
-            shape,
+            optika._util._shape_efficiency_measured(self.efficiency_measured),
             optika.shape(self.medium),
             optika.shape(self.serial_number),
         )
@@ -747,7 +724,11 @@ class MeasuredFilter(
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.ScalarLike:
-        result = _interp_efficiency_measured(self.efficiency_measured, rays)
+        result = optika._util._interp_efficiency_measured(
+            measurement=self.efficiency_measured,
+            rays=rays,
+            normal=normal,
+        )
         return result * self.medium.efficiency(rays, normal)
 
     @property
