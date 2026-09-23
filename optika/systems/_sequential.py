@@ -1092,6 +1092,63 @@ class AbstractSequentialSystem(
         field, _ = self._field_and_pupil(self.rayfunction_stops.outputs)
         return field
 
+    def field_stop_polygon(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+    ) -> optika.apertures.PolygonalAperture:
+        """
+        The field of view of this system as a polygon in field coordinates.
+
+        The vertices are the field coordinates of the rays which graze the
+        edge of the field stop, averaged over the pupil, so the polygon is
+        the image of the field stop on the object: in angle if the object is
+        at infinity, and in position if it is not.  A field stop ahead of
+        every dispersive element gives the same polygon at every wavelength.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to solve for the stop rays.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            is used, and the cached :attr:`rayfunction_stops` are read.
+        """
+        if wavelength is None:
+            wavelength = self.grid_input.wavelength
+        rayfunction_stops, _ = self._stops_and_pupil_fit(
+            wavelength,
+            normalized_pupil=False,
+        )
+        return self._field_stop_polygon_from_rays(rayfunction_stops)
+
+    def _field_stop_polygon_from_rays(
+        self,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+    ) -> optika.apertures.PolygonalAperture:
+        """
+        Build :meth:`field_stop_polygon` from stop rays already solved.
+
+        Parameters
+        ----------
+        rayfunction_stops
+            The rays grazing the edges of both stops, in the frame of the
+            object surface, as :attr:`rayfunction_stops` gives them.
+        """
+        field, _ = self._field_and_pupil(rayfunction_stops.outputs)
+        field = field.mean(self.axis_pupil_stop)
+
+        def rename(a: na.AbstractScalar) -> na.ScalarArray:
+            a = na.as_named_array(a)
+            axes = tuple(
+                "vertex" if axis == self.axis_field_stop else axis for axis in a.axes
+            )
+            return na.ScalarArray(a.ndarray, axes=axes)
+
+        x = rename(field.x)
+        y = rename(field.y)
+        return optika.apertures.PolygonalAperture(
+            vertices=na.Cartesian3dVectorArray(x=x, y=y, z=0 * x),
+        )
+
     @property
     def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
         """
@@ -2415,6 +2472,7 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         degree: int = 2,
         seed: None | int = 0,
+        field_stop: bool = False,
     ) -> LinearSystem:
         """
         Construct a linear approximation of this system by fitting its
@@ -2432,10 +2490,14 @@ class AbstractSequentialSystem(
         model which of them survive, and the effective area what they carry.
 
         The resulting system's
-        :attr:`~optika.systems.LinearSystem.field_stop` is left as :obj:`None`;
-        the field stop is not modeled here, since field points outside it are
-        excluded when fitting the vignetting model rather than represented as a
-        falloff.
+        :attr:`~optika.systems.LinearSystem.field_stop` is left as :obj:`None`
+        unless `field_stop` is set: field points outside the stop are
+        excluded when fitting the vignetting model rather than represented as
+        a falloff, so the vignetting model alone lets light from beyond the
+        edge of the field through.  With `field_stop`, the field of view is
+        carried as :meth:`field_stop_polygon` and every scene cell outside it
+        is blocked before the wavelengths are summed, which keeps one line's
+        light out of the field of another's.
 
         Parameters
         ----------
@@ -2478,6 +2540,9 @@ class AbstractSequentialSystem(
             over the sampling is measured, or any other integer for a
             different fixed sample.
 
+        field_stop
+            Whether to carry the field of view on the result as a polygonal
+            aperture, see :meth:`field_stop_polygon`.
         Raises
         ------
         ValueError
@@ -2568,6 +2633,11 @@ class AbstractSequentialSystem(
         )
 
         return LinearSystem(
+            field_stop=(
+                self._field_stop_polygon_from_rays(rayfunction_stops)
+                if field_stop
+                else None
+            ),
             area_effective=self._fit_area_effective(
                 rays=rays,
                 axis_wavelength=axis_wavelength,

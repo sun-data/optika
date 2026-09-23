@@ -633,6 +633,44 @@ class AbstractTestAbstractSequentialSystem(
         # silently pair up wavelengths which are not the same.
         assert na.shape(result.direction) == {}
 
+    def test_field_stop_polygon(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.field_stop_polygon()
+        assert isinstance(result, optika.apertures.PolygonalAperture)
+        assert "vertex" in na.shape(result.vertices)
+        assert a.axis_field_stop not in na.shape(result.vertices)
+        assert a.axis_pupil_stop not in na.shape(result.vertices)
+        # the polygon is the pupil average of the outline of the field
+        boundary = a.field_boundary.mean(a.axis_pupil_stop)
+        axes = tuple(
+            a.axis_field_stop if axis == "vertex" else axis
+            for axis in result.vertices.x.axes
+        )
+        assert np.allclose(
+            na.value(result.vertices.x).ndarray,
+            na.value(boundary.x).ndarray_aligned(axes),
+        )
+
+    def test_linearize_field_stop(self, a: optika.systems.AbstractSequentialSystem):
+        if not a.axis_wavelength_:
+            return
+        result = a.linearize(field_stop=True)
+        assert isinstance(result.field_stop, optika.apertures.PolygonalAperture)
+        # the center of the field is inside the stop, and the outline lands
+        # on the sensor at every wavelength
+        wavelength = a.grid_input.wavelength
+        center = a.field_boundary.mean(a.axis_stops)
+        inside = result.field_stop(
+            na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x),
+        )
+        assert np.all(na.value(inside).ndarray)
+        footprint = result.footprint(wavelength)
+        assert isinstance(footprint, na.AbstractCartesian2dVectorArray)
+        assert "wire" in na.shape(footprint)
+        assert np.all(np.isfinite(na.value(footprint.x).ndarray))
+        # without a stop there is nothing to outline
+        with pytest.raises(ValueError):
+            a.linearize().footprint(wavelength)
+
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
         assert isinstance(fig, plt.Figure)
