@@ -256,6 +256,25 @@ class AbstractTestAbstractLinearSystem(
         result_b = b.image(scene, noise=False)
         assert np.allclose(result_a.outputs, result_b.outputs)
 
+    def test_weights_dimensionless(self, a: optika.systems.AbstractLinearSystem):
+        # the radiometric factors are dimensionless by construction; a
+        # dimensionless Quantity would drag device-built weight values back
+        # to the host, so the weights must be plain floats
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        weights, _, _ = a.weights(
+            coordinates=scene.inputs,
+            axis_wavelength="wavelength",
+            axis_field=("field_x", "field_y"),
+        )
+        assert not isinstance(weights.ndarray, u.Quantity)
+
+    def test_image_device_host(self, a: optika.systems.AbstractLinearSystem):
+        # `device=None` is the host path and must reproduce the default exactly
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        result = a.image(scene, noise=False)
+        result_host = a.image(scene, noise=False, device=None)
+        assert np.all(result.outputs == result_host.outputs)
+
     def test_image_uncertainty(self, a: optika.systems.AbstractLinearSystem):
         scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
         result = a.image(scene, noise=False, uncertainty=True)
