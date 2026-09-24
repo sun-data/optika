@@ -942,9 +942,11 @@ def test_linearize_conserves_flux():
     # the two discretize the problem differently, and every model of the
     # linearized system is fit to randomly placed samples inside the cells of
     # its grids, so they agree to a few percent rather than exactly.  The
-    # sampling is seeded, so the comparison itself is deterministic.  An average of the effective area taken over a
-    # different set of field positions than the vignetting model is
-    # normalized over would put this near 0.56, which the tolerance excludes.
+    # linearized system is seeded, but the raytraced image it is compared
+    # against is not, so the ratio moves by several percent between runs.
+    # An average of the effective area taken over a different set of field
+    # positions than the vignetting model is normalized over would put this
+    # near 0.56, which the tolerance excludes.
     assert np.allclose(result, expected, rtol=0.15)
 
 
@@ -2322,15 +2324,15 @@ def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
 
 def test_linearize_refuses_a_wavelength_with_no_light():
     """
-    Linearizing a system whose sampled field admits nothing at some
-    wavelength raises, rather than returning a model which is silently
+    Linearizing a system whose sampled field admits nothing at too many
+    wavelengths raises, rather than returning a model which is silently
     wrong.
 
     Every model is a polynomial in wavelength and field position, fit only
-    to the field positions which admit light.  A wavelength which admits
-    none leaves that polynomial unconstrained there, and the fit does not
-    fail: it extrapolates without bound, at the wavelengths which do have
-    light as well.
+    to the field positions which admit light.  With light at fewer
+    wavelengths than the polynomial has terms in wavelength, the fit does
+    not fail: it extrapolates without bound, at the wavelengths which do
+    have light as well.
     """
     system = _system_linearize()
 
@@ -2341,8 +2343,153 @@ def test_linearize_refuses_a_wavelength_with_no_light():
         y=na.ScalarArray(vertices, axes="field_y"),
     )
 
-    with pytest.raises(ValueError, match="admit at least one"):
+    with pytest.raises(ValueError, match="needs at least 2 wavelengths"):
         system.linearize(field=field, degree=1)
+
+    # and so do the models asked for on their own, which share the fits
+    with pytest.raises(ValueError, match="needs at least 2 wavelengths"):
+        system.vignetting(field=field, degree=1)
+    with pytest.raises(ValueError, match="needs at least 2 wavelengths"):
+        system.distortion(field=field, degree=1)
+
+
+def _field_dark_at_last(num_wavelength: int, num_dark: int) -> tuple:
+    """
+    Wavelengths and a normalized field grid which lies over the field of
+    view at every wavelength but the last `num_dark`, where it lies far
+    outside it.
+    """
+    wavelength = na.linspace(500, 600, axis="wavelength", num=num_wavelength)
+    offset = np.zeros(num_wavelength)
+    offset[num_wavelength - num_dark :] = 20
+    offset = na.ScalarArray(offset, axes="wavelength")
+    field = na.Cartesian2dVectorArray(
+        x=na.linspace(-1, 1, axis="field_x", num=9) + offset,
+        y=na.linspace(-1, 1, axis="field_y", num=9) + 0 * offset,
+    )
+    return wavelength * u.nm, field
+
+
+def test_linearize_fits_around_a_wavelength_with_no_light():
+    """
+    A wavelength which admits none of the sampled field is harmless while
+    the others still determine the polynomial.
+
+    The models fit with it are the models fit without it, at every
+    wavelength which has light, since it adds no calibration points.  Only
+    too few wavelengths with light leave the fit unconstrained.
+    """
+    system = _system_vignetted()
+    wavelength, field = _field_dark_at_last(num_wavelength=5, num_dark=1)
+    degree = 2
+
+    assert isinstance(
+        system.linearize(wavelength=wavelength, field=field, degree=degree),
+        optika.systems.LinearSystem,
+    )
+
+    axis_wavelength = ("wavelength",)
+    axis_field = ("field_x", "field_y")
+    pupil = system._pupil_vertices_default
+    axis_pupil = system._normalize_axis_pupil(
+        axis_pupil=None,
+        axis_field=axis_field,
+        axis_wavelength=axis_wavelength,
+        pupil=pupil,
+    )
+    stops, pupil_fit = system._stops_and_pupil_fit(wavelength, True)
+    rays, area = system._rayfunction_stratified(
+        wavelength=wavelength,
+        field=field,
+        pupil=pupil,
+        axis_field=axis_field,
+        axis_pupil=axis_pupil,
+        normalized_field=True,
+        normalized_pupil=True,
+        seed=0,
+        rayfunction_stops=stops,
+        pupil_fit=pupil_fit,
+    )
+
+    def fit(index):
+        cells = system._coordinates_scene_from_rays(
+            wavelength=wavelength[index],
+            field=field[index],
+            rayfunction_stops=stops,
+            normalized_field=True,
+        )
+        kwargs = dict(
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+            degree=degree,
+        )
+        vignetting = system._fit_vignetting(
+            rays=rays[index],
+            area=area[index],
+            coordinates_scene=cells,
+            **kwargs,
+        )
+        distortion = system._fit_distortion(
+            rays=rays[index],
+            coordinates_scene=cells,
+            **kwargs,
+        )
+        return vignetting, distortion
+
+    vignetting, distortion = fit(dict(wavelength=slice(None)))
+    vignetting_lit, distortion_lit = fit(dict(wavelength=slice(0, 4)))
+
+    scene = vignetting_lit.coordinates_sample
+    assert np.allclose(vignetting(scene), vignetting_lit(scene), rtol=0, atol=1e-9)
+    shift = distortion.distort(scene).position - distortion_lit.distort(scene).position
+    assert np.all(shift.length < 1e-6 * u.pix)
+
+    # with light at only two wavelengths, a quadratic in wavelength is not
+    # determined
+    wavelength, field = _field_dark_at_last(num_wavelength=5, num_dark=3)
+    with pytest.raises(ValueError, match="needs at least 3 wavelengths"):
+        system.linearize(wavelength=wavelength, field=field, degree=degree)
+
+
+def test_linearize_refuses_a_wavelength_with_no_light_when_uncertain():
+    """
+    The refusal holds for a system with uncertain parameters, and does not
+    fire for one which has light at every wavelength.
+
+    The truth value of an uncertain array is not whether any of its samples
+    is true, so a check written against one quietly passes; and a message
+    which counted the dark wavelengths by reading ``.ndarray`` failed with an
+    unrelated error before it could be raised.
+    """
+    system = _system_vignetted()
+    mirror, stop = system.surfaces
+    radius = na.NormalUncertainScalarArray(
+        nominal=stop.aperture.radius,
+        width=0.01 * u.mm,
+        num_distribution=3,
+        seed=1,
+    )
+    system = dataclasses.replace(
+        system,
+        surfaces=[
+            mirror,
+            dataclasses.replace(
+                stop,
+                aperture=optika.apertures.CircularAperture(radius),
+            ),
+        ],
+    )
+
+    vertices = np.array([5, 6, 7])
+    field = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(vertices, axes="field_x"),
+        y=na.ScalarArray(vertices, axes="field_y"),
+    )
+    with pytest.raises(ValueError, match="needs at least 2 wavelengths"):
+        system.linearize(field=field, degree=1)
+
+    assert isinstance(system.linearize(degree=1), optika.systems.LinearSystem)
 
 
 def test_linearize_weights_the_illumination_by_the_pupil_cell_areas(monkeypatch):
@@ -2378,39 +2525,46 @@ def test_normalized_axes_do_not_depend_on_set_ordering():
     seed, so deriving the axes from one made a seeded sample of the grid
     reproducible only within a single process: the axes came back
     transposed, and the sampler drew a different point in each cell.
+
+    A set of two names happens to iterate in grid order about half the time,
+    so one field and one pupil let set ordering pass a quarter of the time.
+    Twelve of each let it pass about once in :math:`2^{24}` runs.  The names
+    are in reverse alphabetical order, so that sorting them fails too.
     """
     system = _system_linearize()
-
-    axis_field = ("field_x", "field_y")
-    axis_pupil = ("pupil_x", "pupil_y")
-
-    field = na.Cartesian2dVectorLinearSpace(
-        start=-1,
-        stop=1,
-        axis=na.Cartesian2dVectorArray(*axis_field),
-        num=5,
-    )
-    pupil = na.Cartesian2dVectorLinearSpace(
-        start=-1,
-        stop=1,
-        axis=na.Cartesian2dVectorArray(*axis_pupil),
-        num=5,
-    )
 
     axis_wavelength_ = system._normalize_axis_wavelength(
         None,
         _grid_input_wavelength.wavelength,
     )
-    axis_field_ = system._normalize_axis_field(None, axis_wavelength_, field)
-    axis_pupil_ = system._normalize_axis_pupil(
-        axis_pupil=None,
-        axis_field=axis_field_,
-        axis_wavelength=axis_wavelength_,
-        pupil=pupil,
-    )
 
-    assert axis_field_ == axis_field
-    assert axis_pupil_ == axis_pupil
+    for i in range(12):
+        axis_field = (f"field_{i}_y", f"field_{i}_x")
+        axis_pupil = (f"pupil_{i}_y", f"pupil_{i}_x")
+
+        field = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(*axis_field),
+            num=5,
+        )
+        pupil = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(*axis_pupil),
+            num=5,
+        )
+
+        axis_field_ = system._normalize_axis_field(None, axis_wavelength_, field)
+        axis_pupil_ = system._normalize_axis_pupil(
+            axis_pupil=None,
+            axis_field=axis_field_,
+            axis_wavelength=axis_wavelength_,
+            pupil=pupil,
+        )
+
+        assert axis_field_ == axis_field
+        assert axis_pupil_ == axis_pupil
 
 
 def _system_with_launch_surface(transformation, fold: bool = False):

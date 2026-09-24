@@ -1804,7 +1804,9 @@ class AbstractSequentialSystem(
         Raises
         ------
         ValueError
-            If the wavelength grid does not vary along a single logical axis.
+            If the wavelength grid does not vary along a single logical axis,
+            or if fewer than ``degree + 1`` of its wavelengths admit any of
+            the sampled field positions.
         """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
@@ -1839,7 +1841,6 @@ class AbstractSequentialSystem(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
@@ -1938,7 +1939,9 @@ class AbstractSequentialSystem(
         Raises
         ------
         ValueError
-            If the wavelength grid does not vary along a single logical axis.
+            If the wavelength grid does not vary along a single logical axis,
+            or if fewer than ``degree + 1`` of its wavelengths admit any of
+            the sampled field positions.
         """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
@@ -1973,7 +1976,6 @@ class AbstractSequentialSystem(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
@@ -2017,8 +2019,7 @@ class AbstractSequentialSystem(
         Parameters
         ----------
         rays
-            The traced rays, from :meth:`_rayfunction_and_axes` or
-            :meth:`_rayfunction_stratified`.
+            The traced rays, from :meth:`_rayfunction_stratified`.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2031,12 +2032,15 @@ class AbstractSequentialSystem(
             The cells the rays were drawn from, from
             :meth:`_coordinates_scene_from_rays`.
         """
-        if not axis_wavelength:
-            raise ValueError(
-                "fitting a distortion model requires the wavelength grid "
-                "to vary along its own logical axis."
-            )
+        self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
+        self._check_lit_wavelengths(
+            rays=rays,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+            degree=degree,
+        )
 
         coordinates_sample = na.SpectralPositionalVectorArray(
             wavelength=rays.inputs.wavelength,
@@ -2072,9 +2076,10 @@ class AbstractSequentialSystem(
         Check that the wavelength grid varies along exactly one logical axis.
 
         Every model built by sampling this system is a function of a single
-        wavelength, so this is checked by :meth:`area_effective` and
-        :meth:`linearize` before either of them solves for the stops, which
-        is the expensive half of the work they would otherwise throw away.
+        wavelength.  The public methods check this before they solve for the
+        stops, which is the expensive half of the work they would otherwise
+        throw away, and the fits check it again, since each can be handed
+        rays on its own.
 
         Parameters
         ----------
@@ -2093,9 +2098,82 @@ class AbstractSequentialSystem(
             )
 
     @staticmethod
+    def _check_lit_wavelengths(
+        rays: optika.rays.RayFunctionArray,
+        axis_wavelength: str,
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+        degree: int,
+    ) -> None:
+        """
+        Check that enough wavelengths admit light to fit a polynomial of the
+        given degree in wavelength.
+
+        The distortion and vignetting models are polynomials in wavelength
+        and field position, fit only to the field positions which admit
+        light.  A polynomial of degree :math:`n` in wavelength needs light at
+        :math:`n + 1` wavelengths.  Given fewer, the fit does not fail: it
+        returns an arbitrarily large extrapolation, at the wavelengths which
+        have light as well as at the ones which do not.  Given enough, a
+        wavelength without light is harmless, since the others determine the
+        polynomial and the effective area there is zero.
+
+        Checked separately along every other axis, such as the channels of an
+        instrument, since each is fit on its own, and for every sample of a
+        system with uncertain parameters.
+
+        Parameters
+        ----------
+        rays
+            The traced rays.
+        axis_wavelength
+            The logical axis of changing wavelength.
+        axis_field
+            The logical axes of the field grid.
+        axis_pupil
+            The logical axes of the pupil grid.
+        degree
+            The degree of the polynomial to be fit.
+
+        Raises
+        ------
+        ValueError
+            If fewer than ``degree + 1`` wavelengths admit any of the sampled
+            field positions.
+        """
+        unvignetted = rays.outputs.unvignetted
+
+        # a system whose geometry does not depend on wavelength traces rays
+        # which do not vary along it, but each wavelength still counts
+        unvignetted = na.broadcast_to(
+            unvignetted,
+            na.shape_broadcasted(unvignetted, rays.inputs.wavelength),
+        )
+
+        lit = unvignetted.any(axis_pupil).any(axis_field)
+        short = lit.sum(axis_wavelength) <= degree
+
+        # the truth value of an uncertain array is not whether any of its
+        # samples is true, so the nominal value and the distribution are
+        # checked one at a time
+        if isinstance(short, na.AbstractUncertainScalarArray):
+            short = (short.nominal, short.distribution)
+        else:
+            short = (short,)
+
+        if any(bool(np.any(s)) for s in short):
+            raise ValueError(
+                f"Fitting a polynomial of degree {degree} in wavelength needs "
+                f"at least {degree + 1} wavelengths which admit some of the "
+                "sampled field positions, and fewer do.  Sample the field "
+                "more finely, or over the field of view of every wavelength, "
+                "or lower the degree."
+            )
+
+    @staticmethod
     def _mean_over_field(
         x: na.AbstractScalar,
-        where: bool | na.AbstractScalar,
+        where: na.AbstractScalar,
         axis_field: tuple[str, str],
     ) -> na.AbstractScalar:
         """
@@ -2160,12 +2238,15 @@ class AbstractSequentialSystem(
         degree
             The degree of the polynomial model.
         """
-        if not axis_wavelength:
-            raise ValueError(
-                "fitting a vignetting model requires the wavelength grid "
-                "to vary along its own logical axis."
-            )
+        self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
+        self._check_lit_wavelengths(
+            rays=rays,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            axis_pupil=axis_pupil,
+            degree=degree,
+        )
 
         coordinates_sample = na.SpectralPositionalVectorArray(
             wavelength=rays.inputs.wavelength,
@@ -2357,7 +2438,6 @@ class AbstractSequentialSystem(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
@@ -2379,7 +2459,6 @@ class AbstractSequentialSystem(
         wavelength: na.AbstractScalar,
         field: na.AbstractCartesian2dVectorArray,
         pupil: na.AbstractCartesian2dVectorArray,
-        axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
         normalized_field: bool,
@@ -2396,9 +2475,9 @@ class AbstractSequentialSystem(
         point drawn uniformly inside it, with each ray carrying the area of
         its pupil cell.
 
-        This is the trace behind :meth:`vignetting`, :meth:`area_effective`,
-        and :meth:`linearize`, which fit every one of their models to the rays
-        it returns.
+        This is the trace behind :meth:`distortion`, :meth:`vignetting`,
+        :meth:`area_effective`, and :meth:`linearize`, which fit every one of
+        their models to the rays it returns.
         The intensity of each ray on return is the area of its pupil cell
         times its throughput, and the area alone is returned alongside, for
         the models which weight by it but do not read the throughput.
@@ -2411,9 +2490,6 @@ class AbstractSequentialSystem(
             The vertices of the field grid.
         pupil
             The vertices of the pupil grid.
-        axis_wavelength
-            The normalized wavelength axis, which must have exactly one
-            element.
         axis_field
             The logical axes of the field grid.
         axis_pupil
@@ -2444,11 +2520,6 @@ class AbstractSequentialSystem(
         area
             The area of the pupil cell each ray stands for, for the models
             which weight by it but do not read the throughput.
-
-        Notes
-        -----
-        `axis_wavelength` must have exactly one element, which the public
-        methods check before they solve for the stops.
         """
         # Both grids are sampled once per cell, at a point drawn uniformly
         # inside it.  Stratifying this way rather than taking the cell centers
@@ -2566,6 +2637,7 @@ class AbstractSequentialSystem(
         `axis_wavelength` must have exactly one element, which the public
         methods check before they solve for the stops.
         """
+        self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
 
         unvignetted = rays.outputs.unvignetted
@@ -2663,7 +2735,9 @@ class AbstractSequentialSystem(
         Raises
         ------
         ValueError
-            If the wavelength grid does not vary along a single logical axis.
+            If the wavelength grid does not vary along a single logical axis,
+            or if fewer than ``degree + 1`` of its wavelengths admit any of
+            the sampled field positions.
         """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
@@ -2700,7 +2774,6 @@ class AbstractSequentialSystem(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
@@ -2709,24 +2782,6 @@ class AbstractSequentialSystem(
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
         )
-
-        # Every model below is a polynomial in wavelength and field
-        # position, fit only to the field positions which admit light.  A
-        # wavelength which admits none leaves that polynomial with nothing to
-        # constrain it there, and the fit does not fail: it returns an
-        # arbitrarily large extrapolation, at the wavelengths which do have
-        # light as well as at the one which does not.  Refuse it here, where
-        # the cause can still be named, rather than hand back a model which
-        # is silently wrong everywhere.
-        illuminated = rays.outputs.unvignetted.any(axis_pupil).any(axis_field)
-        if not np.all(illuminated):
-            raise ValueError(
-                "Linearizing this system requires that every wavelength "
-                "admit at least one of the sampled field positions, and "
-                f"{np.count_nonzero(~illuminated.ndarray)} of "
-                f"{illuminated.size} do not.  Sample the field more finely, "
-                "or over the field of view of every wavelength."
-            )
 
         # the cells the rays were drawn from, which both fitted models carry
         coordinates_scene = self._coordinates_scene_from_rays(
@@ -2784,84 +2839,6 @@ class AbstractSequentialSystem(
                 degree=degree,
             ),
         )
-
-    def _rayfunction_and_axes(
-        self,
-        wavelength: None | u.Quantity | na.AbstractScalar = None,
-        field: None | na.AbstractCartesian2dVectorArray = None,
-        pupil: None | na.AbstractCartesian2dVectorArray = None,
-        normalized_field: bool = True,
-        normalized_pupil: bool = True,
-        efficiency: bool = True,
-    ) -> tuple[
-        optika.rays.RayFunctionArray,
-        tuple[str, ...],
-        tuple[str, str],
-        tuple[str, str],
-    ]:
-        """
-        Trace the given grids through this system and return the resulting
-        rays along with the normalized wavelength, field, and pupil axes.
-
-        If all of the grids are :obj:`None`, :attr:`rayfunction_default` and
-        the normalized axes of :attr:`grid_input` are used.
-        Otherwise, the rays are computed with :meth:`rayfunction` and the
-        axes are inferred from the resulting inputs, so that grids left as
-        :obj:`None` inherit the corresponding component of :attr:`grid_input`.
-
-        Parameters
-        ----------
-        wavelength
-            The wavelengths of the input rays.
-        field
-            The field positions of the input rays, in either normalized or
-            physical units.
-        pupil
-            The pupil positions of the input rays, in either normalized or
-            physical units.
-        normalized_field
-            A boolean flag indicating whether the `field` parameter is given
-            in normalized or physical units.
-        normalized_pupil
-            A boolean flag indicating whether the `pupil` parameter is given
-            in normalized or physical units.
-        efficiency
-            A boolean flag indicating whether to accumulate the efficiency of
-            each surface into
-            :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
-            Ignored if all of the grids are :obj:`None`, since
-            :attr:`rayfunction_default` is then returned as-is.
-        """
-        if wavelength is None and field is None and pupil is None:
-            rays = self.rayfunction_default
-            axis_wavelength = self.axis_wavelength_
-            axis_field = self.axis_field_
-            axis_pupil = self.axis_pupil_
-        else:
-            rays = self.rayfunction(
-                wavelength=wavelength,
-                field=field,
-                pupil=pupil,
-                normalized_field=normalized_field,
-                normalized_pupil=normalized_pupil,
-                efficiency=efficiency,
-            )
-            axis_wavelength = self._normalize_axis_wavelength(
-                axis_wavelength=None,
-                wavelength=rays.inputs.wavelength,
-            )
-            axis_field = self._normalize_axis_field(
-                axis_field=None,
-                axis_wavelength=axis_wavelength,
-                field=rays.inputs.field,
-            )
-            axis_pupil = self._normalize_axis_pupil(
-                axis_pupil=None,
-                axis_field=axis_field,
-                axis_wavelength=axis_wavelength,
-                pupil=rays.inputs.pupil,
-            )
-        return rays, axis_wavelength, axis_field, axis_pupil
 
     def plot(
         self,
