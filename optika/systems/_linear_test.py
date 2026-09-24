@@ -35,12 +35,13 @@ def _vignetting() -> optika.radiometry.PolynomialVignettingModel:
             start=-10 * u.arcsec,
             stop=+10 * u.arcsec,
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-            num=5,
+            num=6,
         ),
     )
+    centers = scene.cell_centers(("field_x", "field_y"))
     return optika.radiometry.PolynomialVignettingModel(
         coordinates_scene=scene,
-        illumination=1 - 0.001 * (scene.position.length / u.arcsec) ** 2,
+        illumination=1 - 0.001 * (centers.position.length / u.arcsec) ** 2,
         axis_wavelength="wavelength",
         axis_field=("field_x", "field_y"),
         degree=2,
