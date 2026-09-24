@@ -1095,12 +1095,18 @@ class AbstractSequentialSystem(
     def field_stop_polygon(
         self,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
+        envelope: bool = True,
     ) -> optika.apertures.PolygonalAperture:
         """
         The field of view of this system as a polygon in field coordinates.
 
-        The polygon bounds every field position which passes any light: in
-        angle if the object is at infinity, and in position if it is not.
+        By default the polygon bounds every field position which passes any
+        light: in angle if the object is at infinity, and in position if it
+        is not.  With `envelope` unset it is instead the half-light outline,
+        each vertex the ray through one point on the edge of the field stop
+        averaged over the pupil, which is where a measured edge of the field
+        of view sits, since the midpoint of the falloff across a soft edge
+        is where half of the pupil clears the stop.
         Each vertex is the ray which grazes one point on the edge of the
         field stop and lands farthest out on the object, of all the rays
         through that point from the edge of the pupil stop.
@@ -1129,13 +1135,14 @@ class AbstractSequentialSystem(
         :class:`~optika.radiometry.PolynomialFieldStopModel`.
 
         Parameters
-
-        Parameters
         ----------
         wavelength
             The wavelengths at which to solve for the stop rays.
             If :obj:`None` (the default), ``self.grid_input.wavelength``
             is used, and the cached :attr:`rayfunction_stops` are read.
+        envelope
+            Whether to bound every field position which passes any light,
+            or to trace the half-light outline.
         """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
@@ -1143,11 +1150,12 @@ class AbstractSequentialSystem(
             wavelength,
             normalized_pupil=False,
         )
-        return self._field_stop_polygon_from_rays(rayfunction_stops)
+        return self._field_stop_polygon_from_rays(rayfunction_stops, envelope)
 
     def _field_stop_polygon_from_rays(
         self,
         rayfunction_stops: optika.rays.RayFunctionArray,
+        envelope: bool = True,
     ) -> optika.apertures.PolygonalAperture:
         """
         Build :meth:`field_stop_polygon` from stop rays already solved.
@@ -1157,18 +1165,25 @@ class AbstractSequentialSystem(
         rayfunction_stops
             The rays grazing the edges of both stops, in the frame of the
             object surface, as :attr:`rayfunction_stops` gives them.
+        envelope
+            Whether to bound every field position which passes any light,
+            or to trace the half-light outline.
         """
         axis_field_stop = self.axis_field_stop
         axis_pupil_stop = self.axis_pupil_stop
 
         field, _ = self._field_and_pupil(rayfunction_stops.outputs)
 
-        # of the rays through each point on the edge of the field stop, the
-        # one which lands farthest from the center of the field of view
-        center = field.mean((axis_field_stop, axis_pupil_stop))
-        offset = field - center
-        distance = np.square(offset.x) + np.square(offset.y)
-        field = field[np.argmax(distance, axis=axis_pupil_stop)]
+        if envelope:
+            # of the rays through each point on the edge of the field stop,
+            # the one which lands farthest from the center of the field of
+            # view
+            center = field.mean((axis_field_stop, axis_pupil_stop))
+            offset = field - center
+            distance = np.square(offset.x) + np.square(offset.y)
+            field = field[np.argmax(distance, axis=axis_pupil_stop)]
+        else:
+            field = field.mean(axis_pupil_stop)
 
         # :class:`~optika.apertures.PolygonalAperture` reads its vertices
         # along an axis named ``vertex``.  Combining the one axis into it
@@ -2666,19 +2681,20 @@ class AbstractSequentialSystem(
             axis=tuple(ax for ax in axis_grid if ax in na.shape(direction)),
         )
 
+        def model(envelope: bool) -> optika.radiometry.PolynomialFieldStopModel:
+            return optika.radiometry.PolynomialFieldStopModel(
+                wavelength=wavelength,
+                vertices=self._field_stop_polygon_from_rays(
+                    rayfunction_stops,
+                    envelope=envelope,
+                ).vertices.xy,
+                axis_wavelength=axis_wavelength[0],
+                degree=degree,
+            )
+
         return LinearSystem(
-            field_stop=(
-                optika.radiometry.PolynomialFieldStopModel(
-                    wavelength=wavelength,
-                    vertices=self._field_stop_polygon_from_rays(
-                        rayfunction_stops
-                    ).vertices.xy,
-                    axis_wavelength=axis_wavelength[0],
-                    degree=degree,
-                )
-                if field_stop
-                else None
-            ),
+            field_stop=model(envelope=True) if field_stop else None,
+            outline=model(envelope=False) if field_stop else None,
             area_effective=self._fit_area_effective(
                 rays=rays,
                 axis_wavelength=axis_wavelength,

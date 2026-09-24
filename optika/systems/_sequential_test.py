@@ -660,6 +660,12 @@ class AbstractTestAbstractSequentialSystem(
         outer = distance(result.vertices)
         inner = distance(chief)
         assert np.all(outer >= inner * (1 - 1e-9))
+        # the half-light outline is that chief-ray outline
+        half = a.field_stop_polygon(envelope=False)
+        assert np.allclose(
+            na.value(half.vertices.x).ndarray,
+            na.value(chief.x).ndarray_aligned(half.vertices.x.axes),
+        )
 
     def test_linearize_field_stop(self, a: optika.systems.AbstractSequentialSystem):
         if not a.axis_wavelength_:
@@ -681,6 +687,20 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(footprint, na.AbstractCartesian2dVectorArray)
         assert "wire" in na.shape(footprint)
         assert np.all(np.isfinite(na.value(footprint.x).ndarray))
+        # the envelope encloses the half-light outline it is mapped beside
+        assert isinstance(result.outline, optika.radiometry.PolynomialFieldStopModel)
+        envelope = result.footprint(wavelength, envelope=True)
+        center_x = footprint.x.mean("wire")
+        center_y = footprint.y.mean("wire")
+        radius = np.sqrt(
+            np.square(footprint.x - center_x) + np.square(footprint.y - center_y)
+        ).mean("wire")
+        radius_envelope = np.sqrt(
+            np.square(envelope.x - center_x) + np.square(envelope.y - center_y)
+        ).mean("wire")
+        assert np.all(
+            na.value(radius_envelope).ndarray >= na.value(radius).ndarray * (1 - 1e-6)
+        )
         # without a stop there is nothing to outline
         without = a.linearize(field_stop=False)
         assert without.field_stop is None

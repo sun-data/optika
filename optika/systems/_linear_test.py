@@ -134,11 +134,19 @@ class AbstractTestAbstractLinearSystem(
         else:
             assert isinstance(result, optika.radiometry.AbstractFieldStopModel)
 
+    def test_outline(self, a: optika.systems.AbstractLinearSystem):
+        result = a.outline
+        assert result is None or isinstance(
+            result, optika.radiometry.AbstractFieldStopModel
+        )
+
     def test_footprint(self, a: optika.systems.AbstractLinearSystem):
         wavelength = 550 * u.nm
         if a.field_stop is None:
             with pytest.raises(ValueError):
                 a.footprint(wavelength)
+            with pytest.raises(ValueError):
+                a.footprint(wavelength, envelope=True)
         else:
             # one outline at a single wavelength, one per wavelength at many
             result = a.footprint(wavelength)
