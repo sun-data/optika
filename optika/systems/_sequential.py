@@ -253,8 +253,12 @@ class AbstractSequentialSystem(
             A grid of wavelength coordinates.
         """
         if axis_wavelength is None:
-            axis_wavelength = set(wavelength.shape) - set(self.shape)
-            axis_wavelength = tuple(axis_wavelength)
+            # in the order the grid itself carries them, not the order a set
+            # happens to iterate in, which varies between interpreters and
+            # would make a seeded sample of this grid irreproducible
+            axis_wavelength = tuple(
+                ax for ax in wavelength.shape if ax not in self.shape
+            )
             if len(axis_wavelength) > 1:  # pragma: nocover
                 raise ValueError(
                     "if `axis_wavelength` is `None`, "
@@ -286,8 +290,13 @@ class AbstractSequentialSystem(
             A grid of field coordinates.
         """
         if axis_field is None:
-            axis_field = set(field.shape) - set(self.shape)
-            axis_field = tuple(axis_field - set(axis_wavelength))
+            # in the order the grid itself carries them; see
+            # :meth:`_normalize_axis_wavelength`
+            axis_field = tuple(
+                ax
+                for ax in field.shape
+                if ax not in self.shape and ax not in axis_wavelength
+            )
             if len(axis_field) != 2:  # pragma: nocover
                 raise ValueError(
                     "if `axis_field` is `None`, "
@@ -320,8 +329,15 @@ class AbstractSequentialSystem(
             A grid of pupil coordinates.
         """
         if axis_pupil is None:
-            axis_pupil = set(pupil.shape) - set(self.shape)
-            axis_pupil = tuple(axis_pupil - set(axis_wavelength) - set(axis_field))
+            # in the order the grid itself carries them; see
+            # :meth:`_normalize_axis_wavelength`
+            axis_pupil = tuple(
+                ax
+                for ax in pupil.shape
+                if ax not in self.shape
+                and ax not in axis_wavelength
+                and ax not in axis_field
+            )
             if len(axis_pupil) != 2:  # pragma: nocover
                 raise ValueError(
                     "if `axis_pupil` is `None`, "
@@ -1809,6 +1825,8 @@ class AbstractSequentialSystem(
             pupil=pupil,
         )
 
+        self._check_axis_wavelength(axis_wavelength)
+
         rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
             wavelength,
             normalized_pupil,
@@ -1941,6 +1959,8 @@ class AbstractSequentialSystem(
             pupil=pupil,
         )
 
+        self._check_axis_wavelength(axis_wavelength)
+
         rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
             wavelength,
             normalized_pupil,
@@ -2046,6 +2066,66 @@ class AbstractSequentialSystem(
             where=where,
         )
 
+    @staticmethod
+    def _check_axis_wavelength(axis_wavelength: tuple[str, ...]) -> None:
+        """
+        Check that the wavelength grid varies along exactly one logical axis.
+
+        Every model built by sampling this system is a function of a single
+        wavelength, so this is checked by :meth:`area_effective` and
+        :meth:`linearize` before either of them solves for the stops, which
+        is the expensive half of the work they would otherwise throw away.
+
+        Parameters
+        ----------
+        axis_wavelength
+            The normalized wavelength axis.
+
+        Raises
+        ------
+        ValueError
+            If `axis_wavelength` does not have exactly one element.
+        """
+        if len(axis_wavelength) != 1:
+            raise ValueError(
+                "Sampling this system requires that the wavelength grid vary "
+                f"along exactly one logical axis, got {axis_wavelength}"
+            )
+
+    @staticmethod
+    def _mean_over_field(
+        x: na.AbstractScalar,
+        where: bool | na.AbstractScalar,
+        axis_field: tuple[str, str],
+    ) -> na.AbstractScalar:
+        """
+        Average a quantity over the field positions inside the field of view.
+
+        :meth:`_fit_vignetting` normalizes its illumination by this and
+        :meth:`_fit_area_effective` returns it, and the two have to be the
+        same average: :class:`~optika.systems.LinearSystem` multiplies those
+        models together, so an average taken over a different set of field
+        positions than the other is normalized over would rescale the result
+        by the ratio of the two sets.
+
+        Written as a sum over a count rather than as a mean with `where`, so
+        that a wavelength which no sampled field position admits comes out as
+        zero rather than as the undefined average of an empty set.  That is
+        reachable whenever the field is sampled coarsely enough, and a `nan`
+        there would carry silently into whatever is built from it.
+
+        Parameters
+        ----------
+        x
+            The quantity to average.
+        where
+            Which field positions lie inside the field of view.
+        axis_field
+            The logical axes of the field grid.
+        """
+        num = where.sum(axis_field)
+        return x.sum(axis=axis_field, where=where) / np.where(num > 0, num, 1)
+
     def _fit_vignetting(
         self,
         rays: optika.rays.RayFunctionArray,
@@ -2106,19 +2186,15 @@ class AbstractSequentialSystem(
         )
 
         # Normalized over the field positions inside the field of view, the
-        # same ones :meth:`_fit_area_effective` averages over.  Written as a
-        # sum over a count rather than as a mean with `where`, so that a
-        # wavelength which no sampled field position admits leaves the
-        # illumination at zero rather than at the undefined average of an
-        # empty set.  The effective area is zero there too, and
-        # :class:`~optika.systems.LinearSystem` multiplies the two, so a
-        # `nan` here would turn every image at that wavelength into `nan`.
-        num = where.sum(axis_field)
-        mean = illumination.sum(axis=axis_field, where=where) / np.where(
-            num > 0, num, 1
-        )
+        # same ones :meth:`_fit_area_effective` averages over.  A wavelength
+        # which no sampled field position admits leaves the illumination at
+        # zero rather than at `nan`, which the mean of an empty set would
+        # give.  The polynomial fit below is a separate matter: it has
+        # nothing to constrain it at such a wavelength, which is why
+        # :meth:`linearize` refuses to fit one at all.
+        mean = self._mean_over_field(illumination, where, axis_field)
         illumination = illumination / np.where(
-            num > 0,
+            mean != 0,
             mean,
             1 * na.unit_normalized(mean),
         )
@@ -2270,6 +2346,8 @@ class AbstractSequentialSystem(
             pupil=pupil,
         )
 
+        self._check_axis_wavelength(axis_wavelength)
+
         rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
             wavelength,
             normalized_pupil,
@@ -2367,18 +2445,11 @@ class AbstractSequentialSystem(
             The area of the pupil cell each ray stands for, for the models
             which weight by it but do not read the throughput.
 
-        Raises
-        ------
-        ValueError
-            If the wavelength grid does not vary along a single logical axis,
-            which every model fit to these rays needs.
+        Notes
+        -----
+        `axis_wavelength` must have exactly one element, which the public
+        methods check before they solve for the stops.
         """
-        if len(axis_wavelength) != 1:
-            raise ValueError(
-                "Fitting a model to these rays requires that there be only "
-                f"one wavelength axis, got {axis_wavelength}"
-            )
-
         # Both grids are sampled once per cell, at a point drawn uniformly
         # inside it.  Stratifying this way rather than taking the cell centers
         # keeps the quadrature from aliasing against the edge of the field
@@ -2486,16 +2557,15 @@ class AbstractSequentialSystem(
         axis_pupil
             The normalized pupil axes of `rays`.
 
-        Raises
-        ------
-        ValueError
-            If the wavelength grid does not vary along a single logical axis.
+        Returns
+        -------
+        The effective area, interpolated over wavelength.
+
+        Notes
+        -----
+        `axis_wavelength` must have exactly one element, which the public
+        methods check before they solve for the stops.
         """
-        if len(axis_wavelength) != 1:
-            raise ValueError(
-                "Computing the effective area requires that there be only "
-                f"one wavelength axis, got {axis_wavelength}"
-            )
         (axis_wavelength,) = axis_wavelength
 
         unvignetted = rays.outputs.unvignetted
@@ -2506,25 +2576,11 @@ class AbstractSequentialSystem(
         )
 
         # Field positions with no unvignetted rays lie outside the field of
-        # view and are excluded, exactly as :meth:`vignetting` excludes them
-        # when it normalizes its illumination.  The two are multiplied
-        # together by :class:`~optika.systems.LinearSystem`, so an average
-        # taken over a different set of field positions than the vignetting
-        # model is normalized over would rescale the result by the ratio of
-        # the two sets.
-        # Written as a sum over a count rather than as a mean with `where`,
-        # so that a wavelength which no sampled field position admits comes
-        # out as no effective area rather than as the undefined average of an
-        # empty set.  That is reachable whenever the field is sampled coarsely
-        # enough, and a `nan` there would carry silently into every image the
-        # resulting model produces.
+        # view and are excluded, exactly as :meth:`_fit_vignetting` excludes
+        # them when it normalizes its illumination; see
+        # :meth:`_mean_over_field` for why the two have to agree.
         illuminated = unvignetted.any(axis_pupil)
-        num = illuminated.sum(axis_field)
-        area_eff = area_eff.sum(axis=axis_field, where=illuminated) / np.where(
-            num > 0,
-            num,
-            1,
-        )
+        area_eff = self._mean_over_field(area_eff, illuminated, axis_field)
 
         return optika.radiometry.InterpolatedEffectiveAreaModel(
             wavelength=rays.inputs.wavelength,
@@ -2628,6 +2684,8 @@ class AbstractSequentialSystem(
             pupil=pupil,
         )
 
+        self._check_axis_wavelength(axis_wavelength)
+
         # Solving for the stops and calibrating the entrance pupil depend on
         # nothing but the wavelengths, so solve once and hand the result to
         # the trace.
@@ -2651,6 +2709,24 @@ class AbstractSequentialSystem(
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
         )
+
+        # Every model below is a polynomial in wavelength and field
+        # position, fit only to the field positions which admit light.  A
+        # wavelength which admits none leaves that polynomial with nothing to
+        # constrain it there, and the fit does not fail: it returns an
+        # arbitrarily large extrapolation, at the wavelengths which do have
+        # light as well as at the one which does not.  Refuse it here, where
+        # the cause can still be named, rather than hand back a model which
+        # is silently wrong everywhere.
+        illuminated = rays.outputs.unvignetted.any(axis_pupil).any(axis_field)
+        if not np.all(illuminated):
+            raise ValueError(
+                "Linearizing this system requires that every wavelength "
+                "admit at least one of the sampled field positions, and "
+                f"{np.count_nonzero(~illuminated.ndarray)} of "
+                f"{illuminated.size} do not.  Sample the field more finely, "
+                "or over the field of view of every wavelength."
+            )
 
         # the cells the rays were drawn from, which both fitted models carry
         coordinates_scene = self._coordinates_scene_from_rays(
