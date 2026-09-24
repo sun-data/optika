@@ -639,20 +639,28 @@ class AbstractTestAbstractSequentialSystem(
         assert "vertex" in na.shape(result.vertices)
         assert a.axis_field_stop not in na.shape(result.vertices)
         assert a.axis_pupil_stop not in na.shape(result.vertices)
-        # the polygon is the pupil average of the outline of the field
-        boundary = a.field_boundary.mean(a.axis_pupil_stop)
-        axes = tuple(
-            a.axis_field_stop if axis == "vertex" else axis
-            for axis in result.vertices.x.axes
+
+        # every vertex lies at least as far out as the chief-ray outline of
+        # the field stop, since the polygon bounds every field position which
+        # passes any light and not only those which pass half of it
+        boundary = a.field_boundary
+        center = boundary.mean(a.axis_stops)
+        chief = boundary.mean(a.axis_pupil_stop)
+        chief = na.Cartesian2dVectorArray(
+            x=chief.x.combine_axes(axes=(a.axis_field_stop,), axis_new="vertex"),
+            y=chief.y.combine_axes(axes=(a.axis_field_stop,), axis_new="vertex"),
         )
-        assert np.allclose(
-            na.value(result.vertices.x).ndarray,
-            na.value(boundary.x).ndarray_aligned(axes),
-        )
+
+        def distance(v):
+            return np.sqrt(np.square(v.x - center.x) + np.square(v.y - center.y))
+
+        outer = distance(result.vertices)
+        inner = distance(chief)
+        assert np.all(outer >= inner * (1 - 1e-9))
 
     def test_linearize_field_stop(self, a: optika.systems.AbstractSequentialSystem):
         if not a.axis_wavelength_:
-            return
+            pytest.skip("linearizing needs a wavelength grid with its own axis")
         result = a.linearize(field_stop=True)
         assert isinstance(result.field_stop, optika.apertures.PolygonalAperture)
         # the center of the field is inside the stop, and the outline lands
@@ -881,7 +889,9 @@ def test_area_effective_ignores_field_outside_the_field_of_view():
     assert np.allclose(result_extended.area, result.area, rtol=0.1)
 
 
-def _system_vignetted() -> optika.systems.SequentialSystem:
+def _system_vignetted(
+    radius_field_stop: u.Quantity | na.AbstractScalar = 0.96 * u.mm,
+) -> optika.systems.SequentialSystem:
     """
     A system whose field stop is a circle rather than the sensor.
 
@@ -889,6 +899,14 @@ def _system_vignetted() -> optika.systems.SequentialSystem:
     field stop shaped like the sensor fills it and nothing is vignetted.  A
     round one leaves the corners dark, which is what a system like ESIS
     actually looks like and what makes the vignetting model do any work.
+
+    The field stop sits a millimeter from the focus of the mirror, so the
+    edge of the field of view is soft.
+
+    Parameters
+    ----------
+    radius_field_stop
+        The radius of the field stop.
     """
     surfaces = [
         optika.surfaces.Surface(
@@ -901,7 +919,7 @@ def _system_vignetted() -> optika.systems.SequentialSystem:
         ),
         optika.surfaces.Surface(
             name="field stop",
-            aperture=optika.apertures.CircularAperture(0.96 * u.mm),
+            aperture=optika.apertures.CircularAperture(radius_field_stop),
             is_field_stop=True,
             transformation=na.transformations.Cartesian3dTranslation(z=2 * u.mm),
         ),
@@ -984,6 +1002,139 @@ def test_linearize_conserves_flux():
     # different set of field positions than the vignetting model is
     # normalized over would put this near 0.56, which the tolerance excludes.
     assert np.allclose(result, expected, rtol=0.15)
+
+
+def _scene_annulus(
+    radius_inner: u.Quantity,
+    radius_outer: u.Quantity,
+    extent: u.Quantity,
+    num: int = 44,
+) -> na.FunctionArray:
+    """
+    A uniform scene lit only between two radii about the center of the
+    field, on a square grid of cells spanning `extent` either side of it.
+    """
+    x = na.linspace(-extent, extent, axis="field_x", num=num + 1)
+    y = na.linspace(-extent, extent, axis="field_y", num=num + 1)
+    radius = np.sqrt(
+        np.square(x.cell_centers("field_x")) + np.square(y.cell_centers("field_y"))
+    )
+    lit = (radius >= radius_inner) & (radius <= radius_outer)
+    return na.FunctionArray(
+        inputs=na.SpectralPositionalVectorArray(
+            wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
+            position=na.Cartesian2dVectorArray(x=x, y=y),
+        ),
+        outputs=1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm * lit,
+    )
+
+
+def test_field_stop_polygon_bounds_the_field_of_view():
+    """
+    The field-stop polygon holds all the light the system passes.
+
+    The field stop of this system is out of focus, so the edge of its field
+    of view is soft: a field position a little outside the image of the stop
+    still passes part of its pupil.  The chief-ray outline of the stop cuts
+    through that edge and leaves about an eighth of the light outside it.
+    """
+    system = _system_vignetted()
+    polygon = system.field_stop_polygon()
+
+    rays = system.rayfunction(
+        field=na.Cartesian2dVectorLinearSpace(
+            start=-2,
+            stop=2,
+            axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+            num=61,
+        ),
+        pupil=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+            num=25,
+        ),
+        efficiency=False,
+    )
+    transmission = rays.outputs.unvignetted.mean(("pupil_x", "pupil_y"))
+    inside = polygon(
+        na.Cartesian3dVectorArray(x=rays.inputs.field.x, y=rays.inputs.field.y),
+    )
+    inside = na.broadcast_to(inside, na.shape(transmission))
+
+    outside = transmission.sum(where=~inside) / transmission.sum()
+    assert outside < 1e-3
+
+
+def test_linearize_field_stop_keeps_the_soft_edge_of_the_field():
+    """
+    The field stop of a linearized system passes the whole soft edge of the
+    field of view, and leaves its falloff to the vignetting model.
+
+    The scene here lies between the chief-ray outline of an out-of-focus
+    field stop and the outermost field position which passes any light.
+    That light reaches the sensor, and a field stop at the chief-ray outline
+    would block all of it.
+    """
+    system = _system_vignetted()
+    scene = _scene_annulus(
+        radius_inner=0.58 * u.deg,
+        radius_outer=0.68 * u.deg,
+        extent=1.1 * u.deg,
+    )
+
+    with_stop = system.linearize(field_stop=True).image(scene, noise=False)
+    without_stop = system.linearize().image(scene, noise=False)
+
+    assert np.all(without_stop.outputs.sum() > 0 * without_stop.outputs.unit)
+    assert np.allclose(with_stop.outputs, without_stop.outputs)
+
+
+def test_linearize_field_stop_blocks_light_from_outside_the_field_of_view():
+    """
+    The field stop of a linearized system blocks light from beyond the field
+    of view which would otherwise land on the sensor.
+
+    The field stop here is small enough that its field of view sits well
+    inside the sensor's, and the vignetting model is removed so that nothing
+    but the field stop can keep that light off the sensor.  A polynomial
+    vignetting model which falls off steeply does that job by accident, as
+    it does in this system, but one which is nearly flat, like that of ESIS,
+    does not.
+    """
+    system = _system_vignetted(radius_field_stop=0.35 * u.mm)
+    scene = _scene_annulus(
+        radius_inner=0.41 * u.deg,
+        radius_outer=0.54 * u.deg,
+        extent=0.6 * u.deg,
+    )
+
+    linear = dataclasses.replace(system.linearize(field_stop=True), vignetting=None)
+    with_stop = linear.image(scene, noise=False).outputs.sum()
+    without_stop = dataclasses.replace(linear, field_stop=None)
+    without_stop = without_stop.image(scene, noise=False).outputs.sum()
+    raytraced = system.image(scene, noise=False).outputs.sum()
+
+    assert np.all(raytraced == 0 * raytraced.unit)
+    assert np.all(without_stop > 0 * without_stop.unit)
+    assert np.all(with_stop == 0 * with_stop.unit)
+
+
+def test_field_stop_polygon_of_an_uncertain_system():
+    """
+    The field-stop polygon of a system with uncertain parameters carries
+    their uncertainty, rather than failing to read the vertices.
+    """
+    radius = na.NormalUncertainScalarArray(
+        nominal=0.96 * u.mm,
+        width=0.01 * u.mm,
+        num_distribution=3,
+        seed=1,
+    )
+    polygon = _system_vignetted(radius_field_stop=radius).field_stop_polygon()
+
+    assert isinstance(polygon.vertices.x, na.UncertainScalarArray)
+    assert set(na.shape(polygon.vertices)) == {"vertex"}
 
 
 def test_area_effective_without_any_illuminated_field():

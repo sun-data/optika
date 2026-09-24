@@ -1099,11 +1099,28 @@ class AbstractSequentialSystem(
         """
         The field of view of this system as a polygon in field coordinates.
 
-        The vertices are the field coordinates of the rays which graze the
-        edge of the field stop, averaged over the pupil, so the polygon is
-        the image of the field stop on the object: in angle if the object is
-        at infinity, and in position if it is not.  A field stop ahead of
-        every dispersive element gives the same polygon at every wavelength.
+        The polygon bounds every field position which passes any light: in
+        angle if the object is at infinity, and in position if it is not.
+        Each vertex is the ray which grazes one point on the edge of the
+        field stop and lands farthest out on the object, of all the rays
+        through that point from the edge of the pupil stop.
+
+        A field stop at an image of the object passes a field position
+        whole or not at all, and every ray through a point on its edge lands
+        at the same place, so the polygon is then the image of the stop.
+        One which is not at an image has a soft edge: a field position a
+        little outside the image of the stop still passes the part of its
+        pupil which clears it.  The polygon includes that part, since the
+        vignetting and effective-area models of :meth:`linearize` are
+        normalized over every field position which passes any light, and a
+        field stop which excluded some of them would rescale both.  The
+        falloff across the soft edge is the vignetting model's to describe.
+
+        The outermost ray is found by its distance from the center of the
+        field of view, so the field of view is taken to be star-shaped about
+        its center, as the convex field stops of real instruments are.
+
+        Parameters
 
         Parameters
         ----------
@@ -1133,18 +1150,23 @@ class AbstractSequentialSystem(
             The rays grazing the edges of both stops, in the frame of the
             object surface, as :attr:`rayfunction_stops` gives them.
         """
+        axis_field_stop = self.axis_field_stop
+        axis_pupil_stop = self.axis_pupil_stop
+
         field, _ = self._field_and_pupil(rayfunction_stops.outputs)
-        field = field.mean(self.axis_pupil_stop)
 
-        def rename(a: na.AbstractScalar) -> na.ScalarArray:
-            a = na.as_named_array(a)
-            axes = tuple(
-                "vertex" if axis == self.axis_field_stop else axis for axis in a.axes
-            )
-            return na.ScalarArray(a.ndarray, axes=axes)
+        # of the rays through each point on the edge of the field stop, the
+        # one which lands farthest from the center of the field of view
+        center = field.mean((axis_field_stop, axis_pupil_stop))
+        offset = field - center
+        distance = np.square(offset.x) + np.square(offset.y)
+        field = field[np.argmax(distance, axis=axis_pupil_stop)]
 
-        x = rename(field.x)
-        y = rename(field.y)
+        # :class:`~optika.apertures.PolygonalAperture` reads its vertices
+        # along an axis named ``vertex``.  Combining the one axis into it
+        # renames it for any kind of array, uncertain ones included.
+        x = field.x.combine_axes(axes=(axis_field_stop,), axis_new="vertex")
+        y = field.y.combine_axes(axes=(axis_field_stop,), axis_new="vertex")
         return optika.apertures.PolygonalAperture(
             vertices=na.Cartesian3dVectorArray(x=x, y=y, z=0 * x),
         )
