@@ -131,6 +131,40 @@ class AbstractAperture(
             wire.
         """
 
+    def rings(
+        self,
+        num: None | int = None,
+    ) -> tuple[na.AbstractCartesian3dVectorArray, na.AbstractCartesian3dVectorArray]:
+        """
+        The outer and inner boundaries of this aperture, sampled so that they
+        pair point by point.
+
+        The two are returned as ``(outer, inner)``, each a sequence of `num`
+        points along the axis ``wire`` in surface coordinates, and the
+        :math:`i`-th point of one lies across the aperture from the
+        :math:`i`-th point of the other.  Both run the same way round, and
+        both close on themselves, so that the first and last points of each
+        coincide, unless the aperture is restricted to a sector, in which
+        case both are the arcs of that sector.  The straight line joining a
+        pair of points then lies inside the aperture, and the pairs sweep it
+        out as they go around: this is what a polar sampling of the aperture
+        is built on.
+
+        An aperture with no hole has no inner boundary, so its inner ring is
+        the center of its extent repeated at every point, and its outer ring
+        is :meth:`wire`.  An aperture with a hole returns the two edges of
+        the hole and of the aperture at the same azimuths.
+
+        Parameters
+        ----------
+        num
+            The number of samples along each ring.
+        """
+        outer = self.wire(num=num)
+        inner = (outer.min("wire") + outer.max("wire")) / 2
+        inner = na.broadcast_to(inner, outer.shape)
+        return outer, inner
+
     def plot(
         self,
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
@@ -909,6 +943,41 @@ class AnnularAperture(
         if self.transformation is not None:
             result = self.transformation(result)
         return result
+
+    def rings(
+        self,
+        num: None | int = None,
+    ) -> tuple[na.Cartesian3dVectorArray, na.Cartesian3dVectorArray]:
+        if num is None:
+            num = self.samples_wire
+
+        unit_radius = na.unit(self.radius_outer)
+        z = 0 * unit_radius if unit_radius is not None else 0
+
+        # the same azimuths on both rings, so that they pair by index
+        azimuth = na.linspace(self.angle_start, self.angle_stop, axis="wire", num=num)
+
+        outer = na.Cartesian3dVectorArray(
+            x=self.radius_outer * np.cos(azimuth),
+            y=self.radius_outer * np.sin(azimuth),
+            z=z,
+        )
+        inner = na.Cartesian3dVectorArray(
+            x=self.radius_inner * np.cos(azimuth),
+            y=self.radius_inner * np.sin(azimuth),
+            z=z,
+        )
+
+        # the same shape for both, so that they pair point by point even
+        # when only one radius varies
+        shape = na.shape_broadcasted(outer, inner)
+        outer = outer.broadcast_to(shape)
+        inner = inner.broadcast_to(shape)
+
+        if self.transformation is not None:
+            outer = self.transformation(outer)
+            inner = self.transformation(inner)
+        return outer, inner
 
 
 @dataclasses.dataclass(eq=False, repr=False)
