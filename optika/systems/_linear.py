@@ -98,6 +98,7 @@ class AbstractLinearSystem(
         """
 
     @property
+    @abc.abstractmethod
     def outline(self) -> None | optika.radiometry.AbstractFieldStopModel:
         """
         The half-light outline of the field of view, if it differs from
@@ -110,7 +111,6 @@ class AbstractLinearSystem(
         where an edge measured in an image sits.  :obj:`None` when the two
         are the same.
         """
-        return None
 
     @property
     def field_stop_(self) -> None | optika.radiometry.AbstractFieldStopModel:
