@@ -1120,6 +1120,14 @@ class AbstractSequentialSystem(
         field of view, so the field of view is taken to be star-shaped about
         its center, as the convex field stops of real instruments are.
 
+        A field stop ahead of every dispersive element gives the same polygon
+        at every wavelength.  One behind a dispersive element gives a
+        different polygon at each, and the vertices then vary along the
+        wavelength axis: vertex for vertex, since each is the same point on
+        the edge of the stop at every wavelength.  :meth:`linearize` fits
+        them in wavelength with
+        :class:`~optika.radiometry.PolynomialFieldStopModel`.
+
         Parameters
 
         Parameters
@@ -2494,7 +2502,7 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         degree: int = 2,
         seed: None | int = 0,
-        field_stop: bool = False,
+        field_stop: bool = True,
     ) -> LinearSystem:
         """
         Construct a linear approximation of this system by fitting its
@@ -2511,15 +2519,17 @@ class AbstractSequentialSystem(
         The distortion model reads where those rays land, the vignetting
         model which of them survive, and the effective area what they carry.
 
-        The resulting system's
-        :attr:`~optika.systems.LinearSystem.field_stop` is left as :obj:`None`
-        unless `field_stop` is set: field points outside the stop are
-        excluded when fitting the vignetting model rather than represented as
-        a falloff, so the vignetting model alone lets light from beyond the
-        edge of the field through.  With `field_stop`, the field of view is
-        carried as :meth:`field_stop_polygon` and every scene cell outside it
-        is blocked before the wavelengths are summed, which keeps one line's
-        light out of the field of another's.
+        The field of view is carried on the result as a
+        :class:`~optika.radiometry.PolynomialFieldStopModel`: the outline of
+        :meth:`field_stop_polygon` at each sampled wavelength, fit in
+        wavelength so that it can be evaluated at any other.  Every scene
+        cell outside it is blocked before the wavelengths are summed, which
+        keeps one line's light out of the field of another's in a slitless
+        spectrograph.  Field positions outside the field of view are excluded
+        when fitting the vignetting model rather than represented as a
+        falloff, so without the field stop the vignetting model is
+        extrapolated there instead, and can let light from beyond the edge
+        of the field through.
 
         Parameters
         ----------
@@ -2563,8 +2573,10 @@ class AbstractSequentialSystem(
             different fixed sample.
 
         field_stop
-            Whether to carry the field of view on the result as a polygonal
-            aperture, see :meth:`field_stop_polygon`.
+            Whether to carry the field of view on the result, see above.
+            Fit with the same `degree` as the other models, held one below
+            the number of wavelengths sampled.
+
         Raises
         ------
         ValueError
@@ -2656,7 +2668,14 @@ class AbstractSequentialSystem(
 
         return LinearSystem(
             field_stop=(
-                self._field_stop_polygon_from_rays(rayfunction_stops)
+                optika.radiometry.PolynomialFieldStopModel(
+                    wavelength=wavelength,
+                    vertices=self._field_stop_polygon_from_rays(
+                        rayfunction_stops
+                    ).vertices.xy,
+                    axis_wavelength=axis_wavelength[0],
+                    degree=degree,
+                )
                 if field_stop
                 else None
             ),

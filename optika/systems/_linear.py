@@ -82,10 +82,34 @@ class AbstractLinearSystem(
 
     @property
     @abc.abstractmethod
-    def field_stop(self) -> optika.apertures.AbstractAperture:
+    def field_stop(
+        self,
+    ) -> (
+        None
+        | optika.apertures.AbstractAperture
+        | optika.radiometry.AbstractFieldStopModel
+    ):
         """
         A model of the field stop which blocks light on the object plane.
+
+        An aperture bounds the same field of view at every wavelength.  A
+        field-stop model can move it with wavelength, as the field of view of
+        a system whose field stop sits behind a dispersive element moves.
         """
+
+    @property
+    def field_stop_(self) -> None | optika.radiometry.AbstractFieldStopModel:
+        """
+        :attr:`field_stop` as a field-stop model, so that an aperture and a
+        model can be evaluated alike.
+
+        An aperture is taken to bound the same field of view at every
+        wavelength.
+        """
+        field_stop = self.field_stop
+        if isinstance(field_stop, optika.apertures.AbstractAperture):
+            return optika.radiometry.ApertureFieldStopModel(aperture=field_stop)
+        return field_stop
 
     @property
     @abc.abstractmethod
@@ -103,9 +127,10 @@ class AbstractLinearSystem(
         """
         The outline of the field stop on the sensor at the given wavelengths.
 
-        The wire of :attr:`field_stop` mapped through :attr:`distortion`:
-        where the edge of the field of view lands, which is the outline of
-        the window each wavelength illuminates.
+        The wire of :attr:`field_stop` at each of the given wavelengths,
+        mapped through :attr:`distortion` at that same wavelength: where the
+        edge of the field of view lands, which is the outline of the window
+        each wavelength illuminates.
 
         Parameters
         ----------
@@ -120,13 +145,12 @@ class AbstractLinearSystem(
         ValueError
             If this system carries no field stop.
         """
-        field_stop = self.field_stop
+        field_stop = self.field_stop_
         if field_stop is None:
             raise ValueError("this system carries no field stop to outline")
-        wire = field_stop.wire(num=num)
         coordinates = na.SpectralPositionalVectorArray(
             wavelength=wavelength,
-            position=na.Cartesian2dVectorArray(x=wire.x, y=wire.y),
+            position=field_stop.wire(wavelength, num=num),
         )
         return self.distortion.distort(coordinates).position
 
@@ -213,14 +237,11 @@ class AbstractLinearSystem(
         else:
             weights_vignetting = 1
 
-        field_stop = self.field_stop
+        # evaluated at each cell's own wavelength, so that a field of view
+        # which moves with wavelength is followed across the scene
+        field_stop = self.field_stop_
         if field_stop is not None:
-            weights_stop = field_stop(
-                position=na.Cartesian3dVectorArray(
-                    x=coordinates_cell.position.x,
-                    y=coordinates_cell.position.y,
-                ),
-            )
+            weights_stop = field_stop(coordinates_cell)
         else:
             weights_stop = 1
 
@@ -885,8 +906,15 @@ class LinearSystem(
     If :obj:`None` (the default), the system will have no vignetting.
     """
 
-    field_stop: None | optika.apertures.AbstractAperture = None
+    field_stop: (
+        None
+        | optika.apertures.AbstractAperture
+        | optika.radiometry.AbstractFieldStopModel
+    ) = None
     """
     A model of the field stop which blocks light on the object plane.
+
+    An aperture bounds the same field of view at every wavelength, and a
+    field-stop model can move it with wavelength.
     If :obj:`None` (the default), the sensor will be the field stop.
     """

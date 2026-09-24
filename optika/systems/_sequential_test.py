@@ -625,7 +625,10 @@ class AbstractTestAbstractSequentialSystem(
             result.area_effective, optika.radiometry.AbstractEffectiveAreaModel
         )
         assert result.sensor is a.sensor
-        assert result.field_stop is None
+        assert isinstance(
+            result.field_stop,
+            optika.radiometry.PolynomialFieldStopModel,
+        )
 
         # `direction` has to be a scalar.  `expose` indexes it by the cell
         # centers of the *scene's* wavelength grid, which is unrelated to the
@@ -661,14 +664,17 @@ class AbstractTestAbstractSequentialSystem(
     def test_linearize_field_stop(self, a: optika.systems.AbstractSequentialSystem):
         if not a.axis_wavelength_:
             pytest.skip("linearizing needs a wavelength grid with its own axis")
-        result = a.linearize(field_stop=True)
-        assert isinstance(result.field_stop, optika.apertures.PolygonalAperture)
-        # the center of the field is inside the stop, and the outline lands
-        # on the sensor at every wavelength
+        result = a.linearize()
+        assert isinstance(
+            result.field_stop,
+            optika.radiometry.PolynomialFieldStopModel,
+        )
+        # the center of the field is inside the stop at every wavelength, and
+        # the outline lands on the sensor at every wavelength
         wavelength = a.grid_input.wavelength
         center = a.field_boundary.mean(a.axis_stops)
         inside = result.field_stop(
-            na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x),
+            na.SpectralPositionalVectorArray(wavelength, center),
         )
         assert np.all(na.value(inside).ndarray)
         footprint = result.footprint(wavelength)
@@ -676,8 +682,10 @@ class AbstractTestAbstractSequentialSystem(
         assert "wire" in na.shape(footprint)
         assert np.all(np.isfinite(na.value(footprint.x).ndarray))
         # without a stop there is nothing to outline
+        without = a.linearize(field_stop=False)
+        assert without.field_stop is None
         with pytest.raises(ValueError):
-            a.linearize().footprint(wavelength)
+            without.footprint(wavelength)
 
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
@@ -1084,7 +1092,7 @@ def test_linearize_field_stop_keeps_the_soft_edge_of_the_field():
     )
 
     with_stop = system.linearize(field_stop=True).image(scene, noise=False)
-    without_stop = system.linearize().image(scene, noise=False)
+    without_stop = system.linearize(field_stop=False).image(scene, noise=False)
 
     assert np.all(without_stop.outputs.sum() > 0 * without_stop.outputs.unit)
     assert np.allclose(with_stop.outputs, without_stop.outputs)
@@ -1135,6 +1143,101 @@ def test_field_stop_polygon_of_an_uncertain_system():
 
     assert isinstance(polygon.vertices.x, na.UncertainScalarArray)
     assert set(na.shape(polygon.vertices)) == {"vertex"}
+
+
+def _system_dispersed() -> optika.systems.SequentialSystem:
+    """
+    A spectrograph whose field stop is its sensor, behind the grating, so
+    that its field of view moves across the scene with wavelength.
+
+    Every other system in this module has its field stop ahead of any
+    dispersive element, and so the same field of view at every wavelength.
+    """
+    base = _system_grazing
+    wavelength = base.grid_input.wavelength * na.linspace(
+        0.97,
+        1.03,
+        axis="wavelength",
+        num=3,
+    )
+    return dataclasses.replace(
+        base,
+        object=dataclasses.replace(base.object, is_field_stop=False),
+        sensor=dataclasses.replace(base.sensor, is_field_stop=True),
+        grid_input=dataclasses.replace(base.grid_input, wavelength=wavelength),
+    )
+
+
+def test_field_stop_polygon_behind_a_grating_moves_with_wavelength():
+    """
+    The field of view of a system whose field stop sits behind its grating
+    is a different polygon at each wavelength.
+    """
+    system = _system_dispersed()
+    polygon = system.field_stop_polygon()
+
+    x = polygon.vertices.x
+    assert "wavelength" in na.shape(x)
+    assert np.all(x.ptp("wavelength") > 0 * na.unit(x))
+
+
+def test_linearize_field_stop_follows_the_wavelength():
+    """
+    The field stop of a linearized spectrograph is evaluated at the
+    wavelengths of the scene, not at the ones it was sampled at.
+
+    Carried as a polygon sampled at three wavelengths, the field stop gave
+    the linearized system their axis: a scene sampled at any other number of
+    wavelengths failed to broadcast against it, one sampled at the same
+    number was paired with it by position whatever its wavelengths were, and
+    the footprint at a single wavelength came back once for every sample.
+    """
+    system = _system_dispersed()
+    linear = system.linearize()
+    field_stop = linear.field_stop
+
+    assert "wavelength" not in linear.shape
+
+    # between the samples and beyond them, the fit is the outline which the
+    # stops, solved at that wavelength, give directly
+    for factor in [0.985, 1.015, 1.04]:
+        wavelength = _system_grazing.grid_input.wavelength * factor
+        expected = system.field_stop_polygon(wavelength).vertices
+        result = field_stop.polygon(wavelength).vertices
+        tolerance = 1e-6 * u.deg
+        assert np.allclose(result.x, expected.x, rtol=0, atol=tolerance)
+        assert np.allclose(result.y, expected.y, rtol=0, atol=tolerance)
+
+    footprint = linear.footprint(_system_grazing.grid_input.wavelength)
+    assert "wavelength" not in na.shape(footprint)
+
+    # a scene sampled at a different number of wavelengths is imaged, over
+    # every field position any of the sampled wavelengths sees, since the
+    # bounds of the field move with wavelength too
+    fmin = na.Cartesian2dVectorArray(system.field_min.x.min(), system.field_min.y.min())
+    fmax = na.Cartesian2dVectorArray(system.field_max.x.max(), system.field_max.y.max())
+    wmin = na.value(system.grid_input.wavelength).ndarray.min()
+    wmax = na.value(system.grid_input.wavelength).ndarray.max()
+    unit = na.unit(system.grid_input.wavelength)
+    scene = na.FunctionArray(
+        inputs=na.SpectralPositionalVectorArray(
+            wavelength=na.linspace(wmin, wmax, axis="wavelength", num=5) * unit,
+            position=na.Cartesian2dVectorArray(
+                x=na.linspace(fmin.x, fmax.x, axis="field_x", num=13),
+                y=na.linspace(fmin.y, fmax.y, axis="field_y", num=13),
+            ),
+        ),
+        outputs=1
+        * u.photon
+        / u.s
+        / u.cm**2
+        / u.arcsec**2
+        / u.nm
+        * na.ScalarArray(np.ones((12, 12)), axes=("field_x", "field_y")),
+    )
+    image = linear.image(scene, noise=False).outputs
+    assert np.all(np.isfinite(image))
+    assert np.all(image.sum() > 0 * image.unit)
 
 
 def test_area_effective_without_any_illuminated_field():
