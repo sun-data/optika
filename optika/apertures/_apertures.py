@@ -252,7 +252,7 @@ class AbstractAperture(
         if transformation is not None:
             wire = transformation(wire)
 
-        wire = na.nominal(wire.broadcasted)
+        wire = wire.broadcasted
 
         x = na.as_named_array(wire.x)
         y = na.as_named_array(wire.y)

@@ -324,12 +324,32 @@ class DxfWritable(abc.ABC):
         unit: u.Unit,
         transformation: None | na.transformations.AbstractTransformation = None,
     ):
+        """
+        Write a drawing of this object to a DXF file.
+
+        A DXF file cannot represent uncertainty, so if this object has any
+        uncertain parameters, the drawing is of its nominal value.
+
+        Parameters
+        ----------
+        file
+            The path of the DXF file to write.
+        unit
+            The length units to use for this file.
+        transformation
+            An additional transformation to apply to the coordinate system
+            before writing to the DXF file.
+        """
+        # The nominal value is taken before anything is computed, rather than
+        # from the results, so that quantities like the rays of a system are
+        # only ever computed for the nominal value.
+        nominal = na.nominal(self)
 
         with ezdxf.addons.r12writer(file) as dxf:
-            self._write_to_dxf(
+            nominal._write_to_dxf(
                 dxf=dxf,
                 unit=unit,
-                transformation=transformation,
+                transformation=na.nominal(transformation),
             )
 
     @abc.abstractmethod

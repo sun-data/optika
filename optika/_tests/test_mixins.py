@@ -299,4 +299,15 @@ class AbstractTestDxfWritable(
 
         assert file.stat().st_size > 0
 
+        # A DXF file cannot represent uncertainty, so an object is drawn
+        # exactly like its nominal value.
+        file_nominal = file.with_stem(f"{file.stem}_nominal")
+        na.nominal(a).to_dxf(
+            file=file_nominal,
+            unit=unit,
+            transformation=na.nominal(transformation),
+        )
+        assert file.read_bytes() == file_nominal.read_bytes()
+
         file.unlink()
+        file_nominal.unlink()
