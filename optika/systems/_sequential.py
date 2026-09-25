@@ -2004,11 +2004,11 @@ class AbstractSequentialSystem(
     def _fit_distortion(
         self,
         rays: optika.rays.RayFunctionArray,
+        coordinates_scene: na.AbstractSpectralPositionalVectorArray,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
         degree: int,
-        coordinates_scene: na.AbstractSpectralPositionalVectorArray,
     ) -> optika.distortion.PolynomialDistortionModel:
         """
         Fit a polynomial distortion model to rays which have already been traced.
@@ -2020,6 +2020,9 @@ class AbstractSequentialSystem(
         ----------
         rays
             The traced rays, from :meth:`_rayfunction_stratified`.
+        coordinates_scene
+            The cells the rays were drawn from, from
+            :meth:`_coordinates_scene_from_rays`.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2028,9 +2031,6 @@ class AbstractSequentialSystem(
             The normalized pupil axes of `rays`.
         degree
             The degree of the polynomial model.
-        coordinates_scene
-            The cells the rays were drawn from, from
-            :meth:`_coordinates_scene_from_rays`.
         """
         self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
@@ -2270,9 +2270,10 @@ class AbstractSequentialSystem(
         # same ones :meth:`_fit_area_effective` averages over.  A wavelength
         # which no sampled field position admits leaves the illumination at
         # zero rather than at `nan`, which the mean of an empty set would
-        # give.  The polynomial fit below is a separate matter: it has
-        # nothing to constrain it at such a wavelength, which is why
-        # :meth:`linearize` refuses to fit one at all.
+        # give.  The polynomial fit below is a separate matter: it reads
+        # nothing at such a wavelength, and is determined there by the
+        # others, so long as enough of them admit light, which
+        # :meth:`_check_lit_wavelengths` has already checked.
         mean = self._mean_over_field(illumination, where, axis_field)
         illumination = illumination / np.where(
             mean != 0,
@@ -2325,7 +2326,7 @@ class AbstractSequentialSystem(
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
-        seed: None | int = None,
+        seed: None | int = 0,
     ) -> optika.radiometry.InterpolatedEffectiveAreaModel:
         """
         Estimate the wavelength-dependent effective area of this system by
@@ -2398,10 +2399,13 @@ class AbstractSequentialSystem(
             in normalized or physical units.
         seed
             The seed of the sampling described above.
-            If :obj:`None` (the default), the sampling differs from one call
-            to the next, and so does the result: on the ESIS instrument two
-            calls give effective areas about two percent apart. Give a seed
-            to any quantity which is meant to be reproducible.
+            Zero by default, so that estimating the same system twice gives
+            the same effective area, and so that this method and
+            :meth:`linearize` agree when neither is given a seed.  Pass
+            :obj:`None` to draw a fresh sample on every call, which is how
+            the spread of the estimate over the sampling is measured: on the
+            ESIS instrument two such calls give effective areas about two
+            percent apart.  Any other integer gives a different fixed sample.
 
         Raises
         ------
@@ -2821,11 +2825,11 @@ class AbstractSequentialSystem(
             ),
             distortion=self._fit_distortion(
                 rays=rays,
+                coordinates_scene=coordinates_scene,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
                 degree=degree,
-                coordinates_scene=coordinates_scene,
             ),
             sensor=self.sensor,
             direction=direction,

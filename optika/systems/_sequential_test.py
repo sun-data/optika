@@ -836,8 +836,9 @@ def test_area_effective_ignores_field_outside_the_field_of_view():
     result = system.area_effective(field=field)
     result_extended = system.area_effective(field=field_extended)
 
-    # `area_effective` samples a random point inside every cell, so two calls
-    # differ by about a percent at this resolution.  Averaging over the dark
+    # `area_effective` samples a random point inside every cell, and the two
+    # grids draw different points, so the two results differ by about a
+    # percent at this resolution.  Averaging over the dark
     # cells instead of ignoring them would leave the result 49% low, which
     # this separates comfortably.
     assert np.allclose(result_extended.area, result.area, rtol=0.1)
@@ -2234,6 +2235,26 @@ def test_vignetting_is_the_model_linearize_fits():
     assert np.all(a.where == b.where)
     assert np.all(a.coordinates_scene.position == b.coordinates_scene.position)
     assert np.all(a.coordinates_sample.position == b.coordinates_sample.position)
+
+
+def test_area_effective_is_the_model_linearize_fits():
+    """
+    Given no seed, :meth:`area_effective` returns the model :meth:`linearize`
+    carries, and returns it every time.
+
+    It used to draw a fresh sample on every call while :meth:`linearize` was
+    seeded, so an effective area asked for on its own was neither the one
+    the linear system was using nor the one the previous call had returned.
+    """
+    system = _system_linearize()
+
+    a = system.area_effective()
+    b = system.area_effective()
+    c = system.linearize(degree=1).area_effective
+
+    assert np.all(a.area == b.area)
+    assert np.all(a.area == c.area)
+    assert np.all(a.wavelength == c.wavelength)
 
 
 def test_models_carry_the_cells_they_were_measured_over():
