@@ -1,3 +1,4 @@
+import warnings
 import pytest
 import numpy as np
 import astropy.units as u
@@ -9,19 +10,44 @@ from .._tests import test_mixins
 
 
 def _scene() -> na.SpectralPositionalVectorArray:
+    """The corners of the cells the calibration points were measured in."""
     return na.SpectralPositionalVectorArray(
         wavelength=na.linspace(500, 600, axis="wavelength", num=3) * u.nm,
         position=na.Cartesian2dVectorLinearSpace(
             start=-1 * u.deg,
             stop=+1 * u.deg,
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-            num=5,
+            num=6,
         ),
     )
 
 
-def _illumination() -> na.AbstractScalar:
-    return 1 - 0.1 * (_scene().position.length / u.deg) ** 2
+def _centers() -> na.SpectralPositionalVectorArray:
+    """The centers of those cells, where a measurement is made by default."""
+    return _scene().cell_centers(("field_x", "field_y"))
+
+
+def _sample() -> na.SpectralPositionalVectorArray:
+    """A point drawn at random inside each cell, rather than at its center."""
+    scene = _scene()
+    position = scene.position.broadcast_to(na.shape(scene.position))
+    return na.SpectralPositionalVectorArray(
+        wavelength=scene.wavelength,
+        position=position.cell_centers(
+            axis=("field_x", "field_y"),
+            random=True,
+            seed=0,
+        ),
+    )
+
+
+def _illumination(
+    coordinates: None | na.SpectralPositionalVectorArray = None,
+) -> na.AbstractScalar:
+    """A radial falloff, measured wherever the calibration points are."""
+    if coordinates is None:
+        coordinates = _centers()
+    return 1 - 0.1 * (coordinates.position.length / u.deg) ** 2
 
 
 class AbstractTestAbstractVignettingModel(
@@ -77,12 +103,14 @@ class AbstractTestAbstractInterpolatedVignettingModel(
     argvalues=[
         optika.radiometry.PolynomialVignettingModel(
             coordinates_scene=_scene(),
-            illumination=_illumination(),
+            coordinates_sample=sample,
+            illumination=_illumination(sample),
             axis_wavelength="wavelength",
             axis_field=("field_x", "field_y"),
             degree=degree,
         )
         for degree in [1, 2]
+        for sample in [None, _sample()]
     ],
 )
 class TestPolynomialVignettingModel(
@@ -188,9 +216,10 @@ def test_polynomial_vignetting_model_channel():
     the channels.
     """
     scene = _scene()
+    centers = _centers()
 
     coefficient = na.ScalarArray([0.1, 0.2, 0.05] / u.deg**2, axes="channel")
-    illumination = 1 - coefficient * scene.position.length**2
+    illumination = 1 - coefficient * centers.position.length**2
 
     a = optika.radiometry.PolynomialVignettingModel(
         coordinates_scene=scene,
@@ -200,7 +229,7 @@ def test_polynomial_vignetting_model_channel():
         degree=2,
     )
 
-    result = a(scene)
+    result = a(centers)
     assert "channel" in result.shape
     assert np.all(np.abs(result - illumination) < 1e-9)
 
@@ -251,7 +280,7 @@ def test_plot_residual_where():
     illumination = _illumination()
 
     # the corners of the field are excluded from the fit
-    where = scene.position.length < 1.2 * u.deg
+    where = _centers().position.length < 1.0 * u.deg
 
     a = optika.radiometry.PolynomialVignettingModel(
         coordinates_scene=scene,
@@ -275,3 +304,53 @@ def test_plot_residual_where():
     assert norm.vmax == pytest.approx(residual_inside)
 
     plt.close(fig)
+
+
+def test_plot_draws_the_cells_and_not_the_samples():
+    """
+    A model measured at points drawn inside its cells is still plotted on the
+    cells.
+
+    Such points are not monotonic, and matplotlib cannot work out where one
+    cell ends and the next begins from points alone: it says as much, and
+    draws a mesh with warped cells and a ragged outline. The mesh is
+    `coordinates_scene`, which is the corners, so this holds however the
+    measurements inside them are placed.
+    """
+    scene = _scene()
+    sample = _sample()
+
+    a = optika.radiometry.PolynomialVignettingModel(
+        coordinates_scene=scene,
+        coordinates_sample=sample,
+        illumination=_illumination(sample),
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fig, ax = a.plot()
+
+    # the mesh is rectilinear: its corners take one value per column of the
+    # grid, rather than one per measurement
+    coordinates = ax.ndarray.reshape(-1)[0].collections[0].get_coordinates()
+    assert np.unique(coordinates[..., 0]).size == na.shape(scene.position)["field_x"]
+    assert np.unique(coordinates[..., 1]).size == na.shape(scene.position)["field_y"]
+
+    plt.close(fig)
+
+
+def test_coordinates_sample_defaults_to_the_cell_centers():
+    """A model which does not say where it was measured was measured at the
+    centers of its cells."""
+    a = optika.radiometry.PolynomialVignettingModel(
+        coordinates_scene=_scene(),
+        illumination=_illumination(),
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+    )
+
+    assert np.all(a.coordinates_sample_.position == _centers().position)
