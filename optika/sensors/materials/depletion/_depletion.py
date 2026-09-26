@@ -28,6 +28,30 @@ class AbstractDepletionModel(
     def thickness(self) -> u.Quantity:
         """The thickness of the depletion region."""
 
+    @property
+    @abc.abstractmethod
+    def width_max(self) -> None | u.Quantity | na.AbstractScalar:
+        """
+        The standard deviation of the charge cloud of a photon absorbed at the
+        back surface, before it crosses the depletion region.
+
+        If :obj:`None`, the thickness of the field-free region,
+        as in the model of :cite:t:`Janesick2001`.
+        See :func:`optika.sensors.charge_diffusion_profile`.
+        """
+
+    @property
+    @abc.abstractmethod
+    def width_depleted(self) -> None | u.Quantity | na.AbstractScalar:
+        """
+        The standard deviation acquired by charge drifting across the full
+        thickness of the depletion region.
+
+        If :obj:`None`, charge does not spread in the depletion region,
+        as in the model of :cite:t:`Janesick2001`.
+        See :func:`optika.sensors.charge_diffusion_profile`.
+        """
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class JanesickDepletionModel(
@@ -57,6 +81,24 @@ class JanesickDepletionModel(
     compute residuals.
     """
 
+    width_max: None | u.Quantity | na.AbstractScalar = None
+    """
+    The standard deviation of the charge cloud of a photon absorbed at the
+    back surface, before it crosses the depletion region.
+
+    If :obj:`None` (the default), the thickness of the field-free region,
+    as in the model of :cite:t:`Janesick2001`.
+    """
+
+    width_depleted: None | u.Quantity | na.AbstractScalar = None
+    """
+    The standard deviation acquired by charge drifting across the full
+    thickness of the depletion region.
+
+    If :obj:`None` (the default), charge does not spread in the depletion
+    region, as in the model of :cite:t:`Janesick2001`.
+    """
+
     @classmethod
     def fit_mcc(
         cls,
@@ -64,6 +106,8 @@ class JanesickDepletionModel(
         chemical_substrate: optika.chemicals.AbstractChemical,
         width_pixel: u.Quantity | na.AbstractScalar,
         mcc_measured: None | na.FunctionArray = None,
+        width_max: None | u.Quantity | na.AbstractScalar = None,
+        width_depleted: None | u.Quantity | na.AbstractScalar = None,
     ):
         """
         Given a measured mean charge capture,
@@ -81,6 +125,17 @@ class JanesickDepletionModel(
         mcc_measured
             The measured mean charge capture that will be fit by the function
             :func:`optika.sensors.mean_charge_capture`.
+        width_max
+            The standard deviation of the charge cloud of a photon absorbed at
+            the back surface, held fixed during the fit.
+            If :obj:`None` (the default), the thickness of the field-free
+            region, which changes with the fitted thickness of the depletion
+            region.
+        width_depleted
+            The standard deviation acquired by charge drifting across the full
+            thickness of the depletion region, held fixed during the fit.
+            If :obj:`None` (the default), charge does not spread in the
+            depletion region.
         """
         absorption = chemical_substrate.absorption(mcc_measured.inputs)
 
@@ -92,6 +147,8 @@ class JanesickDepletionModel(
                 absorption=absorption,
                 thickness_substrate=thickness_substrate,
                 thickness_depletion=thickness_depletion * unit,
+                width_max=width_max,
+                width_depleted=width_depleted,
             )
 
             mcc = optika.sensors.mean_charge_capture(
@@ -121,6 +178,8 @@ class JanesickDepletionModel(
             chemical_substrate=chemical_substrate,
             width_pixel=width_pixel,
             mcc_measured=mcc_measured,
+            width_max=width_max,
+            width_depleted=width_depleted,
         )
 
     def mean_charge_capture(
@@ -141,6 +200,8 @@ class JanesickDepletionModel(
                 absorption=self.chemical_substrate.absorption(wavelength),
                 thickness_substrate=self.thickness_substrate,
                 thickness_depletion=self.thickness,
+                width_max=self.width_max,
+                width_depleted=self.width_depleted,
             ),
             width_pixel=self.width_pixel,
         )
@@ -155,4 +216,6 @@ class JanesickDepletionModel(
             na.shape(self.thickness),
             na.shape(self.thickness_substrate),
             na.shape(self.width_pixel),
+            na.shape(self.width_max),
+            na.shape(self.width_depleted),
         )

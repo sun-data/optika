@@ -377,11 +377,94 @@ def test_vmr_signal_diffusion():
     assert np.all(result_default == result_default_no_diffusion)
 
 
-def test_vmr_signal_quadrature():
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        304 * u.AA,
+        20 * u.AA,
+    ],
+)
+def test_vmr_signal_depleted(
+    wavelength: u.Quantity | na.AbstractScalar,
+):
+    """
+    On a fully depleted sensor the only spread is acquired drifting across the
+    depletion region, which the analytic VMR must reproduce, for photons
+    absorbed at the back surface and for photons absorbed throughout the
+    depletion region.
+    """
+    axis_xy = ("detector_x", "detector_y")
+
+    kwargs = dict(
+        wavelength=wavelength,
+        thickness_depletion=14 * u.um,
+        thickness_substrate=14 * u.um,
+        width_depleted=2 * u.um,
+        width_pixel=4 * u.um,
+    )
+
+    photons_expected = na.broadcast_to(
+        100 * u.photon,
+        shape=dict(detector_x=16, detector_y=16),
+    )
+
+    signal = optika.sensors.signal(
+        photons_expected=photons_expected,
+        axis_xy=axis_xy,
+        wrap=True,
+        shape_random=dict(experiment=200),
+        **kwargs,
+    )
+
+    vmr_measured = signal.vmr(("experiment",) + axis_xy)
+
+    result = optika.sensors.vmr_signal(**kwargs)
+    result_sharp = optika.sensors.vmr_signal(**(kwargs | dict(width_depleted=None)))
+
+    assert np.all(result < result_sharp)
+    assert np.abs(vmr_measured - result) < 0.05 * result
+
+
+def test_vmr_signal_widths_default():
+    """
+    Janesick's values of the new widths reproduce the default exactly.
+    """
+    ccd = optika.sensors.materials.e2v_ccd97()
+
+    kwargs = dict(
+        wavelength=na.geomspace(1, 10000, axis="wavelength", num=11) * u.AA,
+        thickness_depletion=ccd.depletion.thickness,
+        thickness_substrate=ccd.thickness_substrate,
+        width_pixel=16 * u.um,
+    )
+
+    result = optika.sensors.vmr_signal(**kwargs)
+    explicit = optika.sensors.vmr_signal(
+        **kwargs,
+        width_max=ccd.thickness_substrate - ccd.depletion.thickness,
+        width_depleted=0 * u.um,
+    )
+
+    assert np.all(result == explicit)
+
+
+@pytest.mark.parametrize(
+    argnames="width_max,width_depleted",
+    argvalues=[
+        (None, None),
+        (None, 0.8 * u.um),
+        (4 * u.um, 3 * u.um),
+    ],
+)
+def test_vmr_signal_quadrature(
+    width_max: None | u.Quantity | na.AbstractScalar,
+    width_depleted: None | u.Quantity | na.AbstractScalar,
+):
     """
     The charge-diffusion integral should be converged at the default number of
     quadrature nodes, across the full range of optical depths that silicon
-    spans between 1 and 10000 angstroms.
+    spans between 1 and 10000 angstroms, over the depletion region as well as
+    the field-free region.
     """
     ccd = optika.sensors.materials.e2v_ccd97()
 
@@ -390,6 +473,8 @@ def test_vmr_signal_quadrature():
         thickness_implant=ccd.thickness_implant,
         thickness_depletion=ccd.depletion.thickness,
         thickness_substrate=ccd.thickness_substrate,
+        width_max=width_max,
+        width_depleted=width_depleted,
         width_pixel=16 * u.um,
         cce_backsurface=ccd.cce_backsurface,
         temperature=ccd.temperature,
@@ -965,12 +1050,26 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
         assert np.all(result >= 0 * u.electron)
 
 
+def _e2v_ccd97_widths() -> (
+    optika.sensors.materials.BackIlluminatedSiliconSensorMaterial
+):
+    """An e2v CCD97 whose charge spreads in the depletion region too."""
+    result = optika.sensors.materials.e2v_ccd97()
+    return result.replace(
+        depletion=result.depletion.replace(
+            width_max=5 * u.um,
+            width_depleted=0.8 * u.um,
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
         optika.sensors.materials.tektronix_tk512cb(),
         optika.sensors.materials.e2v_ccd97(),
         optika.sensors.materials.e2v_ccd203(),
+        _e2v_ccd97_widths(),
     ],
 )
 class TestBackIlluminatedSiliconSensorMaterial(

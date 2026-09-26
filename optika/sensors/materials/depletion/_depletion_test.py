@@ -18,17 +18,56 @@ class AbstractTestAbstractDepletionModel(
         result = a.thickness
         assert np.all(result > 0 * u.um)
 
+    def test_width_max(
+        self,
+        a: optika.sensors.materials.depletion.AbstractDepletionModel,
+    ):
+        result = a.width_max
+        if result is not None:
+            assert np.all(result >= 0 * u.um)
+
+    def test_width_depleted(
+        self,
+        a: optika.sensors.materials.depletion.AbstractDepletionModel,
+    ):
+        result = a.width_depleted
+        if result is not None:
+            assert np.all(result >= 0 * u.um)
+
 
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
         optika.sensors.materials.depletion.e2v_ccd64_thick(),
         optika.sensors.materials.depletion.e2v_ccd64_thin(),
+        optika.sensors.materials.depletion.e2v_ccd64_thick().replace(
+            width_max=5 * u.um,
+            width_depleted=0.8 * u.um,
+        ),
     ],
 )
 class TestJanesickDepletionModel(
     AbstractTestAbstractDepletionModel,
 ):
+    def test_fit_mcc_width_depleted(
+        self,
+        a: optika.sensors.materials.depletion.JanesickDepletionModel,
+    ):
+        """
+        A spread in the depletion region widens the charge cloud, so the fit
+        makes the field-free region thinner to compensate.
+        """
+        kwargs = dict(
+            thickness_substrate=a.thickness_substrate,
+            chemical_substrate=a.chemical_substrate,
+            width_pixel=a.width_pixel,
+            mcc_measured=a.mcc_measured,
+        )
+        cls = optika.sensors.materials.depletion.JanesickDepletionModel
+        result = cls.fit_mcc(**kwargs, width_depleted=1.5 * u.um)
+        result_sharp = cls.fit_mcc(**kwargs)
+        assert result.width_depleted == 1.5 * u.um
+        assert np.all(result.thickness > result_sharp.thickness)
 
     def test_chemical_substrate(
         self,

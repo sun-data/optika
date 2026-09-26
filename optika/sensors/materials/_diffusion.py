@@ -42,7 +42,6 @@ def charge_diffusion(
         thickness of the depletion region.
         If :obj:`None` (the default), charge does not spread in the depletion
         region, as in the model of :cite:t:`Janesick2001`.
-        If given, `thickness_depletion` must be positive.
 
     Examples
     --------
@@ -139,24 +138,56 @@ def charge_diffusion(
     s = thickness_substrate
     d = thickness_depletion
     f = s - d
-    a = absorption
+
+    if width_max is None:
+        width_max = f
+
+    az_s = (absorption * s).to(u.dimensionless_unscaled).value
+    az_d = (absorption * d).to(u.dimensionless_unscaled).value
+    az_f = az_s - az_d
 
     # The fraction of the photons entering the sensor which are absorbed
     # in the light-sensitive region.
-    absorbed = -np.expm1(-a * s)
+    absorbed = -np.expm1(-az_s)
 
-    variance = f * (a * f + np.expm1(-a * f)) / (a * absorbed)
-
-    if width_max is not None:
-        variance = variance * np.square(width_max / f)
+    variance = np.square(width_max) * _absorbed_ramp(az_f)
 
     if width_depleted is not None:
-        crossed = a * d + np.expm1(-a * s) - np.expm1(-a * f)
-        variance = variance + np.square(width_depleted) * crossed / (a * d * absorbed)
+        crossed = -np.expm1(-az_f) + np.exp(-az_f) * _absorbed_ramp(az_d)
+        variance = variance + np.square(width_depleted) * crossed
 
-    result = np.sqrt(variance).to(u.um)
+    result = np.sqrt(variance / absorbed).to(u.um)
 
     return result
+
+
+def _absorbed_ramp(
+    optical_depth: float | na.AbstractScalar,
+) -> na.AbstractScalar:
+    r"""
+    The integral of a weight falling linearly from one to zero across a layer,
+    weighted by the probability of a photon being absorbed at each depth.
+
+    For a layer of thickness :math:`L` and an absorption coefficient
+    :math:`\alpha`, this is
+
+    .. math::
+
+        \int_0^L \left( 1 - \frac{x}{L} \right) \alpha e^{-\alpha x} dx
+            = \frac{\alpha L + e^{-\alpha L} - 1}{\alpha L},
+
+    which goes to zero with the optical depth :math:`\alpha L`,
+    so that a layer of zero thickness contributes nothing.
+
+    Parameters
+    ----------
+    optical_depth
+        The optical depth :math:`\alpha L` of the layer.
+    """
+    where = optical_depth > 0
+    optical_depth = np.where(where, optical_depth, 1)
+    result = (optical_depth + np.expm1(-optical_depth)) / optical_depth
+    return np.where(where, result, 0)
 
 
 def charge_diffusion_profile(
@@ -195,7 +226,6 @@ def charge_diffusion_profile(
         thickness of the depletion region.
         If :obj:`None` (the default), charge does not spread in the depletion
         region, as in the model of :cite:t:`Janesick2001`.
-        If given, `thickness_depletion` must be positive.
 
     Examples
     --------
@@ -310,13 +340,20 @@ def charge_diffusion_profile(
     f = s - d
     x = depth
 
-    variance = f * np.maximum(f - x, 0 * f)
+    if width_max is None:
+        width_max = f
 
-    if width_max is not None:
-        variance = variance * np.square(width_max / f)
+    # The fraction of the field-free region between the charge and the edge
+    # of the depletion region, zero if there is no field-free region.
+    remaining = np.maximum(f - x, 0 * f) / np.where(f > 0 * f, f, 1 * u.um)
+
+    variance = np.square(width_max) * remaining
 
     if width_depleted is not None:
-        crossed = np.minimum(np.maximum((s - x) / d, 0), 1)
+        # The fraction of the depletion region the charge drifts across,
+        # all of it if the depletion region has no thickness.
+        crossed = np.minimum(np.maximum(s - x, 0 * d), d)
+        crossed = np.where(d > 0 * d, crossed / np.where(d > 0 * d, d, 1 * u.um), 1)
         variance = variance + np.square(width_depleted) * crossed
 
     result = np.sqrt(variance).to(u.um)
