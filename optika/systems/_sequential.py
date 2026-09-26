@@ -1102,13 +1102,8 @@ class AbstractSequentialSystem(
 
         By default the polygon bounds every field position which passes any
         light: in angle if the object is at infinity, and in position if it
-        is not.  With `envelope` unset it is instead the half-light outline,
-        each vertex the ray through one point on the edge of the field stop
-        averaged over the pupil, which is where a measured edge of the field
-        of view sits, since the midpoint of the falloff across a soft edge
-        is where half of the pupil clears the stop.
-        Each vertex is the ray which grazes one point on the edge of the
-        field stop and lands farthest out on the object, of all the rays
+        is not.  Each vertex is the ray which grazes one point on the edge of
+        the field stop and lands farthest out on the object, of all the rays
         through that point from the edge of the pupil stop.
 
         A field stop at an image of the object passes a field position
@@ -1125,6 +1120,12 @@ class AbstractSequentialSystem(
         The outermost ray is found by its distance from the center of the
         field of view, so the field of view is taken to be star-shaped about
         its center, as the convex field stops of real instruments are.
+
+        With `envelope` set to :obj:`False`, each vertex is instead the
+        average over the pupil of the rays through one point on the edge of
+        the field stop: the half-light outline.  That is where a measured edge
+        of the field of view sits, since the midpoint of the falloff across a
+        soft edge is where half of the pupil clears the stop.
 
         A field stop ahead of every dispersive element gives the same polygon
         at every wavelength.  One behind a dispersive element gives a
@@ -2793,7 +2794,7 @@ class AbstractSequentialSystem(
         model which of them survive, and the effective area what they carry.
 
         The field of view is carried on the result as a
-        :class:`~optika.radiometry.PolynomialFieldStopModel`: the outline of
+        :class:`~optika.radiometry.PolynomialFieldStopModel`: the polygon of
         :meth:`field_stop_polygon` at each sampled wavelength, fit in
         wavelength so that it can be evaluated at any other.  Every scene
         cell outside it is blocked before the wavelengths are summed, which
@@ -2803,6 +2804,12 @@ class AbstractSequentialSystem(
         falloff, so without the field stop the vignetting model is
         extrapolated there instead, and can let light from beyond the edge
         of the field through.
+
+        The half-light outline, :meth:`field_stop_polygon` with `envelope`
+        set to :obj:`False`, is fit the same way and carried beside it as
+        :attr:`~optika.systems.LinearSystem.outline`.  It blocks nothing: it
+        is where an edge measured in an image sits, and it is what
+        :meth:`~optika.systems.LinearSystem.footprint` maps by default.
 
         Parameters
         ----------
@@ -2844,9 +2851,9 @@ class AbstractSequentialSystem(
             sample on every call, which is how the spread of these models
             over the sampling is measured, or any other integer for a
             different fixed sample.
-
         field_stop
-            Whether to carry the field of view on the result, see above.
+            Whether to carry the field of view and its half-light outline on
+            the result, see above.
             Fit with the same `degree` as the other models, held one below
             the number of wavelengths sampled.
 
