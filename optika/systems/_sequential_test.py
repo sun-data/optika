@@ -2325,6 +2325,38 @@ def test_vignetting_follows_its_seed():
     assert np.any(a.illumination != c.illumination)
 
 
+@pytest.mark.parametrize("method", ["vignetting", "distortion"])
+def test_random_field_off_takes_the_cell_centers(monkeypatch, method: str):
+    """
+    With `random_field` off, every field position is the center of its cell,
+    and the pupil is drawn exactly as it would have been.
+
+    The centers are for a model which is going to be looked at, so that the
+    edge of the field stop is drawn as the cells it covers rather than as a
+    ragged line.  Only the field may change: the pupil has a stream of its
+    own, and one which moved with the field would make the two models differ
+    by more than where the field was sampled.
+    """
+    calls = _spy_arguments(monkeypatch, "_denormalize_grid_from_rays")
+    system = _system_linearize()
+
+    random = getattr(system, method)(degree=1)
+    num_calls = len(calls)
+    centers = getattr(system, method)(degree=1, random_field=False)
+
+    # every measurement sits at the center of its cell, which the default
+    # does not
+    cells = centers.coordinates_scene.cell_centers(centers.axis_field)
+    assert np.allclose(centers.coordinates_sample.position, cells.position)
+    assert not np.allclose(random.coordinates_sample.position, cells.position)
+
+    # the first call of each fit is the one which makes the drawn grid
+    # physical, and the pupil it was handed is the same in both
+    pupil_random = calls[0]["grid"].pupil
+    pupil_centers = calls[num_calls]["grid"].pupil
+    assert np.all(pupil_random == pupil_centers)
+
+
 def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
     """
     The vignetting fit traces without the efficiency of any surface.

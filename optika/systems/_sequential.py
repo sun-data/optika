@@ -1749,6 +1749,7 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         degree: int = 2,
         seed: None | int = 0,
+        random_field: bool = True,
     ) -> optika.distortion.PolynomialDistortionModel:
         """
         Fit a polynomial distortion model to the rays traced through this
@@ -1800,6 +1801,18 @@ class AbstractSequentialSystem(
             sample on every call, which is how the spread of the model over
             the sampling is measured, or any other integer for a different
             fixed sample.
+        random_field
+            Whether each field position is drawn at random inside its cell,
+            as described above, or taken from the center of it.  The pupil is
+            drawn at random either way, and exactly as it would have been.
+
+            Drawn at random by default, which is what :meth:`linearize` does
+            and what this method has to do to agree with it.  The centers are
+            for a model which is going to be looked at: whether a cell on the
+            edge of the field stop admits any light depends on where inside
+            it the field position happened to fall, so a random field draws
+            the edge of the stop as a ragged line, where the centers draw it
+            as the cells the stop covers.
 
         Raises
         ------
@@ -1849,6 +1862,7 @@ class AbstractSequentialSystem(
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
             efficiency=False,
+            random_field=random_field,
         )
 
         return self._fit_distortion(
@@ -1874,6 +1888,7 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         degree: int = 2,
         seed: None | int = 0,
+        random_field: bool = True,
     ) -> optika.radiometry.PolynomialVignettingModel:
         """
         Fit a polynomial vignetting model to the rays traced through this
@@ -1935,6 +1950,18 @@ class AbstractSequentialSystem(
             sample on every call, which is how the spread of the model over
             the sampling is measured, or any other integer for a different
             fixed sample.
+        random_field
+            Whether each field position is drawn at random inside its cell,
+            as described above, or taken from the center of it.  The pupil is
+            drawn at random either way, and exactly as it would have been.
+
+            Drawn at random by default, which is what :meth:`linearize` does
+            and what this method has to do to agree with it.  The centers are
+            for a model which is going to be looked at: whether a cell on the
+            edge of the field stop admits any light depends on where inside
+            it the field position happened to fall, so a random field draws
+            the edge of the stop as a ragged line, where the centers draw it
+            as the cells the stop covers.
 
         Raises
         ------
@@ -1984,6 +2011,7 @@ class AbstractSequentialSystem(
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
             efficiency=False,
+            random_field=random_field,
         )
 
         return self._fit_vignetting(
@@ -2473,6 +2501,7 @@ class AbstractSequentialSystem(
             None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
         ),
         efficiency: bool = True,
+        random_field: bool = True,
     ) -> tuple[optika.rays.RayFunctionArray, na.AbstractScalar]:
         """
         Trace one ray through every cell of the field and pupil grids, at a
@@ -2515,6 +2544,11 @@ class AbstractSequentialSystem(
             :meth:`vignetting` reads only which rays survived, so it turns
             this off and saves itself the efficiency of every surface at
             every ray.
+        random_field
+            Whether each field position is drawn at random inside its cell,
+            or taken from the center of it.  The pupil is drawn at random
+            either way, and from a stream of its own, so the pupil samples
+            are the same whichever this is.
 
         Returns
         -------
@@ -2544,11 +2578,15 @@ class AbstractSequentialSystem(
         # a seed shared between them would offset a field cell and a pupil
         # cell by the same fraction wherever the two grids happen to agree
         # in shape.
+        #
+        # The field alone may instead be taken at the centers of its cells,
+        # for a model which is going to be drawn rather than integrated; see
+        # :meth:`vignetting`.
         seed_field, seed_pupil = np.random.SeedSequence(seed).generate_state(2)
 
         field_samples = field.broadcast_to(
             na.broadcast_shapes(self.shape, na.shape(wavelength), na.shape(field)),
-        ).cell_centers(axis=axis_field, random=True, seed=int(seed_field))
+        ).cell_centers(axis=axis_field, random=random_field, seed=int(seed_field))
 
         pupil_samples = pupil.broadcast_to(
             na.broadcast_shapes(
