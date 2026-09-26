@@ -1,3 +1,4 @@
+import warnings
 import pytest
 import numpy as np
 import astropy.units as u
@@ -100,6 +101,14 @@ def test_charge_diffusion_janesick(
     ],
 )
 @pytest.mark.parametrize(
+    argnames="thickness_depletion",
+    argvalues=[
+        0 * u.um,
+        8.7 * u.um,
+        14 * u.um,
+    ],
+)
+@pytest.mark.parametrize(
     argnames="width_max",
     argvalues=[
         None,
@@ -115,12 +124,17 @@ def test_charge_diffusion_janesick(
 )
 def test_charge_diffusion_average(
     absorption: u.Quantity | na.AbstractScalar,
+    thickness_depletion: u.Quantity | na.AbstractScalar,
     width_max: None | u.Quantity | na.AbstractScalar,
     width_depleted: None | u.Quantity | na.AbstractScalar,
 ):
-    """The closed form is the average of the profile over the absorption depth."""
+    """
+    The closed form is the average of the profile over the absorption depth,
+    including a sensor with no depletion region and one with no field-free
+    region.
+    """
     s = 14 * u.um
-    d = 8.7 * u.um
+    d = thickness_depletion
 
     result = optika.sensors.charge_diffusion(
         absorption=absorption,
@@ -143,7 +157,41 @@ def test_charge_diffusion_average(
     weight = np.exp(-absorption * depth)
     variance = (np.square(profile) * weight).sum(axis) / weight.sum(axis)
 
-    assert np.allclose(result, np.sqrt(variance), rtol=1e-5)
+    assert np.allclose(result, np.sqrt(variance), rtol=1e-5, atol=1e-9 * u.um)
+
+
+@pytest.mark.parametrize(
+    argnames="thickness_depletion",
+    argvalues=[
+        0 * u.um,
+        14 * u.um,
+    ],
+)
+def test_charge_diffusion_degenerate(
+    thickness_depletion: u.Quantity | na.AbstractScalar,
+):
+    """
+    A sensor with no depletion region or no field-free region gives finite
+    widths, without dividing by the thickness of the missing region.
+    """
+    kwargs = dict(
+        thickness_substrate=14 * u.um,
+        thickness_depletion=thickness_depletion,
+        width_max=4 * u.um,
+        width_depleted=0.8 * u.um,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        average = optika.sensors.charge_diffusion(
+            absorption=na.geomspace(1e-4, 1e3, axis="absorption", num=8) / u.um,
+            **kwargs,
+        )
+        profile = optika.sensors.charge_diffusion_profile(
+            depth=na.linspace(0, 14, axis="depth", num=15) * u.um,
+            **kwargs,
+        )
+    assert np.all(np.isfinite(average))
+    assert np.all(np.isfinite(profile))
 
 
 @pytest.mark.parametrize(

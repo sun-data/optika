@@ -274,6 +274,75 @@ def test_electrons_measured_diffusion():
     assert np.allclose(std_measured, std_expected, rtol=0.05)
 
 
+@pytest.mark.parametrize(
+    argnames="thickness_depletion,width_max,width_depleted",
+    argvalues=[
+        (8 * u.um, 4 * u.um, None),
+        (8 * u.um, None, 1.5 * u.um),
+        (8 * u.um, 4 * u.um, 1.5 * u.um),
+        (14 * u.um, None, 3 * u.um),
+    ],
+)
+def test_electrons_measured_diffusion_profile(
+    thickness_depletion: u.Quantity | na.AbstractScalar,
+    width_max: None | u.Quantity | na.AbstractScalar,
+    width_depleted: None | u.Quantity | na.AbstractScalar,
+):
+    """
+    The spread of the diffused charge matches
+    :func:`optika.sensors.charge_diffusion` when the width at the back surface
+    differs from the thickness of the field-free region, and when the charge
+    also spreads in the depletion region, including a sensor with no
+    field-free region at all.
+    """
+    num = 81
+    axis_xy = ("pixel_x", "pixel_y")
+
+    absorption = 1 / u.um
+    thickness_substrate = 14 * u.um
+    width_pixel = 0.5 * u.um
+
+    photons = np.zeros((num, num))
+    photons[num // 2, num // 2] = 20000
+    photons = na.ScalarArray(photons << u.photon, axes=axis_xy).astype(int)
+
+    electrons = _ramanathan_2020.electrons_measured(
+        photons_absorbed=photons,
+        wavelength=500 * u.nm,
+        absorption=absorption,
+        thickness_implant=0 * u.um,
+        thickness_depletion=thickness_depletion,
+        thickness_substrate=thickness_substrate,
+        width_max=width_max,
+        width_depleted=width_depleted,
+        width_pixel=width_pixel,
+        cce_backsurface=1,
+        axis_xy=axis_xy,
+    )
+
+    offset_x = (na.arange(0, num, axis=axis_xy[0]) - num // 2) * width_pixel
+    offset_y = (na.arange(0, num, axis=axis_xy[1]) - num // 2) * width_pixel
+
+    total = electrons.sum(axis_xy)
+    var_x = (electrons * np.square(offset_x)).sum(axis_xy) / total
+    var_y = (electrons * np.square(offset_y)).sum(axis_xy) / total
+
+    # Binning an electron into the pixel it lands in, from a sub-pixel origin
+    # that is uniform over the pixel, adds a sixth of a square pixel to the
+    # variance of its offset.
+    std_measured = np.sqrt((var_x + var_y) / 2 - np.square(width_pixel) / 6)
+
+    std_expected = optika.sensors.charge_diffusion(
+        absorption=absorption,
+        thickness_substrate=thickness_substrate,
+        thickness_depletion=thickness_depletion,
+        width_max=width_max,
+        width_depleted=width_depleted,
+    )
+
+    assert np.allclose(std_measured, std_expected, rtol=0.03)
+
+
 def test_electrons_measured_wrap():
     """
     On a grid small compared to the diffusion width, charge that diffuses off
