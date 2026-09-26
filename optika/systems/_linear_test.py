@@ -48,6 +48,26 @@ def _vignetting() -> optika.radiometry.PolynomialVignettingModel:
     )
 
 
+def _field_stop() -> optika.radiometry.PolynomialFieldStopModel:
+    """
+    A square field of view 30 arcseconds across which drifts along :math:`x`
+    with wavelength, as the field of view of a system whose field stop sits
+    behind its grating does.
+    """
+    wavelength = na.linspace(500, 600, axis="wavelength", num=3) * u.nm
+    angle = na.linspace(45, 405, axis="vertex", num=5) * u.deg
+    shift = (wavelength - 550 * u.nm) * (0.02 * u.arcsec / u.nm)
+    radius = 15 * np.sqrt(2) * u.arcsec
+    return optika.radiometry.PolynomialFieldStopModel(
+        wavelength=wavelength,
+        vertices=na.Cartesian2dVectorArray(
+            x=radius * np.cos(angle) + shift,
+            y=radius * np.sin(angle) + 0 * shift,
+        ),
+        axis_wavelength="wavelength",
+    )
+
+
 def _sensor() -> optika.sensors.ImagingSensor:
     return optika.sensors.ImagingSensor(
         width_pixel=15 * u.um,
@@ -107,6 +127,36 @@ class AbstractTestAbstractLinearSystem(
             a.area_effective,
             optika.radiometry.AbstractEffectiveAreaModel,
         )
+
+    def test_field_stop_(self, a: optika.systems.AbstractLinearSystem):
+        result = a.field_stop_
+        if a.field_stop is None:
+            assert result is None
+        else:
+            assert isinstance(result, optika.radiometry.AbstractFieldStopModel)
+
+    def test_outline(self, a: optika.systems.AbstractLinearSystem):
+        result = a.outline
+        assert result is None or isinstance(
+            result, optika.radiometry.AbstractFieldStopModel
+        )
+
+    def test_footprint(self, a: optika.systems.AbstractLinearSystem):
+        wavelength = 550 * u.nm
+        if a.field_stop is None:
+            with pytest.raises(ValueError):
+                a.footprint(wavelength)
+            with pytest.raises(ValueError):
+                a.footprint(wavelength, envelope=True)
+        else:
+            # one outline at a single wavelength, one per wavelength at many
+            result = a.footprint(wavelength)
+            assert isinstance(result, na.AbstractCartesian2dVectorArray)
+            assert "wire" in na.shape(result)
+            assert "wavelength" not in na.shape(result)
+            wavelength = na.linspace(500, 600, axis="wavelength", num=5) * u.nm
+            result = a.footprint(wavelength)
+            assert na.shape(result)["wavelength"] == 5
 
     def test_sensor(self, a: optika.systems.AbstractLinearSystem):
         assert isinstance(a.sensor, optika.sensors.AbstractImagingSensor)
@@ -282,6 +332,13 @@ class AbstractTestAbstractLinearSystem(
             sensor=_sensor(),
             vignetting=_vignetting(),
             field_stop=optika.apertures.RectangularAperture(half_width=15 * u.arcsec),
+        ),
+        optika.systems.LinearSystem(
+            area_effective=_area_effective(),
+            distortion=_distortion(),
+            sensor=_sensor(),
+            vignetting=_vignetting(),
+            field_stop=_field_stop(),
         ),
     ],
 )

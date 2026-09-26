@@ -1092,6 +1092,109 @@ class AbstractSequentialSystem(
         field, _ = self._field_and_pupil(self.rayfunction_stops.outputs)
         return field
 
+    def field_stop_polygon(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        envelope: bool = True,
+    ) -> optika.apertures.PolygonalAperture:
+        """
+        The field of view of this system as a polygon in field coordinates.
+
+        By default the polygon bounds every field position which passes any
+        light: in angle if the object is at infinity, and in position if it
+        is not.  Each vertex is the ray which grazes one point on the edge of
+        the field stop and lands farthest out on the object, of all the rays
+        through that point from the edge of the pupil stop.
+
+        A field stop at an image of the object passes a field position
+        whole or not at all, and every ray through a point on its edge lands
+        at the same place, so the polygon is then the image of the stop.
+        One which is not at an image has a soft edge: a field position a
+        little outside the image of the stop still passes the part of its
+        pupil which clears it.  The polygon includes that part, since the
+        vignetting and effective-area models of :meth:`linearize` are
+        normalized over every field position which passes any light, and a
+        field stop which excluded some of them would rescale both.  The
+        falloff across the soft edge is the vignetting model's to describe.
+
+        The outermost ray is found by its distance from the center of the
+        field of view, so the field of view is taken to be star-shaped about
+        its center, as the convex field stops of real instruments are.
+
+        With `envelope` set to :obj:`False`, each vertex is instead the
+        average over the pupil of the rays through one point on the edge of
+        the field stop: the half-light outline.  That is where a measured edge
+        of the field of view sits, since the midpoint of the falloff across a
+        soft edge is where half of the pupil clears the stop.
+
+        A field stop ahead of every dispersive element gives the same polygon
+        at every wavelength.  One behind a dispersive element gives a
+        different polygon at each, and the vertices then vary along the
+        wavelength axis: vertex for vertex, since each is the same point on
+        the edge of the stop at every wavelength.  :meth:`linearize` fits
+        them in wavelength with
+        :class:`~optika.radiometry.PolynomialFieldStopModel`.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to solve for the stop rays.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            is used, and the cached :attr:`rayfunction_stops` are read.
+        envelope
+            Whether to bound every field position which passes any light,
+            or to trace the half-light outline.
+        """
+        if wavelength is None:
+            wavelength = self.grid_input.wavelength
+        rayfunction_stops, _ = self._stops_and_pupil_fit(
+            wavelength,
+            normalized_pupil=False,
+        )
+        return self._field_stop_polygon_from_rays(rayfunction_stops, envelope)
+
+    def _field_stop_polygon_from_rays(
+        self,
+        rayfunction_stops: optika.rays.RayFunctionArray,
+        envelope: bool = True,
+    ) -> optika.apertures.PolygonalAperture:
+        """
+        Build :meth:`field_stop_polygon` from stop rays already solved.
+
+        Parameters
+        ----------
+        rayfunction_stops
+            The rays grazing the edges of both stops, in the frame of the
+            object surface, as :attr:`rayfunction_stops` gives them.
+        envelope
+            Whether to bound every field position which passes any light,
+            or to trace the half-light outline.
+        """
+        axis_field_stop = self.axis_field_stop
+        axis_pupil_stop = self.axis_pupil_stop
+
+        field, _ = self._field_and_pupil(rayfunction_stops.outputs)
+
+        if envelope:
+            # of the rays through each point on the edge of the field stop,
+            # the one which lands farthest from the center of the field of
+            # view
+            center = field.mean((axis_field_stop, axis_pupil_stop))
+            offset = field - center
+            distance = np.square(offset.x) + np.square(offset.y)
+            field = field[np.argmax(distance, axis=axis_pupil_stop)]
+        else:
+            field = field.mean(axis_pupil_stop)
+
+        # :class:`~optika.apertures.PolygonalAperture` reads its vertices
+        # along an axis named ``vertex``.  Combining the one axis into it
+        # renames it for any kind of array, uncertain ones included.
+        x = field.x.combine_axes(axes=(axis_field_stop,), axis_new="vertex")
+        y = field.y.combine_axes(axes=(axis_field_stop,), axis_new="vertex")
+        return optika.apertures.PolygonalAperture(
+            vertices=na.Cartesian3dVectorArray(x=x, y=y, z=0 * x),
+        )
+
     @property
     def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
         """
@@ -2673,6 +2776,7 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         degree: int = 2,
         seed: None | int = 0,
+        field_stop: bool = True,
     ) -> LinearSystem:
         """
         Construct a linear approximation of this system by fitting its
@@ -2689,11 +2793,23 @@ class AbstractSequentialSystem(
         The distortion model reads where those rays land, the vignetting
         model which of them survive, and the effective area what they carry.
 
-        The resulting system's
-        :attr:`~optika.systems.LinearSystem.field_stop` is left as :obj:`None`;
-        the field stop is not modeled here, since field points outside it are
-        excluded when fitting the vignetting model rather than represented as a
-        falloff.
+        The field of view is carried on the result as a
+        :class:`~optika.radiometry.PolynomialFieldStopModel`: the polygon of
+        :meth:`field_stop_polygon` at each sampled wavelength, fit in
+        wavelength so that it can be evaluated at any other.  Every scene
+        cell outside it is blocked before the wavelengths are summed, which
+        keeps one line's light out of the field of another's in a slitless
+        spectrograph.  Field positions outside the field of view are excluded
+        when fitting the vignetting model rather than represented as a
+        falloff, so without the field stop the vignetting model is
+        extrapolated there instead, and can let light from beyond the edge
+        of the field through.
+
+        The half-light outline, :meth:`field_stop_polygon` with `envelope`
+        set to :obj:`False`, is fit the same way and carried beside it as
+        :attr:`~optika.systems.LinearSystem.outline`.  It blocks nothing: it
+        is where an edge measured in an image sits, and it is what
+        :meth:`~optika.systems.LinearSystem.footprint` maps by default.
 
         Parameters
         ----------
@@ -2735,6 +2851,11 @@ class AbstractSequentialSystem(
             sample on every call, which is how the spread of these models
             over the sampling is measured, or any other integer for a
             different fixed sample.
+        field_stop
+            Whether to carry the field of view and its half-light outline on
+            the result, see above.
+            Fit with the same `degree` as the other models, held one below
+            the number of wavelengths sampled.
 
         Raises
         ------
@@ -2816,7 +2937,20 @@ class AbstractSequentialSystem(
             axis=tuple(ax for ax in axis_grid if ax in na.shape(direction)),
         )
 
+        def model(envelope: bool) -> optika.radiometry.PolynomialFieldStopModel:
+            return optika.radiometry.PolynomialFieldStopModel(
+                wavelength=wavelength,
+                vertices=self._field_stop_polygon_from_rays(
+                    rayfunction_stops,
+                    envelope=envelope,
+                ).vertices.xy,
+                axis_wavelength=axis_wavelength[0],
+                degree=degree,
+            )
+
         return LinearSystem(
+            field_stop=model(envelope=True) if field_stop else None,
+            outline=model(envelope=False) if field_stop else None,
             area_effective=self._fit_area_effective(
                 rays=rays,
                 axis_wavelength=axis_wavelength,
