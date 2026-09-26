@@ -1064,6 +1064,8 @@ def signal(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
     thickness_substrate: None | na.AbstractScalar = _thickness_substrate,
+    width_max: None | u.Quantity | na.AbstractScalar = None,
+    width_depleted: None | u.Quantity | na.AbstractScalar = None,
     width_pixel: (
         u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
     ) = _width_pixel,
@@ -1112,7 +1114,17 @@ def signal(
         `thickness_substrate`.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
-        The default
+    width_max
+        The standard deviation of the charge cloud of a photon absorbed at the
+        back surface, before it crosses the depletion region.
+        If :obj:`None` (the default), the thickness of the field-free region.
+        See :func:`optika.sensors.charge_diffusion_profile`.
+    width_depleted
+        The standard deviation acquired by charge drifting across the full
+        thickness of the depletion region.
+        If :obj:`None` (the default), charge does not spread in the depletion
+        region.
+        See :func:`optika.sensors.charge_diffusion_profile`.
     width_pixel
         The size of a single pixel on the sensor.
     cce_backsurface
@@ -1236,6 +1248,8 @@ def signal(
             thickness_implant=thickness_implant,
             thickness_depletion=thickness_depletion,
             thickness_substrate=thickness_substrate,
+            width_max=width_max,
+            width_depleted=width_depleted,
             width_pixel=width_pixel,
             cce_backsurface=cce_backsurface,
             temperature=temperature,
@@ -1338,6 +1352,8 @@ def vmr_signal(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    width_max: None | u.Quantity | na.AbstractScalar = None,
+    width_depleted: None | u.Quantity | na.AbstractScalar = None,
     width_pixel: (
         u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
     ) = _width_pixel,
@@ -1374,6 +1390,17 @@ def vmr_signal(
         which means there is no field-free region and no charge diffusion.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
+    width_max
+        The standard deviation of the charge cloud of a photon absorbed at the
+        back surface, before it crosses the depletion region.
+        If :obj:`None` (the default), the thickness of the field-free region.
+        See :func:`optika.sensors.charge_diffusion_profile`.
+    width_depleted
+        The standard deviation acquired by charge drifting across the full
+        thickness of the depletion region.
+        If :obj:`None` (the default), charge does not spread in the depletion
+        region.
+        See :func:`optika.sensors.charge_diffusion_profile`.
     width_pixel
         The size of a single pixel on the sensor,
         used by the charge-diffusion model.
@@ -1395,8 +1422,9 @@ def vmr_signal(
     diffusion
         Whether to include the noise reduction due to charge diffusion
         in the result.
-        This only has an effect if `thickness_depletion` is smaller than
-        `thickness_substrate` and `width_pixel` is positive.
+        This only has an effect if `width_pixel` is positive and the charge
+        spreads, either because `thickness_depletion` is smaller than
+        `thickness_substrate` or because `width_depleted` is positive.
 
     Examples
     --------
@@ -1555,16 +1583,19 @@ def vmr_signal(
     single photon are measured together in the same pixel.
 
     Charge diffusion weakens exactly this correlation:
-    two electrons produced by the same photon at depth :math:`z` in the
-    field-free region land in the same pixel only with probability
+    two electrons produced by the same photon at depth :math:`z`
+    land in the same pixel only with probability
 
     .. math::
 
         D(z) = d \left( \frac{w(z)}{p_x} \right) d \left( \frac{w(z)}{p_y} \right),
 
     where :math:`p_x` and :math:`p_y` are the pixel widths,
-    :math:`w(z) = z_f \sqrt{1 - z / z_f}` is the standard deviation of the
-    Gaussian charge diffusion kernel,
+    :math:`w(z)` is the standard deviation of the
+    Gaussian charge diffusion kernel given by
+    :func:`optika.sensors.charge_diffusion_profile`,
+    which is :math:`w(z) = z_f \sqrt{1 - z / z_f}` in the field-free region
+    for the default arguments,
     :math:`z_f` is the thickness of the field-free region
     (the difference between the substrate thickness and the depletion
     thickness),
@@ -1598,8 +1629,10 @@ def vmr_signal(
             \frac{\left\langle \left[ 1 - D(z) \right] \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle}
 
     from Equation :eq:`vmr-compact`.
-    The integrand vanishes outside the field-free region, since :math:`D = 1`
-    where the charge does not spread, so only that region is integrated.
+    The integrand vanishes where the charge does not spread,
+    since :math:`D = 1` there, so by default only the field-free region is
+    integrated.
+    If `width_depleted` is given, the depletion region is integrated as well.
 
     The average has no closed form.
     The obstruction is :math:`D`, which contains
@@ -1616,6 +1649,8 @@ def vmr_signal(
     Substituting :math:`s = 1 - r^2` then removes the square-root branch point
     which :math:`\sigma(z)` places at :math:`z = z_f`, since the diffusion width
     becomes proportional to :math:`r` near that end of the range.
+    With `width_depleted` the width no longer vanishes at :math:`z = z_f`,
+    and the same substitution is harmless.
     In terms of :math:`r` the optical depth is
 
     .. math::
@@ -1627,6 +1662,22 @@ def vmr_signal(
     The remaining integrand is smooth apart from the point where the implant
     ends and :math:`\eta` saturates, so the interval is split there and
     Gauss-Legendre quadrature is applied to each part.
+
+    The depletion region, :math:`z_f < z < z_s`, is treated the same way.
+    There the width is
+    :math:`w(z) = \sigma_d \sqrt{(z_s - z) / z_d}`,
+    where :math:`\sigma_d` is `width_depleted`,
+    :math:`z_d` is the thickness of the depletion region,
+    and :math:`z_s` is the thickness of the substrate,
+    so its branch point is at the gates.
+    The average is written as an integral over the cumulative absorption
+    probability :math:`q` within the depletion region, and substituting
+    :math:`q = 1 - v^2` puts the branch point at :math:`v = 0`,
+    where the optical depth below the edge of the depletion region is
+
+    .. math::
+
+        \alpha (z - z_f) = -\log \left( e^{-\alpha z_d} + \left( 1 - e^{-\alpha z_d} \right) v^2 \right).
 
     With :obj:`_num_gauss_legendre` nodes per part this is accurate to better
     than one part in :math:`10^6` for optical depths
@@ -1708,14 +1759,27 @@ def vmr_signal(
         az_substrate = absorption * thickness_substrate
         az_substrate = az_substrate.to(u.dimensionless_unscaled).value
 
-        def ratio_ff(width: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
-            where = width > 0
-            width = np.where(where, width, 1 * u.um)
-            r = (thickness_ff / width).to(u.dimensionless_unscaled).value
+        if width_max is None:
+            width_max = thickness_ff
+
+        def ratio(
+            width: u.Quantity | na.AbstractScalar,
+            width_pixel: u.Quantity | na.AbstractScalar,
+        ) -> na.AbstractScalar:
+            where = width_pixel > 0
+            width_pixel = np.where(where, width_pixel, 1 * u.um)
+            r = (width / width_pixel).to(u.dimensionless_unscaled).value
             return np.where(where, r, 0)
 
-        r_x = ratio_ff(width_pixel.x)
-        r_y = ratio_ff(width_pixel.y)
+        # The widths of the charge cloud in units of the pixel width,
+        # at the back surface and across the depletion region.
+        r_x = ratio(width_max, width_pixel.x)
+        r_y = ratio(width_max, width_pixel.y)
+        if width_depleted is None:
+            q_x = q_y = 0
+        else:
+            q_x = ratio(width_depleted, width_pixel.x)
+            q_y = ratio(width_depleted, width_pixel.y)
 
         fraction_absorbed = -np.expm1(-az_substrate)
         fraction_ff = -np.expm1(-az_ff)
@@ -1728,7 +1792,11 @@ def vmr_signal(
             az = -np.log(np.exp(-az_ff) + fraction_ff * np.square(r))
             eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
             w = np.sqrt(np.maximum(1 - az / az_ff_safe, 0))
-            D = _probability_same_pixel(r_x * w) * _probability_same_pixel(r_y * w)
+            D = _probability_same_pixel(
+                np.hypot(r_x * w, q_x),
+            ) * _probability_same_pixel(
+                np.hypot(r_y * w, q_y),
+            )
             return (1 - D) * np.square(eta) * 2 * r
 
         # The integrand is smooth except where the implant ends and the
@@ -1751,6 +1819,39 @@ def vmr_signal(
             _integrate_gauss_legendre(integrand, 0, r_implant, axis_z)
             + _integrate_gauss_legendre(integrand, r_implant, 1, axis_z)
         )
+
+        if width_depleted is not None:
+            # The optical depth of the depletion region.
+            az_d = az_substrate - az_ff
+            fraction_d = -np.expm1(-az_d)
+            fraction_d_safe = np.where(fraction_d > 0, fraction_d, 1)
+            az_d_safe = np.where(az_d > 0, az_d, 1)
+            t_d = np.exp(-az_ff) * fraction_d / fraction_absorbed
+
+            def integrand_depleted(v: na.AbstractScalar) -> na.AbstractScalar:
+                az_below = -np.log(np.exp(-az_d) + fraction_d * np.square(v))
+                eta = np.minimum(n0 + (1 - n0) * (az_ff + az_below) / aW, 1)
+                w = np.sqrt(np.maximum(1 - az_below / az_d_safe, 0))
+                D = _probability_same_pixel(q_x * w) * _probability_same_pixel(q_y * w)
+                return (1 - D) * np.square(eta) * 2 * v
+
+            # The implant ends inside the depletion region only if it is
+            # thicker than the field-free region; otherwise the breakpoint
+            # sits at the edge of the depletion region, `v = 1`, leaving a
+            # single interval.
+            v_implant = np.sqrt(
+                np.clip(
+                    (np.exp(np.minimum(az_ff - aW, 0)) - np.exp(-az_d))
+                    / fraction_d_safe,
+                    0,
+                    1,
+                ),
+            )
+
+            integral = integral + t_d * (
+                _integrate_gauss_legendre(integrand_depleted, 0, v_implant, axis_z)
+                + _integrate_gauss_legendre(integrand_depleted, v_implant, 1, axis_z)
+            )
 
         unit = u.electron / u.photon
 
@@ -2166,6 +2267,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             self._chemical.absorption(wavelength),
             thickness_substrate=self.thickness_substrate,
             thickness_depletion=self.depletion.thickness,
+            width_max=self.depletion.width_max,
+            width_depleted=self.depletion.width_depleted,
         )
 
     def transmittance(
@@ -2464,6 +2567,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             thickness_implant=self.thickness_implant,
             thickness_depletion=self.depletion.thickness,
             thickness_substrate=self.thickness_substrate,
+            width_max=self.depletion.width_max,
+            width_depleted=self.depletion.width_depleted,
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             axis_xy=axis_xy,
@@ -2511,6 +2616,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             thickness_implant=self.thickness_implant,
             thickness_depletion=self.depletion.thickness,
             thickness_substrate=self.thickness_substrate,
+            width_max=self.depletion.width_max,
+            width_depleted=self.depletion.width_depleted,
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
@@ -2609,6 +2716,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             thickness_implant=self.thickness_implant,
             thickness_depletion=self.depletion.thickness,
             thickness_substrate=self.thickness_substrate,
+            width_max=self.depletion.width_max,
+            width_depleted=self.depletion.width_depleted,
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,

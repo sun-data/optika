@@ -504,6 +504,8 @@ def electrons_measured(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_depletion: None | u.Quantity | na.AbstractScalar = None,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    width_max: None | u.Quantity | na.AbstractScalar = None,
+    width_depleted: None | u.Quantity | na.AbstractScalar = None,
     width_pixel: (
         u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
     ) = _width_pixel,
@@ -542,6 +544,17 @@ def electrons_measured(
         `thickness_substrate`.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
+    width_max
+        The standard deviation of the charge cloud of a photon absorbed at the
+        back surface, before it crosses the depletion region.
+        If :obj:`None` (the default), the thickness of the field-free region.
+        See :func:`optika.sensors.charge_diffusion_profile`.
+    width_depleted
+        The standard deviation acquired by charge drifting across the full
+        thickness of the depletion region.
+        If :obj:`None` (the default), charge does not spread in the depletion
+        region.
+        See :func:`optika.sensors.charge_diffusion_profile`.
     width_pixel
         The size of a single pixel on the sensor.
         A scalar gives square pixels; a
@@ -558,6 +571,9 @@ def electrons_measured(
         The two logical axes corresponding to the pixel grid of the sensor
         along which electrons will diffuse.
         If :obj:`None` (the default), there is no charge diffusion.
+        Otherwise, the electrons liberated by each photon spread as a Gaussian
+        whose width depends on the depth at which the photon was absorbed,
+        given by :func:`optika.sensors.charge_diffusion_profile`.
     wrap
         Controls how diffused charge is treated at the edges of the pixel grid.
         If :obj:`False` (the default), charge that diffuses past the edge of the
@@ -632,6 +648,12 @@ def electrons_measured(
     if thickness_depletion is None:
         thickness_depletion = thickness_substrate
 
+    if width_max is None:
+        width_max = thickness_substrate - thickness_depletion
+
+    if width_depleted is None:
+        width_depleted = 0 * u.um
+
     if shape_random is None:
         shape_random = dict()
 
@@ -648,6 +670,8 @@ def electrons_measured(
         na.shape(thickness_implant),
         na.shape(thickness_depletion),
         na.shape(thickness_substrate),
+        na.shape(width_max),
+        na.shape(width_depleted),
         na.shape(width_pixel_x),
         na.shape(width_pixel_y),
         na.shape(cce_backsurface),
@@ -670,6 +694,8 @@ def electrons_measured(
     thickness_implant = na.broadcast_to(thickness_implant, shape)
     thickness_depletion = na.broadcast_to(thickness_depletion, shape)
     thickness_substrate = na.broadcast_to(thickness_substrate, shape)
+    width_max = na.broadcast_to(width_max, shape)
+    width_depleted = na.broadcast_to(width_depleted, shape)
     width_pixel_x = na.broadcast_to(width_pixel_x, shape)
     width_pixel_y = na.broadcast_to(width_pixel_y, shape)
     cce_backsurface = na.broadcast_to(cce_backsurface, shape)
@@ -701,6 +727,8 @@ def electrons_measured(
         thickness_implant=thickness_implant.ndarray,
         thickness_depletion=thickness_depletion.ndarray,
         thickness_substrate=thickness_substrate.ndarray,
+        width_max=width_max.ndarray,
+        width_depleted=width_depleted.ndarray,
         width_pixel_x=width_pixel_x.ndarray,
         width_pixel_y=width_pixel_y.ndarray,
         cce_backsurface=cce_backsurface.ndarray,
@@ -729,6 +757,8 @@ def _electrons_measured_quantity(
     thickness_implant: u.Quantity,
     thickness_depletion: u.Quantity,
     thickness_substrate: u.Quantity,
+    width_max: u.Quantity,
+    width_depleted: u.Quantity,
     width_pixel_x: u.Quantity,
     width_pixel_y: u.Quantity,
     cce_backsurface: u.Quantity,
@@ -745,6 +775,8 @@ def _electrons_measured_quantity(
         thickness_implant.shape,
         thickness_depletion.shape,
         thickness_substrate.shape,
+        width_max.shape,
+        width_depleted.shape,
         cce_backsurface.shape,
         width_pixel_x.shape,
         width_pixel_y.shape,
@@ -761,6 +793,8 @@ def _electrons_measured_quantity(
     thickness_implant = thickness_implant.to_value(unit_length)
     thickness_depletion = thickness_depletion.to_value(unit_length)
     thickness_substrate = thickness_substrate.to_value(unit_length)
+    width_max = width_max.to_value(unit_length)
+    width_depleted = width_depleted.to_value(unit_length)
     width_pixel_x = width_pixel_x.to_value(unit_length)
     width_pixel_y = width_pixel_y.to_value(unit_length)
     cce_backsurface = cce_backsurface.to_value(u.dimensionless_unscaled)
@@ -774,6 +808,8 @@ def _electrons_measured_quantity(
         thickness_implant=thickness_implant.reshape(-1, num_x, num_y),
         thickness_depletion=thickness_depletion.reshape(-1, num_x, num_y),
         thickness_substrate=thickness_substrate.reshape(-1, num_x, num_y),
+        width_max=width_max.reshape(-1, num_x, num_y),
+        width_depleted=width_depleted.reshape(-1, num_x, num_y),
         width_pixel_x=width_pixel_x.reshape(-1, num_x, num_y),
         width_pixel_y=width_pixel_y.reshape(-1, num_x, num_y),
         cce_backsurface=cce_backsurface.reshape(-1, num_x, num_y),
@@ -982,6 +1018,8 @@ def _electrons_measured_numba(  # pragma: nocover
     thickness_implant: np.ndarray,
     thickness_depletion: np.ndarray,
     thickness_substrate: np.ndarray,
+    width_max: np.ndarray,
+    width_depleted: np.ndarray,
     width_pixel_x: np.ndarray,
     width_pixel_y: np.ndarray,
     cce_backsurface: np.ndarray,
@@ -1010,7 +1048,10 @@ def _electrons_measured_numba(  # pragma: nocover
                 energy_pair_inf_i = energy_pair_inf[i, x, y]
                 fano_inf_i = fano_inf[i, x, y]
                 z_substrate = thickness_substrate[i, x, y]
-                z_ff = z_substrate - thickness_depletion[i, x, y]
+                z_d = thickness_depletion[i, x, y]
+                z_ff = z_substrate - z_d
+                w_max = width_max[i, x, y]
+                w_dep = width_depleted[i, x, y]
                 wp_x = width_pixel_x[i, x, y]
                 wp_y = width_pixel_y[i, x, y]
 
@@ -1062,8 +1103,20 @@ def _electrons_measured_numba(  # pragma: nocover
                     u = random.uniform(-0.5, 0.5)
                     v = random.uniform(-0.5, 0.5)
 
-                    if z_ij < z_ff and wp_x > 0 and wp_y > 0:
-                        w = z_ff * math.sqrt(1 - z_ij / z_ff)
+                    # the width of the charge cloud at this depth, as in
+                    # `optika.sensors.charge_diffusion_profile`
+                    w_ff = 0.0
+                    if z_ij < z_ff:
+                        w_ff = w_max * math.sqrt(1 - z_ij / z_ff)
+                    w_d = 0.0
+                    if w_dep > 0:
+                        g = 1.0
+                        if z_d > 0:
+                            g = min(max((z_substrate - z_ij) / z_d, 0.0), 1.0)
+                        w_d = w_dep * math.sqrt(g)
+                    w = math.hypot(w_ff, w_d)
+
+                    if w > 0 and wp_x > 0 and wp_y > 0:
                         _diffuse_electrons(
                             result=result,
                             i=i,
