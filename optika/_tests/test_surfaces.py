@@ -284,3 +284,29 @@ def test_plot_substrate_without_vertices():
 
     assert "wall" in result
     assert na.shape(result["wall"])["vertex"] > 2
+
+
+def test_propagate_rays_without_clipping():
+    """
+    A surface told not to clip bends the rays exactly as it would have, and
+    leaves them exactly as vignetted as they arrived.
+    """
+    surface = surfaces[1]
+    rays = optika.rays.RayVectorArray(
+        wavelength=500 * u.nm,
+        position=na.Cartesian3dVectorArray(
+            x=na.linspace(-20, 20, axis="x", num=5) * u.mm,
+            y=0 * u.mm,
+            z=0 * u.mm,
+        ),
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+
+    clipped = surface.propagate_rays(rays)
+    unclipped = surface.propagate_rays(rays, clip=False)
+
+    # the aperture reaches 10 mm either side, so the outer rays are clipped
+    assert not np.all(clipped.unvignetted)
+    assert np.all(unclipped.unvignetted)
+    assert np.allclose(unclipped.position, clipped.position)
+    assert np.allclose(unclipped.direction, clipped.direction)

@@ -41,6 +41,14 @@ def _sample() -> na.SpectralPositionalVectorArray:
     )
 
 
+def _field_stop() -> optika.apertures.CircularAperture:
+    """
+    A field of view which holds the middle of the grid :func:`_scene`
+    describes but not its corners, nor the cells beside them.
+    """
+    return optika.apertures.CircularAperture(0.85 * u.deg)
+
+
 def _illumination(
     coordinates: None | na.SpectralPositionalVectorArray = None,
 ) -> na.AbstractScalar:
@@ -108,9 +116,10 @@ class AbstractTestAbstractInterpolatedVignettingModel(
             axis_wavelength="wavelength",
             axis_field=("field_x", "field_y"),
             degree=degree,
+            field_stop=field_stop,
         )
         for degree in [1, 2]
-        for sample in [None, _sample()]
+        for sample, field_stop in [(None, None), (_sample(), _field_stop())]
     ],
 )
 class TestPolynomialVignettingModel(
@@ -354,3 +363,50 @@ def test_coordinates_sample_defaults_to_the_cell_centers():
     )
 
     assert np.all(a.coordinates_sample_.position == _centers().position)
+
+
+@pytest.mark.parametrize("field_stop", [None, _field_stop()])
+def test_plots_leave_out_the_cells_beyond_the_field_stop(field_stop):
+    """
+    Both plots leave blank every cell whose center lies outside the field stop, and
+    every cell the model was not fit over, and draw the rest.
+
+    The model runs smoothly past the edge of the field of view, but the
+    system never sees those field positions, so a map of them would show
+    something no image contains.  The test is of the center of each cell, so
+    which cells are drawn does not depend on where inside them the
+    measurements were made.
+    """
+    sample = _sample()
+    center = _centers().position
+
+    # one cell in the middle of the field is left out of the fit as well
+    where = np.ones((5, 5), dtype=bool)
+    where[2, 2] = False
+    where = na.ScalarArray(where, axes=("field_x", "field_y"))
+
+    a = optika.radiometry.PolynomialVignettingModel(
+        coordinates_scene=_scene(),
+        coordinates_sample=sample,
+        illumination=_illumination(sample),
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+        where=where,
+        field_stop=field_stop,
+    )
+
+    drawn = where
+    if field_stop is not None:
+        drawn = drawn & field_stop(
+            na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
+        )
+    expected = int((~drawn).sum().ndarray)
+    # the dropped cell, and with a field stop the cells beyond it too
+    assert expected > (1 if field_stop is not None else 0)
+
+    for method in ("plot", "plot_residual"):
+        fig, ax = getattr(a, method)()
+        mesh = ax.ndarray.reshape(-1)[0].collections[0]
+        assert np.ma.count_masked(mesh.get_array()) == expected
+        plt.close(fig)

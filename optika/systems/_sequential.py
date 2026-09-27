@@ -33,6 +33,28 @@ class StopSolveError(ValueError):
 
 
 @dataclasses.dataclass(eq=False, repr=False)
+class _Unclipped(optika.propagators.AbstractRayPropagator):
+    """
+    A surface whose aperture vignettes nothing.
+
+    It stands in for the surface in the sequence the rays are propagated
+    through, so that :func:`optika.propagators.propagate_rays` can hand every
+    surface the same arguments and still leave this one's aperture out.  The
+    surface bends the rays exactly as it would have.
+    """
+
+    surface: optika.surfaces.AbstractSurface = dataclasses.MISSING
+    """The surface whose aperture is left out."""
+
+    def propagate_rays(
+        self,
+        rays: optika.rays.RayVectorArray,
+        efficiency: bool = True,
+    ) -> optika.rays.RayVectorArray:
+        return self.surface.propagate_rays(rays, efficiency=efficiency, clip=False)
+
+
+@dataclasses.dataclass(eq=False, repr=False)
 class AbstractSequentialSystem(
     optika.mixins.DxfWritable,
     optika.mixins.Plottable,
@@ -1111,11 +1133,7 @@ class AbstractSequentialSystem(
         at the same place, so the polygon is then the image of the stop.
         One which is not at an image has a soft edge: a field position a
         little outside the image of the stop still passes the part of its
-        pupil which clears it.  The polygon includes that part, since the
-        vignetting and effective-area models of :meth:`linearize` are
-        normalized over every field position which passes any light, and a
-        field stop which excluded some of them would rescale both.  The
-        falloff across the soft edge is the vignetting model's to describe.
+        pupil which clears it.  The polygon includes that part.
 
         The outermost ray is found by its distance from the center of the
         field of view, so the field of view is taken to be star-shaped about
@@ -1442,6 +1460,8 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         accumulate: bool = True,
         efficiency: bool = True,
+        clip_field_stop: bool = True,
+        clip_sensor: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -1483,6 +1503,13 @@ class AbstractSequentialSystem(
             the geometry and
             :attr:`~optika.rays.AbstractRayVectorArray.unvignetted` are
             unchanged and much cheaper to compute.
+        clip_field_stop
+            A boolean flag indicating whether the field stop vignettes the
+            rays.  If :obj:`False`, it is traced as though it had no aperture.
+        clip_sensor
+            A boolean flag indicating whether the edge of the sensor vignettes
+            the rays.  If :obj:`False`, a ray which lands beyond it on the
+            plane of the sensor is kept, and lands where it would have.
 
         See Also
         --------
@@ -1515,6 +1542,19 @@ class AbstractSequentialSystem(
 
         surfaces = self.surfaces_all
 
+        # an unclipped surface still bends the rays, it only no longer
+        # vignettes them; the sensor is the last surface if there is one
+        index_sensor = len(surfaces) - 1 if self.sensor is not None else None
+        surfaces = [
+            (
+                _Unclipped(surface)
+                if (not clip_field_stop and surface.is_field_stop)
+                or (not clip_sensor and i == index_sensor)
+                else surface
+            )
+            for i, surface in enumerate(surfaces)
+        ]
+
         if accumulate:
             result.outputs = optika.propagators.accumulate_rays(
                 propagators=surfaces,
@@ -1540,6 +1580,8 @@ class AbstractSequentialSystem(
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         efficiency: bool = True,
+        clip_field_stop: bool = True,
+        clip_sensor: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -1576,6 +1618,13 @@ class AbstractSequentialSystem(
             the geometry and
             :attr:`~optika.rays.AbstractRayVectorArray.unvignetted` are
             unchanged and much cheaper to compute.
+        clip_field_stop
+            A boolean flag indicating whether the field stop vignettes the
+            rays.  If :obj:`False`, it is traced as though it had no aperture.
+        clip_sensor
+            A boolean flag indicating whether the edge of the sensor vignettes
+            the rays.  If :obj:`False`, a ray which lands beyond it on the
+            plane of the sensor is kept, and lands where it would have.
 
         See Also
         --------
@@ -1593,6 +1642,8 @@ class AbstractSequentialSystem(
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
             efficiency=efficiency,
+            clip_field_stop=clip_field_stop,
+            clip_sensor=clip_sensor,
         )
         rayfunction = raytrace[{axis: ~0}]
         rays = rayfunction.outputs
@@ -1864,6 +1915,10 @@ class AbstractSequentialSystem(
         the same grids, degree, and seed, :meth:`linearize` returns this very
         model as its :attr:`~optika.systems.LinearSystem.distortion`.
 
+        As in :meth:`vignetting`, the field stop and the sensor are left open
+        while the rays are traced, and the model is fit over every field
+        position whose light lands on the sensor.
+
         Parameters
         ----------
         wavelength
@@ -1956,6 +2011,10 @@ class AbstractSequentialSystem(
 
         return self._fit_distortion(
             rays=rays,
+            field_of_view=self._field_stop_polygon_from_rays(
+                rayfunction_stops,
+                envelope=False,
+            ),
             coordinates_scene=self._coordinates_scene_from_rays(
                 wavelength=wavelength,
                 field=field,
@@ -1985,8 +2044,20 @@ class AbstractSequentialSystem(
         The relative illumination at each scene coordinate is estimated from
         the unvignetted area of that field position's entrance pupil,
         normalized so that its average over the field of view is unity.
-        Field points with no unvignetted rays are excluded from the fit and
-        from the normalization.
+
+        The field stop and the sensor are left open while the rays are
+        traced.  Both sit at or near an image of the object, where each cuts
+        across the field in a step which no polynomial can follow, and a
+        field position drawn inside that step would otherwise be fit with
+        whatever part of its beam got through, depending on where in its cell
+        it happened to fall.  With both open, the illumination is the
+        vignetting by the rest of the system, which is smooth.  The model is
+        fit over every field position whose light lands on the sensor,
+        reaching past the edge of the field of view, and normalized over
+        those inside the half-light outline of the field of view,
+        :meth:`field_stop_polygon` with `envelope` set to :obj:`False`.  The
+        field stop is applied on its own by :meth:`linearize`, as that
+        polygon, and the edge of the sensor by the pixels the light lands on.
 
         Carrying the size of the pupil, rather than the bare fraction of it
         which survives, is what lets this model and :meth:`area_effective` be
@@ -2092,6 +2163,10 @@ class AbstractSequentialSystem(
         return self._fit_vignetting(
             rays=rays,
             area=area,
+            field_of_view=self._field_stop_polygon_from_rays(
+                rayfunction_stops,
+                envelope=False,
+            ),
             coordinates_scene=self._coordinates_scene_from_rays(
                 wavelength=wavelength,
                 field=field,
@@ -2108,6 +2183,7 @@ class AbstractSequentialSystem(
         self,
         rays: optika.rays.RayFunctionArray,
         coordinates_scene: na.AbstractSpectralPositionalVectorArray,
+        field_of_view: optika.apertures.AbstractAperture,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
@@ -2126,6 +2202,10 @@ class AbstractSequentialSystem(
         coordinates_scene
             The cells the rays were drawn from, from
             :meth:`_coordinates_scene_from_rays`.
+        field_of_view
+            The half-light outline of the field of view, from
+            :meth:`_field_stop_polygon_from_rays`, which the model carries so
+            that its plots can leave out the cells beyond it.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2137,11 +2217,12 @@ class AbstractSequentialSystem(
         """
         self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
+        where = self._lit(rays, axis_pupil)
         self._check_lit_wavelengths(
-            rays=rays,
+            lit=where,
+            wavelength=rays.inputs.wavelength,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
-            axis_pupil=axis_pupil,
             degree=degree,
         )
 
@@ -2151,7 +2232,6 @@ class AbstractSequentialSystem(
         )
 
         unvignetted = rays.outputs.unvignetted
-        where = unvignetted.any(axis_pupil)
 
         # average only the unvignetted rays, falling back to all of the rays
         # for field points excluded from the fit so that the mean is never
@@ -2171,6 +2251,7 @@ class AbstractSequentialSystem(
             axis_field=axis_field,
             degree=degree,
             where=where,
+            field_stop=field_of_view,
         )
 
     @staticmethod
@@ -2200,12 +2281,83 @@ class AbstractSequentialSystem(
                 f"along exactly one logical axis, got {axis_wavelength}"
             )
 
+    def _lit(
+        self,
+        rays: optika.rays.RayFunctionArray,
+        axis_pupil: tuple[str, str],
+    ) -> na.AbstractScalar:
+        """
+        The field positions a model fit to a stratified trace is fit over.
+
+        :meth:`_rayfunction_stratified` leaves the field stop and the sensor
+        open, so neither cuts the rays here.  A field position is lit if any
+        of its rays gets through the rest of the system and the point its
+        light lands on, averaged over those rays, is on the light-sensitive
+        area of the sensor.  That is a test of one point, so a field position
+        whose beam straddles the edge of the sensor is lit or not as a whole
+        rather than lit by the part of the beam which happens to land on it.
+
+        Parameters
+        ----------
+        rays
+            The traced rays, in the coordinates of the sensor.
+        axis_pupil
+            The logical axes of the pupil grid.
+        """
+        unvignetted = rays.outputs.unvignetted
+        lit = unvignetted.any(axis_pupil)
+        position = np.mean(
+            rays.outputs.position,
+            axis=axis_pupil,
+            where=unvignetted | ~lit,
+        )
+        return lit & self.sensor.aperture(position)
+
+    @staticmethod
+    def _inside(
+        rays: optika.rays.RayFunctionArray,
+        lit: na.AbstractScalar,
+        field_of_view: optika.apertures.AbstractAperture,
+        axis_field: tuple[str, str],
+    ) -> na.AbstractScalar:
+        """
+        The lit field positions inside the field of view, which the
+        vignetting model is normalized over and the effective area averaged
+        over.
+
+        Where no lit field position falls inside the field of view, every lit
+        one is taken instead.  A field stop far from focus has a field of
+        view much smaller than the blur of light around it, which the
+        normalized field spans, and a coarse grid can miss it altogether.
+        The linear system multiplies the two models together, and any set of
+        field positions the two share divides out of that product, so it
+        stays right; only the reading of the effective area as an average
+        over the field of view lapses, and only for a grid too coarse to
+        support it.
+
+        Parameters
+        ----------
+        rays
+            The traced rays.
+        lit
+            The field positions the models are fit over, from :meth:`_lit`.
+        field_of_view
+            The half-light outline of the field of view, from
+            :meth:`_field_stop_polygon_from_rays`.
+        axis_field
+            The logical axes of the field grid.
+        """
+        field = rays.inputs.field
+        position = na.Cartesian3dVectorArray(x=field.x, y=field.y, z=0 * field.x)
+        inside = lit & field_of_view(position)
+        return np.where(inside.any(axis_field), inside, lit)
+
     @staticmethod
     def _check_lit_wavelengths(
-        rays: optika.rays.RayFunctionArray,
+        lit: na.AbstractScalar,
+        wavelength: na.AbstractScalar,
         axis_wavelength: str,
         axis_field: tuple[str, str],
-        axis_pupil: tuple[str, str],
         degree: int,
     ) -> None:
         """
@@ -2227,14 +2379,14 @@ class AbstractSequentialSystem(
 
         Parameters
         ----------
-        rays
-            The traced rays.
+        lit
+            The field positions the models are fit over, from :meth:`_lit`.
+        wavelength
+            The wavelengths of the traced rays.
         axis_wavelength
             The logical axis of changing wavelength.
         axis_field
             The logical axes of the field grid.
-        axis_pupil
-            The logical axes of the pupil grid.
         degree
             The degree of the polynomial to be fit.
 
@@ -2244,16 +2396,10 @@ class AbstractSequentialSystem(
             If fewer than ``degree + 1`` wavelengths admit any of the sampled
             field positions.
         """
-        unvignetted = rays.outputs.unvignetted
-
         # a system whose geometry does not depend on wavelength traces rays
         # which do not vary along it, but each wavelength still counts
-        unvignetted = na.broadcast_to(
-            unvignetted,
-            na.shape_broadcasted(unvignetted, rays.inputs.wavelength),
-        )
-
-        lit = unvignetted.any(axis_pupil).any(axis_field)
+        lit = na.broadcast_to(lit, na.shape_broadcasted(lit, wavelength))
+        lit = lit.any(axis_field)
         short = lit.sum(axis_wavelength) <= degree
 
         # the truth value of an uncertain array is not whether any of its
@@ -2312,6 +2458,7 @@ class AbstractSequentialSystem(
         rays: optika.rays.RayFunctionArray,
         area: na.AbstractScalar,
         coordinates_scene: na.AbstractSpectralPositionalVectorArray,
+        field_of_view: optika.apertures.AbstractAperture,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
@@ -2332,6 +2479,11 @@ class AbstractSequentialSystem(
         coordinates_scene
             The cells the rays were drawn from, from
             :meth:`_coordinates_scene_from_rays`.
+        field_of_view
+            The half-light outline of the field of view, from
+            :meth:`_field_stop_polygon_from_rays`, which the illumination is
+            normalized over, and which the model carries so that its plots
+            can leave out the cells beyond it.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2343,11 +2495,12 @@ class AbstractSequentialSystem(
         """
         self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
+        where = self._lit(rays, axis_pupil)
         self._check_lit_wavelengths(
-            rays=rays,
+            lit=where,
+            wavelength=rays.inputs.wavelength,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
-            axis_pupil=axis_pupil,
             degree=degree,
         )
 
@@ -2357,7 +2510,6 @@ class AbstractSequentialSystem(
         )
 
         unvignetted = rays.outputs.unvignetted
-        where = unvignetted.any(axis_pupil)
 
         # The illumination is weighted by the size of each field position's
         # pupil, so that this model and `area_effective` multiply together;
@@ -2377,7 +2529,8 @@ class AbstractSequentialSystem(
         # nothing at such a wavelength, and is determined there by the
         # others, so long as enough of them admit light, which
         # :meth:`_check_lit_wavelengths` has already checked.
-        mean = self._mean_over_field(illumination, where, axis_field)
+        inside = self._inside(rays, where, field_of_view, axis_field)
+        mean = self._mean_over_field(illumination, inside, axis_field)
         illumination = illumination / np.where(
             mean != 0,
             mean,
@@ -2392,6 +2545,7 @@ class AbstractSequentialSystem(
             axis_field=axis_field,
             degree=degree,
             where=where,
+            field_stop=field_of_view,
         )
 
     @property
@@ -2440,9 +2594,11 @@ class AbstractSequentialSystem(
         every surface it encounters: reflectivity, transmissivity, diffraction
         efficiency, and the absorbance of the sensor) is weighted by the area
         of its pupil cell and summed, giving the effective area at that field
-        position. Rays blocked by an aperture are excluded from the sum. The
-        result is then averaged over the field of view, counting only those
-        field positions which have at least one unvignetted ray, and returned
+        position. Rays blocked by an aperture are excluded from the sum,
+        except by the field stop and the sensor, which are left open as
+        :meth:`vignetting` leaves them. The result is then averaged over the
+        field positions whose light lands on the sensor and which lie inside
+        the half-light outline of the field of view, and returned
         as an :class:`~optika.radiometry.InterpolatedEffectiveAreaModel`,
         which linearly interpolates in wavelength.
 
@@ -2556,6 +2712,10 @@ class AbstractSequentialSystem(
 
         return self._fit_area_effective(
             rays=rays,
+            field_of_view=self._field_stop_polygon_from_rays(
+                rayfunction_stops,
+                envelope=False,
+            ),
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             axis_pupil=axis_pupil,
@@ -2588,6 +2748,10 @@ class AbstractSequentialSystem(
         The intensity of each ray on return is the area of its pupil cell
         times its throughput, and the area alone is returned alongside, for
         the models which weight by it but do not read the throughput.
+
+        The field stop and the sensor are left open; see :meth:`vignetting`.
+        Which field positions each of them passes is decided afterward, for
+        each field position as a whole, by :meth:`_lit` and :meth:`_inside`.
 
         Parameters
         ----------
@@ -2703,6 +2867,8 @@ class AbstractSequentialSystem(
             normalized_field=False,
             normalized_pupil=False,
             efficiency=efficiency,
+            clip_field_stop=False,
+            clip_sensor=False,
         )
 
         return rays, area
@@ -2710,6 +2876,7 @@ class AbstractSequentialSystem(
     def _fit_area_effective(
         self,
         rays: optika.rays.RayFunctionArray,
+        field_of_view: optika.apertures.AbstractAperture,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
@@ -2727,6 +2894,10 @@ class AbstractSequentialSystem(
             The traced rays, from :meth:`_rayfunction_stratified`, whose
             intensity is the area of each ray's pupil cell times its
             throughput.
+        field_of_view
+            The half-light outline of the field of view, from
+            :meth:`_field_stop_polygon_from_rays`, which the effective area
+            is averaged over.
         axis_wavelength
             The normalized wavelength axis of `rays`, which must have exactly
             one element.
@@ -2754,12 +2925,12 @@ class AbstractSequentialSystem(
             where=unvignetted,
         )
 
-        # Field positions with no unvignetted rays lie outside the field of
-        # view and are excluded, exactly as :meth:`_fit_vignetting` excludes
-        # them when it normalizes its illumination; see
-        # :meth:`_mean_over_field` for why the two have to agree.
-        illuminated = unvignetted.any(axis_pupil)
-        area_eff = self._mean_over_field(area_eff, illuminated, axis_field)
+        # Averaged over the lit field positions inside the field of view,
+        # exactly those :meth:`_fit_vignetting` normalizes its illumination
+        # over; see :meth:`_mean_over_field` for why the two have to agree.
+        lit = self._lit(rays, axis_pupil)
+        inside = self._inside(rays, lit, field_of_view, axis_field)
+        area_eff = self._mean_over_field(area_eff, inside, axis_field)
 
         return optika.radiometry.InterpolatedEffectiveAreaModel(
             wavelength=rays.inputs.wavelength,
@@ -2794,22 +2965,24 @@ class AbstractSequentialSystem(
         model which of them survive, and the effective area what they carry.
 
         The field of view is carried on the result as a
-        :class:`~optika.radiometry.PolynomialFieldStopModel`: the polygon of
-        :meth:`field_stop_polygon` at each sampled wavelength, fit in
-        wavelength so that it can be evaluated at any other.  Every scene
-        cell outside it is blocked before the wavelengths are summed, which
-        keeps one line's light out of the field of another's in a slitless
-        spectrograph.  Field positions outside the field of view are excluded
-        when fitting the vignetting model rather than represented as a
-        falloff, so without the field stop the vignetting model is
-        extrapolated there instead, and can let light from beyond the edge
-        of the field through.
+        :class:`~optika.radiometry.PolynomialFieldStopModel`: the half-light
+        outline of :meth:`field_stop_polygon`, with `envelope` set to
+        :obj:`False`, at each sampled wavelength, fit in wavelength so that
+        it can be evaluated at any other.  Every scene cell outside it is
+        blocked before the wavelengths are summed, which keeps one line's
+        light out of the field of another's in a slitless spectrograph.  The
+        field stop is left open while the rays are traced, see
+        :meth:`vignetting`, so the vignetting model does not fall off at the
+        edge of the field of view, and without the field stop light from
+        beyond that edge gets through.
 
-        The half-light outline, :meth:`field_stop_polygon` with `envelope`
-        set to :obj:`False`, is fit the same way and carried beside it as
-        :attr:`~optika.systems.LinearSystem.outline`.  It blocks nothing: it
-        is where an edge measured in an image sits, and it is what
-        :meth:`~optika.systems.LinearSystem.footprint` maps by default.
+        The half-light outline is where an edge measured in an image sits.
+        Across a soft edge, a field stop cut there blocks the light just
+        outside it and passes the unattenuated light just inside it, and the
+        two balance to first order, so the light collected is right.  What
+        it cannot keep is where that light is: it images a soft edge as a
+        hard one.  Since the outline is the field stop itself,
+        :attr:`~optika.systems.LinearSystem.outline` is left as :obj:`None`.
 
         Parameters
         ----------
@@ -2937,22 +3110,28 @@ class AbstractSequentialSystem(
             axis=tuple(ax for ax in axis_grid if ax in na.shape(direction)),
         )
 
-        def model(envelope: bool) -> optika.radiometry.PolynomialFieldStopModel:
-            return optika.radiometry.PolynomialFieldStopModel(
+        # the half-light outline both bounds the fits' averages and, fit in
+        # wavelength, blocks the light of the linear system
+        field_of_view = self._field_stop_polygon_from_rays(
+            rayfunction_stops,
+            envelope=False,
+        )
+
+        if field_stop:
+            field_stop = optika.radiometry.PolynomialFieldStopModel(
                 wavelength=wavelength,
-                vertices=self._field_stop_polygon_from_rays(
-                    rayfunction_stops,
-                    envelope=envelope,
-                ).vertices.xy,
+                vertices=field_of_view.vertices.xy,
                 axis_wavelength=axis_wavelength[0],
                 degree=degree,
             )
+        else:
+            field_stop = None
 
         return LinearSystem(
-            field_stop=model(envelope=True) if field_stop else None,
-            outline=model(envelope=False) if field_stop else None,
+            field_stop=field_stop,
             area_effective=self._fit_area_effective(
                 rays=rays,
+                field_of_view=field_of_view,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
@@ -2960,6 +3139,7 @@ class AbstractSequentialSystem(
             distortion=self._fit_distortion(
                 rays=rays,
                 coordinates_scene=coordinates_scene,
+                field_of_view=field_of_view,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
@@ -2971,6 +3151,7 @@ class AbstractSequentialSystem(
                 rays=rays,
                 area=area,
                 coordinates_scene=coordinates_scene,
+                field_of_view=field_of_view,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,

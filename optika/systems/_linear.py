@@ -105,11 +105,11 @@ class AbstractLinearSystem(
         :attr:`field_stop`.
 
         A field stop which is not at an image of the object has a soft
-        edge.  :attr:`field_stop` bounds every field position which passes
-        any light, which is what the radiometric models are normalized
-        over; this is where the falloff across the edge is halfway, which is
-        where an edge measured in an image sits.  :obj:`None` when the two
-        are the same.
+        edge, and the half-light outline is where the falloff across it is
+        halfway, which is where an edge measured in an image sits.
+        :meth:`~optika.systems.SequentialSystem.linearize` blocks at the
+        half-light outline itself, and so carries none.  :obj:`None` when
+        the two are the same.
         """
 
     @property
