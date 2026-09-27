@@ -2700,6 +2700,12 @@ def test_models_carry_the_cells_they_were_measured_over():
         centers = cells.cell_centers(model.axis_field)
         assert np.any(samples.position.x != centers.position.x)
 
+        # and the field of view they were fit through, as the half-light
+        # outline, so that their plots can leave out what lies beyond it
+        field_stop = system.field_stop_polygon(envelope=False)
+        assert isinstance(model.field_stop, optika.apertures.PolygonalAperture)
+        assert np.allclose(model.field_stop.vertices, field_stop.vertices)
+
 
 def test_vignetting_follows_its_seed():
     """
@@ -2852,6 +2858,10 @@ def test_linearize_fits_around_a_wavelength_with_no_light():
         distortion = system._fit_distortion(
             rays=rays[index],
             coordinates_scene=cells,
+            field_of_view=system._field_stop_polygon_from_rays(
+                stops[index],
+                envelope=False,
+            ),
             **kwargs,
         )
         return vignetting, distortion

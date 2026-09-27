@@ -2011,6 +2011,10 @@ class AbstractSequentialSystem(
 
         return self._fit_distortion(
             rays=rays,
+            field_of_view=self._field_stop_polygon_from_rays(
+                rayfunction_stops,
+                envelope=False,
+            ),
             coordinates_scene=self._coordinates_scene_from_rays(
                 wavelength=wavelength,
                 field=field,
@@ -2179,6 +2183,7 @@ class AbstractSequentialSystem(
         self,
         rays: optika.rays.RayFunctionArray,
         coordinates_scene: na.AbstractSpectralPositionalVectorArray,
+        field_of_view: optika.apertures.AbstractAperture,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
@@ -2197,6 +2202,10 @@ class AbstractSequentialSystem(
         coordinates_scene
             The cells the rays were drawn from, from
             :meth:`_coordinates_scene_from_rays`.
+        field_of_view
+            The half-light outline of the field of view, from
+            :meth:`_field_stop_polygon_from_rays`, which the model carries so
+            that its plots can leave out the cells beyond it.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2242,6 +2251,7 @@ class AbstractSequentialSystem(
             axis_field=axis_field,
             degree=degree,
             where=where,
+            field_stop=field_of_view,
         )
 
     @staticmethod
@@ -2472,7 +2482,8 @@ class AbstractSequentialSystem(
         field_of_view
             The half-light outline of the field of view, from
             :meth:`_field_stop_polygon_from_rays`, which the illumination is
-            normalized over.
+            normalized over, and which the model carries so that its plots
+            can leave out the cells beyond it.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2534,6 +2545,7 @@ class AbstractSequentialSystem(
             axis_field=axis_field,
             degree=degree,
             where=where,
+            field_stop=field_of_view,
         )
 
     @property
@@ -3127,6 +3139,7 @@ class AbstractSequentialSystem(
             distortion=self._fit_distortion(
                 rays=rays,
                 coordinates_scene=coordinates_scene,
+                field_of_view=field_of_view,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
