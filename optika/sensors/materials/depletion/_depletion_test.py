@@ -18,21 +18,13 @@ class AbstractTestAbstractDepletionModel(
         result = a.thickness
         assert np.all(result > 0 * u.um)
 
-    def test_width_max(
+    def test_diffusion(
         self,
         a: optika.sensors.materials.depletion.AbstractDepletionModel,
     ):
-        result = a.width_max
-        if result is not None:
-            assert np.all(result >= 0 * u.um)
-
-    def test_width_depleted(
-        self,
-        a: optika.sensors.materials.depletion.AbstractDepletionModel,
-    ):
-        result = a.width_depleted
-        if result is not None:
-            assert np.all(result >= 0 * u.um)
+        result = a.diffusion
+        assert isinstance(result, optika.sensors.diffusion.AbstractDiffusionModel)
+        assert np.all(result.thickness_depletion == a.thickness)
 
 
 @pytest.mark.parametrize(

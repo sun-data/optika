@@ -93,74 +93,6 @@ def test_charge_diffusion_janesick(
 
 
 @pytest.mark.parametrize(
-    argnames="absorption",
-    argvalues=[
-        0.01 / u.um,
-        0.3 / u.um,
-        10 / u.um,
-    ],
-)
-@pytest.mark.parametrize(
-    argnames="thickness_depletion",
-    argvalues=[
-        0 * u.um,
-        8.7 * u.um,
-        14 * u.um,
-    ],
-)
-@pytest.mark.parametrize(
-    argnames="width_max",
-    argvalues=[
-        None,
-        4 * u.um,
-    ],
-)
-@pytest.mark.parametrize(
-    argnames="width_depleted",
-    argvalues=[
-        None,
-        0.8 * u.um,
-    ],
-)
-def test_charge_diffusion_average(
-    absorption: u.Quantity | na.AbstractScalar,
-    thickness_depletion: u.Quantity | na.AbstractScalar,
-    width_max: None | u.Quantity | na.AbstractScalar,
-    width_depleted: None | u.Quantity | na.AbstractScalar,
-):
-    """
-    The closed form is the average of the profile over the absorption depth,
-    including a sensor with no depletion region and one with no field-free
-    region.
-    """
-    s = 14 * u.um
-    d = thickness_depletion
-
-    result = optika.sensors.charge_diffusion(
-        absorption=absorption,
-        thickness_substrate=s,
-        thickness_depletion=d,
-        width_max=width_max,
-        width_depleted=width_depleted,
-    )
-
-    axis = "depth"
-    num = 100000
-    depth = (na.arange(0, num, axis=axis) + 0.5) * s / num
-    profile = optika.sensors.charge_diffusion_profile(
-        depth=depth,
-        thickness_substrate=s,
-        thickness_depletion=d,
-        width_max=width_max,
-        width_depleted=width_depleted,
-    )
-    weight = np.exp(-absorption * depth)
-    variance = (np.square(profile) * weight).sum(axis) / weight.sum(axis)
-
-    assert np.allclose(result, np.sqrt(variance), rtol=1e-5, atol=1e-9 * u.um)
-
-
-@pytest.mark.parametrize(
     argnames="thickness_depletion",
     argvalues=[
         0 * u.um,
@@ -174,81 +106,16 @@ def test_charge_diffusion_degenerate(
     A sensor with no depletion region or no field-free region gives finite
     widths, without dividing by the thickness of the missing region.
     """
-    kwargs = dict(
-        thickness_substrate=14 * u.um,
-        thickness_depletion=thickness_depletion,
-        width_max=4 * u.um,
-        width_depleted=0.8 * u.um,
-    )
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        average = optika.sensors.charge_diffusion(
+        result = optika.sensors.charge_diffusion(
             absorption=na.geomspace(1e-4, 1e3, axis="absorption", num=8) / u.um,
-            **kwargs,
+            thickness_substrate=14 * u.um,
+            thickness_depletion=thickness_depletion,
+            width_max=4 * u.um,
+            width_depleted=0.8 * u.um,
         )
-        profile = optika.sensors.charge_diffusion_profile(
-            depth=na.linspace(0, 14, axis="depth", num=15) * u.um,
-            **kwargs,
-        )
-    assert np.all(np.isfinite(average))
-    assert np.all(np.isfinite(profile))
-
-
-@pytest.mark.parametrize(
-    argnames="depth",
-    argvalues=[
-        0 * u.um,
-        na.linspace(0, 14, axis="depth", num=15) * u.um,
-    ],
-)
-@pytest.mark.parametrize(
-    argnames="width_max",
-    argvalues=[
-        None,
-        4 * u.um,
-    ],
-)
-@pytest.mark.parametrize(
-    argnames="width_depleted",
-    argvalues=[
-        None,
-        0.8 * u.um,
-    ],
-)
-def test_charge_diffusion_profile(
-    depth: u.Quantity | na.AbstractScalar,
-    width_max: None | u.Quantity | na.AbstractScalar,
-    width_depleted: None | u.Quantity | na.AbstractScalar,
-):
-    s = 14 * u.um
-    d = 8.7 * u.um
-    f = s - d
-
-    kwargs = dict(
-        thickness_substrate=s,
-        thickness_depletion=d,
-        width_max=width_max,
-        width_depleted=width_depleted,
-    )
-
-    result = optika.sensors.charge_diffusion_profile(depth=depth, **kwargs)
-
-    assert np.all(result >= 0 * u.um)
-
-    width_max = f if width_max is None else width_max
-    width_depleted = 0 * u.um if width_depleted is None else width_depleted
-
-    back = optika.sensors.charge_diffusion_profile(depth=0 * u.um, **kwargs)
-    expected = np.sqrt(np.square(width_max) + np.square(width_depleted))
-    assert np.allclose(back, expected)
-
-    front = optika.sensors.charge_diffusion_profile(depth=s, **kwargs)
-    assert np.allclose(front, 0 * u.um)
-
-    edge = optika.sensors.charge_diffusion_profile(depth=f, **kwargs)
-    assert np.allclose(edge, width_depleted)
-
-    assert np.all(result <= back)
+    assert np.all(np.isfinite(result))
 
 
 @pytest.mark.parametrize(

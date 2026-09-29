@@ -395,11 +395,15 @@ def test_vmr_signal_depleted(
     """
     axis_xy = ("detector_x", "detector_y")
 
+    model = optika.sensors.diffusion.JanesickDiffusionModel(
+        thickness_depletion=14 * u.um,
+        width_depleted=2 * u.um,
+    )
+
     kwargs = dict(
         wavelength=wavelength,
-        thickness_depletion=14 * u.um,
         thickness_substrate=14 * u.um,
-        width_depleted=2 * u.um,
+        model_diffusion=model,
         width_pixel=4 * u.um,
     )
 
@@ -419,33 +423,47 @@ def test_vmr_signal_depleted(
     vmr_measured = signal.vmr(("experiment",) + axis_xy)
 
     result = optika.sensors.vmr_signal(**kwargs)
-    result_sharp = optika.sensors.vmr_signal(**(kwargs | dict(width_depleted=None)))
+    result_sharp = optika.sensors.vmr_signal(
+        **(kwargs | dict(model_diffusion=model.replace(width_depleted=None)))
+    )
 
     assert np.all(result < result_sharp)
     assert np.abs(vmr_measured - result) < 0.05 * result
 
 
-def test_vmr_signal_widths_default():
+def test_vmr_signal_model_diffusion():
     """
-    Janesick's values of the new widths reproduce the default exactly.
+    The depletion region given as a thickness and as a model of diffusion,
+    with Janesick's values of its widths given explicitly, are the same, and
+    giving both is an error.
     """
     ccd = optika.sensors.materials.e2v_ccd97()
 
     kwargs = dict(
         wavelength=na.geomspace(1, 10000, axis="wavelength", num=11) * u.AA,
-        thickness_depletion=ccd.depletion.thickness,
         thickness_substrate=ccd.thickness_substrate,
         width_pixel=16 * u.um,
     )
 
-    result = optika.sensors.vmr_signal(**kwargs)
-    explicit = optika.sensors.vmr_signal(
+    result = optika.sensors.vmr_signal(
         **kwargs,
+        thickness_depletion=ccd.depletion.thickness,
+    )
+    model = optika.sensors.diffusion.JanesickDiffusionModel(
+        thickness_depletion=ccd.depletion.thickness,
         width_max=ccd.thickness_substrate - ccd.depletion.thickness,
         width_depleted=0 * u.um,
     )
+    explicit = optika.sensors.vmr_signal(**kwargs, model_diffusion=model)
 
-    assert np.all(result == explicit)
+    assert np.allclose(result, explicit, rtol=1e-12)
+
+    with pytest.raises(ValueError, match="not both"):
+        optika.sensors.vmr_signal(
+            **kwargs,
+            thickness_depletion=ccd.depletion.thickness,
+            model_diffusion=model,
+        )
 
 
 @pytest.mark.parametrize(
@@ -471,10 +489,12 @@ def test_vmr_signal_quadrature(
     kwargs = dict(
         wavelength=na.geomspace(1, 10000, axis="wavelength", num=101) * u.AA,
         thickness_implant=ccd.thickness_implant,
-        thickness_depletion=ccd.depletion.thickness,
         thickness_substrate=ccd.thickness_substrate,
-        width_max=width_max,
-        width_depleted=width_depleted,
+        model_diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=ccd.depletion.thickness,
+            width_max=width_max,
+            width_depleted=width_depleted,
+        ),
         width_pixel=16 * u.um,
         cce_backsurface=ccd.cce_backsurface,
         temperature=ccd.temperature,
