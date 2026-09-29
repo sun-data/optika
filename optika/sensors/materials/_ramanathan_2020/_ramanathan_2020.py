@@ -504,8 +504,7 @@ def electrons_measured(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_depletion: None | u.Quantity | na.AbstractScalar = None,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
-    width_max: None | u.Quantity | na.AbstractScalar = None,
-    width_depleted: None | u.Quantity | na.AbstractScalar = None,
+    model_diffusion: "None | optika.sensors.diffusion.AbstractDiffusionModel" = None,
     width_pixel: (
         u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
     ) = _width_pixel,
@@ -542,19 +541,14 @@ def electrons_measured(
         field.
         If :obj:`None` (the default), this is set to the same value as
         `thickness_substrate`.
+        Only one of this and `model_diffusion` may be given.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
-    width_max
-        The standard deviation of the charge cloud of a photon absorbed at the
-        back surface, before it crosses the depletion region.
-        If :obj:`None` (the default), the thickness of the field-free region.
-        See :func:`optika.sensors.charge_diffusion_profile`.
-    width_depleted
-        The standard deviation acquired by charge drifting across the full
-        thickness of the depletion region.
-        If :obj:`None` (the default), charge does not spread in the depletion
-        region.
-        See :func:`optika.sensors.charge_diffusion_profile`.
+    model_diffusion
+        A model of the lateral diffusion of charge in the sensor.
+        If :obj:`None` (the default), the model of :cite:t:`Janesick2001`
+        with the depletion region `thickness_depletion` thick,
+        :class:`optika.sensors.diffusion.JanesickDiffusionModel`.
     width_pixel
         The size of a single pixel on the sensor.
         A scalar gives square pixels; a
@@ -573,7 +567,7 @@ def electrons_measured(
         If :obj:`None` (the default), there is no charge diffusion.
         Otherwise, the electrons liberated by each photon spread as a Gaussian
         whose width depends on the depth at which the photon was absorbed,
-        given by :func:`optika.sensors.charge_diffusion_profile`.
+        given by `model_diffusion`.
     wrap
         Controls how diffused charge is treated at the edges of the pixel grid.
         If :obj:`False` (the default), charge that diffuses past the edge of the
@@ -645,14 +639,15 @@ def electrons_measured(
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
-    if thickness_depletion is None:
-        thickness_depletion = thickness_substrate
-
-    if width_max is None:
-        width_max = thickness_substrate - thickness_depletion
-
-    if width_depleted is None:
-        width_depleted = 0 * u.um
+    model_diffusion = optika.sensors.diffusion._models._model_or_janesick(
+        model_diffusion=model_diffusion,
+        thickness_depletion=thickness_depletion,
+        thickness_substrate=thickness_substrate,
+    )
+    parameters = model_diffusion._parameters_monte_carlo(thickness_substrate)
+    thickness_depletion = parameters["thickness_depletion"]
+    width_max = parameters["width_max"]
+    width_depleted = parameters["width_depleted"]
 
     if shape_random is None:
         shape_random = dict()
@@ -1104,7 +1099,7 @@ def _electrons_measured_numba(  # pragma: nocover
                     v = random.uniform(-0.5, 0.5)
 
                     # the width of the charge cloud at this depth, as in
-                    # `optika.sensors.charge_diffusion_profile`
+                    # `optika.sensors.diffusion.JanesickDiffusionModel.width`
                     w_ff = 0.0
                     if z_ij < z_ff:
                         w_ff = w_max * math.sqrt(1 - z_ij / z_ff)

@@ -30,26 +30,10 @@ class AbstractDepletionModel(
 
     @property
     @abc.abstractmethod
-    def width_max(self) -> None | u.Quantity | na.AbstractScalar:
+    def diffusion(self) -> "optika.sensors.diffusion.AbstractDiffusionModel":
         """
-        The standard deviation of the charge cloud of a photon absorbed at the
-        back surface, before it crosses the depletion region.
-
-        If :obj:`None`, the thickness of the field-free region,
-        as in the model of :cite:t:`Janesick2001`.
-        See :func:`optika.sensors.charge_diffusion_profile`.
-        """
-
-    @property
-    @abc.abstractmethod
-    def width_depleted(self) -> None | u.Quantity | na.AbstractScalar:
-        """
-        The standard deviation acquired by charge drifting across the full
-        thickness of the depletion region.
-
-        If :obj:`None`, charge does not spread in the depletion region,
-        as in the model of :cite:t:`Janesick2001`.
-        See :func:`optika.sensors.charge_diffusion_profile`.
+        The model of the lateral diffusion of charge in the sensor
+        implied by this depletion region.
         """
 
 
@@ -143,16 +127,15 @@ class JanesickDepletionModel(
 
         def objective(thickness_depletion: float) -> float:
 
-            width_diffusion = optika.sensors.charge_diffusion(
-                absorption=absorption,
-                thickness_substrate=thickness_substrate,
+            diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
                 thickness_depletion=thickness_depletion * unit,
                 width_max=width_max,
                 width_depleted=width_depleted,
             )
 
-            mcc = optika.sensors.mean_charge_capture(
-                width_diffusion=width_diffusion,
+            mcc = diffusion.mean_charge_capture(
+                absorption=absorption,
+                thickness_substrate=thickness_substrate,
                 width_pixel=width_pixel,
             )
 
@@ -187,23 +170,27 @@ class JanesickDepletionModel(
         wavelength: u.Quantity | na.AbstractScalar,
     ) -> na.AbstractScalar:
         """
-        The mean charge capture of this sensor for the given wavelength
-        computed using :func:`optika.sensors.mean_charge_capture`
+        The mean charge capture of this sensor for the given wavelength,
+        computed using the model of diffusion, :attr:`diffusion`,
+        with the thickness of the substrate and the pixel width of this model.
 
         Parameters
         ----------
         wavelength
             The wavelengths at which to evaluate the mean charge capture.
         """
-        return optika.sensors.mean_charge_capture(
-            width_diffusion=optika.sensors.charge_diffusion(
-                absorption=self.chemical_substrate.absorption(wavelength),
-                thickness_substrate=self.thickness_substrate,
-                thickness_depletion=self.thickness,
-                width_max=self.width_max,
-                width_depleted=self.width_depleted,
-            ),
+        return self.diffusion.mean_charge_capture(
+            absorption=self.chemical_substrate.absorption(wavelength),
+            thickness_substrate=self.thickness_substrate,
             width_pixel=self.width_pixel,
+        )
+
+    @property
+    def diffusion(self) -> "optika.sensors.diffusion.JanesickDiffusionModel":
+        return optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=self.thickness,
+            width_max=self.width_max,
+            width_depleted=self.width_depleted,
         )
 
     @property
