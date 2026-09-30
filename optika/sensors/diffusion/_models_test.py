@@ -8,6 +8,11 @@ from optika._tests import test_mixins
 
 _thickness_substrate = 14 * u.um
 
+_width_pixel = [
+    15 * u.um,
+    na.Cartesian2dVectorArray(10, 20) * u.um,
+]
+
 
 class AbstractTestAbstractDiffusionModel(
     test_mixins.AbstractTestPrintable,
@@ -48,6 +53,50 @@ class AbstractTestAbstractDiffusionModel(
         if a.thickness_depletion > 0 * u.um:
             assert np.allclose(a.width(s, s), 0 * u.um)
 
+    def test_cdf(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+    ):
+        """
+        The profile rises from zero to one, is symmetric about where the
+        charge was created, and has the variance of :meth:`width`.
+        """
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=8) * u.um
+        edges = na.linspace(-80, 80, axis="edge", num=16001) * u.um
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = a.cdf(edges, depth, s)
+
+        assert np.all(np.diff(result, axis="edge") >= 0)
+        assert np.allclose(result[dict(edge=0)], 0, atol=1e-12)
+        assert np.allclose(result[dict(edge=-1)], 1, atol=1e-12)
+
+        above = a.cdf(5 * u.um, depth, s)
+        below = a.cdf(-5 * u.um, depth, s)
+        assert np.allclose(above + below, 1)
+
+        fraction = np.diff(result, axis="edge")
+        lower = edges[dict(edge=slice(None, -1))]
+        upper = edges[dict(edge=slice(1, None))]
+        center = (lower + upper) / 2
+        variance = (fraction * np.square(center)).sum("edge")
+        assert np.allclose(np.sqrt(variance), a.width(depth, s), atol=0.02 * u.um)
+
+    @pytest.mark.parametrize("width_pixel", _width_pixel + [0 * u.um])
+    def test_probability_same_pixel(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+    ):
+        depth = na.linspace(0, 14, axis="depth", num=15) * u.um
+        result = a.probability_same_pixel(depth, _thickness_substrate, width_pixel)
+        assert np.all(result >= 0)
+        assert np.all(result <= 1)
+        if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
+            if width_pixel == 0 * u.um:
+                assert np.all(result == 1)
+
     @pytest.mark.parametrize(
         argnames="absorption",
         argvalues=[
@@ -76,43 +125,58 @@ class AbstractTestAbstractDiffusionModel(
 
         assert np.allclose(result, np.sqrt(variance), rtol=1e-5, atol=1e-9 * u.um)
 
-    @pytest.mark.parametrize(
-        argnames="width_pixel",
-        argvalues=[
-            15 * u.um,
-            na.Cartesian2dVectorArray(10, 20) * u.um,
-            0 * u.um,
-        ],
-    )
-    def test_probability_same_pixel(
+    @pytest.mark.parametrize("width_pixel", _width_pixel)
+    @pytest.mark.parametrize("num", [3, 5])
+    def test_kernel(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+        num: int,
+    ):
+        absorption = na.geomspace(1e-3, 1e3, axis="absorption", num=4) / u.um
+        s = _thickness_substrate
+        result = a.kernel(absorption, s, width_pixel, "x", "y", num=num)
+        assert isinstance(result, na.FunctionArray)
+        assert result.outputs.shape == dict(absorption=4, x=num, y=num)
+        assert np.all(result.outputs >= 0)
+        assert np.allclose(result.outputs.sum(("x", "y")), 1)
+
+        # the kernel is centered on the pixel the photon was absorbed in
+        center = result.outputs[dict(x=num // 2, y=num // 2)]
+        assert np.all(center == result.outputs.max(("x", "y")))
+
+        with pytest.raises(ValueError, match="odd"):
+            a.kernel(absorption, s, width_pixel, "x", "y", num=num + 1)
+
+    @pytest.mark.parametrize("width_pixel", _width_pixel)
+    def test_mean_charge_capture(
         self,
         a: optika.sensors.diffusion.AbstractDiffusionModel,
         width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
     ):
-        depth = na.linspace(0, 14, axis="depth", num=15) * u.um
-        result = a.probability_same_pixel(depth, _thickness_substrate, width_pixel)
-        assert np.all(result >= 0)
-        assert np.all(result <= 1)
-        if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
-            if width_pixel == 0 * u.um:
-                assert np.all(result == 1)
-
-    def test_mean_charge_capture(
-        self,
-        a: optika.sensors.diffusion.AbstractDiffusionModel,
-    ):
         absorption = na.geomspace(1e-3, 1e3, axis="absorption", num=7) / u.um
-        result = a.mean_charge_capture(absorption, _thickness_substrate, 15 * u.um)
+        result = a.mean_charge_capture(absorption, _thickness_substrate, width_pixel)
         assert np.all(result > 0)
         assert np.all(result <= 1)
 
-    def test_kernel(
+    def test_fit_mean_charge_capture(
         self,
         a: optika.sensors.diffusion.AbstractDiffusionModel,
     ):
-        result = a.kernel(1 / u.um, _thickness_substrate, 15 * u.um, "x", "y")
-        assert isinstance(result, na.FunctionArray)
-        assert np.allclose(result.outputs.sum(("x", "y")), 1)
+        """The fit reproduces a mean charge capture computed by the model."""
+        s = _thickness_substrate
+        width_pixel = 16 * u.um
+        wavelength = na.geomspace(10, 1e4, axis="wavelength", num=31) * u.AA
+        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+        mcc_measured = na.FunctionArray(
+            inputs=wavelength,
+            outputs=a.mean_charge_capture(absorption, s, width_pixel),
+        )
+        start = a.replace(thickness_depletion=s / 2)
+        result = start.fit_mean_charge_capture(mcc_measured, s, width_pixel)
+        assert isinstance(result, type(a))
+        mcc = result.mean_charge_capture(absorption, s, width_pixel)
+        assert np.allclose(mcc, mcc_measured.outputs, atol=1e-4)
 
     def test_parameters_monte_carlo(
         self,
@@ -132,25 +196,25 @@ class AbstractTestAbstractDiffusionModel(
         ),
         optika.sensors.diffusion.JanesickDiffusionModel(
             thickness_depletion=8.7 * u.um,
-            width_max=4 * u.um,
+            width_backsurface=4 * u.um,
         ),
         optika.sensors.diffusion.JanesickDiffusionModel(
             thickness_depletion=8.7 * u.um,
-            width_depleted=0.8 * u.um,
+            width_depletion=0.8 * u.um,
         ),
         optika.sensors.diffusion.JanesickDiffusionModel(
             thickness_depletion=8.7 * u.um,
-            width_max=4 * u.um,
-            width_depleted=0.8 * u.um,
+            width_backsurface=4 * u.um,
+            width_depletion=0.8 * u.um,
         ),
         optika.sensors.diffusion.JanesickDiffusionModel(
             thickness_depletion=14 * u.um,
-            width_depleted=0.8 * u.um,
+            width_depletion=0.8 * u.um,
         ),
         optika.sensors.diffusion.JanesickDiffusionModel(
             thickness_depletion=0 * u.um,
-            width_max=4 * u.um,
-            width_depleted=0.8 * u.um,
+            width_backsurface=4 * u.um,
+            width_depletion=0.8 * u.um,
         ),
     ],
 )
@@ -168,66 +232,25 @@ class TestJanesickDiffusionModel(
         """
         s = _thickness_substrate
         f = s - a.thickness_depletion
-        width_max = f if a.width_max is None else a.width_max
-        width_depleted = 0 * u.um if a.width_depleted is None else a.width_depleted
+        width_backsurface = f if a.width_backsurface is None else a.width_backsurface
+        width_depletion = 0 * u.um if a.width_depletion is None else a.width_depletion
         if f > 0 * u.um:
-            back = np.sqrt(np.square(width_max) + np.square(width_depleted))
+            back = np.sqrt(np.square(width_backsurface) + np.square(width_depletion))
             assert np.allclose(a.width(0 * u.um, s), back)
-        assert np.allclose(a.width(f, s), width_depleted)
+        assert np.allclose(a.width(f, s), width_depletion)
 
     def test_width_average_janesick(
         self,
         a: optika.sensors.diffusion.JanesickDiffusionModel,
     ):
-        """The average width is the closed form of Janesick (2001), generalized."""
+        """With Janesick's widths the average reduces to his closed form."""
+        s = _thickness_substrate
         absorption = na.geomspace(1e-4, 1e3, axis="absorption", num=8) / u.um
-        result = a.width_average(absorption, _thickness_substrate)
-        expected = optika.sensors.charge_diffusion(
-            absorption=absorption,
-            thickness_substrate=_thickness_substrate,
-            thickness_depletion=a.thickness_depletion,
-            width_max=a.width_max,
-            width_depleted=a.width_depleted,
+        janesick = a.replace(width_backsurface=None, width_depletion=None)
+        result = janesick.width_average(absorption, s)
+        f = s - a.thickness_depletion
+        k = absorption
+        expected = np.sqrt(
+            f * (k * f + np.exp(-k * f) - 1) / (k * (1 - np.exp(-k * s)))
         )
-        assert np.all(result == expected)
-
-
-@pytest.mark.parametrize(
-    argnames="thickness_depletion",
-    argvalues=[
-        None,
-        5 * u.um,
-    ],
-)
-def test_model_or_janesick(
-    thickness_depletion: None | u.Quantity,
-):
-    """With no model, a function uses Janesick's with the given depletion region."""
-    result = optika.sensors.diffusion._models._model_or_janesick(
-        model_diffusion=None,
-        thickness_depletion=thickness_depletion,
-        thickness_substrate=_thickness_substrate,
-    )
-    assert isinstance(result, optika.sensors.diffusion.JanesickDiffusionModel)
-    expected = (
-        _thickness_substrate if thickness_depletion is None else thickness_depletion
-    )
-    assert result.thickness_depletion == expected
-
-    model = optika.sensors.diffusion.JanesickDiffusionModel(
-        thickness_depletion=3 * u.um
-    )
-    if thickness_depletion is None:
-        result = optika.sensors.diffusion._models._model_or_janesick(
-            model_diffusion=model,
-            thickness_depletion=None,
-            thickness_substrate=_thickness_substrate,
-        )
-        assert result is model
-    else:
-        with pytest.raises(ValueError, match="not both"):
-            optika.sensors.diffusion._models._model_or_janesick(
-                model_diffusion=model,
-                thickness_depletion=thickness_depletion,
-                thickness_substrate=_thickness_substrate,
-            )
+        assert np.allclose(result, expected, rtol=1e-6, atol=1e-12 * u.um)

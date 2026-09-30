@@ -336,7 +336,10 @@ def test_vmr_signal(
 
 def test_vmr_signal_diffusion():
     wavelength = 304 * u.AA
-    thickness_depletion = 2 * u.um
+    diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
+        thickness_depletion=2 * u.um
+    )
+    width_pixel = 27 * u.um
     axis_xy = ("detector_x", "detector_y")
 
     photons_expected = na.broadcast_to(
@@ -347,7 +350,8 @@ def test_vmr_signal_diffusion():
     signal = optika.sensors.signal(
         photons_expected=photons_expected,
         wavelength=wavelength,
-        thickness_depletion=thickness_depletion,
+        diffusion=diffusion,
+        width_pixel=width_pixel,
         axis_xy=axis_xy,
         wrap=True,
         shape_random=dict(experiment=500),
@@ -357,24 +361,28 @@ def test_vmr_signal_diffusion():
 
     result = optika.sensors.vmr_signal(
         wavelength=wavelength,
-        thickness_depletion=thickness_depletion,
+        diffusion=diffusion,
+        width_pixel=width_pixel,
     )
-    result_no_diffusion = optika.sensors.vmr_signal(
-        wavelength=wavelength,
-        thickness_depletion=thickness_depletion,
-        diffusion=False,
-    )
+    result_no_diffusion = optika.sensors.vmr_signal(wavelength=wavelength)
 
     assert np.all(result > 0 * u.electron)
     assert np.all(result < result_no_diffusion)
     assert np.abs(vmr_measured - result) < 0.1 * result
 
-    result_default = optika.sensors.vmr_signal(wavelength=wavelength)
-    result_default_no_diffusion = optika.sensors.vmr_signal(
+    # a model with no field-free region and no spread in the depletion
+    # region does not spread the charge, so it is the same as no model
+    result_sharp = optika.sensors.vmr_signal(
         wavelength=wavelength,
-        diffusion=False,
+        diffusion=diffusion.replace(thickness_depletion=7 * u.um),
+        thickness_substrate=7 * u.um,
+        width_pixel=width_pixel,
     )
-    assert np.all(result_default == result_default_no_diffusion)
+    result_none = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        thickness_substrate=7 * u.um,
+    )
+    assert np.allclose(result_sharp, result_none, rtol=1e-12)
 
 
 @pytest.mark.parametrize(
@@ -397,13 +405,13 @@ def test_vmr_signal_depleted(
 
     model = optika.sensors.diffusion.JanesickDiffusionModel(
         thickness_depletion=14 * u.um,
-        width_depleted=2 * u.um,
+        width_depletion=2 * u.um,
     )
 
     kwargs = dict(
         wavelength=wavelength,
         thickness_substrate=14 * u.um,
-        model_diffusion=model,
+        diffusion=model,
         width_pixel=4 * u.um,
     )
 
@@ -424,50 +432,48 @@ def test_vmr_signal_depleted(
 
     result = optika.sensors.vmr_signal(**kwargs)
     result_sharp = optika.sensors.vmr_signal(
-        **(kwargs | dict(model_diffusion=model.replace(width_depleted=None)))
+        **(kwargs | dict(diffusion=model.replace(width_depletion=None)))
     )
 
     assert np.all(result < result_sharp)
     assert np.abs(vmr_measured - result) < 0.05 * result
 
 
-def test_vmr_signal_model_diffusion():
+def test_diffusion_requires_pixels():
     """
-    The depletion region given as a thickness and as a model of diffusion,
-    with Janesick's values of its widths given explicitly, are the same, and
-    giving both is an error.
+    Diffusion spreads charge over pixels, so a model of diffusion needs the
+    width of a pixel, and the Monte Carlo the axes of the pixel grid.
     """
-    ccd = optika.sensors.materials.e2v_ccd97()
-
-    kwargs = dict(
-        wavelength=na.geomspace(1, 10000, axis="wavelength", num=11) * u.AA,
-        thickness_substrate=ccd.thickness_substrate,
-        width_pixel=16 * u.um,
+    diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
+        thickness_depletion=2 * u.um
     )
+    wavelength = 304 * u.AA
 
-    result = optika.sensors.vmr_signal(
-        **kwargs,
-        thickness_depletion=ccd.depletion.thickness,
+    with pytest.raises(ValueError, match="width_pixel"):
+        optika.sensors.vmr_signal(wavelength=wavelength, diffusion=diffusion)
+
+    photons_expected = na.broadcast_to(
+        100 * u.photon,
+        shape=dict(detector_x=4, detector_y=4),
     )
-    model = optika.sensors.diffusion.JanesickDiffusionModel(
-        thickness_depletion=ccd.depletion.thickness,
-        width_max=ccd.thickness_substrate - ccd.depletion.thickness,
-        width_depleted=0 * u.um,
-    )
-    explicit = optika.sensors.vmr_signal(**kwargs, model_diffusion=model)
-
-    assert np.allclose(result, explicit, rtol=1e-12)
-
-    with pytest.raises(ValueError, match="not both"):
-        optika.sensors.vmr_signal(
-            **kwargs,
-            thickness_depletion=ccd.depletion.thickness,
-            model_diffusion=model,
+    with pytest.raises(ValueError, match="axis_xy"):
+        optika.sensors.signal(
+            photons_expected=photons_expected,
+            wavelength=wavelength,
+            diffusion=diffusion,
+            width_pixel=27 * u.um,
+        )
+    with pytest.raises(ValueError, match="width_pixel"):
+        optika.sensors.signal(
+            photons_expected=photons_expected,
+            wavelength=wavelength,
+            diffusion=diffusion,
+            axis_xy=("detector_x", "detector_y"),
         )
 
 
 @pytest.mark.parametrize(
-    argnames="width_max,width_depleted",
+    argnames="width_backsurface,width_depletion",
     argvalues=[
         (None, None),
         (None, 0.8 * u.um),
@@ -475,8 +481,8 @@ def test_vmr_signal_model_diffusion():
     ],
 )
 def test_vmr_signal_quadrature(
-    width_max: None | u.Quantity | na.AbstractScalar,
-    width_depleted: None | u.Quantity | na.AbstractScalar,
+    width_backsurface: None | u.Quantity | na.AbstractScalar,
+    width_depletion: None | u.Quantity | na.AbstractScalar,
 ):
     """
     The charge-diffusion integral should be converged at the default number of
@@ -490,10 +496,10 @@ def test_vmr_signal_quadrature(
         wavelength=na.geomspace(1, 10000, axis="wavelength", num=101) * u.AA,
         thickness_implant=ccd.thickness_implant,
         thickness_substrate=ccd.thickness_substrate,
-        model_diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
-            thickness_depletion=ccd.depletion.thickness,
-            width_max=width_max,
-            width_depleted=width_depleted,
+        diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=ccd.diffusion.thickness_depletion,
+            width_backsurface=width_backsurface,
+            width_depletion=width_depletion,
         ),
         width_pixel=16 * u.um,
         cce_backsurface=ccd.cce_backsurface,
@@ -840,15 +846,13 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
 
         assert np.all(result == a.efficiency(rays, normal))
 
-    def test_depletion(
+    def test_diffusion(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
     ):
-        result = a.depletion
-        assert isinstance(
-            result,
-            optika.sensors.materials.depletion.AbstractDepletionModel,
-        )
+        result = a.diffusion
+        if result is not None:
+            assert isinstance(result, optika.sensors.diffusion.AbstractDiffusionModel)
 
     @pytest.mark.parametrize(
         argnames="wavelength",
@@ -1076,9 +1080,9 @@ def _e2v_ccd97_widths() -> (
     """An e2v CCD97 whose charge spreads in the depletion region too."""
     result = optika.sensors.materials.e2v_ccd97()
     return result.replace(
-        depletion=result.depletion.replace(
-            width_max=5 * u.um,
-            width_depleted=0.8 * u.um,
+        diffusion=result.diffusion.replace(
+            width_backsurface=5 * u.um,
+            width_depletion=0.8 * u.um,
         ),
     )
 
@@ -1090,6 +1094,7 @@ def _e2v_ccd97_widths() -> (
         optika.sensors.materials.e2v_ccd97(),
         optika.sensors.materials.e2v_ccd203(),
         _e2v_ccd97_widths(),
+        optika.sensors.materials.e2v_ccd97().replace(diffusion=None),
     ],
 )
 class TestBackIlluminatedSiliconSensorMaterial(

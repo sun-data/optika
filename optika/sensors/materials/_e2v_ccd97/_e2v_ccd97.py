@@ -3,7 +3,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-from ..depletion import e2v_ccd64_thick
+from ...diffusion import e2v_ccd64_thick
 from .._materials import BackIlluminatedSiliconSensorMaterial
 
 __all__ = [
@@ -44,7 +44,7 @@ def _e2v_ccd97() -> BackIlluminatedSiliconSensorMaterial:
 
     return BackIlluminatedSiliconSensorMaterial.fit_eqe(
         thickness_substrate=14 * u.um,
-        depletion=e2v_ccd64_thick(),
+        diffusion=e2v_ccd64_thick(),
         eqe_measured=qe,
     )
 
@@ -59,8 +59,8 @@ def e2v_ccd97(
     This is a measurement of e2v's "enhanced" process, which has a narrower
     partial charge collection region than e2v's "standard" process.
 
-    This model uses :func:`~optika.sensors.materials.depletion.e2v_ccd64_thick`
-    to represent the depletion region.
+    This model uses :func:`~optika.sensors.diffusion.e2v_ccd64_thick`
+    as its model of charge diffusion.
 
     Parameters
     ----------
