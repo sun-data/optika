@@ -222,7 +222,7 @@ def test_electrons_measured_diffusion():
     """
     Inject many photons into a single pixel and check that the spatial spread
     of the diffused charge matches the analytic charge-diffusion width given by
-    :func:`optika.sensors.charge_diffusion`.
+    :meth:`optika.sensors.diffusion.JanesickDiffusionModel.width_average`.
     """
     num = 41
     axis_xy = ("pixel_x", "pixel_y")
@@ -242,8 +242,10 @@ def test_electrons_measured_diffusion():
         wavelength=500 * u.nm,
         absorption=absorption,
         thickness_implant=0 * u.um,
-        thickness_depletion=thickness_depletion,
         thickness_substrate=thickness_substrate,
+        diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=thickness_depletion
+        ),
         width_pixel=width_pixel,
         cce_backsurface=1,
         axis_xy=axis_xy,
@@ -265,17 +267,15 @@ def test_electrons_measured_diffusion():
     var_y = (electrons * np.square(offset_y - mean_y)).sum(axis_xy) / total
     std_measured = np.sqrt((var_x + var_y) / 2)
 
-    std_expected = optika.sensors.charge_diffusion(
-        absorption=absorption,
-        thickness_substrate=thickness_substrate,
+    std_expected = optika.sensors.diffusion.JanesickDiffusionModel(
         thickness_depletion=thickness_depletion,
-    )
+    ).width_average(absorption, thickness_substrate)
 
     assert np.allclose(std_measured, std_expected, rtol=0.05)
 
 
 @pytest.mark.parametrize(
-    argnames="thickness_depletion,width_max,width_depleted",
+    argnames="thickness_depletion,width_backsurface,width_depletion",
     argvalues=[
         (8 * u.um, 4 * u.um, None),
         (8 * u.um, None, 1.5 * u.um),
@@ -285,18 +285,24 @@ def test_electrons_measured_diffusion():
 )
 def test_electrons_measured_diffusion_profile(
     thickness_depletion: u.Quantity | na.AbstractScalar,
-    width_max: None | u.Quantity | na.AbstractScalar,
-    width_depleted: None | u.Quantity | na.AbstractScalar,
+    width_backsurface: None | u.Quantity | na.AbstractScalar,
+    width_depletion: None | u.Quantity | na.AbstractScalar,
 ):
     """
     The spread of the diffused charge matches
-    :func:`optika.sensors.charge_diffusion` when the width at the back surface
+    :meth:`optika.sensors.diffusion.JanesickDiffusionModel.width_average` when the width at the back surface
     differs from the thickness of the field-free region, and when the charge
     also spreads in the depletion region, including a sensor with no
     field-free region at all.
     """
     num = 81
     axis_xy = ("pixel_x", "pixel_y")
+
+    diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
+        thickness_depletion=thickness_depletion,
+        width_backsurface=width_backsurface,
+        width_depletion=width_depletion,
+    )
 
     absorption = 1 / u.um
     thickness_substrate = 14 * u.um
@@ -312,11 +318,7 @@ def test_electrons_measured_diffusion_profile(
         absorption=absorption,
         thickness_implant=0 * u.um,
         thickness_substrate=thickness_substrate,
-        model_diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
-            thickness_depletion=thickness_depletion,
-            width_max=width_max,
-            width_depleted=width_depleted,
-        ),
+        diffusion=diffusion,
         width_pixel=width_pixel,
         cce_backsurface=1,
         axis_xy=axis_xy,
@@ -334,13 +336,7 @@ def test_electrons_measured_diffusion_profile(
     # variance of its offset.
     std_measured = np.sqrt((var_x + var_y) / 2 - np.square(width_pixel) / 6)
 
-    std_expected = optika.sensors.charge_diffusion(
-        absorption=absorption,
-        thickness_substrate=thickness_substrate,
-        thickness_depletion=thickness_depletion,
-        width_max=width_max,
-        width_depleted=width_depleted,
-    )
+    std_expected = diffusion.width_average(absorption, thickness_substrate)
 
     assert np.allclose(std_measured, std_expected, rtol=0.03)
 
@@ -363,8 +359,10 @@ def test_electrons_measured_wrap():
         wavelength=500 * u.nm,
         absorption=1 / u.um,
         thickness_implant=0 * u.um,
-        thickness_depletion=0 * u.um,
         thickness_substrate=14 * u.um,
+        diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=0 * u.um
+        ),
         width_pixel=2 * u.um,
         cce_backsurface=1,
         axis_xy=axis_xy,
@@ -417,8 +415,10 @@ def test_electrons_measured_factor_multinomial(
         wavelength=5 * u.AA,
         absorption=absorption,
         thickness_implant=0 * u.um,
-        thickness_depletion=thickness_depletion,
         thickness_substrate=thickness_substrate,
+        diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=thickness_depletion
+        ),
         width_pixel=width_pixel,
         cce_backsurface=1,
         axis_xy=axis_xy,
@@ -435,10 +435,8 @@ def test_electrons_measured_factor_multinomial(
     var_y = (electrons * np.square(offset_y - mean_y)).sum(axis_xy) / total
     std_measured = np.sqrt((var_x + var_y) / 2)
 
-    std_expected = optika.sensors.charge_diffusion(
-        absorption=absorption,
-        thickness_substrate=thickness_substrate,
+    std_expected = optika.sensors.diffusion.JanesickDiffusionModel(
         thickness_depletion=thickness_depletion,
-    )
+    ).width_average(absorption, thickness_substrate)
 
     assert np.allclose(std_measured, std_expected, rtol=0.05)
