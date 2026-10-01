@@ -180,6 +180,28 @@ Longer descriptions of how parts of :mod:`optika` work.
     stop_finding
 
 
+Citation
+========
+
+If you use :mod:`optika` in your research, please cite it.
+The citation metadata is kept in
+`CITATION.cff <https://github.com/sun-data/optika/blob/main/CITATION.cff>`_,
+which the "Cite this repository" button on the
+`GitHub page <https://github.com/sun-data/optika>`_
+can export as BibTeX or APA.
+Please include the version of :mod:`optika` that you used,
+which is given by ``importlib.metadata.version("optika")``.
+
+.. code-block:: bibtex
+
+    @software{optika,
+      author = {Smart, Roy T. and Parker, Jacob D. and Kankelborg, Charles C.},
+      title = {optika},
+      version = {X.Y.Z},
+      url = {https://github.com/sun-data/optika},
+    }
+
+
 API Reference
 =============
 
