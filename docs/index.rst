@@ -189,8 +189,17 @@ The citation metadata is kept in
 which the "Cite this repository" button on the
 `GitHub page <https://github.com/sun-data/optika>`_
 can export as BibTeX or APA.
+
+Every release of :mod:`optika` is archived on Zenodo with its own DOI.
+The concept DOI,
+`10.5281/zenodo.23074621 <https://doi.org/10.5281/zenodo.23074621>`_,
+always resolves to the latest version,
+and the Zenodo page lists the DOI of every version.
 Please include the version of :mod:`optika` that you used,
 which is given by ``importlib.metadata.version("optika")``.
+The BibTeX entry below uses the concept DOI.
+To cite a specific version instead,
+replace ``doi`` with the DOI of that version.
 
 .. code-block:: bibtex
 
@@ -198,6 +207,7 @@ which is given by ``importlib.metadata.version("optika")``.
       author = {Smart, Roy T. and Parker, Jacob D. and Kankelborg, Charles C.},
       title = {optika},
       version = {X.Y.Z},
+      doi = {10.5281/zenodo.23074621},
       url = {https://github.com/sun-data/optika},
     }
 
