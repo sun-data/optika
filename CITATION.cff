@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use optika in your research, please cite it using these metadata."
+type: software
+title: optika
+abstract: >-
+  optika is a Python library for simulating optical systems, similar to Zemax.
+  It raytraces sequential systems of mirrors, refractive glasses, multilayer
+  coatings, and diffraction gratings with a variety of ruling spacings and
+  profiles, and computes the spectral response and resolution of the system.
+  Surfaces are placed in global coordinates, and the field of view and
+  entrance pupil are computed from the apertures of the surfaces. Sensor
+  models include quantum efficiency, noise, and charge diffusion, and a scene
+  can be imaged either by raytracing or with a fast linear forward model.
+  Since every parameter can be an array from named-arrays, a whole
+  configuration space of designs propagates through the raytrace at once, and
+  uncertain parameters carry their uncertainty through to the performance of
+  the system.
+authors:
+  - family-names: Smart
+    given-names: Roy T.
+    orcid: "https://orcid.org/0000-0002-9997-5515"
+  - family-names: Parker
+    given-names: Jacob D.
+    orcid: "https://orcid.org/0000-0001-8732-8284"
+  - family-names: Kankelborg
+    given-names: Charles C.
+    orcid: "https://orcid.org/0000-0002-1992-7469"
+repository-code: "https://github.com/sun-data/optika"
+url: "https://optika.readthedocs.io"
+license: BSD-3-Clause
+keywords:
+  - optics
+  - raytracing
+  - optical design
+  - diffraction gratings
+  - image simulation
+  - uncertainty propagation

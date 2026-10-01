@@ -102,6 +102,23 @@ ax.set_ylabel("transmissivity");
 ```
 ![aluminum filter example](https://optika.readthedocs.io/en/latest/_images/index_0_0.png)
 
+## Citation
+
+If you use optika in your research, please cite it.
+The citation metadata is kept in [`CITATION.cff`](https://github.com/sun-data/optika/blob/main/CITATION.cff),
+which the "Cite this repository" button on GitHub can export as BibTeX or APA.
+Please include the version of optika that you used,
+which is given by `importlib.metadata.version("optika")`.
+
+```bibtex
+@software{optika,
+  author = {Smart, Roy T. and Parker, Jacob D. and Kankelborg, Charles C.},
+  title = {optika},
+  version = {X.Y.Z},
+  url = {https://github.com/sun-data/optika},
+}
+```
+
 ## Development
 
 Install the package in editable mode along with its test dependencies, and run the test suite using [pytest](https://docs.pytest.org):
