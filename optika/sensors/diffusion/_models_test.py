@@ -5,6 +5,7 @@ import astropy.units as u
 import named_arrays as na
 import optika
 from optika._tests import test_mixins
+from . import _gaussian
 
 _thickness_substrate = 14 * u.um
 
@@ -154,23 +155,115 @@ class AbstractTestAbstractDiffusionModel(
         a: optika.sensors.diffusion.AbstractDiffusionModel,
         width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
     ):
+        s = _thickness_substrate
         absorption = na.geomspace(1e-3, 1e3, axis="absorption", num=7) / u.um
-        result = a.mean_charge_capture(absorption, _thickness_substrate, width_pixel)
+        result = a.mean_charge_capture(absorption, s, width_pixel)
         assert np.all(result > 0)
         assert np.all(result <= 1)
+
+        # the mean charge capture is the center of a kernel wide enough to
+        # hold all of the charge
+        kernel = a.kernel(absorption, s, width_pixel, "x", "y", num=15).outputs
+        center = kernel[dict(x=7, y=7)]
+        assert np.allclose(result, center, rtol=1e-9)
+
+    @pytest.mark.parametrize("width_pixel", _width_pixel + [4 * u.um])
+    def test_average_depth_converged(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+    ):
+        """
+        The averages over depth are converged at the default number of
+        quadrature nodes, across the full range of optical depths that silicon
+        spans between 1 and 10000 angstroms.
+        """
+        s = _thickness_substrate
+        wavelength = na.geomspace(1, 10000, axis="wavelength", num=101) * u.AA
+        absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+
+        def averages():
+            mcc = a.mean_charge_capture(absorption, s, width_pixel)
+            kernel = a.kernel(absorption, s, width_pixel, "x", "y", num=5)
+            return mcc, kernel.outputs
+
+        mcc, kernel = averages()
+
+        quadrature = optika.sensors.diffusion._quadrature
+        num = quadrature._num_gauss_legendre
+        try:
+            quadrature._num_gauss_legendre = 8 * num
+            mcc_expected, kernel_expected = averages()
+        finally:
+            quadrature._num_gauss_legendre = num
+
+        assert np.allclose(mcc, mcc_expected, rtol=1e-5)
+        assert np.allclose(kernel, kernel_expected, atol=1e-6)
+
+    @pytest.mark.parametrize(
+        argnames="absorption",
+        argvalues=[
+            1e-4 / u.um,
+            0.3 / u.um,
+            1e4 / u.um,
+            na.geomspace(1e-3, 1e3, axis="absorption", num=7) / u.um,
+        ],
+    )
+    def test_average_depth(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        absorption: u.Quantity | na.AbstractScalar,
+    ):
+        """
+        The quadrature over depth reproduces averages known in closed form:
+        a constant, the variance of the charge cloud, and a function with a
+        kink, wherever the kink falls.
+        """
+        s = _thickness_substrate
+
+        result = a._average_depth(lambda depth: 0 * depth / u.um + 1, absorption, s)
+        assert np.allclose(result, 1)
+
+        result = a._average_depth(
+            integrand=lambda depth: np.square(a.width(depth, s)),
+            absorption=absorption,
+            thickness_substrate=s,
+        )
+        expected = np.square(a.width_average(absorption, s))
+        assert np.allclose(result, expected, rtol=1e-6, atol=1e-12 * u.um**2)
+
+        alpha = absorption
+        absorbed = -np.expm1(-alpha * s)
+        for depth_break in [0.01 * u.um, 1 * u.um, 12 * u.um, s, 20 * u.um]:
+            result = a._average_depth(
+                integrand=lambda depth: np.minimum(depth / depth_break, 1),
+                absorption=absorption,
+                thickness_substrate=s,
+                depth_break=depth_break,
+            )
+            b = np.minimum(depth_break, s)
+            ramp = -np.expm1(-alpha * b) - alpha * b * np.exp(-alpha * b)
+            ramp = ramp / (alpha * depth_break)
+            expected = ramp + np.exp(-alpha * b) - np.exp(-alpha * s)
+            expected = expected / absorbed
+            assert np.allclose(result, expected, rtol=1e-6)
 
     def test_fit_mean_charge_capture(
         self,
         a: optika.sensors.diffusion.AbstractDiffusionModel,
     ):
-        """The fit reproduces a mean charge capture computed by the model."""
+        """
+        The fit reproduces a mean charge capture computed by the model with
+        a depletion region inside the light-sensitive region.
+        """
         s = _thickness_substrate
         width_pixel = 16 * u.um
         wavelength = na.geomspace(10, 1e4, axis="wavelength", num=31) * u.AA
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+        target = a.replace(thickness_depletion=0.3 * s)
         mcc_measured = na.FunctionArray(
             inputs=wavelength,
-            outputs=a.mean_charge_capture(absorption, s, width_pixel),
+            outputs=target.mean_charge_capture(absorption, s, width_pixel),
         )
         start = a.replace(thickness_depletion=s / 2)
         result = start.fit_mean_charge_capture(mcc_measured, s, width_pixel)
@@ -216,6 +309,10 @@ class AbstractTestAbstractDiffusionModel(
             width_backsurface=4 * u.um,
             width_depletion=0.8 * u.um,
         ),
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=20 * u.um,
+            width_depletion=0.8 * u.um,
+        ),
     ],
 )
 class TestJanesickDiffusionModel(
@@ -248,9 +345,38 @@ class TestJanesickDiffusionModel(
         absorption = na.geomspace(1e-4, 1e3, axis="absorption", num=8) / u.um
         janesick = a.replace(width_backsurface=None, width_depletion=None)
         result = janesick.width_average(absorption, s)
-        f = s - a.thickness_depletion
+        f = np.maximum(s - a.thickness_depletion, 0 * s)
         k = absorption
         expected = np.sqrt(
             f * (k * f + np.exp(-k * f) - 1) / (k * (1 - np.exp(-k * s)))
         )
         assert np.allclose(result, expected, rtol=1e-6, atol=1e-12 * u.um)
+
+    @pytest.mark.parametrize("width_pixel", _width_pixel)
+    def test_mean_charge_capture_depth(
+        self,
+        a: optika.sensors.diffusion.JanesickDiffusionModel,
+        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+    ):
+        """
+        The mean charge capture averages that of the Gaussian charge cloud of
+        each depth over the depth at which the photons are absorbed,
+        rather than taking that of a single Gaussian with the average variance.
+        """
+        s = _thickness_substrate
+        absorption = na.geomspace(1e-3, 1e3, axis="absorption", num=7) / u.um
+        result = a.mean_charge_capture(absorption, s, width_pixel)
+
+        if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
+            width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
+
+        axis = "depth"
+        num = 100000
+        depth = (na.arange(0, num, axis=axis) + 0.5) * s / num
+        weight = np.exp(-absorption * depth)
+        width = a.width(depth, s)
+        capture = _gaussian._capture(_gaussian._ratio(width, width_pixel.x))
+        capture = capture * _gaussian._capture(_gaussian._ratio(width, width_pixel.y))
+        expected = (capture * weight).sum(axis) / weight.sum(axis)
+
+        assert np.allclose(result, expected, rtol=1e-5)

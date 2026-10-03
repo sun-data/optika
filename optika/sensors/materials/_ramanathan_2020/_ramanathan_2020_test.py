@@ -281,6 +281,7 @@ def test_electrons_measured_diffusion():
         (8 * u.um, None, 1.5 * u.um),
         (8 * u.um, 4 * u.um, 1.5 * u.um),
         (14 * u.um, None, 3 * u.um),
+        (20 * u.um, None, 3 * u.um),
     ],
 )
 def test_electrons_measured_diffusion_profile(
@@ -339,6 +340,70 @@ def test_electrons_measured_diffusion_profile(
     std_expected = diffusion.width_average(absorption, thickness_substrate)
 
     assert np.allclose(std_measured, std_expected, rtol=0.03)
+
+
+@pytest.mark.parametrize(
+    argnames="diffusion",
+    argvalues=[
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=7.85 * u.um,
+        ),
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=7.85 * u.um,
+            width_backsurface=4 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="absorption",
+    argvalues=[
+        0.05 / u.um,
+        1 / u.um,
+    ],
+)
+def test_electrons_measured_kernel(
+    diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
+    absorption: u.Quantity,
+):
+    """
+    The fraction of the charge from a pixel collected in it and in each of
+    its neighbors is the kernel of the model of diffusion,
+    for photons absorbed throughout the sensor as well as for photons
+    absorbed near the back surface.
+    """
+    num = 9
+    axis_xy = ("pixel_x", "pixel_y")
+    thickness_substrate = 14 * u.um
+    width_pixel = 13 * u.um
+
+    photons = np.zeros((num, num))
+    photons[num // 2, num // 2] = 200000
+    photons = na.ScalarArray(photons << u.photon, axes=axis_xy).astype(int)
+
+    electrons = _ramanathan_2020.electrons_measured(
+        photons_absorbed=photons,
+        wavelength=500 * u.nm,
+        absorption=absorption,
+        thickness_implant=0 * u.um,
+        thickness_substrate=thickness_substrate,
+        diffusion=diffusion,
+        width_pixel=width_pixel,
+        cce_backsurface=1,
+        axis_xy=axis_xy,
+    )
+    result = electrons / electrons.sum(axis_xy)
+
+    kernel = diffusion.kernel(
+        absorption=absorption,
+        thickness_substrate=thickness_substrate,
+        width_pixel=width_pixel,
+        axis_x=axis_xy[0],
+        axis_y=axis_xy[1],
+        num=num,
+    )
+
+    assert np.allclose(result, kernel.outputs, atol=0.004)
 
 
 def test_electrons_measured_wrap():

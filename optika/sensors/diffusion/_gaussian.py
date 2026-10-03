@@ -69,14 +69,17 @@ def _width_average(
     """
     s = thickness_substrate
     d = thickness_depletion
-    f = s - d
+
+    # The field-free region, which vanishes if the depletion region is
+    # thicker than the light-sensitive region.
+    f = np.maximum(s - d, 0 * s)
 
     if width_backsurface is None:
         width_backsurface = f
 
     az_s = (absorption * s).to(u.dimensionless_unscaled).value
-    az_d = (absorption * d).to(u.dimensionless_unscaled).value
-    az_f = az_s - az_d
+    az_f = (absorption * f).to(u.dimensionless_unscaled).value
+    az_d = az_s - az_f
 
     # The fraction of the photons entering the sensor which are absorbed
     # in the light-sensitive region.
@@ -85,8 +88,13 @@ def _width_average(
     variance = np.square(width_backsurface) * _absorbed_ramp(az_f)
 
     if width_depletion is not None:
+        # The fraction of the depletion region crossed by charge created at
+        # the back surface, less than all of it only if the depletion region
+        # extends beyond the light-sensitive region.
+        share = np.minimum(s / np.where(d > 0 * d, d, s), 1)
+        share = share.to(u.dimensionless_unscaled).value
         crossed = -np.expm1(-az_f) + np.exp(-az_f) * _absorbed_ramp(az_d)
-        variance = variance + np.square(width_depletion) * crossed
+        variance = variance + np.square(width_depletion) * share * crossed
 
     return np.sqrt(variance / absorbed).to(u.um)
 

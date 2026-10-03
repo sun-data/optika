@@ -1,4 +1,5 @@
 import abc
+from typing import Callable
 import dataclasses
 from typing_extensions import Self
 import numpy as np
@@ -7,6 +8,7 @@ import scipy.special
 import astropy.units as u
 import named_arrays as na
 import optika
+from ._quadrature import _integrate_gauss_legendre
 from ._gaussian import (
     _width_average,
     _ratio,
@@ -36,7 +38,7 @@ class AbstractDiffusionModel(
     optika.mixins.Replaceable,
     optika.mixins.Shaped,
 ):
-    """
+    r"""
     An arbitrary model of the lateral diffusion of charge in a
     back-illuminated sensor.
 
@@ -55,6 +57,70 @@ class AbstractDiffusionModel(
 
     Every concrete model has a field named ``thickness_depletion``,
     which :meth:`fit_mean_charge_capture` fits.
+
+    Notes
+    -----
+
+    The quantities averaged over depth, such as :meth:`kernel` and
+    :meth:`mean_charge_capture`, average the quantity for charge created at
+    each depth :math:`z`, weighted by the probability that a photon is
+    absorbed there,
+
+    .. math::
+
+        \left\langle f \right\rangle = \frac{\displaystyle \int_0^{z_s} f(z) \, \alpha e^{-\alpha z} dz}
+                                            {1 - e^{-\alpha z_s}},
+
+    where :math:`\alpha` is the absorption coefficient and :math:`z_s` is the
+    thickness of the light-sensitive region.
+    This is the same average that the Monte Carlo simulation of
+    :func:`optika.sensors.electrons_measured` draws its samples from,
+    and that :func:`optika.sensors.vmr_signal` takes of the noise.
+
+    These averages generally have no closed form, so they are evaluated by
+    quadrature, in variables chosen to make the quadrature converge quickly.
+    The field-free region, :math:`0 < z < z_f`, and the depletion region,
+    :math:`z_f < z < z_s`, are integrated separately.
+    Writing the average over each region as an integral over the cumulative
+    absorption probability within it distributes the nodes according to where
+    photons are actually absorbed, which matters because the optical depth of
+    the sensor spans four orders of magnitude across the wavelengths of
+    interest.
+
+    The width of the charge cloud typically has a square-root branch point
+    where it vanishes:
+    at the edge of the depletion region, :math:`z = z_f`,
+    for the charge that diffuses across the field-free region,
+    and at the gates, :math:`z = z_s`,
+    for the charge that spreads as it drifts across the depletion region.
+    In the field-free region, substituting :math:`1 - r^2` for the cumulative
+    absorption probability puts the branch point at :math:`r = 0`,
+    where the width becomes proportional to :math:`r`, which removes it.
+    In terms of :math:`r` the optical depth is
+
+    .. math::
+
+        \alpha z = -\log \left( e^{-\alpha z_f} + \left( 1 - e^{-\alpha z_f} \right) r^2 \right),
+
+    which is evaluated in this form, rather than through the cumulative
+    probability, so that it stays finite when :math:`e^{-\alpha z_f}`
+    underflows.
+    In the depletion region, of thickness :math:`z_d`, the same substitution
+    in terms of :math:`v` puts the branch point at the gates, :math:`v = 0`,
+    where the optical depth below the edge of the depletion region is
+
+    .. math::
+
+        \alpha (z - z_f) = -\log \left( e^{-\alpha z_d} + \left( 1 - e^{-\alpha z_d} \right) v^2 \right).
+
+    Gauss-Legendre quadrature with
+    :obj:`~optika.sensors.diffusion._quadrature._num_gauss_legendre` nodes is
+    then applied to each region, and the average is accurate to about
+    one part in :math:`10^6` for optical depths :math:`\alpha z_f` between
+    :math:`0.02` and :math:`3000`,
+    which covers silicon between 1 and 10000 angstroms;
+    a midpoint rule in the cumulative probability needs some thirty times as
+    many nodes to reach a hundred times worse accuracy.
     """
 
     @property
@@ -241,6 +307,97 @@ class AbstractDiffusionModel(
         thickness_substrate
             The thickness of the light-sensitive region of the sensor.
         """
+
+    def _average_depth(
+        self,
+        integrand: Callable[[u.Quantity | na.AbstractScalar], na.AbstractScalar],
+        absorption: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        depth_break: None | u.Quantity | na.AbstractScalar = None,
+    ) -> na.AbstractScalar:
+        """
+        The average of a function of the depth at which charge is created,
+        over the depths at which photons are absorbed in the light-sensitive
+        region, evaluated by the quadrature described in the notes of this
+        class.
+
+        Parameters
+        ----------
+        integrand
+            A function of the distance from the back surface of the sensor at
+            which the charge was created.
+        absorption
+            The absorption coefficient of the light-sensitive region for the
+            incident photons, per unit of perpendicular depth.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        depth_break
+            An optional depth at which `integrand` has a kink,
+            such as the end of the implant layer,
+            where the interval of integration is split so that the quadrature
+            still converges quickly.
+        """
+        s = thickness_substrate
+        f = np.maximum(s - self.thickness_depletion, 0 * s)
+
+        az_f = (absorption * f).to(u.dimensionless_unscaled).value
+        az_s = (absorption * s).to(u.dimensionless_unscaled).value
+        az_d = az_s - az_f
+
+        fraction_absorbed = -np.expm1(-az_s)
+        fraction_f = -np.expm1(-az_f)
+        fraction_d = -np.expm1(-az_d)
+
+        axis = "_diffusion_depth"
+
+        def integrand_f(r: na.AbstractScalar) -> na.AbstractScalar:
+            az = -np.log(np.exp(-az_f) + fraction_f * np.square(r))
+            return integrand(az / absorption) * 2 * r
+
+        def integrand_d(v: na.AbstractScalar) -> na.AbstractScalar:
+            az = az_f - np.log(np.exp(-az_d) + fraction_d * np.square(v))
+            return integrand(az / absorption) * 2 * v
+
+        if depth_break is None:
+            r_break = v_break = 1
+        else:
+            az_break = (absorption * depth_break).to(u.dimensionless_unscaled).value
+
+            # Where the break falls in each region; at an end of the region
+            # if it is outside it, which leaves a single interval.
+            fraction_f_safe = np.where(fraction_f > 0, fraction_f, 1)
+            fraction_d_safe = np.where(fraction_d > 0, fraction_d, 1)
+            r_break = np.sqrt(
+                np.clip(
+                    (np.exp(-az_break) - np.exp(-az_f)) / fraction_f_safe,
+                    0,
+                    1,
+                ),
+            )
+            v_break = np.sqrt(
+                np.clip(
+                    (np.exp(np.minimum(az_f - az_break, 0)) - np.exp(-az_d))
+                    / fraction_d_safe,
+                    0,
+                    1,
+                ),
+            )
+
+        result_f = _integrate_gauss_legendre(integrand_f, 0, r_break, axis)
+        result_d = _integrate_gauss_legendre(integrand_d, 0, v_break, axis)
+        if depth_break is not None:
+            result_f = result_f + _integrate_gauss_legendre(
+                integrand_f, r_break, 1, axis
+            )
+            result_d = result_d + _integrate_gauss_legendre(
+                integrand_d, v_break, 1, axis
+            )
+
+        # The fractions of the absorbed photons absorbed in each region.
+        weight_f = fraction_f / fraction_absorbed
+        weight_d = np.exp(-az_f) * fraction_d / fraction_absorbed
+
+        return weight_f * result_f + weight_d * result_d
 
     def fit_mean_charge_capture(
         self,
@@ -482,22 +639,35 @@ class JanesickDiffusionModel(
     where :math:`\alpha` is the absorption coefficient,
     which reduces to the result of :cite:t:`Janesick2001` for
     :math:`\sigma_\text{bs} = x_{ff}` and :math:`\sigma_d = 0`.
+    If the depletion region is thicker than the light-sensitive region,
+    there is no field-free region, so :math:`x_{ff}` is zero,
+    and the charge created at the back surface crosses only part of the
+    depletion region, so the :math:`\alpha x_d` in the second term becomes
+    :math:`\alpha x_s`.
 
-    The kernel and the mean charge capture are those of a Gaussian whose
-    variance is :math:`\overline{\sigma}^2`.
+    The kernel and the mean charge capture are the averages, over the depth
+    at which photons are absorbed, of those of the Gaussian charge cloud
+    created at each depth,
+    as described in the notes of
+    :class:`~optika.sensors.diffusion.AbstractDiffusionModel`.
     Since a photon can strike anywhere within its pixel, the Gaussian is
     convolved with a rectangle function the width of a pixel before it is
     integrated over each pixel, so that the mean charge capture is
 
     .. math::
 
-        P_\text{MCC} = \prod_{i \in \{x, y\}} \left\{
-            \sqrt{\frac{2}{\pi}} \frac{\overline{\sigma}}{d_i}
-            \left[ \exp \left( -\frac{d_i^2}{2 \overline{\sigma}^2} \right) - 1 \right]
-            + \text{erf} \left( \frac{d_i}{\sqrt{2} \overline{\sigma}} \right)
-        \right\},
+        P_\text{MCC} = \left\langle \prod_{i \in \{x, y\}} \left\{
+            \sqrt{\frac{2}{\pi}} \frac{\sigma(x)}{d_i}
+            \left[ \exp \left( -\frac{d_i^2}{2 \sigma^2(x)} \right) - 1 \right]
+            + \text{erf} \left( \frac{d_i}{\sqrt{2} \sigma(x)} \right)
+        \right\} \right\rangle,
 
-    where :math:`d_i` is the width of a pixel along each axis.
+    where :math:`d_i` is the width of a pixel along each axis
+    and :math:`\langle \cdot \rangle` is the average over depth.
+    This is not the mean charge capture of a single Gaussian whose variance is
+    :math:`\overline{\sigma}^2`, which underestimates the charge kept in the
+    central pixel when photons are absorbed over a range of depths,
+    as weakly absorbed ones are.
     """
 
     thickness_depletion: u.Quantity | na.AbstractScalar = dataclasses.MISSING
@@ -609,16 +779,18 @@ class JanesickDiffusionModel(
             raise ValueError(f"`num` must be odd, got {num}.")
 
         width_pixel = _pixel_vector(width_pixel)
-        width = self.width_average(absorption, thickness_substrate)
 
         half = num // 2
         index_x = na.linspace(-half, half, axis=axis_x, num=num)
         index_y = na.linspace(-half, half, axis=axis_y, num=num)
 
-        kx = _kernel_1d(_ratio(width, width_pixel.x), index_x)
-        ky = _kernel_1d(_ratio(width, width_pixel.y), index_y)
+        def kernel(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            width = self.width(depth, thickness_substrate)
+            kx = _kernel_1d(_ratio(width, width_pixel.x), index_x)
+            ky = _kernel_1d(_ratio(width, width_pixel.y), index_y)
+            return kx * ky
 
-        result = kx * ky
+        result = self._average_depth(kernel, absorption, thickness_substrate)
         result = result / result.sum(axis=(axis_x, axis_y))
 
         return na.FunctionArray(
@@ -633,10 +805,14 @@ class JanesickDiffusionModel(
         width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
     ) -> na.AbstractScalar:
         width_pixel = _pixel_vector(width_pixel)
-        width = self.width_average(absorption, thickness_substrate)
-        x = _capture(_ratio(width, width_pixel.x))
-        y = _capture(_ratio(width, width_pixel.y))
-        return x * y
+
+        def capture(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            width = self.width(depth, thickness_substrate)
+            x = _capture(_ratio(width, width_pixel.x))
+            y = _capture(_ratio(width, width_pixel.y))
+            return x * y
+
+        return self._average_depth(capture, absorption, thickness_substrate)
 
     def _parameters_monte_carlo(
         self,
@@ -644,7 +820,10 @@ class JanesickDiffusionModel(
     ) -> dict[str, u.Quantity | na.AbstractScalar]:
         width_backsurface = self.width_backsurface
         if width_backsurface is None:
-            width_backsurface = thickness_substrate - self.thickness_depletion
+            width_backsurface = np.maximum(
+                thickness_substrate - self.thickness_depletion,
+                0 * thickness_substrate,
+            )
         width_depletion = self.width_depletion
         if width_depletion is None:
             width_depletion = 0 * u.um

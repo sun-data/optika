@@ -508,12 +508,13 @@ def test_vmr_signal_quadrature(
 
     result = optika.sensors.vmr_signal(**kwargs)
 
-    num = optika.sensors.materials._materials._num_gauss_legendre
+    quadrature = optika.sensors.diffusion._quadrature
+    num = quadrature._num_gauss_legendre
     try:
-        optika.sensors.materials._materials._num_gauss_legendre = 8 * num
+        quadrature._num_gauss_legendre = 8 * num
         expected = optika.sensors.vmr_signal(**kwargs)
     finally:
-        optika.sensors.materials._materials._num_gauss_legendre = num
+        quadrature._num_gauss_legendre = num
 
     assert np.all(np.abs(result / expected - 1) < 1e-5)
 
@@ -867,6 +868,42 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
     ):
         result = a.width_charge_diffusion(wavelength=wavelength)
         assert np.all(result >= 0 * u.um)
+
+        # without a model the charge does not spread at any wavelength,
+        # including those silicon does not absorb at all
+        if a.diffusion is None:
+            transparent = 20000 * u.AA
+            assert a._chemical.absorption(transparent) == 0 / u.um
+            wavelength = na.stack([wavelength, transparent], axis="wavelength")
+            result = a.width_charge_diffusion(wavelength=wavelength)
+            assert np.all(result == 0 * u.um)
+
+    def test_signal_diffusion(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+    ):
+        """
+        Charge diffuses over the pixel grid whenever the width of a pixel is
+        given, as in :meth:`uncertainty`, so a material with a model of
+        diffusion needs the axes of the grid too.
+        """
+        axis_xy = ("detector_x", "detector_y")
+        photons = na.broadcast_to(
+            100 * u.photon,
+            shape=dict(detector_x=4, detector_y=4),
+        )
+        kwargs = dict(
+            photons=photons,
+            wavelength=304 * u.AA,
+            width_pixel=15 * u.um,
+        )
+        result = a.signal(axis_xy=axis_xy, **kwargs)
+        assert result.shape == photons.shape
+        assert np.all(result >= 0 * u.electron)
+
+        if a.diffusion is not None:
+            with pytest.raises(ValueError, match="axis_xy"):
+                a.signal(**kwargs)
 
     @pytest.mark.parametrize(
         argnames="wavelength",
