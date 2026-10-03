@@ -1,11 +1,10 @@
-from typing import Callable, Literal
+from typing import Literal
 from typing_extensions import Self
 import abc
 import functools
 import dataclasses
 import numpy as np
 import scipy.optimize
-import scipy.special
 import astropy.units as u
 import astropy.constants
 import named_arrays as na
@@ -14,7 +13,6 @@ from ._stern_1994 import (
     _thickness_oxide,
     _thickness_implant,
     _thickness_substrate,
-    _width_pixel,
     _cce_backsurface,
 )
 from ._ramanathan_2020 import (
@@ -26,7 +24,7 @@ from ._ramanathan_2020 import (
     fano_factor_inf,
     electrons_measured,
 )
-from .depletion import AbstractDepletionModel
+from ..diffusion import AbstractDiffusionModel
 
 __all__ = [
     "energy_bandgap",
@@ -1062,11 +1060,11 @@ def signal(
     n_substrate: None | complex | na.AbstractScalar = None,
     absorbance: None | float | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
     thickness_substrate: None | na.AbstractScalar = _thickness_substrate,
+    diffusion: None | AbstractDiffusionModel = None,
     width_pixel: (
-        u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-    ) = _width_pixel,
+        None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = None,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     method: Literal["monte-carlo", "expected"] = "monte-carlo",
@@ -1105,16 +1103,20 @@ def signal(
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
-    thickness_depletion
-        The thickness of the depletion region, the region with significant electric
-        field.
-        If :obj:`None` (the default), this is set to the same value as
-        `thickness_substrate`.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
-        The default
+    diffusion
+        A model of the lateral diffusion of charge in the sensor.
+        If :obj:`None` (the default), charge does not diffuse.
+        The electrons of each photon spread over the pixel grid given by
+        `axis_xy`, so both `axis_xy` and `width_pixel` must be given with it
+        for the ``"monte-carlo"`` method.
     width_pixel
         The size of a single pixel on the sensor.
+        A scalar gives square pixels; a
+        :class:`named_arrays.AbstractCartesian2dVectorArray` gives
+        rectangular pixels.
+        Only used, and then required, if `diffusion` is given.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -1131,8 +1133,8 @@ def signal(
         it does not apply charge diffusion.
     axis_xy
         The two logical axes corresponding to the pixel grid of the sensor
-        along which electrons will diffuse.
-        If :obj:`None` (the default), there is no charge diffusion.
+        along which electrons diffuse.
+        Only used, and then required, if `diffusion` is given.
     wrap
         Controls how diffused charge is treated at the edges of the pixel grid.
         If :obj:`False` (the default), charge that diffuses past the edge of the
@@ -1234,8 +1236,8 @@ def signal(
             wavelength=wavelength,
             absorption=absorption,
             thickness_implant=thickness_implant,
-            thickness_depletion=thickness_depletion,
             thickness_substrate=thickness_substrate,
+            diffusion=diffusion,
             width_pixel=width_pixel,
             cce_backsurface=cce_backsurface,
             temperature=temperature,
@@ -1248,105 +1250,22 @@ def signal(
         raise ValueError(f"Unrecognized method: {method}")
 
 
-def _probability_same_pixel(
-    sigma: float | na.AbstractScalar,
-) -> na.AbstractScalar:
-    r"""
-    The probability that two electrons from the same photon land in the same
-    column (or row) of pixels, averaged over the uniformly-distributed
-    sub-pixel position of the photon.
-
-    Both electrons start from the same sub-pixel position
-    :math:`u \sim \mathcal{U}(-1/2, 1/2)` and are displaced independently by
-    :math:`\mathcal{N}(0, \sigma^2)`, so their separation is
-    :math:`\delta \sim \mathcal{N}(0, 2 \sigma^2)`, and the probability that
-    they are binned into the same pixel is
-    :math:`\left\langle (1 - |\delta|)_+ \right\rangle`,
-    which evaluates to
-
-    .. math::
-
-        d(\sigma) = \text{erf} \left( \frac{1}{2 \sigma} \right)
-            - \frac{2 \sigma}{\sqrt{\pi}} \left( 1 - e^{-1 / 4 \sigma^2} \right).
-
-    Parameters
-    ----------
-    sigma
-        The standard deviation of the charge diffusion kernel in units of the
-        pixel width.
-    """
-    where = sigma > 0
-    sigma = np.where(where, sigma, 1)
-    result = scipy.special.erf(1 / (2 * sigma)) + (
-        2 * sigma / np.sqrt(np.pi) * np.expm1(-1 / (4 * np.square(sigma)))
-    )
-    return np.where(where, result, 1)
-
-
-_num_gauss_legendre = 32
-"""
-The number of Gauss-Legendre nodes used on each subinterval by
-:func:`_integrate_gauss_legendre`.
-Chosen so that the charge-diffusion integral of :func:`vmr_signal` is accurate
-to better than one part in :math:`10^6` over the full range of optical depths
-encountered by a silicon sensor between 1 and 10000 angstroms.
-"""
-
-
-def _integrate_gauss_legendre(
-    integrand: Callable[[na.AbstractScalar], na.AbstractScalar],
-    lower: float | na.AbstractScalar,
-    upper: float | na.AbstractScalar,
-    axis: str,
-) -> na.AbstractScalar:
-    """
-    Integrate `integrand` between `lower` and `upper` using Gauss-Legendre
-    quadrature with :obj:`_num_gauss_legendre` nodes.
-
-    The limits may be arrays, in which case a separate quadrature rule is
-    applied to every element, and `axis` is the logical axis along which the
-    nodes are placed.
-
-    Parameters
-    ----------
-    integrand
-        The function to integrate.
-    lower
-        The lower limit of integration.
-    upper
-        The upper limit of integration.
-    axis
-        The logical axis along which to place the quadrature nodes.
-        Consumed by the sum, so it does not appear in the result.
-    """
-    nodes, weights = scipy.special.roots_legendre(_num_gauss_legendre)
-
-    nodes = na.ScalarArray(nodes, axes=(axis,))
-    weights = na.ScalarArray(weights, axes=(axis,))
-
-    half = (upper - lower) / 2
-    center = (upper + lower) / 2
-
-    return half * (weights * integrand(half * nodes + center)).sum(axis)
-
-
 def vmr_signal(
     wavelength: u.Quantity | na.ScalarArray,
     direction: float | na.AbstractScalar = 1,
     n: complex | na.AbstractScalar = 1,
     n_substrate: None | complex | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    diffusion: None | AbstractDiffusionModel = None,
     width_pixel: (
-        u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-    ) = _width_pixel,
+        None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = None,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     shot: bool = True,
     fano: bool = True,
     pcc: bool = True,
-    diffusion: bool = True,
 ) -> na.ScalarArray:
     r"""
     Compute the variance-to-mean ratio (VMR) of the number of electrons measured by
@@ -1367,16 +1286,16 @@ def vmr_signal(
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
-    thickness_depletion
-        The thickness of the depletion region, the region with significant electric
-        field.
-        The default is the same value as `thickness_substrate`,
-        which means there is no field-free region and no charge diffusion.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
+    diffusion
+        A model of the lateral diffusion of charge in the sensor.
+        If :obj:`None` (the default), charge does not diffuse.
+        Diffusion reduces the noise of an image by sharing the electrons of
+        each photon among pixels.
     width_pixel
-        The size of a single pixel on the sensor,
-        used by the charge-diffusion model.
+        The size of a single pixel on the sensor.
+        Only used, and then required, if `diffusion` is given.
         A scalar gives square pixels; a
         :class:`named_arrays.AbstractCartesian2dVectorArray`
         gives rectangular pixels.
@@ -1392,11 +1311,6 @@ def vmr_signal(
         Whether to include the Fano noise in the result.
     pcc
         Whether to include noise due to partial charge collection in the result.
-    diffusion
-        Whether to include the noise reduction due to charge diffusion
-        in the result.
-        This only has an effect if `thickness_depletion` is smaller than
-        `thickness_substrate` and `width_pixel` is positive.
 
     Examples
     --------
@@ -1462,10 +1376,15 @@ def vmr_signal(
         import named_arrays as na
         import optika
 
-        # Define the thickness of the depletion region,
-        # which is smaller than the thickness of the substrate,
+        # Define a model of charge diffusion whose depletion region
+        # is thinner than the substrate,
         # so that there is a field-free region where charge diffuses
-        thickness_depletion = 2 * u.um
+        diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=2 * u.um,
+        )
+
+        # Define the width of a pixel
+        width_pixel = 27 * u.um
 
         # Define the logical axes of the pixel grid
         axis_xy = ("detector_x", "detector_y")
@@ -1485,7 +1404,8 @@ def vmr_signal(
         signal = optika.sensors.signal(
             photons_expected=photons_expected,
             wavelength=wavelength,
-            thickness_depletion=thickness_depletion,
+            diffusion=diffusion,
+            width_pixel=width_pixel,
             axis_xy=axis_xy,
             wrap=True,
             shape_random=dict(experiment=200),
@@ -1498,7 +1418,8 @@ def vmr_signal(
         # Compute the VMR analytically with and without charge diffusion
         vmr_diffusion = optika.sensors.vmr_signal(
             wavelength=wavelength,
-            thickness_depletion=thickness_depletion,
+            diffusion=diffusion,
+            width_pixel=width_pixel,
         )
         vmr_no_diffusion = optika.sensors.vmr_signal(
             wavelength=wavelength,
@@ -1555,16 +1476,18 @@ def vmr_signal(
     single photon are measured together in the same pixel.
 
     Charge diffusion weakens exactly this correlation:
-    two electrons produced by the same photon at depth :math:`z` in the
-    field-free region land in the same pixel only with probability
+    two electrons produced by the same photon at depth :math:`z`
+    land in the same pixel only with probability
 
     .. math::
 
         D(z) = d \left( \frac{w(z)}{p_x} \right) d \left( \frac{w(z)}{p_y} \right),
 
     where :math:`p_x` and :math:`p_y` are the pixel widths,
-    :math:`w(z) = z_f \sqrt{1 - z / z_f}` is the standard deviation of the
+    :math:`w(z)` is the standard deviation of the
     Gaussian charge diffusion kernel,
+    which is :math:`w(z) = z_f \sqrt{1 - z / z_f}` in the field-free region
+    for the model of :cite:t:`Janesick2001`,
     :math:`z_f` is the thickness of the field-free region
     (the difference between the substrate thickness and the depletion
     thickness),
@@ -1578,6 +1501,9 @@ def vmr_signal(
     is the probability that two electrons displaced independently by
     :math:`\mathcal{N}(0, \sigma^2)` from the same uniformly-distributed
     sub-pixel starting position fall into the same column of pixels.
+    In general :math:`D(z)` is given by
+    :meth:`optika.sensors.diffusion.AbstractDiffusionModel.probability_same_pixel`
+    of `diffusion`.
     Weighting the photon-correlated component of Equation :eq:`vmr-compact`
     by :math:`D(z)` yields the VMR with charge diffusion,
 
@@ -1598,48 +1524,31 @@ def vmr_signal(
             \frac{\left\langle \left[ 1 - D(z) \right] \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle}
 
     from Equation :eq:`vmr-compact`.
-    The integrand vanishes outside the field-free region, since :math:`D = 1`
-    where the charge does not spread, so only that region is integrated.
+    The integrand vanishes where the charge does not spread,
+    since :math:`D = 1` there.
 
     The average has no closed form.
     The obstruction is :math:`D`, which contains
     :math:`\text{erf}(1 / 2 \sigma)` with :math:`\sigma \propto \sqrt{z_f - z}`,
     and squaring it to cover the two axes of the sensor produces a product of
     two error functions integrated against the exponential absorption profile.
-    It is therefore evaluated by quadrature, in a variable chosen to make that
-    quadrature converge quickly.
-    Writing the average as an integral over the cumulative absorption
-    probability :math:`s` within the field-free region distributes the nodes
-    according to where photons are actually absorbed, which matters because the
-    optical depth of that region spans four orders of magnitude across the
-    wavelengths of interest.
-    Substituting :math:`s = 1 - r^2` then removes the square-root branch point
-    which :math:`\sigma(z)` places at :math:`z = z_f`, since the diffusion width
-    becomes proportional to :math:`r` near that end of the range.
-    In terms of :math:`r` the optical depth is
-
-    .. math::
-
-        \alpha z = -\log \left( e^{-\alpha z_f} + \left( 1 - e^{-\alpha z_f} \right) r^2 \right),
-
-    which is evaluated in this form rather than through :math:`s` so that it
-    stays finite when :math:`e^{-\alpha z_f}` underflows.
-    The remaining integrand is smooth apart from the point where the implant
-    ends and :math:`\eta` saturates, so the interval is split there and
-    Gauss-Legendre quadrature is applied to each part.
-
-    With :obj:`_num_gauss_legendre` nodes per part this is accurate to better
-    than one part in :math:`10^6` for optical depths
-    :math:`\alpha z_f` between :math:`0.02` and :math:`3000`,
-    which covers silicon between 1 and 10000 angstroms;
-    a midpoint rule in :math:`s` needs some thirty times as many nodes to reach
-    a hundred times worse accuracy.
+    It is therefore evaluated by the same quadrature over depth as the
+    averages of the model of diffusion,
+    which is described in the notes of
+    :class:`optika.sensors.diffusion.AbstractDiffusionModel`,
+    so that it is accurate to about one part in :math:`10^6` over the
+    optical depths of silicon between 1 and 10000 angstroms.
+    The integrand is smooth apart from the point where the implant ends and
+    :math:`\eta` saturates, so the quadrature is also split there.
 
     This result assumes uniform illumination and a periodic pixel grid,
     so it corresponds to ``wrap=True`` in :func:`signal`,
     and is a good approximation away from the edges of a sensor
     with ``wrap=False``.
     """
+
+    if diffusion is not None and width_pixel is None:
+        raise ValueError("`width_pixel` must be given with `diffusion`.")
 
     if n_substrate is None:
         n_substrate = optika.chemicals.Chemical("Si").n(wavelength)
@@ -1693,48 +1602,22 @@ def vmr_signal(
 
         result = result + F_pcc
 
-    if diffusion:
-        if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
-            width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
-
+    if diffusion is not None:
         n0 = cce_backsurface
         aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
 
-        thickness_ff = np.maximum(
-            thickness_substrate - thickness_depletion,
-            0 * thickness_substrate,
-        )
-        az_ff = (absorption * thickness_ff).to(u.dimensionless_unscaled).value
-        az_substrate = absorption * thickness_substrate
-        az_substrate = az_substrate.to(u.dimensionless_unscaled).value
-
-        def ratio_ff(width: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
-            where = width > 0
-            width = np.where(where, width, 1 * u.um)
-            r = (thickness_ff / width).to(u.dimensionless_unscaled).value
-            return np.where(where, r, 0)
-
-        r_x = ratio_ff(width_pixel.x)
-        r_y = ratio_ff(width_pixel.y)
-
-        fraction_absorbed = -np.expm1(-az_substrate)
-        fraction_ff = -np.expm1(-az_ff)
-        t_ff = fraction_ff / fraction_absorbed
-        az_ff_safe = np.where(az_ff > 0, az_ff, 1)
-
-        axis_z = "_vmr_signal_depth"
-
-        def integrand(r: na.AbstractScalar) -> na.AbstractScalar:
-            az = -np.log(np.exp(-az_ff) + fraction_ff * np.square(r))
+        def integrand(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            az = (absorption * depth).to(u.dimensionless_unscaled).value
             eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
-            w = np.sqrt(np.maximum(1 - az / az_ff_safe, 0))
-            D = _probability_same_pixel(r_x * w) * _probability_same_pixel(r_y * w)
-            return (1 - D) * np.square(eta) * 2 * r
+            D = diffusion.probability_same_pixel(
+                depth=depth,
+                thickness_substrate=thickness_substrate,
+                width_pixel=width_pixel,
+            )
+            return (1 - D) * np.square(eta)
 
         # The integrand is smooth except where the implant ends and the
-        # differential CCE saturates, so integrate up to that point and beyond
-        # it separately.  The breakpoint collapses to zero if the implant is
-        # thicker than the field-free region, leaving a single interval.
+        # differential CCE saturates, so the average is split there.
         #
         # The kink is inherited from the piecewise-linear differential CCE of
         # `charge_collection_efficiency`, which follows :cite:t:`Stern1994`.
@@ -1743,13 +1626,11 @@ def vmr_signal(
         # thickness and back-surface CCE remain comparable with the values
         # published by :cite:t:`Stern1994` and :cite:t:`Boerner2012`.  Do not
         # trade that away for the quadrature.
-        r_implant = np.sqrt(
-            np.maximum((np.exp(-aW) - np.exp(-az_ff)) / fraction_ff, 0),
-        )
-
-        integral = t_ff * (
-            _integrate_gauss_legendre(integrand, 0, r_implant, axis_z)
-            + _integrate_gauss_legendre(integrand, r_implant, 1, axis_z)
+        integral = diffusion._average_depth(
+            integrand=integrand,
+            absorption=absorption,
+            thickness_substrate=thickness_substrate,
+            depth_break=thickness_implant,
         )
 
         unit = u.electron / u.photon
@@ -1776,9 +1657,8 @@ class AbstractSensorMaterial(
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
         width_pixel: (
-            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0
-        * u.um,
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
         wrap: bool = False,
@@ -1797,11 +1677,17 @@ class AbstractSensorMaterial(
             The cosine of the refracted angle inside the light-sensitive region,
             as produced by :meth:`direction_refracted`.
         width_pixel
-            The physical size of each pixel, used by the charge-diffusion model.
+            The physical size of each pixel.
+            If given, charge diffuses over the pixel grid according to the
+            model of charge diffusion of the material, if it has one,
+            as in :meth:`uncertainty`.
+            If :obj:`None` (the default), the sensor is not resolved into
+            pixels and charge does not diffuse.
         axis_xy
-            The two logical axes corresponding to the pixel grid of the sensor.
-            If provided, charge diffusion will occur along these two axes.
-            If :obj:`None` (the default), no diffusion is performed.
+            The two logical axes corresponding to the pixel grid of the sensor,
+            along which charge diffuses.
+            Required with `width_pixel` if the material has a model of charge
+            diffusion.
         noise
             Whether to add noise to the result.
         wrap
@@ -1901,9 +1787,8 @@ class AbstractSensorMaterial(
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
         width_pixel: (
-            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0
-        * u.um,
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
     ) -> na.AbstractScalar:
         """
         Given the number of electrons measured by the sensor, compute the
@@ -1919,8 +1804,11 @@ class AbstractSensorMaterial(
             The cosine of the refracted angle inside the light-sensitive region,
             as produced by :meth:`direction_refracted`.
         width_pixel
-            The physical size of each pixel, used by the charge-diffusion model.
+            The physical size of each pixel, used by the model of charge
+            diffusion of the material, if it has one.
             Should match the value passed to :meth:`signal`.
+            If :obj:`None` (the default), the sensor is not resolved into
+            pixels and the noise does not include the effect of diffusion.
         """
 
 
@@ -1940,9 +1828,8 @@ class IdealSensorMaterial(
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
         width_pixel: (
-            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0
-        * u.um,
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
         wrap: bool = False,
@@ -1999,9 +1886,8 @@ class IdealSensorMaterial(
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
         width_pixel: (
-            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0
-        * u.um,
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
     ) -> na.AbstractScalar:
         # an ideal sensor has only shot noise, so the electrons are
         # Poisson-distributed and the variance equals the mean.
@@ -2144,9 +2030,10 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
     @property
     @abc.abstractmethod
-    def depletion(self) -> AbstractDepletionModel:
+    def diffusion(self) -> None | AbstractDiffusionModel:
         """
-        A model of this sensor's depletion region.
+        A model of the lateral diffusion of charge in this sensor,
+        or :obj:`None` if charge does not diffuse.
         """
 
     def width_charge_diffusion(
@@ -2154,18 +2041,23 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         wavelength: u.Quantity | na.AbstractScalar,
     ) -> na.AbstractScalar:
         """
-        The standard deviation of the charge diffusion kernel for this sensor.
-        Calculated using :func:`optika.sensors.charge_diffusion`.
+        The standard deviation of the charge diffusion kernel for this sensor,
+        averaged over the depth at which photons are absorbed,
+        using :meth:`optika.sensors.diffusion.AbstractDiffusionModel.width_average`
+        of :attr:`diffusion`.
+        Zero if the sensor has no model of diffusion.
 
         Parameters
         ----------
         wavelength
             The wavelength of the incident light in vacuum.
         """
-        return optika.sensors.charge_diffusion(
-            self._chemical.absorption(wavelength),
+        absorption = self._chemical.absorption(wavelength)
+        if self.diffusion is None:
+            return 0 * absorption.value * u.um
+        return self.diffusion.width_average(
+            absorption=absorption,
             thickness_substrate=self.thickness_substrate,
-            thickness_depletion=self.depletion.thickness,
         )
 
     def transmittance(
@@ -2435,9 +2327,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         n: complex | na.AbstractScalar = 1,
         normal: None | na.AbstractCartesian3dVectorArray = None,
         width_pixel: (
-            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0
-        * u.um,
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
         axis_xy: None | tuple[str, str] = None,
         wrap: bool = False,
     ) -> na.AbstractScalar:
@@ -2462,8 +2353,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
                 direction_substrate=direction_substrate,
             ),
             thickness_implant=self.thickness_implant,
-            thickness_depletion=self.depletion.thickness,
             thickness_substrate=self.thickness_substrate,
+            diffusion=self.diffusion if width_pixel is not None else None,
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             axis_xy=axis_xy,
@@ -2477,9 +2368,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
         width_pixel: (
-            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0
-        * u.um,
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
         axis_xy: None | tuple[str, str] = None,
         noise: bool = True,
         wrap: bool = False,
@@ -2509,8 +2399,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             n_substrate=n_substrate,
             absorbance=1,
             thickness_implant=self.thickness_implant,
-            thickness_depletion=self.depletion.thickness,
             thickness_substrate=self.thickness_substrate,
+            diffusion=self.diffusion if width_pixel is not None else None,
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
@@ -2591,9 +2481,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
         width_pixel: (
-            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-        ) = 0
-        * u.um,
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
     ) -> na.AbstractScalar:
         # `direction` is the cosine of the refracted angle *inside* the
         # substrate (as passed to `signal`); pass ``n == n_substrate`` so
@@ -2607,8 +2496,8 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             n=n_substrate,
             n_substrate=n_substrate,
             thickness_implant=self.thickness_implant,
-            thickness_depletion=self.depletion.thickness,
             thickness_substrate=self.thickness_substrate,
+            diffusion=self.diffusion if width_pixel is not None else None,
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
@@ -2658,8 +2547,11 @@ class BackIlluminatedSiliconSensorMaterial(
     cce_backsurface: u.Quantity = 0
     """The charge-collection efficiency of the back surface of the sensor."""
 
-    depletion: None | AbstractDepletionModel = None
-    """A model of this sensor's depletion region."""
+    diffusion: None | AbstractDiffusionModel = None
+    """
+    A model of the lateral diffusion of charge in this sensor,
+    or :obj:`None` (the default) if charge does not diffuse.
+    """
 
     eqe_measured: None | na.FunctionArray = None
     """An optional measurement of the effective quantum efficiency."""
@@ -2679,7 +2571,7 @@ class BackIlluminatedSiliconSensorMaterial(
     def fit_eqe(
         cls,
         thickness_substrate: u.Quantity | na.AbstractScalar,
-        depletion: AbstractDepletionModel,
+        diffusion: None | AbstractDiffusionModel,
         eqe_measured: na.FunctionArray,
         temperature: u.Quantity | na.AbstractScalar = 300 * u.K,
     ) -> Self:
@@ -2692,8 +2584,9 @@ class BackIlluminatedSiliconSensorMaterial(
             The temperature of the light-sensitive silicon substrate.
         thickness_substrate
             The thickness of the light-sensitive silicon substrate.
-        depletion
-            A model of this sensor's depletion region.
+        diffusion
+            A model of the lateral diffusion of charge in this sensor,
+            which the fit does not use.
         eqe_measured
             The measured quantum efficiency that will be fit by the function
             :func:`optika.sensors.quantum_efficiency_effective`.
@@ -2767,6 +2660,6 @@ class BackIlluminatedSiliconSensorMaterial(
             roughness_oxide=roughness_oxide,
             roughness_substrate=roughness_substrate,
             cce_backsurface=cce_backsurface,
-            depletion=depletion,
+            diffusion=diffusion,
             eqe_measured=eqe_measured,
         )

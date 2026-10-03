@@ -1,0 +1,149 @@
+import pathlib
+from typing import Literal
+import numpy as np
+import astropy.units as u
+import named_arrays as na
+import optika
+from .._models import JanesickDiffusionModel
+
+__all__ = [
+    "mcc_stern2004",
+    "e2v_ccd64_thick",
+    "e2v_ccd64_thin",
+]
+
+_thickness_substrate = dict(
+    thick=15 * u.um,
+    thin=8 * u.um,
+)
+"""
+The thickness of the light-sensitive region of each e2v CCD64 measured by
+:cite:t:`Stern2004`.
+"""
+
+_width_pixel = 16 * u.um
+"""The width of a pixel of the e2v CCD64."""
+
+
+def mcc_stern2004(
+    kind: Literal["thick", "thin"],
+) -> na.FunctionArray[na.ScalarArray, na.ScalarArray]:
+    r"""
+    The mean charge capture of an e2v CCD64 measured by :cite:t:`Stern2004`,
+    as a function of the vacuum wavelength of the incident photons.
+
+    The CCD64 has 16 micron pixels, and was made in two versions:
+    a "thick" one of 100 :math:`\Omega`-cm silicon with a 15 micron
+    light-sensitive region,
+    and a "thin" one of 20 :math:`\Omega`-cm silicon with an 8 micron
+    light-sensitive region.
+
+    Parameters
+    ----------
+    kind
+        Which version of the CCD64, ``"thick"`` or ``"thin"``.
+    """
+    path = pathlib.Path(__file__).parent / f"_e2v_ccd64_{kind}.csv"
+
+    energy, mcc = np.genfromtxt(
+        fname=path,
+        delimiter=", ",
+        unpack=True,
+    )
+    energy = energy << u.keV
+    wavelength = energy.to(u.AA, equivalencies=u.spectral())
+
+    return na.FunctionArray(
+        inputs=na.ScalarArray(wavelength, axes="wavelength"),
+        outputs=na.ScalarArray(mcc, axes="wavelength"),
+    )
+
+
+def _e2v_ccd64(
+    kind: Literal["thick", "thin"],
+) -> JanesickDiffusionModel:
+    """The model of Janesick (2001) fitted to the measurement of one CCD64."""
+    return JanesickDiffusionModel(
+        thickness_depletion=0 * u.um,
+    ).fit_mean_charge_capture(
+        mcc_measured=mcc_stern2004(kind),
+        thickness_substrate=_thickness_substrate[kind],
+        width_pixel=_width_pixel,
+    )
+
+
+@optika.memory.cache
+def e2v_ccd64_thick() -> JanesickDiffusionModel:
+    r"""
+    The model of :cite:t:`Janesick2001` for a "thick" (100 :math:`\Omega`-cm)
+    e2v CCD64, with the thickness of its depletion region fitted to the mean
+    charge capture measured by :cite:t:`Stern2004`, :func:`mcc_stern2004`.
+
+    Examples
+    --------
+
+    Plot the measured mean charge capture against the fitted one.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        # Load the model and the measurement it was fitted to
+        model = optika.sensors.diffusion.e2v_ccd64_thick()
+        mcc_measured = optika.sensors.diffusion.mcc_stern2004("thick")
+
+        # Evaluate the fitted mean charge capture over a grid of wavelengths
+        wavelength = na.geomspace(1, 10000, axis="wavelength", num=1001) * u.AA
+        mcc_fit = model.mean_charge_capture(
+            absorption=optika.chemicals.Chemical("Si").absorption(wavelength),
+            thickness_substrate=15 * u.um,
+            width_pixel=16 * u.um,
+        )
+
+        # Plot the measurement against the fit
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(constrained_layout=True)
+            na.plt.scatter(
+                mcc_measured.inputs,
+                mcc_measured.outputs,
+                ax=ax,
+                label="measured",
+            )
+            na.plt.plot(wavelength, mcc_fit, ax=ax, label="fit")
+            ax.set_xscale("log")
+            ax.set_xlabel(f"wavelength ({ax.get_xlabel()})")
+            ax.set_ylabel("mean charge capture")
+            ax.legend()
+
+    The thickness of the depletion region found by the fit is
+
+    .. jupyter-execute::
+
+        model.thickness_depletion
+    """
+    return _e2v_ccd64("thick")
+
+
+@optika.memory.cache
+def e2v_ccd64_thin() -> JanesickDiffusionModel:
+    r"""
+    The model of :cite:t:`Janesick2001` for a "thin" (20 :math:`\Omega`-cm)
+    e2v CCD64, with the thickness of its depletion region fitted to the mean
+    charge capture measured by :cite:t:`Stern2004`, :func:`mcc_stern2004`.
+
+    Examples
+    --------
+
+    The thickness of the depletion region found by the fit is
+
+    .. jupyter-execute::
+
+        import optika
+
+        optika.sensors.diffusion.e2v_ccd64_thin().thickness_depletion
+    """
+    return _e2v_ccd64("thin")

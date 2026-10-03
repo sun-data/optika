@@ -1,7 +1,7 @@
 import astropy.units as u
 import named_arrays as na
 import optika
-from ..depletion import e2v_ccd64_thin
+from ...diffusion import e2v_ccd64_thin
 from .._materials import BackIlluminatedSiliconSensorMaterial
 
 __all__ = [
@@ -58,7 +58,7 @@ def _tektronix_tk512cb() -> BackIlluminatedSiliconSensorMaterial:
 
     return BackIlluminatedSiliconSensorMaterial.fit_eqe(
         thickness_substrate=7 * u.um,
-        depletion=e2v_ccd64_thin(),
+        diffusion=e2v_ccd64_thin(),
         eqe_measured=qe,
     )
 
@@ -70,8 +70,8 @@ def tektronix_tk512cb(
     A model of the light-sensitive material of a Tektronix TK512CB sensor based on
     measurements by :cite:t:`Stern1994`.
 
-    This model uses :func:`~optika.sensors.materials.depletion.e2v_ccd64_thin`
-    to represent the depletion region.
+    This model uses :func:`~optika.sensors.diffusion.e2v_ccd64_thin`
+    as its model of charge diffusion.
 
     Examples
     --------
