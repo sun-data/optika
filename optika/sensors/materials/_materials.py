@@ -1,11 +1,10 @@
-from typing import Callable, Literal
+from typing import Literal
 from typing_extensions import Self
 import abc
 import functools
 import dataclasses
 import numpy as np
 import scipy.optimize
-import scipy.special
 import astropy.units as u
 import astropy.constants
 import named_arrays as na
@@ -1251,53 +1250,6 @@ def signal(
         raise ValueError(f"Unrecognized method: {method}")
 
 
-_num_gauss_legendre = 32
-"""
-The number of Gauss-Legendre nodes used on each subinterval by
-:func:`_integrate_gauss_legendre`.
-Chosen so that the charge-diffusion integral of :func:`vmr_signal` is accurate
-to better than one part in :math:`10^6` over the full range of optical depths
-encountered by a silicon sensor between 1 and 10000 angstroms.
-"""
-
-
-def _integrate_gauss_legendre(
-    integrand: Callable[[na.AbstractScalar], na.AbstractScalar],
-    lower: float | na.AbstractScalar,
-    upper: float | na.AbstractScalar,
-    axis: str,
-) -> na.AbstractScalar:
-    """
-    Integrate `integrand` between `lower` and `upper` using Gauss-Legendre
-    quadrature with :obj:`_num_gauss_legendre` nodes.
-
-    The limits may be arrays, in which case a separate quadrature rule is
-    applied to every element, and `axis` is the logical axis along which the
-    nodes are placed.
-
-    Parameters
-    ----------
-    integrand
-        The function to integrate.
-    lower
-        The lower limit of integration.
-    upper
-        The upper limit of integration.
-    axis
-        The logical axis along which to place the quadrature nodes.
-        Consumed by the sum, so it does not appear in the result.
-    """
-    nodes, weights = scipy.special.roots_legendre(_num_gauss_legendre)
-
-    nodes = na.ScalarArray(nodes, axes=(axis,))
-    weights = na.ScalarArray(weights, axes=(axis,))
-
-    half = (upper - lower) / 2
-    center = (upper + lower) / 2
-
-    return half * (weights * integrand(half * nodes + center)).sum(axis)
-
-
 def vmr_signal(
     wavelength: u.Quantity | na.ScalarArray,
     direction: float | na.AbstractScalar = 1,
@@ -1574,62 +1526,20 @@ def vmr_signal(
     from Equation :eq:`vmr-compact`.
     The integrand vanishes where the charge does not spread,
     since :math:`D = 1` there.
-    The field-free region and the depletion region are integrated separately.
 
     The average has no closed form.
     The obstruction is :math:`D`, which contains
     :math:`\text{erf}(1 / 2 \sigma)` with :math:`\sigma \propto \sqrt{z_f - z}`,
     and squaring it to cover the two axes of the sensor produces a product of
     two error functions integrated against the exponential absorption profile.
-    It is therefore evaluated by quadrature, in a variable chosen to make that
-    quadrature converge quickly.
-    Writing the average as an integral over the cumulative absorption
-    probability :math:`s` within the field-free region distributes the nodes
-    according to where photons are actually absorbed, which matters because the
-    optical depth of that region spans four orders of magnitude across the
-    wavelengths of interest.
-    Substituting :math:`s = 1 - r^2` then removes the square-root branch point
-    which :math:`\sigma(z)` places at :math:`z = z_f`, since the diffusion width
-    becomes proportional to :math:`r` near that end of the range.
-    If the charge also spreads in the depletion region, the width no longer
-    vanishes at :math:`z = z_f`, and the same substitution is harmless.
-    In terms of :math:`r` the optical depth is
-
-    .. math::
-
-        \alpha z = -\log \left( e^{-\alpha z_f} + \left( 1 - e^{-\alpha z_f} \right) r^2 \right),
-
-    which is evaluated in this form rather than through :math:`s` so that it
-    stays finite when :math:`e^{-\alpha z_f}` underflows.
-    The remaining integrand is smooth apart from the point where the implant
-    ends and :math:`\eta` saturates, so the interval is split there and
-    Gauss-Legendre quadrature is applied to each part.
-
-    The depletion region, :math:`z_f < z < z_s`, is treated the same way.
-    There the width of a model with a spread in the depletion region,
-    such as :class:`optika.sensors.diffusion.JanesickDiffusionModel` with
-    `width_depletion` given, is typically
-    :math:`w(z) = \sigma_d \sqrt{(z_s - z) / z_d}`,
-    where :math:`\sigma_d` is the spread acquired crossing the depletion
-    region,
-    :math:`z_d` is the thickness of the depletion region,
-    and :math:`z_s` is the thickness of the substrate,
-    so its branch point is at the gates.
-    The average is written as an integral over the cumulative absorption
-    probability :math:`q` within the depletion region, and substituting
-    :math:`q = 1 - v^2` puts the branch point at :math:`v = 0`,
-    where the optical depth below the edge of the depletion region is
-
-    .. math::
-
-        \alpha (z - z_f) = -\log \left( e^{-\alpha z_d} + \left( 1 - e^{-\alpha z_d} \right) v^2 \right).
-
-    With :obj:`_num_gauss_legendre` nodes per part this is accurate to better
-    than one part in :math:`10^6` for optical depths
-    :math:`\alpha z_f` between :math:`0.02` and :math:`3000`,
-    which covers silicon between 1 and 10000 angstroms;
-    a midpoint rule in :math:`s` needs some thirty times as many nodes to reach
-    a hundred times worse accuracy.
+    It is therefore evaluated by the same quadrature over depth as the
+    averages of the model of diffusion,
+    which is described in the notes of
+    :class:`optika.sensors.diffusion.AbstractDiffusionModel`,
+    so that it is accurate to about one part in :math:`10^6` over the
+    optical depths of silicon between 1 and 10000 angstroms.
+    The integrand is smooth apart from the point where the implant ends and
+    :math:`\eta` saturates, so the quadrature is also split there.
 
     This result assumes uniform illumination and a periodic pixel grid,
     so it corresponds to ``wrap=True`` in :func:`signal`,
@@ -1696,38 +1606,18 @@ def vmr_signal(
         n0 = cce_backsurface
         aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
 
-        thickness_ff = np.maximum(
-            thickness_substrate - diffusion.thickness_depletion,
-            0 * thickness_substrate,
-        )
-        az_ff = (absorption * thickness_ff).to(u.dimensionless_unscaled).value
-        az_substrate = absorption * thickness_substrate
-        az_substrate = az_substrate.to(u.dimensionless_unscaled).value
-
-        def probability_same_pixel(az: na.AbstractScalar) -> na.AbstractScalar:
-            """The same-pixel probability for charge at an optical depth `az`."""
-            return diffusion.probability_same_pixel(
-                depth=az / absorption,
+        def integrand(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            az = (absorption * depth).to(u.dimensionless_unscaled).value
+            eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
+            D = diffusion.probability_same_pixel(
+                depth=depth,
                 thickness_substrate=thickness_substrate,
                 width_pixel=width_pixel,
             )
-
-        fraction_absorbed = -np.expm1(-az_substrate)
-        fraction_ff = -np.expm1(-az_ff)
-        t_ff = fraction_ff / fraction_absorbed
-
-        axis_z = "_vmr_signal_depth"
-
-        def integrand(r: na.AbstractScalar) -> na.AbstractScalar:
-            az = -np.log(np.exp(-az_ff) + fraction_ff * np.square(r))
-            eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
-            D = probability_same_pixel(az)
-            return (1 - D) * np.square(eta) * 2 * r
+            return (1 - D) * np.square(eta)
 
         # The integrand is smooth except where the implant ends and the
-        # differential CCE saturates, so integrate up to that point and beyond
-        # it separately.  The breakpoint collapses to zero if the implant is
-        # thicker than the field-free region, leaving a single interval.
+        # differential CCE saturates, so the average is split there.
         #
         # The kink is inherited from the piecewise-linear differential CCE of
         # `charge_collection_efficiency`, which follows :cite:t:`Stern1994`.
@@ -1736,42 +1626,11 @@ def vmr_signal(
         # thickness and back-surface CCE remain comparable with the values
         # published by :cite:t:`Stern1994` and :cite:t:`Boerner2012`.  Do not
         # trade that away for the quadrature.
-        r_implant = np.sqrt(
-            np.maximum((np.exp(-aW) - np.exp(-az_ff)) / fraction_ff, 0),
-        )
-
-        integral = t_ff * (
-            _integrate_gauss_legendre(integrand, 0, r_implant, axis_z)
-            + _integrate_gauss_legendre(integrand, r_implant, 1, axis_z)
-        )
-
-        # The optical depth of the depletion region.
-        az_d = az_substrate - az_ff
-        fraction_d = -np.expm1(-az_d)
-        fraction_d_safe = np.where(fraction_d > 0, fraction_d, 1)
-        t_d = np.exp(-az_ff) * fraction_d / fraction_absorbed
-
-        def integrand_depleted(v: na.AbstractScalar) -> na.AbstractScalar:
-            az = az_ff - np.log(np.exp(-az_d) + fraction_d * np.square(v))
-            eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
-            D = probability_same_pixel(az)
-            return (1 - D) * np.square(eta) * 2 * v
-
-        # The implant ends inside the depletion region only if it is
-        # thicker than the field-free region; otherwise the breakpoint
-        # sits at the edge of the depletion region, `v = 1`, leaving a
-        # single interval.
-        v_implant = np.sqrt(
-            np.clip(
-                (np.exp(np.minimum(az_ff - aW, 0)) - np.exp(-az_d)) / fraction_d_safe,
-                0,
-                1,
-            ),
-        )
-
-        integral = integral + t_d * (
-            _integrate_gauss_legendre(integrand_depleted, 0, v_implant, axis_z)
-            + _integrate_gauss_legendre(integrand_depleted, v_implant, 1, axis_z)
+        integral = diffusion._average_depth(
+            integrand=integrand,
+            absorption=absorption,
+            thickness_substrate=thickness_substrate,
+            depth_break=thickness_implant,
         )
 
         unit = u.electron / u.photon
@@ -1818,15 +1677,17 @@ class AbstractSensorMaterial(
             The cosine of the refracted angle inside the light-sensitive region,
             as produced by :meth:`direction_refracted`.
         width_pixel
-            The physical size of each pixel, used by the model of charge
-            diffusion of the material, if it has one.
-            Required if `axis_xy` is given.
-        axis_xy
-            The two logical axes corresponding to the pixel grid of the sensor.
-            If provided, charge diffuses along these two axes according to the
-            model of charge diffusion of the material, if it has one.
+            The physical size of each pixel.
+            If given, charge diffuses over the pixel grid according to the
+            model of charge diffusion of the material, if it has one,
+            as in :meth:`uncertainty`.
             If :obj:`None` (the default), the sensor is not resolved into
             pixels and charge does not diffuse.
+        axis_xy
+            The two logical axes corresponding to the pixel grid of the sensor,
+            along which charge diffuses.
+            Required with `width_pixel` if the material has a model of charge
+            diffusion.
         noise
             Whether to add noise to the result.
         wrap
@@ -2193,7 +2054,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         """
         absorption = self._chemical.absorption(wavelength)
         if self.diffusion is None:
-            return 0 * absorption / absorption * u.um
+            return 0 * absorption.value * u.um
         return self.diffusion.width_average(
             absorption=absorption,
             thickness_substrate=self.thickness_substrate,
@@ -2493,7 +2354,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             ),
             thickness_implant=self.thickness_implant,
             thickness_substrate=self.thickness_substrate,
-            diffusion=self.diffusion if axis_xy is not None else None,
+            diffusion=self.diffusion if width_pixel is not None else None,
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             axis_xy=axis_xy,
@@ -2539,7 +2400,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             absorbance=1,
             thickness_implant=self.thickness_implant,
             thickness_substrate=self.thickness_substrate,
-            diffusion=self.diffusion if axis_xy is not None else None,
+            diffusion=self.diffusion if width_pixel is not None else None,
             width_pixel=width_pixel,
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
