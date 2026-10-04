@@ -1165,10 +1165,13 @@ def _grid_vertices(name: str, num: int, span: float = 1) -> na.Cartesian2dVector
     )
 
 
-def test_rayfunction_can_leave_the_field_stop_and_the_sensor_open():
+def test_surfaces_open_leave_the_field_stop_and_the_sensor_open():
     """
-    Rays beyond the field stop, and beyond the edge of the sensor, are kept
-    when those are left open, and land where they would have.
+    Traced through :attr:`_surfaces_open`, rays beyond the field stop, and
+    beyond the edge of the sensor, are kept, and land where they would have.
+
+    The public :meth:`rayfunction` is the trace through :attr:`surfaces_all`,
+    with both apertures closed, as it always was.
     """
     system = _system_vignetted()
     kwargs = dict(
@@ -1176,10 +1179,15 @@ def test_rayfunction_can_leave_the_field_stop_and_the_sensor_open():
         pupil=_grid_vertices("pupil", 4),
         efficiency=False,
     )
+    surfaces = system.surfaces_all
+    unclipped = optika.systems._sequential._Unclipped
 
-    closed = system.rayfunction(**kwargs)
-    stop_open = system.rayfunction(**kwargs, clip_field_stop=False)
-    both_open = system.rayfunction(**kwargs, clip_field_stop=False, clip_sensor=False)
+    closed = system._rayfunction(surfaces=surfaces, **kwargs)
+    stop_open = system._rayfunction(
+        surfaces=[unclipped(s) if s.is_field_stop else s for s in surfaces],
+        **kwargs,
+    )
+    both_open = system._rayfunction(surfaces=system._surfaces_open, **kwargs)
 
     def count(rays):
         return rays.outputs.unvignetted.sum()
@@ -1188,6 +1196,9 @@ def test_rayfunction_can_leave_the_field_stop_and_the_sensor_open():
     # past the edge of the sensor
     assert count(closed) < count(stop_open) < count(both_open)
     assert np.allclose(both_open.outputs.position, closed.outputs.position)
+
+    public = system.rayfunction(**kwargs)
+    assert np.all(public.outputs.unvignetted == closed.outputs.unvignetted)
 
 
 @pytest.mark.parametrize(
@@ -1869,13 +1880,16 @@ def test_area_effective_gives_each_ray_the_pupil_of_its_own_field_point(
     a.__dict__["pupil_fit"] = (walk(-1), walk(+1))
 
     captured = {}
-    rayfunction = optika.systems.AbstractSequentialSystem.rayfunction
+    # every trace, public or not, goes through `_rayfunction`
+    rayfunction = optika.systems.AbstractSequentialSystem._rayfunction
 
     def capture(self, **kwargs):
         captured.update(kwargs)
         return rayfunction(self, **kwargs)
 
-    monkeypatch.setattr(optika.systems.AbstractSequentialSystem, "rayfunction", capture)
+    monkeypatch.setattr(
+        optika.systems.AbstractSequentialSystem, "_rayfunction", capture
+    )
     result = a.area_effective(seed=42)
     assert np.all(np.isfinite(result.area))
 
@@ -2521,7 +2535,7 @@ def test_linearize_traces_once(monkeypatch):
     second trace and gave the two halves of the system different quadrature
     errors.
     """
-    calls = _spy_results(monkeypatch, "rayfunction")
+    calls = _spy_results(monkeypatch, "_rayfunction")
 
     _system_linearize().linearize(degree=1)
 
@@ -2767,7 +2781,7 @@ def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
     :meth:`area_effective` uses, and would pay the same price for a number it
     then discards.
     """
-    calls = _spy_arguments(monkeypatch, "rayfunction")
+    calls = _spy_arguments(monkeypatch, "_rayfunction")
 
     _system_linearize().vignetting(degree=1)
 

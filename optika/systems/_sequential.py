@@ -1460,8 +1460,6 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         accumulate: bool = True,
         efficiency: bool = True,
-        clip_field_stop: bool = True,
-        clip_sensor: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -1503,18 +1501,52 @@ class AbstractSequentialSystem(
             the geometry and
             :attr:`~optika.rays.AbstractRayVectorArray.unvignetted` are
             unchanged and much cheaper to compute.
-        clip_field_stop
-            A boolean flag indicating whether the field stop vignettes the
-            rays.  If :obj:`False`, it is traced as though it had no aperture.
-        clip_sensor
-            A boolean flag indicating whether the edge of the sensor vignettes
-            the rays.  If :obj:`False`, a ray which lands beyond it on the
-            plane of the sensor is kept, and lands where it would have.
 
         See Also
         --------
         rayfunction : Similar to `raytrace` except it only returns the rays at
             the last surface in local coordinates.
+        """
+        return self._raytrace(
+            surfaces=self.surfaces_all,
+            intensity=intensity,
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            axis=axis,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+            accumulate=accumulate,
+            efficiency=efficiency,
+        )
+
+    def _raytrace(
+        self,
+        surfaces: Sequence[optika.propagators.AbstractRayPropagator],
+        intensity: None | float | u.Quantity | na.AbstractScalar = None,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        axis: None | str = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+        accumulate: bool = True,
+        efficiency: bool = True,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        :meth:`raytrace` through the given sequence of surfaces rather than
+        through :attr:`surfaces_all`.
+
+        :meth:`_rayfunction_stratified` traces through
+        :attr:`_surfaces_open`, and every other step of its trace has to be
+        the one :meth:`raytrace` takes.
+
+        Parameters
+        ----------
+        surfaces
+            The surfaces to propagate the rays through, in order.
+
+        See :meth:`raytrace` for the others.
         """
 
         if axis is None:
@@ -1540,21 +1572,6 @@ class AbstractSequentialSystem(
         if intensity is not None:
             rays.intensity = intensity
 
-        surfaces = self.surfaces_all
-
-        # an unclipped surface still bends the rays, it only no longer
-        # vignettes them; the sensor is the last surface if there is one
-        index_sensor = len(surfaces) - 1 if self.sensor is not None else None
-        surfaces = [
-            (
-                _Unclipped(surface)
-                if (not clip_field_stop and surface.is_field_stop)
-                or (not clip_sensor and i == index_sensor)
-                else surface
-            )
-            for i, surface in enumerate(surfaces)
-        ]
-
         if accumulate:
             result.outputs = optika.propagators.accumulate_rays(
                 propagators=surfaces,
@@ -1571,6 +1588,27 @@ class AbstractSequentialSystem(
 
         return result
 
+    @property
+    def _surfaces_open(self) -> list[optika.propagators.AbstractRayPropagator]:
+        """
+        :attr:`surfaces_all`, with the field stop and the sensor left open.
+
+        Each still bends the rays exactly as it would have, and only no
+        longer vignettes them; see :meth:`vignetting` for why the models are
+        fit to rays traced this way.  The sensor is the last surface if there
+        is one.
+        """
+        surfaces = self.surfaces_all
+        index_sensor = len(surfaces) - 1 if self.sensor is not None else None
+        return [
+            (
+                _Unclipped(surface)
+                if surface.is_field_stop or i == index_sensor
+                else surface
+            )
+            for i, surface in enumerate(surfaces)
+        ]
+
     def rayfunction(
         self,
         intensity: None | float | u.Quantity | na.AbstractScalar = None,
@@ -1580,8 +1618,6 @@ class AbstractSequentialSystem(
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         efficiency: bool = True,
-        clip_field_stop: bool = True,
-        clip_sensor: bool = True,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -1618,22 +1654,49 @@ class AbstractSequentialSystem(
             the geometry and
             :attr:`~optika.rays.AbstractRayVectorArray.unvignetted` are
             unchanged and much cheaper to compute.
-        clip_field_stop
-            A boolean flag indicating whether the field stop vignettes the
-            rays.  If :obj:`False`, it is traced as though it had no aperture.
-        clip_sensor
-            A boolean flag indicating whether the edge of the sensor vignettes
-            the rays.  If :obj:`False`, a ray which lands beyond it on the
-            plane of the sensor is kept, and lands where it would have.
 
         See Also
         --------
         raytrace : Similar to `rayfunction` except it can compute all the
             intermediate rays, and it returns results in global coordinates.
         """
+        return self._rayfunction(
+            surfaces=self.surfaces_all,
+            intensity=intensity,
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+            efficiency=efficiency,
+        )
+
+    def _rayfunction(
+        self,
+        surfaces: Sequence[optika.propagators.AbstractRayPropagator],
+        intensity: None | float | u.Quantity | na.AbstractScalar = None,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+        efficiency: bool = True,
+    ) -> optika.rays.RayFunctionArray:
+        """
+        :meth:`rayfunction` through the given sequence of surfaces rather
+        than through :attr:`surfaces_all`; see :meth:`_raytrace`.
+
+        Parameters
+        ----------
+        surfaces
+            The surfaces to propagate the rays through, in order.
+
+        See :meth:`rayfunction` for the others.
+        """
 
         axis = "_dummy"
-        raytrace = self.raytrace(
+        raytrace = self._raytrace(
+            surfaces=surfaces,
             intensity=intensity,
             wavelength=wavelength,
             field=field,
@@ -1642,8 +1705,6 @@ class AbstractSequentialSystem(
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
             efficiency=efficiency,
-            clip_field_stop=clip_field_stop,
-            clip_sensor=clip_sensor,
         )
         rayfunction = raytrace[{axis: ~0}]
         rays = rayfunction.outputs
@@ -2902,7 +2963,8 @@ class AbstractSequentialSystem(
         )
         area = np.abs(vertices.pupil.volume_cell(axis=axis_pupil))
 
-        rays = self.rayfunction(
+        rays = self._rayfunction(
+            surfaces=self._surfaces_open,
             intensity=area,
             wavelength=grid.wavelength,
             field=grid.field,
@@ -2910,8 +2972,6 @@ class AbstractSequentialSystem(
             normalized_field=False,
             normalized_pupil=False,
             efficiency=efficiency,
-            clip_field_stop=False,
-            clip_sensor=False,
         )
 
         return rays, area
