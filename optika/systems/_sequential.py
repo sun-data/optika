@@ -33,28 +33,6 @@ class StopSolveError(ValueError):
 
 
 @dataclasses.dataclass(eq=False, repr=False)
-class _Unclipped(optika.propagators.AbstractRayPropagator):
-    """
-    A surface whose aperture vignettes nothing.
-
-    It stands in for the surface in the sequence the rays are propagated
-    through, so that :func:`optika.propagators.propagate_rays` can hand every
-    surface the same arguments and still leave this one's aperture out.  The
-    surface bends the rays exactly as it would have.
-    """
-
-    surface: optika.surfaces.AbstractSurface = dataclasses.MISSING
-    """The surface whose aperture is left out."""
-
-    def propagate_rays(
-        self,
-        rays: optika.rays.RayVectorArray,
-        efficiency: bool = True,
-    ) -> optika.rays.RayVectorArray:
-        return self.surface.propagate_rays(rays, efficiency=efficiency, clip=False)
-
-
-@dataclasses.dataclass(eq=False, repr=False)
 class AbstractSequentialSystem(
     optika.mixins.DxfWritable,
     optika.mixins.Plottable,
@@ -1565,25 +1543,30 @@ class AbstractSequentialSystem(
         return result
 
     @property
-    def _surfaces_open(self) -> list[optika.propagators.AbstractRayPropagator]:
+    def _surfaces_open(self) -> list[optika.surfaces.AbstractSurface]:
         """
         :attr:`surfaces_all`, with the field stop and the sensor left open.
 
-        Each still bends the rays exactly as it would have, and only no
-        longer vignettes them; see :meth:`vignetting` for why the models are
-        fit to rays traced this way.  The sensor is the last surface if there
-        is one.
+        Each keeps the shape of its aperture and bends the rays exactly as it
+        would have, and only no longer vignettes them; see :meth:`vignetting`
+        for why the models are fit to rays traced this way.  The aperture of
+        the field stop is deactivated, see
+        :attr:`~optika.apertures.AbstractAperture.active`.  That of the
+        sensor, the last surface if there is one, is derived from its pixels,
+        and is switched off through
+        :attr:`~optika.sensors.AbstractImagingSensor.clip_rays` instead.
         """
         surfaces = self.surfaces_all
         index_sensor = len(surfaces) - 1 if self.sensor is not None else None
-        return [
-            (
-                _Unclipped(surface)
-                if surface.is_field_stop or i == index_sensor
-                else surface
-            )
-            for i, surface in enumerate(surfaces)
-        ]
+        result = []
+        for i, surface in enumerate(surfaces):
+            if i == index_sensor:
+                surface = dataclasses.replace(surface, clip_rays=False)
+            elif surface.is_field_stop and surface.aperture is not None:
+                aperture = dataclasses.replace(surface.aperture, active=False)
+                surface = dataclasses.replace(surface, aperture=aperture)
+            result.append(surface)
+        return result
 
     def rayfunction(
         self,
@@ -2371,7 +2354,7 @@ class AbstractSequentialSystem(
                 f"along exactly one logical axis, got {axis_wavelength}"
             )
 
-    def _lit(
+    def _on_sensor(
         self,
         rays: optika.rays.RayFunctionArray,
         axis_pupil: tuple[str, str],
@@ -2380,12 +2363,16 @@ class AbstractSequentialSystem(
         The field positions whose light lands on the sensor.
 
         :meth:`_rayfunction_stratified` leaves the field stop and the sensor
-        open, so neither cuts the rays here.  A field position is lit if any
-        of its rays gets through the rest of the system and the point its
-        light lands on, averaged over those rays, is on the light-sensitive
-        area of the sensor.  That is a test of one point, so a field position
-        whose beam straddles the edge of the sensor is lit or not as a whole
-        rather than lit by the part of the beam which happens to land on it.
+        open, so neither cuts the rays here.  A field position is on the
+        sensor if any of its rays gets through the rest of the system and the
+        point its light lands on, averaged over those rays, falls on the
+        pixels.  That is a test of one point, so a field position whose beam
+        straddles the edge of the sensor is on it or not as a whole rather
+        than by the part of the beam which happens to land on it.  It is a
+        test of the pixels rather than of
+        :attr:`~optika.sensors.AbstractImagingSensor.aperture`, which passes
+        every point once :attr:`~optika.sensors.AbstractImagingSensor.clip_rays`
+        is off.
 
         A field position whose light misses the sensor is never fit, see
         :meth:`_where_fit`.  It is seen by no pixel, and on its way past the
@@ -2411,7 +2398,11 @@ class AbstractSequentialSystem(
             axis=axis_pupil,
             where=unvignetted | ~lit,
         )
-        return lit & self.sensor.aperture(position)
+        pixel = self.sensor.pixels(position.xy)
+        num = self.sensor.num_pixel * u.pix
+        inside_x = (0 * u.pix <= pixel.x) & (pixel.x <= num.x)
+        inside_y = (0 * u.pix <= pixel.y) & (pixel.y <= num.y)
+        return lit & inside_x & inside_y
 
     def _where_fit(
         self,
@@ -2423,8 +2414,8 @@ class AbstractSequentialSystem(
     ) -> na.AbstractScalar:
         """
         The field cells a model fit to a stratified trace is fit over: those
-        whose light lands on the sensor, see :meth:`_lit`, and whose centers
-        lie inside the field of view.
+        whose light lands on the sensor, see :meth:`_on_sensor`, and whose
+        centers lie inside the field of view.
 
         The field stop is open while the rays are traced, so the model would
         run on smoothly past the edge of the field of view, but the system
@@ -2459,7 +2450,7 @@ class AbstractSequentialSystem(
         axis_field
             The logical axes of the field grid.
         """
-        lit = self._lit(rays, axis_pupil)
+        lit = self._on_sensor(rays, axis_pupil)
         center = coordinates_scene.cell_centers(axis_field).position
         position = na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
         inside = lit & field_of_view(position)
@@ -2489,11 +2480,12 @@ class AbstractSequentialSystem(
         detector at the shortest of its three wavelengths, the step was 2.9%
         and it doubled the residual of the linear fit at every wavelength.
 
-        Where no such field position falls inside the field of view, the
-        field positions the models are fit over are taken instead, see
-        :meth:`_lit`.  A field stop far from focus has a field of view much
-        smaller than the blur of light around it, which the normalized field
-        spans, and a coarse grid can miss it altogether.  The linear system
+        Where no such field position falls inside the field of view, every
+        field position whose light lands on the sensor is taken instead, see
+        :meth:`_on_sensor`, the set :meth:`_where_fit` falls back to as well.
+        A field stop far from focus has a field of view much smaller than the
+        blur of light around it, which the normalized field spans, and a
+        coarse grid can miss it altogether.  The linear system
         multiplies the two models together, and any set of field positions
         the two share divides out of that product, so it stays right; only
         the reading of the effective area as an average over the field of
@@ -2519,7 +2511,7 @@ class AbstractSequentialSystem(
         field = rays.inputs.field
         position = na.Cartesian3dVectorArray(x=field.x, y=field.y, z=0 * field.x)
         inside = passes & field_of_view(position)
-        fallback = self._lit(rays, axis_pupil)
+        fallback = self._on_sensor(rays, axis_pupil)
         return np.where(inside.any(axis_field), inside, fallback)
 
     @staticmethod

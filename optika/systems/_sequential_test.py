@@ -1171,14 +1171,25 @@ def test_surfaces_open_leave_the_field_stop_and_the_sensor_open():
         efficiency=False,
     )
     surfaces = system.surfaces_all
-    unclipped = optika.systems._sequential._Unclipped
+
+    def deactivate(surface):
+        aperture = dataclasses.replace(surface.aperture, active=False)
+        return dataclasses.replace(surface, aperture=aperture)
 
     closed = system._rayfunction(surfaces=surfaces, **kwargs)
     stop_open = system._rayfunction(
-        surfaces=[unclipped(s) if s.is_field_stop else s for s in surfaces],
+        surfaces=[deactivate(s) if s.is_field_stop else s for s in surfaces],
         **kwargs,
     )
     both_open = system._rayfunction(surfaces=system._surfaces_open, **kwargs)
+
+    # only the sensor stops clipping, and the field stop keeps the shape
+    # the stop rays were solved against
+    sensor = system._surfaces_open[-1]
+    assert sensor.clip_rays is False
+    (field_stop,) = [s for s in system._surfaces_open if s.is_field_stop]
+    assert not field_stop.aperture.active
+    assert np.allclose(field_stop.aperture.wire(), system.field_stop.aperture.wire())
 
     def count(rays):
         return rays.outputs.unvignetted.sum()
@@ -1190,6 +1201,32 @@ def test_surfaces_open_leave_the_field_stop_and_the_sensor_open():
 
     public = system.rayfunction(**kwargs)
     assert np.all(public.outputs.unvignetted == closed.outputs.unvignetted)
+
+
+def test_fit_domain_does_not_depend_on_whether_the_sensor_clips():
+    """
+    A system whose sensor does not clip is fit over the same field positions,
+    and to the same rays, as one whose sensor does.
+
+    The models are fit to a trace which leaves the sensor open either way,
+    and which field positions land on the sensor is decided by its pixels,
+    not by whether its aperture vignettes, which passes every point once
+    :attr:`~optika.sensors.AbstractImagingSensor.clip_rays` is off.
+    """
+    system = _system_vignetted(radius_field_stop=3 * u.mm)
+    unclipped = dataclasses.replace(
+        system,
+        sensor=dataclasses.replace(system.sensor, clip_rays=False),
+    )
+
+    a = system.vignetting(degree=1)
+    b = unclipped.vignetting(degree=1)
+
+    # the field of view reaches past the edge of the sensor, so the test of
+    # the pixels is what leaves those field positions out
+    assert not np.all(a.where)
+    assert np.all(a.where == b.where)
+    assert np.all(a.illumination == b.illumination)
 
 
 @pytest.mark.parametrize(
@@ -2816,7 +2853,7 @@ def test_models_are_fit_only_inside_the_field_of_view(monkeypatch, method: str):
     run on past that edge.  Leaving them out of the fit is what lets the
     plots of the model stop there with nothing more than its `where`.
     """
-    lit = _spy_results(monkeypatch, "_lit")
+    lit = _spy_results(monkeypatch, "_on_sensor")
     system = _system_linearize()
 
     model = getattr(system, method)(degree=1)

@@ -126,7 +126,6 @@ class AbstractSurface(
         self,
         rays: optika.rays.RayVectorArray,
         efficiency: bool = True,
-        clip: bool = True,
     ) -> optika.rays.RayVectorArray:
         r"""
         Refract, reflect, and/or diffract the given rays off of this surface
@@ -143,10 +142,6 @@ class AbstractSurface(
             the geometry is unchanged and much cheaper to compute, since the
             efficiency of a multilayer coating usually costs far more than
             the raytrace it belongs to.
-        clip
-            A boolean flag indicating whether :attr:`aperture` vignettes the
-            rays.  If :obj:`False`, the rays leave this surface exactly as
-            vignetted as they arrived, as though the aperture were not there.
         """
         sag = self.sag
         material = self.material
@@ -208,7 +203,7 @@ class AbstractSurface(
             index_refraction=n2,
         )
 
-        if clip and aperture is not None:
+        if aperture is not None:
             rays_2 = aperture.clip_rays(rays_2)
 
         if transformation is not None:
