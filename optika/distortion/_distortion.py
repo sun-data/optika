@@ -383,36 +383,6 @@ class PolynomialDistortionModel(
     that way.  See :attr:`coordinates_sample_`.
     """
 
-    field_stop: None | optika.apertures.AbstractAperture = None
-    """
-    The half-light outline of the field of view, in the coordinates of
-    :attr:`coordinates_scene`.
-
-    The plots leave blank every cell whose center falls outside it: those
-    are field positions the system never sees, however smoothly the model
-    runs across them.
-    If :obj:`None` (the default), every cell the model was fit over is drawn.
-    """
-
-    @property
-    def _where_plot(self) -> bool | na.AbstractScalar:
-        """
-        The cells the plots draw: those the model was fit over whose centers
-        lie inside :attr:`field_stop`.
-
-        The center of each cell rather than the point it was measured at, so
-        that which cells are drawn does not depend on where inside them the
-        measurements happened to fall.
-        """
-        where = self.where
-        field_stop = self.field_stop
-        if field_stop is not None:
-            center = self.coordinates_scene.cell_centers(self.axis_field).position
-            where = where & field_stop(
-                na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
-            )
-        return where
-
     @property
     def coordinates_sample_(self) -> na.AbstractSpectralPositionalVectorArray:
         """
@@ -560,9 +530,8 @@ class PolynomialDistortionModel(
         residual = (self.coordinates_sensor - self.fit.predictions).length
         unit = na.unit(residual)
 
-        # only the cells the fit was constrained by and which lie inside the
-        # field of view
-        residual = np.where(self._where_plot, residual, np.nan * unit)
+        # exclude the calibration points that were not used by the fit
+        residual = np.where(self.where, residual, np.nan * unit)
 
         if vmin is None:
             vmin = 0 * unit

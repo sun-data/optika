@@ -41,14 +41,6 @@ def _sample() -> na.SpectralPositionalVectorArray:
     )
 
 
-def _field_stop() -> optika.apertures.CircularAperture:
-    """
-    A field of view which holds the middle of the grid :func:`_scene`
-    describes but not its corners, nor the cells beside them.
-    """
-    return optika.apertures.CircularAperture(0.85 * u.deg)
-
-
 def _illumination(
     coordinates: None | na.SpectralPositionalVectorArray = None,
 ) -> na.AbstractScalar:
@@ -116,10 +108,9 @@ class AbstractTestAbstractInterpolatedVignettingModel(
             axis_wavelength="wavelength",
             axis_field=("field_x", "field_y"),
             degree=degree,
-            field_stop=field_stop,
         )
         for degree in [1, 2]
-        for sample, field_stop in [(None, None), (_sample(), _field_stop())]
+        for sample in [None, _sample()]
     ],
 )
 class TestPolynomialVignettingModel(
@@ -365,25 +356,25 @@ def test_coordinates_sample_defaults_to_the_cell_centers():
     assert np.all(a.coordinates_sample_.position == _centers().position)
 
 
-@pytest.mark.parametrize("field_stop", [None, _field_stop()])
-def test_plots_leave_out_the_cells_beyond_the_field_stop(field_stop):
+def test_plots_leave_out_the_cells_the_model_was_not_fit_over():
     """
-    Both plots leave blank every cell whose center lies outside the field stop, and
-    every cell the model was not fit over, and draw the rest.
+    Both plots leave blank every cell the model was not fit over, and draw
+    the rest.
 
-    The model runs smoothly past the edge of the field of view, but the
-    system never sees those field positions, so a map of them would show
-    something no image contains.  The test is of the center of each cell, so
-    which cells are drawn does not depend on where inside them the
-    measurements were made.
+    A model fit by :meth:`~optika.systems.SequentialSystem.vignetting` is fit
+    over the field of view, so the map stops at its edge rather than showing
+    field positions no image contains.
     """
     sample = _sample()
-    center = _centers().position
 
-    # one cell in the middle of the field is left out of the fit as well
-    where = np.ones((5, 5), dtype=bool)
-    where[2, 2] = False
-    where = na.ScalarArray(where, axes=("field_x", "field_y"))
+    # a field of view which holds the middle of the grid but not its corners,
+    # with one cell in the middle left out as well
+    middle = np.zeros((5, 5), dtype=bool)
+    middle[2, 2] = True
+    where = _centers().position.length < 0.85 * u.deg
+    where = where & ~na.ScalarArray(middle, axes=("field_x", "field_y"))
+    expected = int((~where).sum().ndarray)
+    assert expected > 1
 
     a = optika.radiometry.PolynomialVignettingModel(
         coordinates_scene=_scene(),
@@ -393,17 +384,7 @@ def test_plots_leave_out_the_cells_beyond_the_field_stop(field_stop):
         axis_field=("field_x", "field_y"),
         degree=1,
         where=where,
-        field_stop=field_stop,
     )
-
-    drawn = where
-    if field_stop is not None:
-        drawn = drawn & field_stop(
-            na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
-        )
-    expected = int((~drawn).sum().ndarray)
-    # the dropped cell, and with a field stop the cells beyond it too
-    assert expected > (1 if field_stop is not None else 0)
 
     for method in ("plot", "plot_residual"):
         fig, ax = getattr(a, method)()

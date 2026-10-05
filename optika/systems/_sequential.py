@@ -1978,8 +1978,9 @@ class AbstractSequentialSystem(
         model as its :attr:`~optika.systems.LinearSystem.distortion`.
 
         As in :meth:`vignetting`, the field stop and the sensor are left open
-        while the rays are traced, and the model is fit over every field
-        position whose light lands on the sensor.
+        while the rays are traced, and the model is fit over the field cells
+        whose centers lie inside the field of view and whose light lands on
+        the sensor.
 
         Parameters
         ----------
@@ -2136,14 +2137,16 @@ class AbstractSequentialSystem(
         whatever part of its beam got through, depending on where in its cell
         it happened to fall.  With both open, the illumination is the
         vignetting by the rest of the system, which is smooth.  The model is
-        fit over every field position whose light lands on the sensor,
-        reaching past the edge of the field of view, and normalized over
-        every field position inside the half-light outline of the field of
-        view, :meth:`field_stop_polygon` with `envelope` set to :obj:`False`,
+        fit over the field cells whose centers lie inside the half-light
+        outline of the field of view, :meth:`field_stop_polygon` with
+        `envelope` set to :obj:`False`, and whose light lands on the sensor,
+        and it is normalized over every field position inside that outline,
         whether or not its light lands on the sensor, so that every
         wavelength is normalized over the same part of the field.  The
         field stop is applied on its own by :meth:`linearize`, as that
         polygon, and the edge of the sensor by the pixels the light lands on.
+        The plots of the model draw the cells it was fit over, so they stop
+        at both edges.
 
         Carrying the size of the pupil, rather than the bare fraction of it
         which survives, is what lets this model and :meth:`area_effective` be
@@ -2316,8 +2319,8 @@ class AbstractSequentialSystem(
             :meth:`_coordinates_scene_from_rays`.
         field_of_view
             The half-light outline of the field of view, from
-            :meth:`_field_stop_polygon_from_rays`, which the model carries so
-            that its plots can leave out the cells beyond it.
+            :meth:`_field_stop_polygon_from_rays`, which bounds the cells the
+            model is fit over, see :meth:`_where_fit`.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2329,7 +2332,13 @@ class AbstractSequentialSystem(
         """
         self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
-        where = self._lit(rays, axis_pupil)
+        where = self._where_fit(
+            rays=rays,
+            coordinates_scene=coordinates_scene,
+            field_of_view=field_of_view,
+            axis_pupil=axis_pupil,
+            axis_field=axis_field,
+        )
         self._check_lit_wavelengths(
             lit=where,
             wavelength=rays.inputs.wavelength,
@@ -2363,7 +2372,6 @@ class AbstractSequentialSystem(
             axis_field=axis_field,
             degree=degree,
             where=where,
-            field_stop=field_of_view,
         )
 
     @staticmethod
@@ -2399,7 +2407,7 @@ class AbstractSequentialSystem(
         axis_pupil: tuple[str, str],
     ) -> na.AbstractScalar:
         """
-        The field positions a model fit to a stratified trace is fit over.
+        The field positions whose light lands on the sensor.
 
         :meth:`_rayfunction_stratified` leaves the field stop and the sensor
         open, so neither cuts the rays here.  A field position is lit if any
@@ -2408,6 +2416,16 @@ class AbstractSequentialSystem(
         area of the sensor.  That is a test of one point, so a field position
         whose beam straddles the edge of the sensor is lit or not as a whole
         rather than lit by the part of the beam which happens to land on it.
+
+        A field position whose light misses the sensor is never fit, see
+        :meth:`_where_fit`.  It is seen by no pixel, and on its way past the
+        sensor its light can be cut by an aperture which none of the light
+        landing on the sensor reaches, so the vignetting there need not
+        continue the vignetting on the sensor.  On ESIS the edge of the
+        filter in front of the detector does this, and fitting those field
+        positions doubles the residual of the vignetting model at the
+        wavelength whose image runs off the detector, and raises it at the
+        others, which share the fit.
 
         Parameters
         ----------
@@ -2425,6 +2443,58 @@ class AbstractSequentialSystem(
         )
         return lit & self.sensor.aperture(position)
 
+    def _where_fit(
+        self,
+        rays: optika.rays.RayFunctionArray,
+        coordinates_scene: na.AbstractSpectralPositionalVectorArray,
+        field_of_view: optika.apertures.AbstractAperture,
+        axis_pupil: tuple[str, str],
+        axis_field: tuple[str, str],
+    ) -> na.AbstractScalar:
+        """
+        The field cells a model fit to a stratified trace is fit over: those
+        whose light lands on the sensor, see :meth:`_lit`, and whose centers
+        lie inside the field of view.
+
+        The field stop is open while the rays are traced, so the model would
+        run on smoothly past the edge of the field of view, but the system
+        never sees those field positions, and the linear system blocks them
+        before it reads the model.  On ESIS, leaving them out of the fit
+        leaves its residual inside the field of view where it was, and it
+        means the cells a model was fit over are the cells worth drawing, so
+        the plots of the model stop at the edge of the field of view by
+        drawing only the cells it was fit over.
+        The test is of the center of each cell rather than of the point its
+        rays were drawn from, so that which cells are drawn does not depend
+        on where inside them those points happened to fall.  The field stop
+        is open, so a cell whose center lies inside it but whose rays were
+        drawn from just outside it is measured as well as any other.
+
+        Where no lit cell has its center inside the field of view, every lit
+        cell is taken instead, as :meth:`_inside` does, see there.
+
+        Parameters
+        ----------
+        rays
+            The traced rays, from :meth:`_rayfunction_stratified`, whose
+            field stop and sensor were left open.
+        coordinates_scene
+            The cells the rays were drawn from, from
+            :meth:`_coordinates_scene_from_rays`.
+        field_of_view
+            The half-light outline of the field of view, from
+            :meth:`_field_stop_polygon_from_rays`.
+        axis_pupil
+            The logical axes of the pupil grid.
+        axis_field
+            The logical axes of the field grid.
+        """
+        lit = self._lit(rays, axis_pupil)
+        center = coordinates_scene.cell_centers(axis_field).position
+        position = na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
+        inside = lit & field_of_view(position)
+        return np.where(inside.any(axis_field), inside, lit)
+
     def _inside(
         self,
         rays: optika.rays.RayFunctionArray,
@@ -2438,16 +2508,16 @@ class AbstractSequentialSystem(
         averaged over.
 
         Whether their light lands on the sensor does not matter here, though
-        it decides which of them are fit, see :meth:`_lit`.  A spectrograph
-        can image part of its field of view off the edge of the sensor at
-        some wavelengths and not at others, and normalizing each wavelength
-        over only the field positions it puts on the sensor normalizes them
-        over different parts of the field.  Where the vignetting varies
-        across the field, that shifts one wavelength's illumination against
-        the others', and a model which is a polynomial in wavelength cannot
-        follow the step.  On ESIS, whose image runs off the detector at the
-        shortest of its three wavelengths, the step was 2.9% and it doubled
-        the residual of the linear fit at every wavelength.
+        it decides which of them are fit, see :meth:`_where_fit`.  A
+        spectrograph can image part of its field of view off the edge of the
+        sensor at some wavelengths and not at others, and normalizing each
+        wavelength over only the field positions it puts on the sensor
+        normalizes them over different parts of the field.  Where the
+        vignetting varies across the field, that shifts one wavelength's
+        illumination against the others', and a model which is a polynomial in
+        wavelength cannot follow the step.  On ESIS, whose image runs off the
+        detector at the shortest of its three wavelengths, the step was 2.9%
+        and it doubled the residual of the linear fit at every wavelength.
 
         Where no such field position falls inside the field of view, the
         field positions the models are fit over are taken instead, see
@@ -2510,7 +2580,8 @@ class AbstractSequentialSystem(
         Parameters
         ----------
         lit
-            The field positions the models are fit over, from :meth:`_lit`.
+            The field positions the models are fit over, from
+            :meth:`_where_fit`.
         wavelength
             The wavelengths of the traced rays.
         axis_wavelength
@@ -2612,8 +2683,8 @@ class AbstractSequentialSystem(
         field_of_view
             The half-light outline of the field of view, from
             :meth:`_field_stop_polygon_from_rays`, which the illumination is
-            normalized over, and which the model carries so that its plots
-            can leave out the cells beyond it.
+            normalized over, and which bounds the cells the model is fit
+            over, see :meth:`_where_fit`.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2625,7 +2696,13 @@ class AbstractSequentialSystem(
         """
         self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
-        where = self._lit(rays, axis_pupil)
+        where = self._where_fit(
+            rays=rays,
+            coordinates_scene=coordinates_scene,
+            field_of_view=field_of_view,
+            axis_pupil=axis_pupil,
+            axis_field=axis_field,
+        )
         self._check_lit_wavelengths(
             lit=where,
             wavelength=rays.inputs.wavelength,
@@ -2675,7 +2752,6 @@ class AbstractSequentialSystem(
             axis_field=axis_field,
             degree=degree,
             where=where,
-            field_stop=field_of_view,
         )
 
     @property
@@ -2889,7 +2965,8 @@ class AbstractSequentialSystem(
 
         The field stop and the sensor are left open; see :meth:`vignetting`.
         Which field positions each of them passes is decided afterward, for
-        each field position as a whole, by :meth:`_lit` and :meth:`_inside`.
+        each field position as a whole, by :meth:`_where_fit` and
+        :meth:`_inside`.
 
         Parameters
         ----------

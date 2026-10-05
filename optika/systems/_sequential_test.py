@@ -2815,11 +2815,34 @@ def test_models_carry_the_cells_they_were_measured_over():
         centers = cells.cell_centers(model.axis_field)
         assert np.any(samples.position.x != centers.position.x)
 
-        # and the field of view they were fit through, as the half-light
-        # outline, so that their plots can leave out what lies beyond it
-        field_stop = system.field_stop_polygon(envelope=False)
-        assert isinstance(model.field_stop, optika.apertures.PolygonalAperture)
-        assert np.allclose(model.field_stop.vertices, field_stop.vertices)
+
+@pytest.mark.parametrize("method", ["vignetting", "distortion"])
+def test_models_are_fit_only_inside_the_field_of_view(monkeypatch, method: str):
+    """
+    A model is fit over the field cells whose light lands on the sensor and
+    whose centers lie inside the half-light outline of the field of view, and
+    over no others.
+
+    The field stop is open while the rays are traced, so cells beyond the
+    edge of the field of view pass light, and a model fit over them would
+    run on past that edge.  Leaving them out of the fit is what lets the
+    plots of the model stop there with nothing more than its `where`.
+    """
+    lit = _spy_results(monkeypatch, "_lit")
+    system = _system_linearize()
+
+    model = getattr(system, method)(degree=1)
+
+    center = model.coordinates_scene.cell_centers(model.axis_field).position
+    inside = system.field_stop_polygon(envelope=False)(
+        na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
+    )
+
+    # the open trace passes light beyond the field of view, which a fit to
+    # every lit cell would have included
+    assert np.any(lit[0] & ~inside)
+
+    assert np.all(model.where == (lit[0] & inside))
 
 
 def test_vignetting_follows_its_seeds():
