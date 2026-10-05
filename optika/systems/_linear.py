@@ -98,21 +98,6 @@ class AbstractLinearSystem(
         """
 
     @property
-    @abc.abstractmethod
-    def outline(self) -> None | optika.radiometry.AbstractFieldStopModel:
-        """
-        The half-light outline of the field of view, if it differs from
-        :attr:`field_stop`.
-
-        A field stop which is not at an image of the object has a soft
-        edge, and the half-light outline is where the falloff across it is
-        halfway, which is where an edge measured in an image sits.
-        :meth:`~optika.systems.SequentialSystem.linearize` blocks at the
-        half-light outline itself, and so carries none.  :obj:`None` when
-        the two are the same.
-        """
-
-    @property
     def field_stop_(self) -> None | optika.radiometry.AbstractFieldStopModel:
         """
         :attr:`field_stop` as a field-stop model, so that an aperture and a
@@ -138,18 +123,17 @@ class AbstractLinearSystem(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
         num: None | int = None,
-        envelope: bool = False,
     ) -> na.AbstractCartesian2dVectorArray:
         """
         The outline of the field stop on the sensor at the given wavelengths.
 
-        The wire of :attr:`outline`, or of :attr:`field_stop` if the system
-        carries no separate outline or `envelope` is set, at each of the
-        given wavelengths, mapped through :attr:`distortion` at that same
-        wavelength: where the edge of the field of view lands, which is the
-        outline of the window each wavelength illuminates.  The half-light
-        outline is where an edge measured in an image sits; the envelope is
-        where the last of the light ends.
+        The wire of :attr:`field_stop` at each of the given wavelengths,
+        mapped through :attr:`distortion` at that same wavelength: where the
+        edge of the field of view lands, which is the outline of the window
+        each wavelength illuminates.  The field stop
+        :meth:`~optika.systems.SequentialSystem.linearize` carries is the
+        half-light outline of the field of view, so this is where an edge
+        measured in an image sits.
 
         Parameters
         ----------
@@ -158,9 +142,6 @@ class AbstractLinearSystem(
         num
             The number of points along each edge of the field stop,
             see :meth:`optika.apertures.AbstractAperture.wire`.
-        envelope
-            Whether to map the envelope of the field of view rather than
-            its half-light outline.
 
         Raises
         ------
@@ -168,8 +149,6 @@ class AbstractLinearSystem(
             If this system carries no field stop.
         """
         field_stop = self.field_stop_
-        if not envelope and self.outline is not None:
-            field_stop = self.outline
         if field_stop is None:
             raise ValueError("this system carries no field stop to outline")
         coordinates = na.SpectralPositionalVectorArray(
@@ -941,11 +920,4 @@ class LinearSystem(
     An aperture bounds the same field of view at every wavelength, and a
     field-stop model can move it with wavelength.
     If :obj:`None` (the default), the sensor will be the field stop.
-    """
-
-    outline: None | optika.radiometry.AbstractFieldStopModel = None
-    """
-    The half-light outline of the field of view, where a measured edge sits.
-
-    If :obj:`None` (the default), :attr:`field_stop` serves as the outline.
     """

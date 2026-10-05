@@ -528,7 +528,7 @@ class AbstractTestAbstractSequentialSystem(
         # where the grid put none inside it.  With the field stop and the
         # sensor open, a field position passes light exactly where its
         # illumination is above zero.
-        polygon = a.field_stop_polygon(wavelength, envelope=False)
+        polygon = a.field_stop_polygon(wavelength)
         sample = result.coordinates_sample.position
         inside = (result.illumination > 0) & polygon(
             na.Cartesian3dVectorArray(x=sample.x, y=sample.y, z=0 * sample.x)
@@ -655,28 +655,16 @@ class AbstractTestAbstractSequentialSystem(
         assert a.axis_field_stop not in na.shape(result.vertices)
         assert a.axis_pupil_stop not in na.shape(result.vertices)
 
-        # every vertex lies at least as far out as the chief-ray outline of
-        # the field stop, since the polygon bounds every field position which
-        # passes any light and not only those which pass half of it
-        boundary = a.field_boundary
-        center = boundary.mean(a.axis_stops)
-        chief = boundary.mean(a.axis_pupil_stop)
+        # the half-light outline: each vertex is the average of the stop
+        # rays through one point on the edge of the field stop
+        chief = a.field_boundary.mean(a.axis_pupil_stop)
         chief = na.Cartesian2dVectorArray(
             x=chief.x.combine_axes(axes=(a.axis_field_stop,), axis_new="vertex"),
             y=chief.y.combine_axes(axes=(a.axis_field_stop,), axis_new="vertex"),
         )
-
-        def distance(v):
-            return np.sqrt(np.square(v.x - center.x) + np.square(v.y - center.y))
-
-        outer = distance(result.vertices)
-        inner = distance(chief)
-        assert np.all(outer >= inner * (1 - 1e-9))
-        # the half-light outline is that chief-ray outline
-        half = a.field_stop_polygon(envelope=False)
         assert np.allclose(
-            na.value(half.vertices.x).ndarray,
-            na.value(chief.x).ndarray_aligned(half.vertices.x.axes),
+            na.value(result.vertices.x).ndarray,
+            na.value(chief.x).ndarray_aligned(result.vertices.x.axes),
         )
 
     def test_linearize_field_stop(self, a: optika.systems.AbstractSequentialSystem):
@@ -699,9 +687,6 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(footprint, na.AbstractCartesian2dVectorArray)
         assert "wire" in na.shape(footprint)
         assert np.all(np.isfinite(na.value(footprint.x).ndarray))
-        # the field stop is the half-light outline itself, so there is no
-        # separate outline to carry beside it
-        assert result.outline is None
         # without a stop there is nothing to outline
         without = a.linearize(field_stop=False)
         assert without.field_stop is None
@@ -1061,41 +1046,39 @@ def _scene_annulus(
     )
 
 
-def test_field_stop_polygon_bounds_the_field_of_view():
+def test_field_stop_polygon_is_the_half_light_outline():
     """
-    The field-stop polygon holds all the light the system passes.
+    At every vertex of the field-stop polygon, the field stop passes half of
+    the light the rest of the system does.
 
     The field stop of this system is out of focus, so the edge of its field
     of view is soft: a field position a little outside the image of the stop
-    still passes part of its pupil.  The chief-ray outline of the stop cuts
-    through that edge and leaves about an eighth of the light outside it.
+    still passes part of its pupil.  The polygon runs through the middle of
+    that falloff, which is where an edge measured in an image sits.
     """
     system = _system_vignetted()
-    polygon = system.field_stop_polygon()
+    vertices = system.field_stop_polygon().vertices
 
-    rays = system.rayfunction(
-        field=na.Cartesian2dVectorLinearSpace(
-            start=-2,
-            stop=2,
-            axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-            num=61,
-        ),
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(x=vertices.x, y=vertices.y),
         pupil=na.Cartesian2dVectorLinearSpace(
             start=-1,
             stop=1,
             axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
-            num=25,
+            num=41,
         ),
+        normalized_field=False,
         efficiency=False,
     )
-    transmission = rays.outputs.unvignetted.mean(("pupil_x", "pupil_y"))
-    inside = polygon(
-        na.Cartesian3dVectorArray(x=rays.inputs.field.x, y=rays.inputs.field.y),
-    )
-    inside = na.broadcast_to(inside, na.shape(transmission))
+    closed = system.rayfunction(**kwargs)
+    opened = system._rayfunction(surfaces=system._surfaces_open, **kwargs)
 
-    outside = transmission.sum(where=~inside) / transmission.sum()
-    assert outside < 1e-3
+    axis_pupil = ("pupil_x", "pupil_y")
+    passed = closed.outputs.unvignetted.mean(axis_pupil)
+    passed = passed / opened.outputs.unvignetted.mean(axis_pupil)
+
+    # measured between 0.46 and 0.52 around the polygon
+    assert np.all(np.abs(passed - 0.5) < 0.05)
 
 
 def test_linearize_conserves_flux_across_the_soft_edge_of_the_field():
@@ -1317,7 +1300,7 @@ def test_linearize_field_stop_follows_the_wavelength():
     # stops, solved at that wavelength, give directly
     for factor in [0.985, 1.015, 1.04]:
         wavelength = _system_grazing.grid_input.wavelength * factor
-        expected = system.field_stop_polygon(wavelength, envelope=False).vertices
+        expected = system.field_stop_polygon(wavelength).vertices
         result = field_stop.polygon(wavelength).vertices
         tolerance = 1e-6 * u.deg
         assert np.allclose(result.x, expected.x, rtol=0, atol=tolerance)
@@ -2834,7 +2817,7 @@ def test_models_are_fit_only_inside_the_field_of_view(monkeypatch, method: str):
     model = getattr(system, method)(degree=1)
 
     center = model.coordinates_scene.cell_centers(model.axis_field).position
-    inside = system.field_stop_polygon(envelope=False)(
+    inside = system.field_stop_polygon()(
         na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
     )
 
@@ -3073,19 +3056,13 @@ def test_linearize_fits_around_a_wavelength_with_no_light():
             rays=rays[index],
             area=area[index],
             coordinates_scene=cells,
-            field_of_view=system._field_stop_polygon_from_rays(
-                stops[index],
-                envelope=False,
-            ),
+            field_of_view=system._field_stop_polygon_from_rays(stops[index]),
             **kwargs,
         )
         distortion = system._fit_distortion(
             rays=rays[index],
             coordinates_scene=cells,
-            field_of_view=system._field_stop_polygon_from_rays(
-                stops[index],
-                envelope=False,
-            ),
+            field_of_view=system._field_stop_polygon_from_rays(stops[index]),
             **kwargs,
         )
         return vignetting, distortion
