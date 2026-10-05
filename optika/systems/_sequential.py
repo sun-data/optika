@@ -2130,8 +2130,10 @@ class AbstractSequentialSystem(
         vignetting by the rest of the system, which is smooth.  The model is
         fit over every field position whose light lands on the sensor,
         reaching past the edge of the field of view, and normalized over
-        those inside the half-light outline of the field of view,
-        :meth:`field_stop_polygon` with `envelope` set to :obj:`False`.  The
+        every field position inside the half-light outline of the field of
+        view, :meth:`field_stop_polygon` with `envelope` set to :obj:`False`,
+        whether or not its light lands on the sensor, so that every
+        wavelength is normalized over the same part of the field.  The
         field stop is applied on its own by :meth:`linearize`, as that
         polygon, and the edge of the sensor by the pixels the light lands on.
 
@@ -2407,44 +2409,62 @@ class AbstractSequentialSystem(
         )
         return lit & self.sensor.aperture(position)
 
-    @staticmethod
     def _inside(
+        self,
         rays: optika.rays.RayFunctionArray,
-        lit: na.AbstractScalar,
         field_of_view: optika.apertures.AbstractAperture,
+        axis_pupil: tuple[str, str],
         axis_field: tuple[str, str],
     ) -> na.AbstractScalar:
         """
-        The lit field positions inside the field of view, which the
-        vignetting model is normalized over and the effective area averaged
-        over.
+        The field positions inside the field of view which pass any light,
+        which the vignetting model is normalized over and the effective area
+        averaged over.
 
-        Where no lit field position falls inside the field of view, every lit
-        one is taken instead.  A field stop far from focus has a field of
-        view much smaller than the blur of light around it, which the
-        normalized field spans, and a coarse grid can miss it altogether.
-        The linear system multiplies the two models together, and any set of
-        field positions the two share divides out of that product, so it
-        stays right; only the reading of the effective area as an average
-        over the field of view lapses, and only for a grid too coarse to
-        support it.
+        Whether their light lands on the sensor does not matter here, though
+        it decides which of them are fit, see :meth:`_lit`.  A spectrograph
+        can image part of its field of view off the edge of the sensor at
+        some wavelengths and not at others, and normalizing each wavelength
+        over only the field positions it puts on the sensor normalizes them
+        over different parts of the field.  Where the vignetting varies
+        across the field, that shifts one wavelength's illumination against
+        the others', and a model which is a polynomial in wavelength cannot
+        follow the step.  On ESIS, whose image runs off the detector at the
+        shortest of its three wavelengths, the step was 2.9% and it doubled
+        the residual of the linear fit at every wavelength.
+
+        Where no such field position falls inside the field of view, the
+        field positions the models are fit over are taken instead, see
+        :meth:`_lit`.  A field stop far from focus has a field of view much
+        smaller than the blur of light around it, which the normalized field
+        spans, and a coarse grid can miss it altogether.  The linear system
+        multiplies the two models together, and any set of field positions
+        the two share divides out of that product, so it stays right; only
+        the reading of the effective area as an average over the field of
+        view lapses, and only for a grid too coarse to support it.  Light
+        which passes neither the field stop nor reaches the sensor is never
+        counted, so a grid which samples none of the field has no effective
+        area.
 
         Parameters
         ----------
         rays
-            The traced rays.
-        lit
-            The field positions the models are fit over, from :meth:`_lit`.
+            The traced rays, from :meth:`_rayfunction_stratified`, whose
+            field stop and sensor were left open.
         field_of_view
             The half-light outline of the field of view, from
             :meth:`_field_stop_polygon_from_rays`.
+        axis_pupil
+            The logical axes of the pupil grid.
         axis_field
             The logical axes of the field grid.
         """
+        passes = rays.outputs.unvignetted.any(axis_pupil)
         field = rays.inputs.field
         position = na.Cartesian3dVectorArray(x=field.x, y=field.y, z=0 * field.x)
-        inside = lit & field_of_view(position)
-        return np.where(inside.any(axis_field), inside, lit)
+        inside = passes & field_of_view(position)
+        fallback = self._lit(rays, axis_pupil)
+        return np.where(inside.any(axis_field), inside, fallback)
 
     @staticmethod
     def _check_lit_wavelengths(
@@ -2623,7 +2643,7 @@ class AbstractSequentialSystem(
         # nothing at such a wavelength, and is determined there by the
         # others, so long as enough of them admit light, which
         # :meth:`_check_lit_wavelengths` has already checked.
-        inside = self._inside(rays, where, field_of_view, axis_field)
+        inside = self._inside(rays, field_of_view, axis_pupil, axis_field)
         mean = self._mean_over_field(illumination, inside, axis_field)
         illumination = illumination / np.where(
             mean != 0,
@@ -2691,8 +2711,8 @@ class AbstractSequentialSystem(
         position. Rays blocked by an aperture are excluded from the sum,
         except by the field stop and the sensor, which are left open as
         :meth:`vignetting` leaves them. The result is then averaged over the
-        field positions whose light lands on the sensor and which lie inside
-        the half-light outline of the field of view, and returned
+        field positions inside the half-light outline of the field of view,
+        whether or not their light lands on the sensor, and returned
         as an :class:`~optika.radiometry.InterpolatedEffectiveAreaModel`,
         which linearly interpolates in wavelength.
 
@@ -3031,8 +3051,7 @@ class AbstractSequentialSystem(
         # Averaged over the lit field positions inside the field of view,
         # exactly those :meth:`_fit_vignetting` normalizes its illumination
         # over; see :meth:`_mean_over_field` for why the two have to agree.
-        lit = self._lit(rays, axis_pupil)
-        inside = self._inside(rays, lit, field_of_view, axis_field)
+        inside = self._inside(rays, field_of_view, axis_pupil, axis_field)
         area_eff = self._mean_over_field(area_eff, inside, axis_field)
 
         return optika.radiometry.InterpolatedEffectiveAreaModel(

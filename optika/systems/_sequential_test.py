@@ -522,12 +522,15 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(result, optika.radiometry.PolynomialVignettingModel)
         assert result.degree == degree
         assert np.all(result.illumination >= 0)
-        # normalized over the field positions it was fit over which lie
-        # inside the half-light outline of the field of view, or over all of
-        # them at a wavelength where the grid put none inside it
+        # normalized over the field positions inside the half-light outline
+        # of the field of view which pass any light, whether or not it lands
+        # on the sensor, or over the ones it was fit over at a wavelength
+        # where the grid put none inside it.  With the field stop and the
+        # sensor open, a field position passes light exactly where its
+        # illumination is above zero.
         polygon = a.field_stop_polygon(wavelength, envelope=False)
         sample = result.coordinates_sample.position
-        inside = result.where & polygon(
+        inside = (result.illumination > 0) & polygon(
             na.Cartesian3dVectorArray(x=sample.x, y=sample.y, z=0 * sample.x)
         )
         inside = np.where(inside.any(result.axis_field), inside, result.where)
@@ -2049,6 +2052,96 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
     narrow = illumination[{"_vfx": 0}].mean()
     wide = illumination[{"_vfx": 1}].mean()
     assert np.allclose((wide / narrow).ndarray, 4)
+
+
+def test_vignetting_is_normalized_over_field_positions_off_the_sensor_too():
+    """
+    Every field position inside the field of view counts toward the
+    normalization of the vignetting model, whether or not its light lands on
+    the sensor, while only those whose light does are fit.
+
+    A spectrograph can image part of its field of view off the sensor at one
+    wavelength and not at another.  Normalizing each wavelength over only the
+    field positions it puts on the sensor normalizes them over different
+    parts of the field, which shifts one wavelength's illumination against
+    the others' wherever the vignetting varies across the field, and a model
+    which is a polynomial in wavelength cannot follow the step.  On ESIS it
+    doubled the residual of the linear fit at every wavelength.
+
+    Here the illumination falls across the field, and the light of the
+    brightest column lands off the sensor.
+    """
+    a = _system_newtonian
+
+    axis_wavelength = ("_vw",)
+    axis_field = ("_vfx", "_vfy")
+    axis_pupil = ("_vpx", "_vpy")
+    num = 4
+
+    def grid(axis, unit):
+        vertices = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(*axis),
+            num=num + 1,
+        )
+        return vertices * unit
+
+    vertices_field = grid(axis_field, u.deg)
+    vertices_pupil = grid(axis_pupil, u.mm)
+    inputs = optika.vectors.ObjectVectorArray(
+        wavelength=na.linspace(500, 600, axis=axis_wavelength[0], num=2) * u.nm,
+        field=vertices_field.broadcast_to(na.shape(vertices_field)).cell_centers(
+            axis=axis_field,
+        ),
+        pupil=vertices_pupil.broadcast_to(na.shape(vertices_pupil)).cell_centers(
+            axis=axis_pupil,
+        ),
+    )
+
+    # column i of the field passes the last num - i columns of its pupil,
+    # so the illumination falls across the field, and the light of column 0
+    # lands far beyond the edge of the sensor
+    index = np.indices((num, num, num, num))
+    unvignetted = na.ScalarArray(index[2] >= index[0], axes=axis_field + axis_pupil)
+    x = np.where(index[0] == 0, 1e3, 0.0) * u.mm
+    position = na.Cartesian3dVectorArray(
+        x=na.ScalarArray(x, axes=axis_field + axis_pupil),
+        y=0 * u.mm,
+        z=0 * u.mm,
+    )
+    rays = optika.rays.RayFunctionArray(
+        inputs=inputs,
+        outputs=optika.rays.RayVectorArray(position=position, unvignetted=unvignetted),
+    )
+
+    model = a._fit_vignetting(
+        rays=rays,
+        area=np.abs(vertices_pupil.volume_cell(axis=axis_pupil)),
+        coordinates_scene=na.SpectralPositionalVectorArray(
+            wavelength=inputs.wavelength,
+            position=vertices_field,
+        ),
+        # a field of view which holds every field position
+        field_of_view=optika.apertures.CircularAperture(10 * u.deg),
+        axis_wavelength=axis_wavelength,
+        axis_field=axis_field,
+        axis_pupil=axis_pupil,
+        degree=1,
+    )
+
+    # the column whose light misses the sensor is not fit
+    where = na.broadcast_to(model.where, model.illumination.shape)
+    assert not np.any(where[{"_vfx": 0}])
+    assert np.all(where[{"_vfx": slice(1, None)}])
+
+    # but it is normalized over, along with every other field position
+    mean = model.illumination.mean(axis_field)
+    assert np.allclose(mean, 1)
+
+    # which normalizing over the fitted columns alone would not have given
+    mean_fit = model.illumination[{"_vfx": slice(1, None)}].mean(axis_field)
+    assert np.all(mean_fit < 0.9)
 
 
 def test_pupil_fit_is_anchored_at_the_center_of_the_field_at_every_sampling():
