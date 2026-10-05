@@ -1832,8 +1832,8 @@ def test_models_are_invariant_under_a_rigid_motion():
     assert np.abs(illumination_b - illumination_a).max() < 1e-6
 
     # the sampling of this one is random, so hold it to a seed
-    area_a = a.area_effective(wavelength=wavelength, seed=42).area
-    area_b = b.area_effective(wavelength=wavelength, seed=42).area
+    area_a = a.area_effective(wavelength=wavelength, seed_field=42, seed_pupil=42).area
+    area_b = b.area_effective(wavelength=wavelength, seed_field=42, seed_pupil=42).area
     assert np.abs(area_b - area_a).max() < 1e-6 * np.abs(area_a).max()
 
 
@@ -1893,7 +1893,7 @@ def test_area_effective_gives_each_ray_the_pupil_of_its_own_field_point(
     monkeypatch.setattr(
         optika.systems.AbstractSequentialSystem, "_rayfunction", capture
     )
-    result = a.area_effective(seed=42)
+    result = a.area_effective(seed_field=42, seed_pupil=42)
     assert np.all(np.isfinite(result.area))
 
     field = captured["field"]
@@ -2560,11 +2560,12 @@ def test_plot_rays_2d_is_a_line():
 
 def test_area_effective_is_reproducible_when_seeded():
     """
-    A seed fixes the sampling, and so fixes the answer.
+    The seeds fix the sampling, and so fix the answer, and each of them
+    moves it.
 
     The field and the pupil are sampled at a point drawn inside each cell,
     which keeps the quadrature from aliasing against an edge but leaves the
-    result a little different on every call. Anything which must be
+    result a little different for every sample. Anything which must be
     reproduced, such as a figure in an article, needs to be able to ask for
     the same sample twice.
     """
@@ -2575,12 +2576,19 @@ def test_area_effective_is_reproducible_when_seeded():
     )
     wavelength = _grid_input_wavelength.wavelength
 
-    a = system.area_effective(wavelength=wavelength, seed=42)(wavelength)
-    b = system.area_effective(wavelength=wavelength, seed=42)(wavelength)
-    c = system.area_effective(wavelength=wavelength, seed=43)(wavelength)
+    def area(seed_field: int, seed_pupil: int) -> na.AbstractScalar:
+        return system.area_effective(
+            wavelength=wavelength,
+            seed_field=seed_field,
+            seed_pupil=seed_pupil,
+        )(wavelength)
+
+    a = area(42, 42)
+    b = area(42, 42)
 
     assert np.all(a == b)
-    assert np.any(a != c)
+    assert np.any(a != area(43, 42))
+    assert np.any(a != area(42, 43))
 
 
 def _spy_results(monkeypatch, name: str) -> list:
@@ -2695,7 +2703,7 @@ def test_linearize_is_reproducible():
 
     a = system.linearize(degree=1)
     b = system.linearize(degree=1)
-    c = system.linearize(degree=1, seed=43)
+    c = system.linearize(degree=1, seed_field=43, seed_pupil=43)
 
     def models(system: optika.systems.LinearSystem):
         return (
@@ -2716,7 +2724,7 @@ def test_linearize_is_reproducible():
 
 def test_vignetting_is_the_model_linearize_fits():
     """
-    Handed the same grids, degree, and seed, :meth:`vignetting` returns the
+    Handed the same grids, degree, and seeds, :meth:`vignetting` returns the
     model :meth:`linearize` carries.
 
     The two used to sample differently: one traced the grids as given and the
@@ -2814,10 +2822,10 @@ def test_models_carry_the_cells_they_were_measured_over():
         assert np.allclose(model.field_stop.vertices, field_stop.vertices)
 
 
-def test_vignetting_follows_its_seed():
+def test_vignetting_follows_its_seeds():
     """
     Fitting the same system twice gives the same vignetting model, and a
-    different seed gives a different one.
+    different seed for either grid gives a different one.
 
     The samples are drawn at random inside each cell, so without a fixed seed
     a model plotted in one place and quoted in another would be two models.
@@ -2826,17 +2834,46 @@ def test_vignetting_follows_its_seed():
 
     a = system.vignetting(degree=1)
     b = system.vignetting(degree=1)
-    c = system.vignetting(degree=1, seed=43)
+    c = system.vignetting(degree=1, seed_field=43)
+    d = system.vignetting(degree=1, seed_pupil=43)
 
     assert np.all(a.illumination == b.illumination)
     assert np.any(a.illumination != c.illumination)
+    assert np.any(a.illumination != d.illumination)
+
+
+def test_each_seed_moves_only_its_own_grid(monkeypatch):
+    """
+    Changing the seed of one grid leaves the samples of the other where they
+    were, so that the spread of a model over the sampling of each can be
+    measured apart.
+    """
+    calls = _spy_arguments(monkeypatch, "_denormalize_grid_from_rays")
+    system = _system_linearize()
+
+    # the first call of each fit is the one which makes the drawn grid
+    # physical
+    def grid(**kwargs) -> optika.vectors.ObjectVectorArray:
+        num_calls = len(calls)
+        system.vignetting(degree=1, **kwargs)
+        return calls[num_calls]["grid"]
+
+    a = grid()
+    b = grid(seed_field=43)
+    c = grid(seed_pupil=43)
+
+    assert np.any(a.field != b.field)
+    assert np.all(a.pupil == b.pupil)
+
+    assert np.all(a.field == c.field)
+    assert np.any(a.pupil != c.pupil)
 
 
 @pytest.mark.parametrize("method", ["vignetting", "distortion"])
-def test_random_field_off_takes_the_cell_centers(monkeypatch, method: str):
+def test_no_field_seed_takes_the_field_cell_centers(monkeypatch, method: str):
     """
-    With `random_field` off, every field position is the center of its cell,
-    and the pupil is drawn exactly as it would have been.
+    Given no seed for the field, every field position is the center of its
+    cell, and the pupil is drawn exactly as it would have been.
 
     The centers are for a model which is going to be looked at, so that the
     edge of the field stop is drawn as the cells it covers rather than as a
@@ -2849,7 +2886,7 @@ def test_random_field_off_takes_the_cell_centers(monkeypatch, method: str):
 
     random = getattr(system, method)(degree=1)
     num_calls = len(calls)
-    centers = getattr(system, method)(degree=1, random_field=False)
+    centers = getattr(system, method)(degree=1, seed_field=None)
 
     # every measurement sits at the center of its cell, which the default
     # does not
@@ -2862,6 +2899,30 @@ def test_random_field_off_takes_the_cell_centers(monkeypatch, method: str):
     pupil_random = calls[0]["grid"].pupil
     pupil_centers = calls[num_calls]["grid"].pupil
     assert np.all(pupil_random == pupil_centers)
+
+
+def test_no_pupil_seed_takes_the_pupil_cell_centers(monkeypatch):
+    """
+    Given no seed for the pupil, every pupil position is the center of its
+    cell, the same at every field position, and the field is drawn exactly
+    as it would have been.
+    """
+    calls = _spy_arguments(monkeypatch, "_denormalize_grid_from_rays")
+    system = _system_linearize()
+
+    system.vignetting(degree=1)
+    num_calls = len(calls)
+    system.vignetting(degree=1, seed_pupil=None)
+
+    random = calls[0]["grid"]
+    centers = calls[num_calls]["grid"]
+
+    pupil = system._pupil_vertices_default
+    cells = pupil.cell_centers(tuple(na.shape(pupil)))
+    assert np.all(centers.pupil == cells)
+    assert not np.all(random.pupil == cells)
+
+    assert np.all(random.field == centers.field)
 
 
 def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
@@ -2966,7 +3027,8 @@ def test_linearize_fits_around_a_wavelength_with_no_light():
         axis_pupil=axis_pupil,
         normalized_field=True,
         normalized_pupil=True,
-        seed=0,
+        seed_field=0,
+        seed_pupil=0,
         rayfunction_stops=stops,
         pupil_fit=pupil_fit,
     )

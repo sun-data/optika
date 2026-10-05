@@ -1963,8 +1963,8 @@ class AbstractSequentialSystem(
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         degree: int = 2,
-        seed: None | int = 0,
-        random_field: bool = True,
+        seed_field: None | int = 0,
+        seed_pupil: None | int = 0,
     ) -> optika.distortion.PolynomialDistortionModel:
         """
         Fit a polynomial distortion model to the rays traced through this
@@ -1974,7 +1974,7 @@ class AbstractSequentialSystem(
         of a grid of cells, and one ray is traced per cell at a point drawn
         uniformly inside it, which is how :meth:`vignetting`,
         :meth:`area_effective`, and :meth:`linearize` trace as well.  Handed
-        the same grids, degree, and seed, :meth:`linearize` returns this very
+        the same grids, degree, and seeds, :meth:`linearize` returns this very
         model as its :attr:`~optika.systems.LinearSystem.distortion`.
 
         As in :meth:`vignetting`, the field stop and the sensor are left open
@@ -2012,26 +2012,34 @@ class AbstractSequentialSystem(
             in normalized or physical units.
         degree
             The degree of the polynomial distortion model.
-        seed
-            The seed of the sampling described above.
+        seed_field
+            The seed of the draw which places a field position inside each
+            field cell, as described above, or :obj:`None` to take the center
+            of each cell instead.
             Zero by default, so that fitting the same system twice gives the
             same model, and so that this method and :meth:`linearize` agree
-            when neither is given a seed.  Pass :obj:`None` to draw a fresh
-            sample on every call, which is how the spread of the model over
-            the sampling is measured, or any other integer for a different
-            fixed sample.
-        random_field
-            Whether each field position is drawn at random inside its cell,
-            as described above, or taken from the center of it.  The pupil is
-            drawn at random either way, and exactly as it would have been.
+            when neither is given a seed.  Any other integer gives a
+            different fixed sample, and the spread of the model over several
+            of them is its spread over the sampling.
 
-            Drawn at random by default, which is what :meth:`linearize` does
-            and what this method has to do to agree with it.
             The centers lay the measurements out on a regular grid, which is
             the clearer way to show the model.  Whether the light of a cell
             lands on the sensor is decided at the field position drawn in it,
             so only at the centers is the edge of the sensor drawn as the
             cells it covers, as the edge of the field stop always is.
+        seed_pupil
+            The seed of the draw which places a pupil position inside each
+            pupil cell, drawn afresh at every field position, or :obj:`None`
+            to take the center of each cell instead.
+            Zero by default, for the same reasons as `seed_field`.  The two
+            seeds drive separate streams, so either can be changed while the
+            samples of the other grid stay where they were, and the same
+            integer handed to both still draws the two grids independently.
+
+            The centers are the same pupil positions at every field
+            position, so where the edge of an aperture falls between two of
+            them is decided once for a whole row of the field rather than
+            averaged over it, and the model comes out in bands.
 
         Raises
         ------
@@ -2077,11 +2085,11 @@ class AbstractSequentialSystem(
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
-            seed=seed,
+            seed_field=seed_field,
+            seed_pupil=seed_pupil,
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
             efficiency=False,
-            random_field=random_field,
         )
 
         return self._fit_distortion(
@@ -2110,8 +2118,8 @@ class AbstractSequentialSystem(
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         degree: int = 2,
-        seed: None | int = 0,
-        random_field: bool = True,
+        seed_field: None | int = 0,
+        seed_pupil: None | int = 0,
     ) -> optika.radiometry.PolynomialVignettingModel:
         """
         Fit a polynomial vignetting model to the rays traced through this
@@ -2145,7 +2153,7 @@ class AbstractSequentialSystem(
         of a grid of cells, and one ray is traced per cell at a point drawn
         uniformly inside it, which is how :meth:`area_effective` and
         :meth:`linearize` trace as well.  Handed the same grids, degree, and
-        seed, :meth:`linearize` returns this very model as its
+        seeds, :meth:`linearize` returns this very model as its
         :attr:`~optika.systems.LinearSystem.vignetting`.
 
         Parameters
@@ -2179,31 +2187,39 @@ class AbstractSequentialSystem(
             in normalized or physical units.
         degree
             The degree of the polynomial vignetting model.
-        seed
-            The seed of the sampling described above.
+        seed_field
+            The seed of the draw which places a field position inside each
+            field cell, as described above, or :obj:`None` to take the center
+            of each cell instead.
             Zero by default, so that fitting the same system twice gives the
             same model, and so that this method and :meth:`linearize` agree
-            when neither is given a seed.  Pass :obj:`None` to draw a fresh
-            sample on every call, which is how the spread of the model over
-            the sampling is measured, or any other integer for a different
-            fixed sample.
-        random_field
-            Whether each field position is drawn at random inside its cell,
-            as described above, or taken from the center of it.  The pupil is
-            drawn at random either way, and exactly as it would have been.
+            when neither is given a seed.  Any other integer gives a
+            different fixed sample, and the spread of the model over several
+            of them is its spread over the sampling.
 
-            Drawn at random by default, which is what :meth:`linearize` does
-            and what this method has to do to agree with it.  A cell counts
-            toward the average over the field of view if its field position
-            lies inside the field stop, which one drawn at random does with a
-            probability equal to the fraction of the cell inside it, so the
-            average carries none of the bias a fixed rule has wherever the
-            edge of the field crosses a cell.
+            A cell counts toward the average over the field of view if its
+            field position lies inside the field stop, which one drawn at
+            random does with a probability equal to the fraction of the cell
+            inside it, so the average carries none of the bias a fixed rule
+            has wherever the edge of the field crosses a cell.
             The centers lay the measurements out on a regular grid, which is
             the clearer way to show the model.  Whether the light of a cell
             lands on the sensor is decided at the field position drawn in it,
             so only at the centers is the edge of the sensor drawn as the
             cells it covers, as the edge of the field stop always is.
+        seed_pupil
+            The seed of the draw which places a pupil position inside each
+            pupil cell, drawn afresh at every field position, or :obj:`None`
+            to take the center of each cell instead.
+            Zero by default, for the same reasons as `seed_field`.  The two
+            seeds drive separate streams, so either can be changed while the
+            samples of the other grid stay where they were, and the same
+            integer handed to both still draws the two grids independently.
+
+            The centers are the same pupil positions at every field
+            position, so where the edge of an aperture falls between two of
+            them is decided once for a whole row of the field rather than
+            averaged over it, and the model comes out in bands.
 
         Raises
         ------
@@ -2249,11 +2265,11 @@ class AbstractSequentialSystem(
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
-            seed=seed,
+            seed_field=seed_field,
+            seed_pupil=seed_pupil,
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
             efficiency=False,
-            random_field=random_field,
         )
 
         return self._fit_vignetting(
@@ -2697,7 +2713,8 @@ class AbstractSequentialSystem(
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
-        seed: None | int = 0,
+        seed_field: None | int = 0,
+        seed_pupil: None | int = 0,
     ) -> optika.radiometry.InterpolatedEffectiveAreaModel:
         """
         Estimate the wavelength-dependent effective area of this system by
@@ -2770,15 +2787,20 @@ class AbstractSequentialSystem(
         normalized_pupil
             A boolean flag indicating whether the `pupil` parameter is given
             in normalized or physical units.
-        seed
-            The seed of the sampling described above.
+        seed_field
+            The seed of the draw which places a field position inside each
+            field cell, or :obj:`None` to take the center of each cell
+            instead, see :meth:`vignetting`.
             Zero by default, so that estimating the same system twice gives
             the same effective area, and so that this method and
-            :meth:`linearize` agree when neither is given a seed.  Pass
-            :obj:`None` to draw a fresh sample on every call, which is how
-            the spread of the estimate over the sampling is measured: on the
-            ESIS instrument two such calls give effective areas about two
-            percent apart.  Any other integer gives a different fixed sample.
+            :meth:`linearize` agree when neither is given a seed.  Any other
+            integer gives a different fixed sample, and the spread of the
+            estimate over several of them is its spread over the sampling.
+        seed_pupil
+            The seed of the draw which places a pupil position inside each
+            pupil cell, drawn afresh at every field position, or :obj:`None`
+            to take the center of each cell instead, see :meth:`vignetting`.
+            Zero by default, for the same reasons as `seed_field`.
 
         Raises
         ------
@@ -2819,7 +2841,8 @@ class AbstractSequentialSystem(
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
-            seed=seed,
+            seed_field=seed_field,
+            seed_pupil=seed_pupil,
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
         )
@@ -2844,18 +2867,18 @@ class AbstractSequentialSystem(
         axis_pupil: tuple[str, str],
         normalized_field: bool,
         normalized_pupil: bool,
-        seed: None | int,
+        seed_field: None | int,
+        seed_pupil: None | int,
         rayfunction_stops: optika.rays.RayFunctionArray,
         pupil_fit: (
             None | tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
         ),
         efficiency: bool = True,
-        random_field: bool = True,
     ) -> tuple[optika.rays.RayFunctionArray, na.AbstractScalar]:
         """
         Trace one ray through every cell of the field and pupil grids, at a
-        point drawn uniformly inside it, with each ray carrying the area of
-        its pupil cell.
+        point drawn uniformly inside it or at its center, with each ray
+        carrying the area of its pupil cell.
 
         This is the trace behind :meth:`distortion`, :meth:`vignetting`,
         :meth:`area_effective`, and :meth:`linearize`, which fit every one of
@@ -2884,8 +2907,12 @@ class AbstractSequentialSystem(
             Whether `field` is normalized.
         normalized_pupil
             Whether `pupil` is normalized.
-        seed
-            The seed of the sampling, see :meth:`area_effective`.
+        seed_field
+            The seed of the draw inside each field cell, or :obj:`None` for
+            the center of each, see :meth:`vignetting`.
+        seed_pupil
+            The seed of the draw inside each pupil cell, or :obj:`None` for
+            the center of each, see :meth:`vignetting`.
         rayfunction_stops
             The result of :meth:`_calc_rayfunction_stops` on `wavelength`.
         pupil_fit
@@ -2897,11 +2924,6 @@ class AbstractSequentialSystem(
             :meth:`vignetting` reads only which rays survived, so it turns
             this off and saves itself the efficiency of every surface at
             every ray.
-        random_field
-            Whether each field position is drawn at random inside its cell,
-            or taken from the center of it.  The pupil is drawn at random
-            either way, and from a stream of its own, so the pupil samples
-            are the same whichever this is.
 
         Returns
         -------
@@ -2930,16 +2952,25 @@ class AbstractSequentialSystem(
         # The two grids are sampled from two streams rather than one, since
         # a seed shared between them would offset a field cell and a pupil
         # cell by the same fraction wherever the two grids happen to agree
-        # in shape.
+        # in shape.  Each grid takes its own word of the state its seed
+        # generates, so the streams stay apart when both are handed the same
+        # seed, as they are by default.
         #
-        # The field alone may instead be taken at the centers of its cells,
-        # for a model which is going to be drawn rather than integrated; see
-        # :meth:`vignetting`.
-        seed_field, seed_pupil = np.random.SeedSequence(seed).generate_state(2)
+        # Either grid may instead be taken at the centers of its cells, by
+        # handing it no seed, for a model which is going to be drawn rather
+        # than integrated; see :meth:`vignetting`.
+        if seed_field is not None:
+            seed_field = int(np.random.SeedSequence(seed_field).generate_state(2)[0])
+        if seed_pupil is not None:
+            seed_pupil = int(np.random.SeedSequence(seed_pupil).generate_state(2)[1])
 
         field_samples = field.broadcast_to(
             na.broadcast_shapes(self.shape, na.shape(wavelength), na.shape(field)),
-        ).cell_centers(axis=axis_field, random=random_field, seed=int(seed_field))
+        ).cell_centers(
+            axis=axis_field,
+            random=seed_field is not None,
+            seed=seed_field,
+        )
 
         pupil_samples = pupil.broadcast_to(
             na.broadcast_shapes(
@@ -2948,7 +2979,11 @@ class AbstractSequentialSystem(
                 na.shape(field_samples),
                 na.shape(pupil),
             ),
-        ).cell_centers(axis=axis_pupil, random=True, seed=int(seed_pupil))
+        ).cell_centers(
+            axis=axis_pupil,
+            random=seed_pupil is not None,
+            seed=seed_pupil,
+        )
 
         # The samples are drawn in the coordinates the grids were given in
         # and only then made physical, so that a normalized pupil is mapped
@@ -3068,7 +3103,8 @@ class AbstractSequentialSystem(
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         degree: int = 2,
-        seed: None | int = 0,
+        seed_field: None | int = 0,
+        seed_pupil: None | int = 0,
         field_stop: bool = True,
     ) -> LinearSystem:
         """
@@ -3137,15 +3173,21 @@ class AbstractSequentialSystem(
             in normalized or physical units.
         degree
             The degree of the polynomial distortion and vignetting models.
-        seed
-            The seed of the sampling described above.
+        seed_field
+            The seed of the draw which places a field position inside each
+            field cell, or :obj:`None` to take the center of each cell
+            instead, see :meth:`vignetting`.
             Zero by default, so that linearizing the same system twice gives
             the same forward model: code which builds one linear system to
             make images and another to invert them would otherwise be using
-            two different operators.  Pass :obj:`None` to draw a fresh
-            sample on every call, which is how the spread of these models
-            over the sampling is measured, or any other integer for a
-            different fixed sample.
+            two different operators.  Any other integer gives a different
+            fixed sample, and the spread of these models over several of
+            them is their spread over the sampling.
+        seed_pupil
+            The seed of the draw which places a pupil position inside each
+            pupil cell, drawn afresh at every field position, or :obj:`None`
+            to take the center of each cell instead, see :meth:`vignetting`.
+            Zero by default, for the same reasons as `seed_field`.
         field_stop
             Whether to carry the field of view and its half-light outline on
             the result, see above.
@@ -3198,7 +3240,8 @@ class AbstractSequentialSystem(
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
-            seed=seed,
+            seed_field=seed_field,
+            seed_pupil=seed_pupil,
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
         )
