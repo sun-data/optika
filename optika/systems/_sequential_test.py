@@ -1099,11 +1099,16 @@ def test_linearize_conserves_flux_across_the_soft_edge_of_the_field():
     linear = system.linearize(degree=2)
 
     scene = _scene_annulus(0 * u.deg, 2 * u.deg, extent=1.1 * u.deg)
-    expected = system.image(scene, noise=False).outputs.sum()
     result = linear.image(scene, noise=False).outputs.sum()
 
-    # measured at 1.015; the raytraced image is not seeded and moves by a
-    # fraction of a percent between runs
+    # the raytraced image is not seeded, and one trace of it scatters by two
+    # percent about its mean, which against this tolerance failed about one
+    # run in fifteen; the mean of ten scatters by under one percent.  The
+    # ratio to that mean was measured at 1.02.
+    num = 10
+    expected = 0 * result
+    for _ in range(num):
+        expected = expected + system.image(scene, noise=False).outputs.sum() / num
     assert np.allclose(result, expected, rtol=0.05)
 
     band = _scene_annulus(0.58 * u.deg, 0.68 * u.deg, extent=1.1 * u.deg)
