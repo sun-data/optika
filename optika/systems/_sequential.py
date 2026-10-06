@@ -1155,8 +1155,11 @@ class AbstractSequentialSystem(
         axis_field_stop = self.axis_field_stop
         axis_pupil_stop = self.axis_pupil_stop
 
+        # the wire of every aperture closes on itself, so its last sample is
+        # its first again; averaging over it would count that ray twice and
+        # pull every vertex toward it
         field, _ = self._field_and_pupil(rayfunction_stops.outputs)
-        field = field.mean(axis_pupil_stop)
+        field = field[{axis_pupil_stop: slice(None, -1)}].mean(axis_pupil_stop)
 
         # :class:`~optika.apertures.PolygonalAperture` reads its vertices
         # along an axis named ``vertex``.  Combining the one axis into it
@@ -2008,8 +2011,12 @@ class AbstractSequentialSystem(
             or if fewer than ``degree + 1`` of its wavelengths admit any of
             the sampled field positions.
         """
+        # the system names the axis of its own wavelength grid, which may
+        # carry others besides; a grid passed in is read from its shape
+        axis_wavelength = None
         if wavelength is None:
             wavelength = self.grid_input.wavelength
+            axis_wavelength = self.axis_wavelength
         if field is None:
             field = self._field_vertices_default
         if pupil is None:
@@ -2018,7 +2025,7 @@ class AbstractSequentialSystem(
         # named explicitly rather than taken from the shape of each grid, which
         # would also collapse any axis the grid carries beyond the two being
         # sampled, such as one of :attr:`shape`
-        axis_wavelength = self._normalize_axis_wavelength(None, wavelength)
+        axis_wavelength = self._normalize_axis_wavelength(axis_wavelength, wavelength)
         axis_field = self._normalize_axis_field(None, axis_wavelength, field)
         axis_pupil = self._normalize_axis_pupil(
             axis_pupil=None,
@@ -2052,14 +2059,23 @@ class AbstractSequentialSystem(
             efficiency=False,
         )
 
+        coordinates_scene = self._coordinates_scene_from_rays(
+            wavelength=wavelength,
+            field=field,
+            rayfunction_stops=rayfunction_stops,
+            normalized_field=normalized_field,
+        )
+        field_of_view = self._field_stop_polygon_from_rays(rayfunction_stops)
+        on_sensor = self._on_sensor(rays, axis_pupil)
+
         return self._fit_distortion(
             rays=rays,
-            field_of_view=self._field_stop_polygon_from_rays(rayfunction_stops),
-            coordinates_scene=self._coordinates_scene_from_rays(
-                wavelength=wavelength,
-                field=field,
-                rayfunction_stops=rayfunction_stops,
-                normalized_field=normalized_field,
+            coordinates_scene=coordinates_scene,
+            where=self._where_fit(
+                on_sensor=on_sensor,
+                coordinates_scene=coordinates_scene,
+                field_of_view=field_of_view,
+                axis_field=axis_field,
             ),
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
@@ -2187,8 +2203,12 @@ class AbstractSequentialSystem(
             or if fewer than ``degree + 1`` of its wavelengths admit any of
             the sampled field positions.
         """
+        # the system names the axis of its own wavelength grid, which may
+        # carry others besides; a grid passed in is read from its shape
+        axis_wavelength = None
         if wavelength is None:
             wavelength = self.grid_input.wavelength
+            axis_wavelength = self.axis_wavelength
         if field is None:
             field = self._field_vertices_default
         if pupil is None:
@@ -2197,7 +2217,7 @@ class AbstractSequentialSystem(
         # named explicitly rather than taken from the shape of each grid, which
         # would also collapse any axis the grid carries beyond the two being
         # sampled, such as one of :attr:`shape`
-        axis_wavelength = self._normalize_axis_wavelength(None, wavelength)
+        axis_wavelength = self._normalize_axis_wavelength(axis_wavelength, wavelength)
         axis_field = self._normalize_axis_field(None, axis_wavelength, field)
         axis_pupil = self._normalize_axis_pupil(
             axis_pupil=None,
@@ -2231,15 +2251,31 @@ class AbstractSequentialSystem(
             efficiency=False,
         )
 
+        coordinates_scene = self._coordinates_scene_from_rays(
+            wavelength=wavelength,
+            field=field,
+            rayfunction_stops=rayfunction_stops,
+            normalized_field=normalized_field,
+        )
+        field_of_view = self._field_stop_polygon_from_rays(rayfunction_stops)
+        on_sensor = self._on_sensor(rays, axis_pupil)
+
         return self._fit_vignetting(
             rays=rays,
             area=area,
-            field_of_view=self._field_stop_polygon_from_rays(rayfunction_stops),
-            coordinates_scene=self._coordinates_scene_from_rays(
-                wavelength=wavelength,
-                field=field,
-                rayfunction_stops=rayfunction_stops,
-                normalized_field=normalized_field,
+            coordinates_scene=coordinates_scene,
+            where=self._where_fit(
+                on_sensor=on_sensor,
+                coordinates_scene=coordinates_scene,
+                field_of_view=field_of_view,
+                axis_field=axis_field,
+            ),
+            inside=self._inside(
+                rays=rays,
+                on_sensor=on_sensor,
+                field_of_view=field_of_view,
+                axis_pupil=axis_pupil,
+                axis_field=axis_field,
             ),
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
@@ -2251,7 +2287,7 @@ class AbstractSequentialSystem(
         self,
         rays: optika.rays.RayFunctionArray,
         coordinates_scene: na.AbstractSpectralPositionalVectorArray,
-        field_of_view: optika.apertures.AbstractAperture,
+        where: na.AbstractScalar,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
@@ -2270,10 +2306,8 @@ class AbstractSequentialSystem(
         coordinates_scene
             The cells the rays were drawn from, from
             :meth:`_coordinates_scene_from_rays`.
-        field_of_view
-            The half-light outline of the field of view, from
-            :meth:`_field_stop_polygon_from_rays`, which bounds the cells the
-            model is fit over, see :meth:`_where_fit`.
+        where
+            The field cells the model is fit over, from :meth:`_where_fit`.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2285,13 +2319,6 @@ class AbstractSequentialSystem(
         """
         self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
-        where = self._where_fit(
-            rays=rays,
-            coordinates_scene=coordinates_scene,
-            field_of_view=field_of_view,
-            axis_pupil=axis_pupil,
-            axis_field=axis_field,
-        )
         self._check_lit_wavelengths(
             lit=where,
             wavelength=rays.inputs.wavelength,
@@ -2404,12 +2431,11 @@ class AbstractSequentialSystem(
         inside_y = (0 * u.pix <= pixel.y) & (pixel.y <= num.y)
         return lit & inside_x & inside_y
 
+    @staticmethod
     def _where_fit(
-        self,
-        rays: optika.rays.RayFunctionArray,
+        on_sensor: na.AbstractScalar,
         coordinates_scene: na.AbstractSpectralPositionalVectorArray,
         field_of_view: optika.apertures.AbstractAperture,
-        axis_pupil: tuple[str, str],
         axis_field: tuple[str, str],
     ) -> na.AbstractScalar:
         """
@@ -2436,29 +2462,27 @@ class AbstractSequentialSystem(
 
         Parameters
         ----------
-        rays
-            The traced rays, from :meth:`_rayfunction_stratified`, whose
-            field stop and sensor were left open.
+        on_sensor
+            The field positions whose light lands on the sensor, from
+            :meth:`_on_sensor`.
         coordinates_scene
             The cells the rays were drawn from, from
             :meth:`_coordinates_scene_from_rays`.
         field_of_view
             The half-light outline of the field of view, from
             :meth:`_field_stop_polygon_from_rays`.
-        axis_pupil
-            The logical axes of the pupil grid.
         axis_field
             The logical axes of the field grid.
         """
-        lit = self._on_sensor(rays, axis_pupil)
-        center = coordinates_scene.cell_centers(axis_field).position
-        position = na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
-        inside = lit & field_of_view(position)
-        return np.where(inside.any(axis_field), inside, lit)
+        field_stop = optika.radiometry.ApertureFieldStopModel(aperture=field_of_view)
+        center = coordinates_scene.cell_centers(axis_field)
+        inside = on_sensor & field_stop(center)
+        return np.where(inside.any(axis_field), inside, on_sensor)
 
+    @staticmethod
     def _inside(
-        self,
         rays: optika.rays.RayFunctionArray,
+        on_sensor: na.AbstractScalar,
         field_of_view: optika.apertures.AbstractAperture,
         axis_pupil: tuple[str, str],
         axis_field: tuple[str, str],
@@ -2499,6 +2523,10 @@ class AbstractSequentialSystem(
         rays
             The traced rays, from :meth:`_rayfunction_stratified`, whose
             field stop and sensor were left open.
+        on_sensor
+            The field positions whose light lands on the sensor, from
+            :meth:`_on_sensor`, taken where none falls inside the field of
+            view.
         field_of_view
             The half-light outline of the field of view, from
             :meth:`_field_stop_polygon_from_rays`.
@@ -2507,12 +2535,14 @@ class AbstractSequentialSystem(
         axis_field
             The logical axes of the field grid.
         """
+        field_stop = optika.radiometry.ApertureFieldStopModel(aperture=field_of_view)
+        sample = na.SpectralPositionalVectorArray(
+            wavelength=rays.inputs.wavelength,
+            position=rays.inputs.field,
+        )
         passes = rays.outputs.unvignetted.any(axis_pupil)
-        field = rays.inputs.field
-        position = na.Cartesian3dVectorArray(x=field.x, y=field.y, z=0 * field.x)
-        inside = passes & field_of_view(position)
-        fallback = self._on_sensor(rays, axis_pupil)
-        return np.where(inside.any(axis_field), inside, fallback)
+        inside = passes & field_stop(sample)
+        return np.where(inside.any(axis_field), inside, on_sensor)
 
     @staticmethod
     def _check_lit_wavelengths(
@@ -2556,9 +2586,17 @@ class AbstractSequentialSystem(
         Raises
         ------
         ValueError
-            If fewer than ``degree + 1`` wavelengths admit any of the sampled
-            field positions.
+            If the wavelength grid has fewer than ``degree + 1`` wavelengths,
+            or if fewer than that admit any of the sampled field positions.
         """
+        num = na.shape(wavelength).get(axis_wavelength, 1)
+        if num <= degree:
+            raise ValueError(
+                f"Fitting a polynomial of degree {degree} in wavelength needs "
+                f"at least {degree + 1} wavelengths, and the wavelength grid "
+                f"has {num}.  Sample more wavelengths, or lower the degree."
+            )
+
         # a system whose geometry does not depend on wavelength traces rays
         # which do not vary along it, but each wavelength still counts
         lit = na.broadcast_to(lit, na.shape_broadcasted(lit, wavelength))
@@ -2621,7 +2659,8 @@ class AbstractSequentialSystem(
         rays: optika.rays.RayFunctionArray,
         area: na.AbstractScalar,
         coordinates_scene: na.AbstractSpectralPositionalVectorArray,
-        field_of_view: optika.apertures.AbstractAperture,
+        where: na.AbstractScalar,
+        inside: na.AbstractScalar,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
@@ -2642,11 +2681,11 @@ class AbstractSequentialSystem(
         coordinates_scene
             The cells the rays were drawn from, from
             :meth:`_coordinates_scene_from_rays`.
-        field_of_view
-            The half-light outline of the field of view, from
-            :meth:`_field_stop_polygon_from_rays`, which the illumination is
-            normalized over, and which bounds the cells the model is fit
-            over, see :meth:`_where_fit`.
+        where
+            The field cells the model is fit over, from :meth:`_where_fit`.
+        inside
+            The field positions the illumination is normalized over, from
+            :meth:`_inside`.
         axis_wavelength
             The normalized wavelength axis of `rays`.
         axis_field
@@ -2658,13 +2697,6 @@ class AbstractSequentialSystem(
         """
         self._check_axis_wavelength(axis_wavelength)
         (axis_wavelength,) = axis_wavelength
-        where = self._where_fit(
-            rays=rays,
-            coordinates_scene=coordinates_scene,
-            field_of_view=field_of_view,
-            axis_pupil=axis_pupil,
-            axis_field=axis_field,
-        )
         self._check_lit_wavelengths(
             lit=where,
             wavelength=rays.inputs.wavelength,
@@ -2698,7 +2730,6 @@ class AbstractSequentialSystem(
         # nothing at such a wavelength, and is determined there by the
         # others, so long as enough of them admit light, which
         # :meth:`_check_lit_wavelengths` has already checked.
-        inside = self._inside(rays, field_of_view, axis_pupil, axis_field)
         mean = self._mean_over_field(illumination, inside, axis_field)
         illumination = illumination / np.where(
             mean != 0,
@@ -2845,8 +2876,12 @@ class AbstractSequentialSystem(
         ValueError
             If the wavelength grid does not vary along a single logical axis.
         """
+        # the system names the axis of its own wavelength grid, which may
+        # carry others besides; a grid passed in is read from its shape
+        axis_wavelength = None
         if wavelength is None:
             wavelength = self.grid_input.wavelength
+            axis_wavelength = self.axis_wavelength
         if field is None:
             field = self._field_vertices_default
         if pupil is None:
@@ -2855,7 +2890,7 @@ class AbstractSequentialSystem(
         # named explicitly rather than taken from the shape of each grid, which
         # would also collapse any axis the grid carries beyond the two being
         # sampled, such as one of :attr:`shape`
-        axis_wavelength = self._normalize_axis_wavelength(None, wavelength)
+        axis_wavelength = self._normalize_axis_wavelength(axis_wavelength, wavelength)
         axis_field = self._normalize_axis_field(None, axis_wavelength, field)
         axis_pupil = self._normalize_axis_pupil(
             axis_pupil=None,
@@ -2887,7 +2922,13 @@ class AbstractSequentialSystem(
 
         return self._fit_area_effective(
             rays=rays,
-            field_of_view=self._field_stop_polygon_from_rays(rayfunction_stops),
+            inside=self._inside(
+                rays=rays,
+                on_sensor=self._on_sensor(rays, axis_pupil),
+                field_of_view=self._field_stop_polygon_from_rays(rayfunction_stops),
+                axis_pupil=axis_pupil,
+                axis_field=axis_field,
+            ),
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
             axis_pupil=axis_pupil,
@@ -3070,7 +3111,7 @@ class AbstractSequentialSystem(
     def _fit_area_effective(
         self,
         rays: optika.rays.RayFunctionArray,
-        field_of_view: optika.apertures.AbstractAperture,
+        inside: na.AbstractScalar,
         axis_wavelength: tuple[str, ...],
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
@@ -3088,10 +3129,9 @@ class AbstractSequentialSystem(
             The traced rays, from :meth:`_rayfunction_stratified`, whose
             intensity is the area of each ray's pupil cell times its
             throughput.
-        field_of_view
-            The half-light outline of the field of view, from
-            :meth:`_field_stop_polygon_from_rays`, which the effective area
-            is averaged over.
+        inside
+            The field positions the effective area is averaged over, from
+            :meth:`_inside`.
         axis_wavelength
             The normalized wavelength axis of `rays`, which must have exactly
             one element.
@@ -3122,7 +3162,6 @@ class AbstractSequentialSystem(
         # Averaged over the lit field positions inside the field of view,
         # exactly those :meth:`_fit_vignetting` normalizes its illumination
         # over; see :meth:`_mean_over_field` for why the two have to agree.
-        inside = self._inside(rays, field_of_view, axis_pupil, axis_field)
         area_eff = self._mean_over_field(area_eff, inside, axis_field)
 
         return optika.radiometry.InterpolatedEffectiveAreaModel(
@@ -3235,8 +3274,12 @@ class AbstractSequentialSystem(
             or if fewer than ``degree + 1`` of its wavelengths admit any of
             the sampled field positions.
         """
+        # the system names the axis of its own wavelength grid, which may
+        # carry others besides; a grid passed in is read from its shape
+        axis_wavelength = None
         if wavelength is None:
             wavelength = self.grid_input.wavelength
+            axis_wavelength = self.axis_wavelength
         if field is None:
             field = self._field_vertices_default
         if pupil is None:
@@ -3245,7 +3288,7 @@ class AbstractSequentialSystem(
         # named explicitly rather than taken from the shape of each grid, which
         # would also collapse any axis the grid carries beyond the two being
         # sampled, such as one of :attr:`shape`
-        axis_wavelength = self._normalize_axis_wavelength(None, wavelength)
+        axis_wavelength = self._normalize_axis_wavelength(axis_wavelength, wavelength)
         axis_field = self._normalize_axis_field(None, axis_wavelength, field)
         axis_pupil = self._normalize_axis_pupil(
             axis_pupil=None,
@@ -3313,21 +3356,38 @@ class AbstractSequentialSystem(
         # wavelength, blocks the light of the linear system
         field_of_view = self._field_stop_polygon_from_rays(rayfunction_stops)
 
+        # which field positions each model is fit and averaged over, from one
+        # test of which of them land on the sensor
+        on_sensor = self._on_sensor(rays, axis_pupil)
+        where = self._where_fit(
+            on_sensor=on_sensor,
+            coordinates_scene=coordinates_scene,
+            field_of_view=field_of_view,
+            axis_field=axis_field,
+        )
+        inside = self._inside(
+            rays=rays,
+            on_sensor=on_sensor,
+            field_of_view=field_of_view,
+            axis_pupil=axis_pupil,
+            axis_field=axis_field,
+        )
+
         if field_stop:
-            field_stop = optika.radiometry.PolynomialFieldStopModel(
+            model_field_stop = optika.radiometry.PolynomialFieldStopModel(
                 wavelength=wavelength,
                 vertices=field_of_view.vertices.xy,
                 axis_wavelength=axis_wavelength[0],
                 degree=degree,
             )
         else:
-            field_stop = None
+            model_field_stop = None
 
         return LinearSystem(
-            field_stop=field_stop,
+            field_stop=model_field_stop,
             area_effective=self._fit_area_effective(
                 rays=rays,
-                field_of_view=field_of_view,
+                inside=inside,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
@@ -3335,7 +3395,7 @@ class AbstractSequentialSystem(
             distortion=self._fit_distortion(
                 rays=rays,
                 coordinates_scene=coordinates_scene,
-                field_of_view=field_of_view,
+                where=where,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
@@ -3347,7 +3407,8 @@ class AbstractSequentialSystem(
                 rays=rays,
                 area=area,
                 coordinates_scene=coordinates_scene,
-                field_of_view=field_of_view,
+                where=where,
+                inside=inside,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,

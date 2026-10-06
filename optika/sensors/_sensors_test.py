@@ -232,6 +232,19 @@ class TestImagingSensor(
     pass
 
 
+def test_clip_rays_is_keyword_only():
+    """
+    `clip_rays` came after the other fields, so it takes no place among the
+    positional arguments of an imaging sensor.
+    """
+    positional = [
+        field.name
+        for field in dataclasses.fields(optika.sensors.ImagingSensor)
+        if not field.kw_only
+    ]
+    assert "clip_rays" not in positional
+
+
 def test_clip_rays_off_passes_the_rays_which_miss_the_sensor():
     """
     A sensor which does not clip lets the rays which miss its pixels through

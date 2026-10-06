@@ -100,8 +100,7 @@ class ApertureFieldStopModel(
         wavelength: u.Quantity | na.AbstractScalar,
         num: None | int = None,
     ) -> na.AbstractCartesian2dVectorArray:
-        wire = self.aperture.wire(num=num)
-        return na.Cartesian2dVectorArray(x=wire.x, y=wire.y)
+        return self.aperture.wire(num=num).xy
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -240,4 +239,4 @@ class PolynomialFieldStopModel(
         num: None | int = None,
     ) -> na.AbstractCartesian2dVectorArray:
         wire = self.polygon(wavelength).wire(num=num)
-        return na.Cartesian2dVectorArray(x=wire.x, y=wire.y)
+        return wire.xy

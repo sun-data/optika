@@ -144,6 +144,14 @@ class AbstractTestAbstractAperture(
         assert "wire" in wire.shape
         assert wire.shape["wire"] == a.samples_wire
 
+    def test_wire_is_closed(self, a: optika.apertures.AbstractAperture):
+        # the last sample is the first again, which
+        # `SequentialSystem.field_stop_polygon` relies on to average over
+        # the edge of the pupil stop without counting a ray twice
+        wire = a.wire()
+        num = wire.shape["wire"]
+        assert np.allclose(wire[dict(wire=num - 1)], wire[dict(wire=0)])
+
     class TestPlot(
         test_mixins.AbstractTestPlottable.TestPlot,
     ):

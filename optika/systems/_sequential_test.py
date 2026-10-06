@@ -657,7 +657,10 @@ class AbstractTestAbstractSequentialSystem(
 
         # the half-light outline: each vertex is the average of the stop
         # rays through one point on the edge of the field stop
-        chief = a.field_boundary.mean(a.axis_pupil_stop)
+        # the wire of the pupil stop closes on itself, so its last sample
+        # repeats its first
+        boundary = a.field_boundary
+        chief = boundary[{a.axis_pupil_stop: slice(None, -1)}].mean(a.axis_pupil_stop)
         chief = na.Cartesian2dVectorArray(
             x=chief.x.combine_axes(axes=(a.axis_field_stop,), axis_new="vertex"),
             y=chief.y.combine_axes(axes=(a.axis_field_stop,), axis_new="vertex"),
@@ -1077,8 +1080,10 @@ def test_field_stop_polygon_is_the_half_light_outline():
     passed = closed.outputs.unvignetted.mean(axis_pupil)
     passed = passed / opened.outputs.unvignetted.mean(axis_pupil)
 
-    # measured between 0.46 and 0.52 around the polygon
-    assert np.all(np.abs(passed - 0.5) < 0.05)
+    # measured between 0.486 and 0.493 around the polygon; it was 0.46 to
+    # 0.52 while the sample which closes the wire of the pupil stop was
+    # averaged in twice
+    assert np.all(np.abs(passed - 0.5) < 0.02)
 
 
 def test_linearize_conserves_flux_across_the_soft_edge_of_the_field():
@@ -2057,15 +2062,24 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
     # one ray per cell, each carrying the area of its own cell, as every
     # model fit to a stratified trace does
     area = np.abs(pupil.volume_cell(axis=axis_pupil))
+    rays = rays[{axis_pupil[0]: slice(None, -1), axis_pupil[1]: slice(None, -1)}]
+    coordinates_scene = na.SpectralPositionalVectorArray(
+        wavelength=inputs.wavelength,
+        position=vertices_field,
+    )
     model = a._fit_vignetting(
-        rays=rays[{axis_pupil[0]: slice(None, -1), axis_pupil[1]: slice(None, -1)}],
+        rays=rays,
         area=area,
-        coordinates_scene=na.SpectralPositionalVectorArray(
-            wavelength=inputs.wavelength,
-            position=vertices_field,
+        coordinates_scene=coordinates_scene,
+        **_domains(
+            system=a,
+            rays=rays,
+            coordinates_scene=coordinates_scene,
+            # a field of view which holds every field position
+            field_of_view=optika.apertures.CircularAperture(10 * u.deg),
+            axis_pupil=axis_pupil,
+            axis_field=axis_field,
         ),
-        # a field of view which holds every field position
-        field_of_view=optika.apertures.CircularAperture(10 * u.deg),
         axis_wavelength=axis_wavelength,
         axis_field=axis_field,
         axis_pupil=axis_pupil,
@@ -2140,15 +2154,23 @@ def test_vignetting_is_normalized_over_field_positions_off_the_sensor_too():
         outputs=optika.rays.RayVectorArray(position=position, unvignetted=unvignetted),
     )
 
+    coordinates_scene = na.SpectralPositionalVectorArray(
+        wavelength=inputs.wavelength,
+        position=vertices_field,
+    )
     model = a._fit_vignetting(
         rays=rays,
         area=np.abs(vertices_pupil.volume_cell(axis=axis_pupil)),
-        coordinates_scene=na.SpectralPositionalVectorArray(
-            wavelength=inputs.wavelength,
-            position=vertices_field,
+        coordinates_scene=coordinates_scene,
+        **_domains(
+            system=a,
+            rays=rays,
+            coordinates_scene=coordinates_scene,
+            # a field of view which holds every field position
+            field_of_view=optika.apertures.CircularAperture(10 * u.deg),
+            axis_pupil=axis_pupil,
+            axis_field=axis_field,
         ),
-        # a field of view which holds every field position
-        field_of_view=optika.apertures.CircularAperture(10 * u.deg),
         axis_wavelength=axis_wavelength,
         axis_field=axis_field,
         axis_pupil=axis_pupil,
@@ -2643,6 +2665,36 @@ def _spy_arguments(monkeypatch, name: str) -> list:
     return arguments
 
 
+def _domains(
+    system: optika.systems.AbstractSequentialSystem,
+    rays: optika.rays.RayFunctionArray,
+    coordinates_scene: na.AbstractSpectralPositionalVectorArray,
+    field_of_view: optika.apertures.AbstractAperture,
+    axis_pupil: tuple[str, str],
+    axis_field: tuple[str, str],
+) -> dict[str, na.AbstractScalar]:
+    """
+    The field cells a fit is fit over and the field positions it is averaged
+    over, as the public methods work them out before handing rays to a fit.
+    """
+    on_sensor = system._on_sensor(rays, axis_pupil)
+    return dict(
+        where=system._where_fit(
+            on_sensor=on_sensor,
+            coordinates_scene=coordinates_scene,
+            field_of_view=field_of_view,
+            axis_field=axis_field,
+        ),
+        inside=system._inside(
+            rays=rays,
+            on_sensor=on_sensor,
+            field_of_view=field_of_view,
+            axis_pupil=axis_pupil,
+            axis_field=axis_field,
+        ),
+    )
+
+
 def _system_linearize() -> optika.systems.SequentialSystem:
     """The system the `linearize` tests below are run on."""
     return optika.systems.SequentialSystem(
@@ -2856,7 +2908,12 @@ def test_models_are_fit_only_inside_the_field_of_view(monkeypatch, method: str):
     lit = _spy_results(monkeypatch, "_on_sensor")
     system = _system_linearize()
 
-    model = getattr(system, method)(degree=1)
+    # a field grid reaching past the field stop, so that some of it is lit
+    # beyond the edge of the field of view
+    model = getattr(system, method)(
+        field=_grid_vertices("field", 10, span=1.5),
+        degree=1,
+    )
 
     center = model.coordinates_scene.cell_centers(model.axis_field).position
     inside = system.field_stop_polygon()(
@@ -2991,6 +3048,59 @@ def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
     assert kwargs["efficiency"] is False
 
 
+def test_linearize_tests_the_sensor_once(monkeypatch):
+    """
+    Linearizing works out which field positions land on the sensor once,
+    and hands that to all three fits.
+
+    It is a masked mean over the pupil of every ray in the trace, which each
+    fit used to work out again for itself.
+    """
+    calls = _spy_results(monkeypatch, "_on_sensor")
+
+    _system_linearize().linearize(degree=1)
+
+    assert len(calls) == 1
+
+
+def test_linearize_refuses_too_few_wavelengths():
+    """
+    Linearizing with fewer wavelengths than the polynomial in wavelength has
+    terms says so, rather than blaming the sampling of the field.
+    """
+    system = _system_linearize()
+    wavelength = na.linspace(500, 600, axis="wavelength", num=2) * u.nm
+
+    with pytest.raises(ValueError, match="the wavelength grid has 2"):
+        system.linearize(wavelength=wavelength, degree=2)
+
+
+@pytest.mark.parametrize("method", ["vignetting", "distortion", "area_effective"])
+def test_sampling_honors_the_wavelength_axis_of_the_system(method: str):
+    """
+    A system which names the axis its own wavelength grid varies along can
+    be sampled over that grid, even where the grid carries another axis
+    besides.
+    """
+    system = _system_linearize()
+    wavelength = system.grid_input.wavelength
+    wavelength = wavelength + 0 * na.linspace(0, 1, axis="exposure", num=2) * u.nm
+    system = dataclasses.replace(
+        system,
+        grid_input=dataclasses.replace(system.grid_input, wavelength=wavelength),
+        axis_wavelength="wavelength",
+    )
+
+    kwargs = dict() if method == "area_effective" else dict(degree=1)
+    result = getattr(system, method)(**kwargs)
+
+    # each value of the other axis is sampled on its own
+    if method == "area_effective":
+        assert "exposure" in na.shape(result.area)
+    else:
+        assert result.axis_wavelength == "wavelength"
+
+
 def test_linearize_refuses_a_wavelength_with_no_light():
     """
     Linearizing a system whose sampled field admits nothing at too many
@@ -3094,17 +3204,25 @@ def test_linearize_fits_around_a_wavelength_with_no_light():
             axis_pupil=axis_pupil,
             degree=degree,
         )
+        domains = _domains(
+            system=system,
+            rays=rays[index],
+            coordinates_scene=cells,
+            field_of_view=system._field_stop_polygon_from_rays(stops[index]),
+            axis_pupil=axis_pupil,
+            axis_field=axis_field,
+        )
         vignetting = system._fit_vignetting(
             rays=rays[index],
             area=area[index],
             coordinates_scene=cells,
-            field_of_view=system._field_stop_polygon_from_rays(stops[index]),
+            **domains,
             **kwargs,
         )
         distortion = system._fit_distortion(
             rays=rays[index],
             coordinates_scene=cells,
-            field_of_view=system._field_stop_polygon_from_rays(stops[index]),
+            where=domains["where"],
             **kwargs,
         )
         return vignetting, distortion

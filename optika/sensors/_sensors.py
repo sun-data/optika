@@ -618,7 +618,7 @@ class ImagingSensor(
     aperture_mechanical: optika.apertures.RectangularAperture = None
     """The shape of the physical substrate supporting the sensor."""
 
-    clip_rays: bool = True
+    clip_rays: bool = dataclasses.field(default=True, kw_only=True)
     """
     Whether :attr:`aperture` vignettes the rays which miss the
     light-sensitive area.
