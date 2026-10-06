@@ -140,7 +140,7 @@ class AbstractLinearSystem(
         wavelength
             The wavelengths at which to map the outline.
         num
-            The number of points along each edge of the field stop,
+            The total number of points along the outline of the field stop,
             see :meth:`optika.apertures.AbstractAperture.wire`.
 
         Raises

@@ -168,3 +168,40 @@ def test_field_stop_model_follows_a_field_of_view_across_the_scene():
     # center, so the point is inside once the drift passes 0.246 deg
     expected = (wavelength - 550 * u.nm) * drift > (0.6 - 0.5 / np.sqrt(2)) * u.deg
     assert np.all(result == expected)
+
+
+def test_polynomial_field_stop_tests_one_polygon_at_a_time():
+    """
+    A field of view which moves with wavelength is tested one wavelength's
+    polygon at a time, which gives the same answer as testing every point
+    against the polygons all at once, without broadcasting the vertices of
+    every polygon against every point.
+    """
+    wavelength = na.linspace(500, 600, axis="wavelength", num=3) * u.nm
+    corners = na.linspace(0, 360, axis="vertex", num=81) * u.deg
+    drift = (wavelength - 550 * u.nm) * (0.01 * u.deg / u.nm)
+    model = optika.radiometry.PolynomialFieldStopModel(
+        wavelength=wavelength,
+        vertices=na.Cartesian2dVectorArray(
+            x=0.5 * u.deg * np.cos(corners) + drift,
+            y=0.5 * u.deg * np.sin(corners),
+        ),
+        axis_wavelength="wavelength",
+    )
+    coordinates = na.SpectralPositionalVectorArray(
+        wavelength=na.linspace(480, 620, axis="scene_wavelength", num=5) * u.nm,
+        position=na.Cartesian2dVectorArray(
+            x=na.linspace(-1, 1, axis="scene_x", num=31) * u.deg,
+            y=na.linspace(-1, 1, axis="scene_y", num=31) * u.deg,
+        ),
+    )
+
+    result = model(coordinates)
+
+    position = coordinates.position
+    expected = model.polygon(coordinates.wavelength)(
+        na.Cartesian3dVectorArray(x=position.x, y=position.y),
+    )
+    assert np.all(result == expected)
+    # the field of view moves across the scene, so the test is not empty
+    assert np.any(result) and not np.all(result)
