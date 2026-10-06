@@ -144,7 +144,7 @@ class AbstractTestAbstractAperture(
         assert "wire" in wire.shape
         assert wire.shape["wire"] == a.samples_wire
 
-    @pytest.mark.parametrize("num", [None, 21, 7])
+    @pytest.mark.parametrize("num", [None, 21, 7, 3])
     def test_wire_is_closed(
         self,
         a: optika.apertures.AbstractAperture,
@@ -704,3 +704,22 @@ def test_polygon_wire_is_closed_with_fewer_samples_than_sides(
     wire = aperture.wire(num=num)
     assert wire.shape["wire"] == num
     assert np.allclose(wire[dict(wire=num - 1)], wire[dict(wire=0)])
+
+
+@pytest.mark.parametrize("num_vertices", [4, 8])
+@pytest.mark.parametrize("extra", [1, 2, 73])
+def test_polygon_wire_has_every_corner_with_more_samples_than_sides(
+    num_vertices: int,
+    extra: int,
+):
+    """
+    With more samples than sides, every corner of a polygon is on its wire,
+    so the outline the wire traces is the polygon itself.
+    """
+    aperture = optika.apertures.RegularPolygonalAperture(
+        radius=1 * u.mm,
+        num_vertices=num_vertices,
+    )
+    wire = aperture.wire(num=num_vertices + extra)
+    distance = (wire - aperture.vertices).length.min("wire")
+    assert np.all(distance < 1e-12 * u.mm)

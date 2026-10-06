@@ -875,9 +875,9 @@ class AbstractSequentialSystem(
             falls short of it by about 0.1% in area at this many.  At 21 it
             fell 1.6% short of FURST's solar disk, its field stop, cutting
             up to 12 arcsec inside the limb.
-            The edges of a polygonal field stop are sampled at its corners,
-            so its outline is exact at any number.  The solve costs about the
-            same either way.
+            A polygonal field stop with fewer corners than this is sampled
+            at every one of them, so its outline is exact.  The solve costs
+            about the same either way.
         """
         if axis_pupil_stop is None:
             axis_pupil_stop = self.axis_pupil_stop

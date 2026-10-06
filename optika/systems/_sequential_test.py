@@ -1472,10 +1472,9 @@ def test_area_effective_without_any_illuminated_field():
     )
 
     # cells lying entirely beyond the normalized field, so nothing gets through
-    vertices = np.array([5, 6, 7])
     field = na.Cartesian2dVectorArray(
-        x=na.ScalarArray(vertices, axes="field_x"),
-        y=na.ScalarArray(vertices, axes="field_y"),
+        x=na.linspace(5, 7, axis="field_x", num=3),
+        y=na.linspace(5, 7, axis="field_y", num=3),
     )
 
     result = system.area_effective(field=field)
@@ -3226,10 +3225,9 @@ def test_linearize_refuses_a_wavelength_with_no_light():
     system = _system_linearize()
 
     # cells lying entirely beyond the normalized field, so nothing gets through
-    vertices = np.array([5, 6, 7])
     field = na.Cartesian2dVectorArray(
-        x=na.ScalarArray(vertices, axes="field_x"),
-        y=na.ScalarArray(vertices, axes="field_y"),
+        x=na.linspace(5, 7, axis="field_x", num=3),
+        y=na.linspace(5, 7, axis="field_y", num=3),
     )
 
     with pytest.raises(ValueError, match="needs at least 2 wavelengths"):
@@ -3385,10 +3383,9 @@ def test_linearize_refuses_a_wavelength_with_no_light_when_uncertain():
         ],
     )
 
-    vertices = np.array([5, 6, 7])
     field = na.Cartesian2dVectorArray(
-        x=na.ScalarArray(vertices, axes="field_x"),
-        y=na.ScalarArray(vertices, axes="field_y"),
+        x=na.linspace(5, 7, axis="field_x", num=3),
+        y=na.linspace(5, 7, axis="field_y", num=3),
     )
     with pytest.raises(ValueError, match="needs at least 2 wavelengths"):
         system.linearize(field=field, degree=1)

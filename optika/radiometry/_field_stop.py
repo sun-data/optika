@@ -164,7 +164,7 @@ class PolynomialFieldStopModel(
     axis_wavelength: str = dataclasses.MISSING
     """The logical axis corresponding to changing wavelength."""
 
-    degree: int = 2
+    degree: int = dataclasses.field(default=2, kw_only=True)
     """
     The degree of the polynomial fit to each vertex.
 
@@ -257,7 +257,9 @@ def _inside_polygon(
     in proportion to both: 1.3 kB per point for an outline of 81 vertices,
     some 14 GB for ten wavelengths of a :math:`1024 \\times 1024` scene.
     One at a time, each test is of a single polygon, which takes next to
-    none.
+    none.  A single polygon along an axis is the polygon of every point
+    along it.  This can go once sun-data/named-arrays#265 is released,
+    which tests each point against its own polygon without the copy.
 
     Parameters
     ----------
@@ -273,6 +275,10 @@ def _inside_polygon(
         return polygon(position)
 
     axis = axes[0]
+    if shape[axis] == 1:
+        polygon = dataclasses.replace(polygon, vertices=vertices[{axis: 0}])
+        return _inside_polygon(polygon=polygon, position=position)
+
     position = na.broadcast_to(
         position,
         na.broadcast_shapes(na.shape(position), {axis: shape[axis]}),

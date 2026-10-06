@@ -29,17 +29,31 @@ enough that the center of the scene stays inside it at every wavelength.
 """
 
 
-def _vertices(drift: u.Quantity) -> na.Cartesian2dVectorArray:
+def _vertices(
+    drift: u.Quantity,
+    radius: u.Quantity | na.AbstractScalar = 0.5 * u.deg,
+) -> na.Cartesian2dVectorArray:
     """
-    The corners of a square field of view half a degree across, drifting
-    along :math:`x` with wavelength at the given rate.
+    The corners of a square field of view drifting along :math:`x` with
+    wavelength at the given rate.
+
+    Parameters
+    ----------
+    drift
+        How fast the field of view moves with wavelength.
+    radius
+        The distance from the center of the square to its corners.
     """
     angle = na.linspace(45, 405, axis="vertex", num=5) * u.deg
     shift = (_wavelength() - 550 * u.nm) * drift
     return na.Cartesian2dVectorArray(
-        x=0.5 * u.deg * np.cos(angle) + shift,
-        y=0.5 * u.deg * np.sin(angle) + 0 * shift,
+        x=radius * np.cos(angle) + shift,
+        y=radius * np.sin(angle) + 0 * shift,
     )
+
+
+_radius_uncertain = na.UniformUncertainScalarArray(0.5 * u.deg, 0.01 * u.deg)
+"""A field of view whose size is uncertain by a fiftieth of itself."""
 
 
 class AbstractTestAbstractFieldStopModel(
@@ -87,6 +101,9 @@ class AbstractTestAbstractFieldStopModel(
         optika.radiometry.ApertureFieldStopModel(
             aperture=optika.apertures.CircularAperture(0.5 * u.deg),
         ),
+        optika.radiometry.ApertureFieldStopModel(
+            aperture=optika.apertures.CircularAperture(_radius_uncertain),
+        ),
     ],
 )
 class TestApertureFieldStopModel(
@@ -111,6 +128,14 @@ class TestApertureFieldStopModel(
         )
         for drift in [0 * _drift, _drift]
         for degree in [1, 2, 5]
+    ]
+    + [
+        optika.radiometry.PolynomialFieldStopModel(
+            wavelength=_wavelength(),
+            vertices=_vertices(drift, radius=_radius_uncertain),
+            axis_wavelength="wavelength",
+        )
+        for drift in [0 * _drift, _drift]
     ],
 )
 class TestPolynomialFieldStopModel(
@@ -205,3 +230,29 @@ def test_polynomial_field_stop_tests_one_polygon_at_a_time():
     assert np.all(result == expected)
     # the field of view moves across the scene, so the test is not empty
     assert np.any(result) and not np.all(result)
+
+
+def test_polynomial_field_stop_tests_every_point_along_an_axis_of_one_polygon():
+    """
+    An outline which is one polygon along an axis the points vary along is
+    the outline of every point along it, not only of the first.
+    """
+    model = optika.radiometry.PolynomialFieldStopModel(
+        wavelength=_wavelength(),
+        vertices=_vertices(_drift) + na.ScalarArray.zeros(dict(channel=1)) * u.deg,
+        axis_wavelength="wavelength",
+    )
+    coordinates = na.SpectralPositionalVectorArray(
+        wavelength=550 * u.nm,
+        position=na.Cartesian2dVectorArray(
+            x=na.linspace(-0.8, 0.8, axis="channel", num=3) * u.deg,
+            y=0 * u.deg,
+        ),
+    )
+
+    result = model(coordinates)
+
+    # the square's edges sit at 0.5 * cos(45 deg) = 0.354 deg from its center
+    expected = np.abs(coordinates.position.x) < 0.5 * u.deg / np.sqrt(2)
+    assert np.any(expected) and not np.all(expected)
+    assert np.all(result == expected)

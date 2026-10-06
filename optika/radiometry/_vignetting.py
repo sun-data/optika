@@ -194,7 +194,9 @@ class PolynomialVignettingModel(
     where: bool | na.AbstractScalar = True
     """A boolean mask selecting which calibration points to use for fitting."""
 
-    coordinates_sample: None | na.AbstractSpectralPositionalVectorArray = None
+    coordinates_sample: None | na.AbstractSpectralPositionalVectorArray = (
+        dataclasses.field(default=None, kw_only=True)
+    )
     """
     Where inside its cell each calibration point was measured.
 
