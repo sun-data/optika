@@ -2017,8 +2017,8 @@ class AbstractSequentialSystem(
         ------
         ValueError
             If the wavelength grid does not vary along a single logical axis,
-            or if fewer than ``degree + 1`` of its wavelengths admit any of
-            the sampled field positions.
+            or if fewer than ``degree + 1`` of its wavelengths bring any of
+            the sampled field positions onto the sensor.
         """
         # the system names the axis of its own wavelength grid, which may
         # carry others besides; a grid passed in is read from its shape
@@ -2209,8 +2209,8 @@ class AbstractSequentialSystem(
         ------
         ValueError
             If the wavelength grid does not vary along a single logical axis,
-            or if fewer than ``degree + 1`` of its wavelengths admit any of
-            the sampled field positions.
+            or if fewer than ``degree + 1`` of its wavelengths bring any of
+            the sampled field positions onto the sensor.
         """
         # the system names the axis of its own wavelength grid, which may
         # carry others besides; a grid passed in is read from its shape
@@ -2596,7 +2596,8 @@ class AbstractSequentialSystem(
         ------
         ValueError
             If the wavelength grid has fewer than ``degree + 1`` wavelengths,
-            or if fewer than that admit any of the sampled field positions.
+            or if fewer than that bring any of the sampled field positions
+            onto the sensor, see :meth:`_where_fit`.
         """
         num = na.shape(wavelength).get(axis_wavelength, 1)
         if num <= degree:
@@ -2623,10 +2624,11 @@ class AbstractSequentialSystem(
         if any(bool(np.any(s)) for s in short):
             raise ValueError(
                 f"Fitting a polynomial of degree {degree} in wavelength needs "
-                f"at least {degree + 1} wavelengths which admit some of the "
-                "sampled field positions, and fewer do.  Sample the field "
-                "more finely, or over the field of view of every wavelength, "
-                "or lower the degree."
+                f"at least {degree + 1} wavelengths which bring some of the "
+                "sampled field positions onto the sensor, and fewer do.  "
+                "Sample the field more finely, or over the field of view of "
+                "every wavelength, choose wavelengths whose light reaches the "
+                "sensor, or lower the degree."
             )
 
     @staticmethod
@@ -3219,6 +3221,14 @@ class AbstractSequentialSystem(
         edge of the field of view, and without the field stop light from
         beyond that edge gets through.
 
+        The field of view is taken to be bounded by the field stop alone.
+        Another aperture which cuts the field with a hard edge of its own,
+        such as an object surface with an aperture when some other surface
+        is the field stop, is not carried by the linear system: the field
+        positions it blocks pass no light, so they are not fit, and the
+        vignetting model runs on across them at full strength.  Mark such an
+        aperture as the field stop, or keep it clear of the field of view.
+
         The half-light outline is where an edge measured in an image sits.
         Across a soft edge, a field stop cut there blocks the light just
         outside it and passes the unattenuated light just inside it, and the
@@ -3299,7 +3309,7 @@ class AbstractSequentialSystem(
         ValueError
             If the wavelength grid does not vary along a single logical axis,
             or if fewer of its wavelengths than one more than either degree
-            admit any of the sampled field positions.
+            bring any of the sampled field positions onto the sensor.
         """
         if degree_distortion is None:
             degree_distortion = degree

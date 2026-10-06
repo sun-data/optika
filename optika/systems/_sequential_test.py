@@ -1321,6 +1321,11 @@ def _system_dispersed() -> optika.systems.SequentialSystem:
 
     Every other system in this module has its field stop ahead of any
     dispersive element, and so the same field of view at every wavelength.
+
+    The object's aperture is widened well past the field of view, so that
+    the sensor is the only edge of the field.  Left at the 0.25 degrees of
+    the system this is built from, it cut the field with a hard edge of its
+    own, which a linear system carries only for its field stop.
     """
     base = _system_grazing
     wavelength = base.grid_input.wavelength * na.linspace(
@@ -1331,10 +1336,52 @@ def _system_dispersed() -> optika.systems.SequentialSystem:
     )
     return dataclasses.replace(
         base,
-        object=dataclasses.replace(base.object, is_field_stop=False),
+        object=dataclasses.replace(
+            base.object,
+            aperture=optika.apertures.CircularAperture(radius=np.sin(2 * u.deg)),
+            is_field_stop=False,
+        ),
         sensor=dataclasses.replace(base.sensor, is_field_stop=True),
         grid_input=dataclasses.replace(base.grid_input, wavelength=wavelength),
     )
+
+
+def test_linearize_conserves_flux_behind_a_grating():
+    """
+    A flat scene through a linearized spectrograph whose field stop is its
+    sensor collects as much light as the same scene traced through it.
+
+    With the object's aperture also cutting the field, which the linear
+    system does not carry, this came out at twice the light.
+    """
+    system = _system_dispersed()
+    linear = system.linearize(degree=2)
+
+    wavelength = _system_grazing.grid_input.wavelength
+    num = 60
+    extent = 0.8 * u.deg
+    position = na.Cartesian2dVectorArray(
+        x=na.linspace(-extent, extent, axis="field_x", num=num + 1),
+        y=na.linspace(-extent, extent, axis="field_y", num=num + 1),
+    )
+    radiance = u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm
+    scene = na.FunctionArray(
+        inputs=na.SpectralPositionalVectorArray(
+            wavelength=na.linspace(0.999, 1.001, axis="wavelength", num=2) * wavelength,
+            position=position,
+        ),
+        outputs=na.ScalarArray.ones({"field_x": num, "field_y": num}) * radiance,
+    )
+    result = linear.image(scene, noise=False).outputs.sum()
+
+    # one raytrace of this scene scatters by four percent about its mean,
+    # and the mean of ten by about one; the ratio to it was measured at 0.997
+    num_raytrace = 10
+    expected = 0 * result
+    for _ in range(num_raytrace):
+        expected = expected + system.image(scene, noise=False).outputs.sum()
+    expected = expected / num_raytrace
+    assert np.allclose(result, expected, rtol=0.05)
 
 
 def test_field_stop_polygon_behind_a_grating_moves_with_wavelength():
