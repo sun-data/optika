@@ -1,4 +1,4 @@
-from typing import Sequence, Callable, Any, ClassVar
+from typing import Sequence, Callable, Any, ClassVar, NamedTuple
 import abc
 import dataclasses
 import functools
@@ -30,6 +30,45 @@ class StopSolveError(ValueError):
     with the errors a badly built system raises from the same call; catch
     this to handle only a solve which did not converge.
     """
+
+
+class _Sampling(NamedTuple):
+    """
+    One stratified trace of a system, and which of its field positions the
+    models fit to it are fit and averaged over.
+
+    See :meth:`AbstractSequentialSystem._sample`.
+    """
+
+    wavelength: na.AbstractScalar
+    """The wavelengths traced."""
+
+    rays: optika.rays.RayFunctionArray
+    """The rays, traced with the field stop and the sensor left open."""
+
+    area: na.AbstractScalar
+    """The area of the pupil cell each ray stands for."""
+
+    coordinates_scene: na.AbstractSpectralPositionalVectorArray
+    """The cells the rays were drawn from, at each wavelength."""
+
+    field_of_view: optika.apertures.PolygonalAperture
+    """The half-light outline of the field of view."""
+
+    where: na.AbstractScalar
+    """The field cells the models are fit over."""
+
+    inside: na.AbstractScalar
+    """The field positions the models are averaged over."""
+
+    axis_wavelength: tuple[str, ...]
+    """The logical axis of the wavelengths."""
+
+    axis_field: tuple[str, str]
+    """The logical axes of the field grid."""
+
+    axis_pupil: tuple[str, str]
+    """The logical axes of the pupil grid."""
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -2020,75 +2059,27 @@ class AbstractSequentialSystem(
             or if fewer than ``degree + 1`` of its wavelengths bring any of
             the sampled field positions onto the sensor.
         """
-        # the system names the axis of its own wavelength grid, which may
-        # carry others besides; a grid passed in is read from its shape
-        axis_wavelength = None
-        if wavelength is None:
-            wavelength = self.grid_input.wavelength
-            axis_wavelength = self.axis_wavelength
-        if field is None:
-            field = self._field_vertices_default
-        if pupil is None:
-            pupil = self._pupil_vertices_default
-
-        # named explicitly rather than taken from the shape of each grid, which
-        # would also collapse any axis the grid carries beyond the two being
-        # sampled, such as one of :attr:`shape`
-        axis_wavelength = self._normalize_axis_wavelength(axis_wavelength, wavelength)
-        axis_field = self._normalize_axis_field(None, axis_wavelength, field)
-        axis_pupil = self._normalize_axis_pupil(
-            axis_pupil=None,
-            axis_field=axis_field,
-            axis_wavelength=axis_wavelength,
-            pupil=pupil,
-        )
-
-        self._check_axis_wavelength(axis_wavelength)
-
-        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
-            wavelength,
-            normalized_pupil,
-        )
-
-        # this fit reads where the rays landed and which of them were
-        # vignetted, never what they carry, so the efficiency of each surface
-        # is not computed
-        rays, _ = self._rayfunction_stratified(
+        sampling = self._sample(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis_field=axis_field,
-            axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
             seed_field=seed_field,
             seed_pupil=seed_pupil,
-            rayfunction_stops=rayfunction_stops,
-            pupil_fit=pupil_fit,
+            # this fit reads where the rays landed and which of them were
+            # vignetted, never what they carry, so the efficiency of each
+            # surface is not computed
             efficiency=False,
         )
 
-        coordinates_scene = self._coordinates_scene_from_rays(
-            wavelength=wavelength,
-            field=field,
-            rayfunction_stops=rayfunction_stops,
-            normalized_field=normalized_field,
-        )
-        field_of_view = self._field_stop_polygon_from_rays(rayfunction_stops)
-        on_sensor = self._on_sensor(rays, axis_pupil)
-
         return self._fit_distortion(
-            rays=rays,
-            coordinates_scene=coordinates_scene,
-            where=self._where_fit(
-                on_sensor=on_sensor,
-                coordinates_scene=coordinates_scene,
-                field_of_view=field_of_view,
-                axis_field=axis_field,
-            ),
-            axis_wavelength=axis_wavelength,
-            axis_field=axis_field,
-            axis_pupil=axis_pupil,
+            rays=sampling.rays,
+            coordinates_scene=sampling.coordinates_scene,
+            where=sampling.where,
+            axis_wavelength=sampling.axis_wavelength,
+            axis_field=sampling.axis_field,
+            axis_pupil=sampling.axis_pupil,
             degree=degree,
         )
 
@@ -2212,83 +2203,29 @@ class AbstractSequentialSystem(
             or if fewer than ``degree + 1`` of its wavelengths bring any of
             the sampled field positions onto the sensor.
         """
-        # the system names the axis of its own wavelength grid, which may
-        # carry others besides; a grid passed in is read from its shape
-        axis_wavelength = None
-        if wavelength is None:
-            wavelength = self.grid_input.wavelength
-            axis_wavelength = self.axis_wavelength
-        if field is None:
-            field = self._field_vertices_default
-        if pupil is None:
-            pupil = self._pupil_vertices_default
-
-        # named explicitly rather than taken from the shape of each grid, which
-        # would also collapse any axis the grid carries beyond the two being
-        # sampled, such as one of :attr:`shape`
-        axis_wavelength = self._normalize_axis_wavelength(axis_wavelength, wavelength)
-        axis_field = self._normalize_axis_field(None, axis_wavelength, field)
-        axis_pupil = self._normalize_axis_pupil(
-            axis_pupil=None,
-            axis_field=axis_field,
-            axis_wavelength=axis_wavelength,
-            pupil=pupil,
-        )
-
-        self._check_axis_wavelength(axis_wavelength)
-
-        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
-            wavelength,
-            normalized_pupil,
-        )
-
-        # this fit reads the geometry of the rays and which of them were
-        # vignetted, never what they carry, so the efficiency of each surface
-        # is not computed
-        rays, area = self._rayfunction_stratified(
+        sampling = self._sample(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis_field=axis_field,
-            axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
             seed_field=seed_field,
             seed_pupil=seed_pupil,
-            rayfunction_stops=rayfunction_stops,
-            pupil_fit=pupil_fit,
+            # this fit reads the geometry of the rays and which of them were
+            # vignetted, never what they carry, so the efficiency of each
+            # surface is not computed
             efficiency=False,
         )
 
-        coordinates_scene = self._coordinates_scene_from_rays(
-            wavelength=wavelength,
-            field=field,
-            rayfunction_stops=rayfunction_stops,
-            normalized_field=normalized_field,
-        )
-        field_of_view = self._field_stop_polygon_from_rays(rayfunction_stops)
-        on_sensor = self._on_sensor(rays, axis_pupil)
-
         return self._fit_vignetting(
-            rays=rays,
-            area=area,
-            coordinates_scene=coordinates_scene,
-            where=self._where_fit(
-                on_sensor=on_sensor,
-                coordinates_scene=coordinates_scene,
-                field_of_view=field_of_view,
-                axis_field=axis_field,
-            ),
-            inside=self._inside(
-                rays=rays,
-                on_sensor=on_sensor,
-                field_of_view=field_of_view,
-                axis_pupil=axis_pupil,
-                axis_field=axis_field,
-            ),
-            axis_wavelength=axis_wavelength,
-            axis_field=axis_field,
-            axis_pupil=axis_pupil,
+            rays=sampling.rays,
+            area=sampling.area,
+            coordinates_scene=sampling.coordinates_scene,
+            where=sampling.where,
+            inside=sampling.inside,
+            axis_wavelength=sampling.axis_wavelength,
+            axis_field=sampling.axis_field,
+            axis_pupil=sampling.axis_pupil,
             degree=degree,
         )
 
@@ -2887,6 +2824,73 @@ class AbstractSequentialSystem(
         ValueError
             If the wavelength grid does not vary along a single logical axis.
         """
+        sampling = self._sample(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+            seed_field=seed_field,
+            seed_pupil=seed_pupil,
+            efficiency=True,
+        )
+
+        return self._fit_area_effective(
+            rays=sampling.rays,
+            inside=sampling.inside,
+            axis_wavelength=sampling.axis_wavelength,
+            axis_field=sampling.axis_field,
+            axis_pupil=sampling.axis_pupil,
+        )
+
+    def _sample(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar,
+        field: None | na.AbstractCartesian2dVectorArray,
+        pupil: None | na.AbstractCartesian2dVectorArray,
+        normalized_field: bool,
+        normalized_pupil: bool,
+        seed_field: None | int,
+        seed_pupil: None | int,
+        efficiency: bool,
+    ) -> _Sampling:
+        """
+        Trace the stratified rays behind :meth:`distortion`,
+        :meth:`vignetting`, :meth:`area_effective`, and :meth:`linearize`,
+        and work out which field positions their models are fit and averaged
+        over.
+
+        All four begin here, so that each returns exactly the model the
+        others would given the same arguments.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to sample the system, or :obj:`None`
+            for ``self.grid_input.wavelength``.
+        field
+            The vertices of the field grid, or :obj:`None` for the default.
+        pupil
+            The vertices of the pupil grid, or :obj:`None` for the default.
+        normalized_field
+            Whether `field` is normalized.
+        normalized_pupil
+            Whether `pupil` is normalized.
+        seed_field
+            The seed of the draw inside each field cell, see
+            :meth:`vignetting`.
+        seed_pupil
+            The seed of the draw inside each pupil cell, see
+            :meth:`vignetting`.
+        efficiency
+            Whether to accumulate the efficiency of each surface into the
+            rays, which only the effective area reads.
+
+        Raises
+        ------
+        ValueError
+            If the wavelength grid does not vary along a single logical axis.
+        """
         # the system names the axis of its own wavelength grid, which may
         # carry others besides; a grid passed in is read from its shape
         axis_wavelength = None
@@ -2910,14 +2914,19 @@ class AbstractSequentialSystem(
             pupil=pupil,
         )
 
+        # checked before the stops are solved for, which is the expensive half
+        # of the work this would otherwise throw away
         self._check_axis_wavelength(axis_wavelength)
 
+        # Solving for the stops and calibrating the entrance pupil depend on
+        # nothing but the wavelengths, so solve once and hand the result to
+        # the trace.
         rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
             wavelength,
             normalized_pupil,
         )
 
-        rays, _ = self._rayfunction_stratified(
+        rays, area = self._rayfunction_stratified(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
@@ -2929,14 +2938,41 @@ class AbstractSequentialSystem(
             seed_pupil=seed_pupil,
             rayfunction_stops=rayfunction_stops,
             pupil_fit=pupil_fit,
+            efficiency=efficiency,
         )
 
-        return self._fit_area_effective(
+        # the cells the rays were drawn from, which the fitted models carry
+        coordinates_scene = self._coordinates_scene_from_rays(
+            wavelength=wavelength,
+            field=field,
+            rayfunction_stops=rayfunction_stops,
+            normalized_field=normalized_field,
+        )
+
+        # the half-light outline bounds the fits and their averages, and, fit
+        # in wavelength, blocks the light of a linear system
+        field_of_view = self._field_stop_polygon_from_rays(rayfunction_stops)
+
+        # which field positions each model is fit and averaged over, from one
+        # test of which of them land on the sensor
+        on_sensor = self._on_sensor(rays, axis_pupil)
+
+        return _Sampling(
+            wavelength=wavelength,
             rays=rays,
+            area=area,
+            coordinates_scene=coordinates_scene,
+            field_of_view=field_of_view,
+            where=self._where_fit(
+                on_sensor=on_sensor,
+                coordinates_scene=coordinates_scene,
+                field_of_view=field_of_view,
+                axis_field=axis_field,
+            ),
             inside=self._inside(
                 rays=rays,
-                on_sensor=self._on_sensor(rays, axis_pupil),
-                field_of_view=self._field_stop_polygon_from_rays(rayfunction_stops),
+                on_sensor=on_sensor,
+                field_of_view=field_of_view,
                 axis_pupil=axis_pupil,
                 axis_field=axis_field,
             ),
@@ -3316,67 +3352,26 @@ class AbstractSequentialSystem(
         if degree_vignetting is None:
             degree_vignetting = degree
 
-        # the system names the axis of its own wavelength grid, which may
-        # carry others besides; a grid passed in is read from its shape
-        axis_wavelength = None
-        if wavelength is None:
-            wavelength = self.grid_input.wavelength
-            axis_wavelength = self.axis_wavelength
-        if field is None:
-            field = self._field_vertices_default
-        if pupil is None:
-            pupil = self._pupil_vertices_default
-
-        # named explicitly rather than taken from the shape of each grid, which
-        # would also collapse any axis the grid carries beyond the two being
-        # sampled, such as one of :attr:`shape`
-        axis_wavelength = self._normalize_axis_wavelength(axis_wavelength, wavelength)
-        axis_field = self._normalize_axis_field(None, axis_wavelength, field)
-        axis_pupil = self._normalize_axis_pupil(
-            axis_pupil=None,
-            axis_field=axis_field,
-            axis_wavelength=axis_wavelength,
-            pupil=pupil,
-        )
-
-        self._check_axis_wavelength(axis_wavelength)
-
-        # Solving for the stops and calibrating the entrance pupil depend on
-        # nothing but the wavelengths, so solve once and hand the result to
-        # the trace.
-        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
-            wavelength,
-            normalized_pupil,
-        )
-
         # every model below reads the same rays, and so does `direction`,
         # so trace them once
-        rays, area = self._rayfunction_stratified(
+        sampling = self._sample(
             wavelength=wavelength,
             field=field,
             pupil=pupil,
-            axis_field=axis_field,
-            axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
             seed_field=seed_field,
             seed_pupil=seed_pupil,
-            rayfunction_stops=rayfunction_stops,
-            pupil_fit=pupil_fit,
+            efficiency=True,
         )
-
-        # the cells the rays were drawn from, which both fitted models carry
-        coordinates_scene = self._coordinates_scene_from_rays(
-            wavelength=wavelength,
-            field=field,
-            rayfunction_stops=rayfunction_stops,
-            normalized_field=normalized_field,
-        )
+        axis_wavelength = sampling.axis_wavelength
+        axis_field = sampling.axis_field
+        axis_pupil = sampling.axis_pupil
 
         # the cosine of the refracted angle at which light strikes the sensor,
         # computed the same way as
         # :meth:`~optika.sensors.AbstractImagingSensor.collect`.
-        outputs = rays.outputs
+        outputs = sampling.rays.outputs
         direction = self.sensor.material.direction_refracted(
             wavelength=outputs.wavelength,
             direction=outputs.direction,
@@ -3394,31 +3389,10 @@ class AbstractSequentialSystem(
             axis=tuple(ax for ax in axis_grid if ax in na.shape(direction)),
         )
 
-        # the half-light outline both bounds the fits' averages and, fit in
-        # wavelength, blocks the light of the linear system
-        field_of_view = self._field_stop_polygon_from_rays(rayfunction_stops)
-
-        # which field positions each model is fit and averaged over, from one
-        # test of which of them land on the sensor
-        on_sensor = self._on_sensor(rays, axis_pupil)
-        where = self._where_fit(
-            on_sensor=on_sensor,
-            coordinates_scene=coordinates_scene,
-            field_of_view=field_of_view,
-            axis_field=axis_field,
-        )
-        inside = self._inside(
-            rays=rays,
-            on_sensor=on_sensor,
-            field_of_view=field_of_view,
-            axis_pupil=axis_pupil,
-            axis_field=axis_field,
-        )
-
         if field_stop:
             model_field_stop = optika.radiometry.PolynomialFieldStopModel(
-                wavelength=wavelength,
-                vertices=field_of_view.vertices.xy,
+                wavelength=sampling.wavelength,
+                vertices=sampling.field_of_view.vertices.xy,
                 axis_wavelength=axis_wavelength[0],
                 degree=degree_distortion,
             )
@@ -3428,16 +3402,16 @@ class AbstractSequentialSystem(
         return LinearSystem(
             field_stop=model_field_stop,
             area_effective=self._fit_area_effective(
-                rays=rays,
-                inside=inside,
+                rays=sampling.rays,
+                inside=sampling.inside,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
             ),
             distortion=self._fit_distortion(
-                rays=rays,
-                coordinates_scene=coordinates_scene,
-                where=where,
+                rays=sampling.rays,
+                coordinates_scene=sampling.coordinates_scene,
+                where=sampling.where,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
@@ -3446,11 +3420,11 @@ class AbstractSequentialSystem(
             sensor=self.sensor,
             direction=direction,
             vignetting=self._fit_vignetting(
-                rays=rays,
-                area=area,
-                coordinates_scene=coordinates_scene,
-                where=where,
-                inside=inside,
+                rays=sampling.rays,
+                area=sampling.area,
+                coordinates_scene=sampling.coordinates_scene,
+                where=sampling.where,
+                inside=sampling.inside,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
