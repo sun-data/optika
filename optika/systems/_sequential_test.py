@@ -3072,6 +3072,34 @@ def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
     assert kwargs["efficiency"] is False
 
 
+def test_linearize_takes_a_degree_for_each_model():
+    """
+    The distortion and vignetting models of a linearized system can each
+    have a degree of their own, and are then the models that
+    :meth:`distortion` and :meth:`vignetting` fit at those degrees.
+
+    The field stop moves with wavelength as the distortion does, and takes
+    its degree.
+    """
+    system = _system_linearize()
+
+    linear = system.linearize(degree_distortion=2, degree_vignetting=1)
+
+    assert linear.distortion.degree == 2
+    assert linear.vignetting.degree == 1
+    assert linear.field_stop.degree == 2
+
+    distortion = system.distortion(degree=2)
+    vignetting = system.vignetting(degree=1)
+    assert np.all(linear.distortion.fit.predictions.x == distortion.fit.predictions.x)
+    assert np.all(linear.vignetting.fit.predictions == vignetting.fit.predictions)
+
+    # either left out takes `degree`
+    linear = system.linearize(degree=1, degree_distortion=2)
+    assert linear.distortion.degree == 2
+    assert linear.vignetting.degree == 1
+
+
 def test_linearize_tests_the_sensor_once(monkeypatch):
     """
     Linearizing works out which field positions land on the sensor once,

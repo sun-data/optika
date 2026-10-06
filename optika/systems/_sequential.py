@@ -3187,6 +3187,8 @@ class AbstractSequentialSystem(
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         degree: int = 2,
+        degree_distortion: None | int = None,
+        degree_vignetting: None | int = None,
         seed_field: None | int = 0,
         seed_pupil: None | int = 0,
         field_stop: bool = True,
@@ -3255,7 +3257,23 @@ class AbstractSequentialSystem(
             A boolean flag indicating whether the `pupil` parameter is given
             in normalized or physical units.
         degree
-            The degree of the polynomial distortion and vignetting models.
+            The degree of the polynomial distortion and vignetting models,
+            unless either is given one of its own.
+        degree_distortion
+            The degree of the polynomial distortion model, and of the
+            polynomials in wavelength which carry the field stop, whose
+            vertices move with wavelength as the distortion does.
+            If :obj:`None` (the default), `degree`.
+        degree_vignetting
+            The degree of the polynomial vignetting model.
+            If :obj:`None` (the default), `degree`.
+
+            The two need not agree, and the distortion of a spectrograph can
+            need a higher degree than its vignetting.  On ESIS, with
+            :math:`11 \\times 11` field and pupil cells, a quadratic
+            distortion is accurate to 0.01 pixels, while a quadratic
+            vignetting model fits the noise of the sampling, with an error of
+            up to 2.8% against 1.1% for a linear one.
         seed_field
             The seed of the draw which places a field position inside each
             field cell, or :obj:`None` to take the center of each cell
@@ -3273,16 +3291,21 @@ class AbstractSequentialSystem(
             Zero by default, for the same reasons as `seed_field`.
         field_stop
             Whether to carry the field of view on the result, see above.
-            Fit with the same `degree` as the other models, held one below
-            the number of wavelengths sampled.
+            Fit with `degree_distortion`, held one below the number of
+            wavelengths sampled.
 
         Raises
         ------
         ValueError
             If the wavelength grid does not vary along a single logical axis,
-            or if fewer than ``degree + 1`` of its wavelengths admit any of
-            the sampled field positions.
+            or if fewer of its wavelengths than one more than either degree
+            admit any of the sampled field positions.
         """
+        if degree_distortion is None:
+            degree_distortion = degree
+        if degree_vignetting is None:
+            degree_vignetting = degree
+
         # the system names the axis of its own wavelength grid, which may
         # carry others besides; a grid passed in is read from its shape
         axis_wavelength = None
@@ -3387,7 +3410,7 @@ class AbstractSequentialSystem(
                 wavelength=wavelength,
                 vertices=field_of_view.vertices.xy,
                 axis_wavelength=axis_wavelength[0],
-                degree=degree,
+                degree=degree_distortion,
             )
         else:
             model_field_stop = None
@@ -3408,7 +3431,7 @@ class AbstractSequentialSystem(
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
-                degree=degree,
+                degree=degree_distortion,
             ),
             sensor=self.sensor,
             direction=direction,
@@ -3421,7 +3444,7 @@ class AbstractSequentialSystem(
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
-                degree=degree,
+                degree=degree_vignetting,
             ),
         )
 
