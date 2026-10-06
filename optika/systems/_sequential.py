@@ -807,7 +807,7 @@ class AbstractSequentialSystem(
         axis_pupil_stop: None | str = None,
         axis_field_stop: None | str = None,
         samples_pupil_stop: int = 21,
-        samples_field_stop: int = 21,
+        samples_field_stop: int = 81,
     ) -> optika.rays.RayFunctionArray:
         """
         Solve for the rays which graze the edges of both stops, plus those
@@ -830,6 +830,15 @@ class AbstractSequentialSystem(
         samples_field_stop
             The number of points along the edge of the field stop, not
             counting its center.
+
+            These are the vertices of :meth:`field_stop_polygon`, so a round
+            field stop is outlined by the polygon inscribed in it, which
+            falls short of it by about 0.1% in area at this many.  At 21 it
+            fell 1.6% short of FURST's solar disk, its field stop, cutting
+            up to 12 arcsec inside the limb.
+            The edges of a polygonal field stop are sampled at its corners,
+            so its outline is exact at any number.  The solve costs about the
+            same either way.
         """
         if axis_pupil_stop is None:
             axis_pupil_stop = self.axis_pupil_stop

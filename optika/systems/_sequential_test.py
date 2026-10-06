@@ -1273,6 +1273,30 @@ def test_vignetting_is_not_cut_by_the_field_stop_or_the_sensor(
     assert np.all(np.abs(illumination - 1) < 0.03)
 
 
+def test_field_stop_polygon_follows_a_round_field_stop():
+    """
+    The field-stop polygon of a round field stop holds nearly all of it.
+
+    The polygon is inscribed in the stop, its vertices sampled along the
+    edge, and at 21 samples it fell 1.6% short of the area of a round stop.
+    The full-disk FURST telescope takes the solar disk as its field stop,
+    and lost a sliver around the limb.
+    """
+    system = _system_vignetted()
+
+    def area(polygon: optika.apertures.PolygonalAperture) -> float:
+        vertices = polygon.vertices
+        x = na.value(vertices.x).ndarray_aligned(("vertex",))
+        y = na.value(vertices.y).ndarray_aligned(("vertex",))
+        return 0.5 * abs(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+
+    wavelength = system.grid_input.wavelength
+    stops = system._calc_rayfunction_stops(wavelength, samples_field_stop=401)
+    fine = system._field_stop_polygon_from_rays(system._without_center(stops))
+
+    assert area(system.field_stop_polygon()) / area(fine) > 0.998
+
+
 def test_field_stop_polygon_of_an_uncertain_system():
     """
     The field-stop polygon of a system with uncertain parameters carries
