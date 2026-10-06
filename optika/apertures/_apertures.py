@@ -1113,36 +1113,46 @@ class AbstractPolygonalAperture(
             num = self.samples_wire
         vertices = self.vertices.broadcasted
         num_vertices = vertices.shape["vertex"]
-        num_sides = num_vertices
-        num_per_side = num / num_sides
         index_right = na.arange(0, num_vertices, axis="vertex") + 1
         index_right = index_right % num_vertices
         index_right = dict(vertex=index_right)
         vertices_left = vertices
         vertices_right = vertices[index_right]
+        # The samples are shared out among the sides in integers, so that
+        # they always add up to `num` and the wire always ends where it began.
+        # With as many samples as sides, every side starts with its first
+        # corner and the last side ends at the first corner again.  With
+        # fewer, some sides get none, so all but the closing sample are shared
+        # out with the first side served first, and the closing sample is
+        # added after them.
+        few = num < num_vertices
+        if few:
+            bounds = [
+                -(-v * (num - 1) // num_vertices) for v in range(num_vertices + 1)
+            ]
+        else:
+            bounds = [v * num // num_vertices for v in range(num_vertices + 1)]
         wire = []
-        num_cumulative = 0
         for v in range(num_vertices):
-            num_v = int((v + 1) * num_per_side - num_cumulative)
-            num_cumulative += num_v
-
-            if num_cumulative == num:
-                endpoint = True
-            else:
-                endpoint = False
-
+            num_v = bounds[v + 1] - bounds[v]
+            last = v == num_vertices - 1 and not few
             t = na.linspace(
-                start=0,
+                # a single sample left for the last side is the point which
+                # closes the wire, not the corner that side starts from
+                start=1 if last and num_v == 1 else 0,
                 stop=1,
                 axis="wire",
                 num=num_v,
-                endpoint=endpoint,
+                endpoint=last,
             )
             vertex_left = vertices_left[dict(vertex=v)]
             vertex_right = vertices_right[dict(vertex=v)]
             diff = vertex_right - vertex_left
             wire_v = vertex_left + diff * t
             wire.append(wire_v)
+        if few:
+            closing = na.linspace(start=0, stop=0, axis="wire", num=1)
+            wire.append(vertices_left[dict(vertex=0)] + 0 * closing)
 
         wire = na.concatenate(wire, axis="wire")
 
