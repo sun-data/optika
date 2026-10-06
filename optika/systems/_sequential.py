@@ -1963,15 +1963,15 @@ class AbstractSequentialSystem(
             The **vertices** of the field grid, in either normalized or
             physical units.  One ray is traced per cell, at a point drawn
             uniformly inside it.
-            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
-            the normalized field is used.
+            If :obj:`None` (the default), :math:`12 \\times 12` vertices
+            spanning the normalized field, so :math:`11 \\times 11` cells.
         pupil
             The **vertices** of the pupil grid, in either normalized or
             physical units.  One ray is traced per cell, at a point drawn
             uniformly inside it, and the sensor position of each field cell
             is the mean over them.
-            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
-            the normalized pupil is used.
+            If :obj:`None` (the default), :math:`12 \\times 12` vertices
+            spanning the normalized pupil, so :math:`11 \\times 11` cells.
 
             Both grids are the ones :meth:`area_effective` uses when given
             none, so passing these defaults back describes the same grid as
@@ -2150,15 +2150,15 @@ class AbstractSequentialSystem(
             The **vertices** of the field grid, in either normalized or
             physical units.  One ray is traced per cell, at a point drawn
             uniformly inside it.
-            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
-            the normalized field is used.
+            If :obj:`None` (the default), :math:`12 \\times 12` vertices
+            spanning the normalized field, so :math:`11 \\times 11` cells.
         pupil
             The **vertices** of the pupil grid, in either normalized or
             physical units.  The area of each pupil cell is computed from these
             vertices and summed over the unvignetted cells, and one ray is
             traced per cell, at a point drawn uniformly inside it.
-            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
-            the normalized pupil is used.
+            If :obj:`None` (the default), :math:`12 \\times 12` vertices
+            spanning the normalized pupil, so :math:`11 \\times 11` cells.
 
             Both grids are the ones :meth:`area_effective` uses when given
             none, so passing these defaults back describes the same grid as
@@ -2850,15 +2850,15 @@ class AbstractSequentialSystem(
             physical units.  One ray is traced per cell, at a point drawn
             uniformly inside it, and the result is averaged over the cells
             which lie in the field of view.
-            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
-            the normalized field is used.
+            If :obj:`None` (the default), :math:`12 \\times 12` vertices
+            spanning the normalized field, so :math:`11 \\times 11` cells.
         pupil
             The **vertices** of the pupil grid, in either normalized or physical
             units. The area of each pupil cell is computed from these vertices
             and used to weight the throughput, and one ray is traced per cell, at
             a point drawn uniformly inside it.
-            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
-            the normalized pupil is used.
+            If :obj:`None` (the default), :math:`12 \\times 12` vertices
+            spanning the normalized pupil, so :math:`11 \\times 11` cells.
         normalized_field
             A boolean flag indicating whether the `field` parameter is given
             in normalized or physical units.
@@ -3235,15 +3235,15 @@ class AbstractSequentialSystem(
             The **vertices** of the field grid, in either normalized or
             physical units.  One ray is traced per cell, at a point drawn
             uniformly inside it.
-            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
-            the normalized field is used.
+            If :obj:`None` (the default), :math:`12 \\times 12` vertices
+            spanning the normalized field, so :math:`11 \\times 11` cells.
         pupil
             The **vertices** of the pupil grid, in either normalized or physical
             units.  The area of each pupil cell is computed from these vertices
             and used to weight the throughput, and one ray is traced per cell,
             at a point drawn uniformly inside it.
-            If :obj:`None` (the default), a :math:`12 \\times 12` grid spanning
-            the normalized pupil is used.
+            If :obj:`None` (the default), :math:`12 \\times 12` vertices
+            spanning the normalized pupil, so :math:`11 \\times 11` cells.
 
             Both grids are the ones :meth:`area_effective` uses when given
             none, so passing these defaults back describes the same grid as
