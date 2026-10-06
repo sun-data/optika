@@ -1,3 +1,4 @@
+from typing import Any
 import dataclasses
 import matplotlib.lines
 import matplotlib.pyplot as plt
@@ -1177,7 +1178,7 @@ def test_surfaces_open_leave_the_field_stop_and_the_sensor_open():
     )
     surfaces = system.surfaces_all
 
-    def deactivate(surface):
+    def deactivate(surface: optika.surfaces.Surface) -> optika.surfaces.Surface:
         aperture = dataclasses.replace(surface.aperture, active=False)
         return dataclasses.replace(surface, aperture=aperture)
 
@@ -1196,7 +1197,7 @@ def test_surfaces_open_leave_the_field_stop_and_the_sensor_open():
     assert not field_stop.aperture.active
     assert np.allclose(field_stop.aperture.wire(), system.field_stop.aperture.wire())
 
-    def count(rays):
+    def count(rays: optika.rays.RayFunctionArray) -> na.AbstractScalar:
         return rays.outputs.unvignetted.sum()
 
     # the grid reaches twice as far as the field stop, and its light lands
@@ -1449,7 +1450,7 @@ def test_linearize_field_stop_follows_the_wavelength():
         / u.cm**2
         / u.arcsec**2
         / u.nm
-        * na.ScalarArray(np.ones((12, 12)), axes=("field_x", "field_y")),
+        * na.ScalarArray.ones({"field_x": 12, "field_y": 12}),
     )
     image = linear.image(scene, noise=False).outputs
     assert np.all(np.isfinite(image))
@@ -2188,7 +2189,10 @@ def test_vignetting_is_normalized_over_field_positions_off_the_sensor_too():
     axis_pupil = ("_vpx", "_vpy")
     num = 4
 
-    def grid(axis, unit):
+    def grid(
+        axis: tuple[str, str],
+        unit: u.UnitBase,
+    ) -> na.AbstractCartesian2dVectorArray:
         vertices = na.Cartesian2dVectorLinearSpace(
             start=-1,
             stop=1,
@@ -2212,11 +2216,13 @@ def test_vignetting_is_normalized_over_field_positions_off_the_sensor_too():
     # column i of the field passes the last num - i columns of its pupil,
     # so the illumination falls across the field, and the light of column 0
     # lands far beyond the edge of the sensor
-    index = np.indices((num, num, num, num))
-    unvignetted = na.ScalarArray(index[2] >= index[0], axes=axis_field + axis_pupil)
-    x = np.where(index[0] == 0, 1e3, 0.0) * u.mm
+    shape = dict.fromkeys(axis_field + axis_pupil, num)
+    index = na.indices(shape)
+    unvignetted = index[axis_pupil[0]] >= index[axis_field[0]]
+    unvignetted = na.broadcast_to(unvignetted, shape)
+    x = np.where(index[axis_field[0]] == 0, 1e3, 0.0) * u.mm
     position = na.Cartesian3dVectorArray(
-        x=na.ScalarArray(x, axes=axis_field + axis_pupil),
+        x=na.broadcast_to(x, shape),
         y=0 * u.mm,
         z=0 * u.mm,
     )
@@ -2709,12 +2715,12 @@ def test_area_effective_is_reproducible_when_seeded():
     assert np.any(a != area(42, 43))
 
 
-def _spy_results(monkeypatch, name: str) -> list:
+def _spy_results(monkeypatch: pytest.MonkeyPatch, name: str) -> list[Any]:
     """Record what each call to the named method of the system returns."""
     method = getattr(optika.systems.SequentialSystem, name)
     results = []
 
-    def spy(self, *args, **kwargs):
+    def spy(self: optika.systems.SequentialSystem, *args: Any, **kwargs: Any) -> Any:
         result = method(self, *args, **kwargs)
         results.append(result)
         return result
@@ -2723,12 +2729,15 @@ def _spy_results(monkeypatch, name: str) -> list:
     return results
 
 
-def _spy_arguments(monkeypatch, name: str) -> list:
+def _spy_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+) -> list[dict[str, Any]]:
     """Record the keyword arguments of each call to the named method."""
     method = getattr(optika.systems.SequentialSystem, name)
     arguments = []
 
-    def spy(self, *args, **kwargs):
+    def spy(self: optika.systems.SequentialSystem, *args: Any, **kwargs: Any) -> Any:
         arguments.append(kwargs)
         return method(self, *args, **kwargs)
 
@@ -2853,7 +2862,9 @@ def test_linearize_is_reproducible():
     b = system.linearize(degree=1)
     c = system.linearize(degree=1, seed_field=43, seed_pupil=43)
 
-    def models(system: optika.systems.LinearSystem):
+    def models(
+        system: optika.systems.LinearSystem,
+    ) -> tuple[na.AbstractArray, ...]:
         return (
             system.area_effective(wavelength),
             system.distortion.coordinates_sensor,
@@ -3029,7 +3040,7 @@ def test_each_seed_moves_only_its_own_grid(monkeypatch):
 
     # the first call of each fit is the one which makes the drawn grid
     # physical
-    def grid(**kwargs) -> optika.vectors.ObjectVectorArray:
+    def grid(**kwargs: None | int) -> optika.vectors.ObjectVectorArray:
         num_calls = len(calls)
         system.vignetting(degree=1, **kwargs)
         return calls[num_calls]["grid"]
@@ -3238,9 +3249,8 @@ def _field_dark_at_last(num_wavelength: int, num_dark: int) -> tuple:
     outside it.
     """
     wavelength = na.linspace(500, 600, axis="wavelength", num=num_wavelength)
-    offset = np.zeros(num_wavelength)
-    offset[num_wavelength - num_dark :] = 20
-    offset = na.ScalarArray(offset, axes="wavelength")
+    index = na.arange(0, num_wavelength, axis="wavelength")
+    offset = np.where(index >= num_wavelength - num_dark, 20, 0)
     field = na.Cartesian2dVectorArray(
         x=na.linspace(-1, 1, axis="field_x", num=9) + offset,
         y=na.linspace(-1, 1, axis="field_y", num=9) + 0 * offset,
@@ -3290,7 +3300,12 @@ def test_linearize_fits_around_a_wavelength_with_no_light():
         pupil_fit=pupil_fit,
     )
 
-    def fit(index):
+    def fit(
+        index: dict[str, slice],
+    ) -> tuple[
+        optika.radiometry.PolynomialVignettingModel,
+        optika.distortion.PolynomialDistortionModel,
+    ]:
         cells = system._coordinates_scene_from_rays(
             wavelength=wavelength[index],
             field=field[index],

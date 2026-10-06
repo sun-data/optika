@@ -369,10 +369,10 @@ def test_plots_leave_out_the_cells_the_model_was_not_fit_over():
 
     # a field of view which holds the middle of the grid but not its corners,
     # with one cell in the middle left out as well
-    middle = np.zeros((5, 5), dtype=bool)
-    middle[2, 2] = True
+    index = na.indices({"field_x": 5, "field_y": 5})
+    middle = (index["field_x"] == 2) & (index["field_y"] == 2)
     where = _centers().position.length < 0.85 * u.deg
-    where = where & ~na.ScalarArray(middle, axes=("field_x", "field_y"))
+    where = where & ~middle
     expected = int((~where).sum().ndarray)
     assert expected > 1
 
