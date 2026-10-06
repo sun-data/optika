@@ -346,6 +346,8 @@ class PolynomialVignettingModel(
         Plot the calibration :attr:`illumination` as a function of field angle,
         with a separate subplot for each wavelength.
 
+        Cells the model was not fit over, see :attr:`where`, are left blank.
+
         Parameters
         ----------
         ax
@@ -378,8 +380,12 @@ class PolynomialVignettingModel(
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
         """
+        # exclude the calibration points that were not used by the fit, as
+        # :meth:`plot_residual` does
+        illumination = np.where(self.where, self.illumination, np.nan)
+
         return self._plot(
-            self.illumination,
+            illumination,
             label="illumination",
             ax=ax,
             figsize=figsize,
