@@ -336,6 +336,83 @@ onto the box at its own field position and weighted by the area of its cell
 there.
 
 
+Polar coordinates for a pupil with a hole
+-----------------------------------------
+
+A normalized pupil is read in rectangular coordinates by default: each
+component is mapped onto the corresponding side of the box around the
+entrance pupil of that field point. That samples a pupil evenly wherever the
+pupil fills its box, which a rectangular stop does exactly and a circular one
+does to within a fifth. It fails for the pupil of a grazing-incidence
+telescope, which is a thin annulus: the annulus of a Wolter-I with a 200 mm
+long shell at a quarter of a degree of graze covers 4% of its box, so 24 rays
+in 25 are drawn where there is no pupil and thrown away at the stop, and the
+annulus is thinner than a cell of any affordable grid, so the effective area
+does not converge either. Measured on such a telescope against a densely
+sampled reference, the collecting area from 1600 rays per field point was
+still wrong by 74%.
+
+Setting :attr:`~optika.systems.SequentialSystem.coordinates_pupil` to
+``"polar"`` reads the normalized pupil in polar coordinates instead. The first
+component is the position along the edge of the entrance pupil, :math:`-1`
+and :math:`+1` both being its first point for an edge which closes on itself,
+and the second is the distance from the inner edge of the pupil to the outer,
+so every ray lands inside the pupil stop. On the same telescope, 441 rays per
+field point give the collecting area to 10%, and 1600 to 2%.
+
+The machinery is the same, with one substitution at each stage:
+
+* Stage 1 launches the stop solve from
+  :meth:`~optika.apertures.AbstractAperture.rings` of the pupil stop rather
+  than from its :meth:`~optika.apertures.AbstractAperture.wire`. The rings are
+  the outer and inner edges of the aperture, sampled at the same azimuths so
+  that they pair point by point; an aperture with no hole returns its center
+  as the inner ring. They are laid end to end along
+  :attr:`~optika.systems.AbstractSequentialSystem.axis_pupil_stop`, the outer
+  first, so that the field of view and the entrance pupil are still reductions
+  over the stop axes exactly as before.
+
+* Stage 3 fits every point along the edge as its own quadratic in field,
+  rather than the two corners of the box, since the rays are mapped onto the
+  edge itself. The fit is the same least squares with the edge riding along
+  as a broadcast axis of its outputs, and it is held inside the shared box in
+  the same way. If it is singular, the edge averaged along the field's own
+  stands in for it.
+
+* Stage 4 maps each normalized coordinate onto the point of the fitted edge
+  at that position and distance. Between the samples of a ring, the ring is
+  interpolated in polar coordinates about its center rather than along a
+  chord, so that a round ring stays round: a chord between samples
+  :math:`18^\circ` apart sags by more than half the width of the annulus
+  above, and rays mapped onto it would miss the stop.
+
+The cells of a polar grid are not all the same size, and
+:meth:`~optika.systems.AbstractSequentialSystem.area_effective` and
+:meth:`~optika.systems.AbstractSequentialSystem.image` weight every ray by the
+area of its own cell, so the Jacobian of the map is accounted for without
+anything further. That area is not the quadrilateral of the cell's four
+corners, though: a polar cell is an arc of the ring, and one cell spanning the
+whole ring, which is what ``image`` draws by default, has corners which
+coincide and no area at all as a quadrilateral. Each cell is therefore cut
+into as many pieces along the ring as it spans intervals between the samples
+of the ring, and the pieces are summed. For the same reason ``image`` draws
+its rays in normalized coordinates and makes them physical one by one, as
+``area_effective`` already does, rather than making the corners physical and
+reading the rays off them. The vignetting model weights each field point by
+the area of the cells between the rays it sampled rather than by the span of
+its box, which is a fair stand-in for the area of the pupil once the grid has
+a handful of samples around the ring.
+
+Polar coordinates are opt-in because they change what every normalized pupil
+grid means, and because they are not better everywhere. Where a pupil is
+vignetted inside its edge, as ESIS's is by its field stop and central
+obscuration, a fan of cells from the center resolves those interior edges
+worse than a rectangular grid of the same size, and the collecting area
+converges about twice as slowly. A pupil which fills its box, as FURST's
+rectangular sliver does, gains nothing at all. Leave the default for those
+and reach for polar coordinates when the pupil stop has a hole in it.
+
+
 Frames
 ------
 
