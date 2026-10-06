@@ -4,6 +4,11 @@ from ._effective_area import (
     AbstractEffectiveAreaModel,
     InterpolatedEffectiveAreaModel,
 )
+from ._field_stop import (
+    AbstractFieldStopModel,
+    ApertureFieldStopModel,
+    PolynomialFieldStopModel,
+)
 from ._vignetting import (
     AbstractVignettingModel,
     AbstractInterpolatedVignettingModel,
@@ -16,4 +21,7 @@ __all__ = [
     "AbstractVignettingModel",
     "AbstractInterpolatedVignettingModel",
     "PolynomialVignettingModel",
+    "AbstractFieldStopModel",
+    "ApertureFieldStopModel",
+    "PolynomialFieldStopModel",
 ]

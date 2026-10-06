@@ -522,10 +522,22 @@ class AbstractTestAbstractSequentialSystem(
         assert isinstance(result, optika.radiometry.PolynomialVignettingModel)
         assert result.degree == degree
         assert np.all(result.illumination >= 0)
+        # normalized over the field positions inside the half-light outline
+        # of the field of view which pass any light, whether or not it lands
+        # on the sensor, or over the ones it was fit over at a wavelength
+        # where the grid put none inside it.  With the field stop and the
+        # sensor open, a field position passes light exactly where its
+        # illumination is above zero.
+        polygon = a.field_stop_polygon(wavelength)
+        sample = result.coordinates_sample.position
+        inside = (result.illumination > 0) & polygon(
+            na.Cartesian3dVectorArray(x=sample.x, y=sample.y, z=0 * sample.x)
+        )
+        inside = np.where(inside.any(result.axis_field), inside, result.where)
         mean = np.mean(
             result.illumination,
             axis=result.axis_field,
-            where=result.where,
+            where=inside,
         )
         assert np.allclose(mean, 1)
 
@@ -625,13 +637,61 @@ class AbstractTestAbstractSequentialSystem(
             result.area_effective, optika.radiometry.AbstractEffectiveAreaModel
         )
         assert result.sensor is a.sensor
-        assert result.field_stop is None
+        assert isinstance(
+            result.field_stop,
+            optika.radiometry.PolynomialFieldStopModel,
+        )
 
         # `direction` has to be a scalar.  `expose` indexes it by the cell
         # centers of the *scene's* wavelength grid, which is unrelated to the
         # grid linearized here, so an array would either fail to broadcast or
         # silently pair up wavelengths which are not the same.
         assert na.shape(result.direction) == {}
+
+    def test_field_stop_polygon(self, a: optika.systems.AbstractSequentialSystem):
+        result = a.field_stop_polygon()
+        assert isinstance(result, optika.apertures.PolygonalAperture)
+        assert "vertex" in na.shape(result.vertices)
+        assert a.axis_field_stop not in na.shape(result.vertices)
+        assert a.axis_pupil_stop not in na.shape(result.vertices)
+
+        # the half-light outline: each vertex is the average of the stop
+        # rays through one point on the edge of the field stop
+        chief = a.field_boundary.mean(a.axis_pupil_stop)
+        chief = na.Cartesian2dVectorArray(
+            x=chief.x.combine_axes(axes=(a.axis_field_stop,), axis_new="vertex"),
+            y=chief.y.combine_axes(axes=(a.axis_field_stop,), axis_new="vertex"),
+        )
+        assert np.allclose(
+            na.value(result.vertices.x).ndarray,
+            na.value(chief.x).ndarray_aligned(result.vertices.x.axes),
+        )
+
+    def test_linearize_field_stop(self, a: optika.systems.AbstractSequentialSystem):
+        if not a.axis_wavelength_:
+            pytest.skip("linearizing needs a wavelength grid with its own axis")
+        result = a.linearize()
+        assert isinstance(
+            result.field_stop,
+            optika.radiometry.PolynomialFieldStopModel,
+        )
+        # the center of the field is inside the stop at every wavelength, and
+        # the outline lands on the sensor at every wavelength
+        wavelength = a.grid_input.wavelength
+        center = a.field_boundary.mean(a.axis_stops)
+        inside = result.field_stop(
+            na.SpectralPositionalVectorArray(wavelength, center),
+        )
+        assert np.all(na.value(inside).ndarray)
+        footprint = result.footprint(wavelength)
+        assert isinstance(footprint, na.AbstractCartesian2dVectorArray)
+        assert "wire" in na.shape(footprint)
+        assert np.all(np.isfinite(na.value(footprint.x).ndarray))
+        # without a stop there is nothing to outline
+        without = a.linearize(field_stop=False)
+        assert without.field_stop is None
+        with pytest.raises(ValueError):
+            without.footprint(wavelength)
 
     def test_spot_diagram(self, a: optika.systems.AbstractSequentialSystem):
         fig, axs = a.spot_diagram()
@@ -844,7 +904,9 @@ def test_area_effective_ignores_field_outside_the_field_of_view():
     assert np.allclose(result_extended.area, result.area, rtol=0.1)
 
 
-def _system_vignetted() -> optika.systems.SequentialSystem:
+def _system_vignetted(
+    radius_field_stop: u.Quantity | na.AbstractScalar = 0.96 * u.mm,
+) -> optika.systems.SequentialSystem:
     """
     A system whose field stop is a circle rather than the sensor.
 
@@ -852,6 +914,14 @@ def _system_vignetted() -> optika.systems.SequentialSystem:
     field stop shaped like the sensor fills it and nothing is vignetted.  A
     round one leaves the corners dark, which is what a system like ESIS
     actually looks like and what makes the vignetting model do any work.
+
+    The field stop sits a millimeter from the focus of the mirror, so the
+    edge of the field of view is soft.
+
+    Parameters
+    ----------
+    radius_field_stop
+        The radius of the field stop.
     """
     surfaces = [
         optika.surfaces.Surface(
@@ -864,7 +934,7 @@ def _system_vignetted() -> optika.systems.SequentialSystem:
         ),
         optika.surfaces.Surface(
             name="field stop",
-            aperture=optika.apertures.CircularAperture(0.96 * u.mm),
+            aperture=optika.apertures.CircularAperture(radius_field_stop),
             is_field_stop=True,
             transformation=na.transformations.Cartesian3dTranslation(z=2 * u.mm),
         ),
@@ -949,6 +1019,365 @@ def test_linearize_conserves_flux():
     # positions than the vignetting model is normalized over would put this
     # near 0.56, which the tolerance excludes.
     assert np.allclose(result, expected, rtol=0.15)
+
+
+def _scene_annulus(
+    radius_inner: u.Quantity,
+    radius_outer: u.Quantity,
+    extent: u.Quantity,
+    num: int = 44,
+) -> na.FunctionArray:
+    """
+    A uniform scene lit only between two radii about the center of the
+    field, on a square grid of cells spanning `extent` either side of it.
+    """
+    x = na.linspace(-extent, extent, axis="field_x", num=num + 1)
+    y = na.linspace(-extent, extent, axis="field_y", num=num + 1)
+    radius = np.sqrt(
+        np.square(x.cell_centers("field_x")) + np.square(y.cell_centers("field_y"))
+    )
+    lit = (radius >= radius_inner) & (radius <= radius_outer)
+    return na.FunctionArray(
+        inputs=na.SpectralPositionalVectorArray(
+            wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
+            position=na.Cartesian2dVectorArray(x=x, y=y),
+        ),
+        outputs=1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm * lit,
+    )
+
+
+def test_field_stop_polygon_is_the_half_light_outline():
+    """
+    At every vertex of the field-stop polygon, the field stop passes half of
+    the light the rest of the system does.
+
+    The field stop of this system is out of focus, so the edge of its field
+    of view is soft: a field position a little outside the image of the stop
+    still passes part of its pupil.  The polygon runs through the middle of
+    that falloff, which is where an edge measured in an image sits.
+    """
+    system = _system_vignetted()
+    vertices = system.field_stop_polygon().vertices
+
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(x=vertices.x, y=vertices.y),
+        pupil=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+            num=41,
+        ),
+        normalized_field=False,
+        efficiency=False,
+    )
+    closed = system.rayfunction(**kwargs)
+    opened = system._rayfunction(surfaces=system._surfaces_open, **kwargs)
+
+    axis_pupil = ("pupil_x", "pupil_y")
+    passed = closed.outputs.unvignetted.mean(axis_pupil)
+    passed = passed / opened.outputs.unvignetted.mean(axis_pupil)
+
+    # measured between 0.46 and 0.52 around the polygon
+    assert np.all(np.abs(passed - 0.5) < 0.05)
+
+
+def test_linearize_conserves_flux_across_the_soft_edge_of_the_field():
+    """
+    A flat field reaching past the edge of the field of view collects as much
+    light through the linearized system as through the system it came from.
+
+    The field stop of this system sits a millimeter from focus, so the edge
+    of its field of view is soft.  The linear system cuts it at the
+    half-light outline, and the vignetting model, fit with the field stop
+    left open, does not fall off across it: the light lost just outside the
+    outline is the light gained just inside it, to first order.  What that
+    does not keep is where the light is, and a scene lit only between the
+    half-light outline and the outermost field position which passes any
+    light images nothing at all.
+    """
+    system = _system_vignetted()
+    linear = system.linearize(degree=2)
+
+    scene = _scene_annulus(0 * u.deg, 2 * u.deg, extent=1.1 * u.deg)
+    result = linear.image(scene, noise=False).outputs.sum()
+
+    # the raytraced image is not seeded, and one trace of it scatters by two
+    # percent about its mean, which against this tolerance failed about one
+    # run in fifteen; the mean of ten scatters by under one percent.  The
+    # ratio to that mean was measured at 1.02.
+    num = 10
+    expected = 0 * result
+    for _ in range(num):
+        expected = expected + system.image(scene, noise=False).outputs.sum() / num
+    assert np.allclose(result, expected, rtol=0.05)
+
+    band = _scene_annulus(0.58 * u.deg, 0.68 * u.deg, extent=1.1 * u.deg)
+    assert np.all(system.image(band, noise=False).outputs.sum() > 0 * result.unit)
+    assert np.all(linear.image(band, noise=False).outputs.sum() == 0 * result.unit)
+
+
+def test_linearize_field_stop_blocks_light_from_outside_the_field_of_view():
+    """
+    The field stop of a linearized system blocks light from beyond the field
+    of view which would otherwise land on the sensor.
+
+    The field stop here is small enough that its field of view sits well
+    inside the sensor's, and the vignetting model is removed so that nothing
+    but the field stop can keep that light off the sensor.  A polynomial
+    vignetting model which falls off steeply does that job by accident, as
+    it does in this system, but one which is nearly flat, like that of ESIS,
+    does not.
+    """
+    system = _system_vignetted(radius_field_stop=0.35 * u.mm)
+    scene = _scene_annulus(
+        radius_inner=0.41 * u.deg,
+        radius_outer=0.54 * u.deg,
+        extent=0.6 * u.deg,
+    )
+
+    linear = dataclasses.replace(system.linearize(field_stop=True), vignetting=None)
+    with_stop = linear.image(scene, noise=False).outputs.sum()
+    without_stop = dataclasses.replace(linear, field_stop=None)
+    without_stop = without_stop.image(scene, noise=False).outputs.sum()
+    raytraced = system.image(scene, noise=False).outputs.sum()
+
+    assert np.all(raytraced == 0 * raytraced.unit)
+    assert np.all(without_stop > 0 * without_stop.unit)
+    assert np.all(with_stop == 0 * with_stop.unit)
+
+
+def _grid_vertices(name: str, num: int, span: float = 1) -> na.Cartesian2dVectorArray:
+    """The vertices of `num` by `num` normalized cells spanning `span` either side."""
+    return na.Cartesian2dVectorLinearSpace(
+        start=-span,
+        stop=span,
+        axis=na.Cartesian2dVectorArray(f"{name}_x", f"{name}_y"),
+        num=num + 1,
+    )
+
+
+def test_surfaces_open_leave_the_field_stop_and_the_sensor_open():
+    """
+    Traced through :attr:`_surfaces_open`, rays beyond the field stop, and
+    beyond the edge of the sensor, are kept, and land where they would have.
+
+    The public :meth:`rayfunction` is the trace through :attr:`surfaces_all`,
+    with both apertures closed, as it always was.
+    """
+    system = _system_vignetted()
+    kwargs = dict(
+        field=_grid_vertices("field", 8, span=2),
+        pupil=_grid_vertices("pupil", 4),
+        efficiency=False,
+    )
+    surfaces = system.surfaces_all
+
+    def deactivate(surface):
+        aperture = dataclasses.replace(surface.aperture, active=False)
+        return dataclasses.replace(surface, aperture=aperture)
+
+    closed = system._rayfunction(surfaces=surfaces, **kwargs)
+    stop_open = system._rayfunction(
+        surfaces=[deactivate(s) if s.is_field_stop else s for s in surfaces],
+        **kwargs,
+    )
+    both_open = system._rayfunction(surfaces=system._surfaces_open, **kwargs)
+
+    # only the sensor stops clipping, and the field stop keeps the shape
+    # the stop rays were solved against
+    sensor = system._surfaces_open[-1]
+    assert sensor.clip_rays is False
+    (field_stop,) = [s for s in system._surfaces_open if s.is_field_stop]
+    assert not field_stop.aperture.active
+    assert np.allclose(field_stop.aperture.wire(), system.field_stop.aperture.wire())
+
+    def count(rays):
+        return rays.outputs.unvignetted.sum()
+
+    # the grid reaches twice as far as the field stop, and its light lands
+    # past the edge of the sensor
+    assert count(closed) < count(stop_open) < count(both_open)
+    assert np.allclose(both_open.outputs.position, closed.outputs.position)
+
+    public = system.rayfunction(**kwargs)
+    assert np.all(public.outputs.unvignetted == closed.outputs.unvignetted)
+
+
+def test_fit_domain_does_not_depend_on_whether_the_sensor_clips():
+    """
+    A system whose sensor does not clip is fit over the same field positions,
+    and to the same rays, as one whose sensor does.
+
+    The models are fit to a trace which leaves the sensor open either way,
+    and which field positions land on the sensor is decided by its pixels,
+    not by whether its aperture vignettes, which passes every point once
+    :attr:`~optika.sensors.AbstractImagingSensor.clip_rays` is off.
+    """
+    system = _system_vignetted(radius_field_stop=3 * u.mm)
+    unclipped = dataclasses.replace(
+        system,
+        sensor=dataclasses.replace(system.sensor, clip_rays=False),
+    )
+
+    a = system.vignetting(degree=1)
+    b = unclipped.vignetting(degree=1)
+
+    # the field of view reaches past the edge of the sensor, so the test of
+    # the pixels is what leaves those field positions out
+    assert not np.all(a.where)
+    assert np.all(a.where == b.where)
+    assert np.all(a.illumination == b.illumination)
+
+
+@pytest.mark.parametrize(
+    argnames="radius_field_stop",
+    argvalues=[0.96 * u.mm, 3 * u.mm],
+)
+def test_vignetting_is_not_cut_by_the_field_stop_or_the_sensor(
+    radius_field_stop: u.Quantity,
+):
+    """
+    A field position whose beam straddles the edge of the field stop or of
+    the sensor is fit with the illumination it would have without them, not
+    with the part of its beam which gets through.
+
+    Both sit near an image of the object, where they cut across the field
+    in a step no polynomial can follow, and a field position drawn inside
+    that step used to be fit with a sliver of its illumination: on ESIS one
+    such field position put the largest residual of the vignetting fit at
+    1.04, where the rest were under 0.03.  Which field positions fell inside
+    the step depended on where they were drawn, so the fit did too.  Nothing
+    else in this system vignettes, so every field position the model is fit
+    over is lit alike.
+
+    The smaller field stop has its field of view inside the sensor's, so the
+    edge the grid crosses is the field stop's; the larger one's reaches past
+    the sensor, so it is the sensor's.
+    """
+    system = _system_vignetted(radius_field_stop=radius_field_stop)
+    model = system.vignetting(
+        field=_grid_vertices("field", 24),
+        pupil=_grid_vertices("pupil", 40),
+        degree=1,
+    )
+
+    where = na.broadcast_to(model.where, model.illumination.shape)
+    assert np.any(where) and not np.all(where)
+
+    illumination = model.illumination[where]
+    assert np.all(np.abs(illumination - 1) < 0.03)
+
+
+def test_field_stop_polygon_of_an_uncertain_system():
+    """
+    The field-stop polygon of a system with uncertain parameters carries
+    their uncertainty, rather than failing to read the vertices.
+    """
+    radius = na.NormalUncertainScalarArray(
+        nominal=0.96 * u.mm,
+        width=0.01 * u.mm,
+        num_distribution=3,
+        seed=1,
+    )
+    polygon = _system_vignetted(radius_field_stop=radius).field_stop_polygon()
+
+    assert isinstance(polygon.vertices.x, na.UncertainScalarArray)
+    assert set(na.shape(polygon.vertices)) == {"vertex"}
+
+
+def _system_dispersed() -> optika.systems.SequentialSystem:
+    """
+    A spectrograph whose field stop is its sensor, behind the grating, so
+    that its field of view moves across the scene with wavelength.
+
+    Every other system in this module has its field stop ahead of any
+    dispersive element, and so the same field of view at every wavelength.
+    """
+    base = _system_grazing
+    wavelength = base.grid_input.wavelength * na.linspace(
+        0.97,
+        1.03,
+        axis="wavelength",
+        num=3,
+    )
+    return dataclasses.replace(
+        base,
+        object=dataclasses.replace(base.object, is_field_stop=False),
+        sensor=dataclasses.replace(base.sensor, is_field_stop=True),
+        grid_input=dataclasses.replace(base.grid_input, wavelength=wavelength),
+    )
+
+
+def test_field_stop_polygon_behind_a_grating_moves_with_wavelength():
+    """
+    The field of view of a system whose field stop sits behind its grating
+    is a different polygon at each wavelength.
+    """
+    system = _system_dispersed()
+    polygon = system.field_stop_polygon()
+
+    x = polygon.vertices.x
+    assert "wavelength" in na.shape(x)
+    assert np.all(x.ptp("wavelength") > 0 * na.unit(x))
+
+
+def test_linearize_field_stop_follows_the_wavelength():
+    """
+    The field stop of a linearized spectrograph is evaluated at the
+    wavelengths of the scene, not at the ones it was sampled at.
+
+    Carried as a polygon sampled at three wavelengths, the field stop gave
+    the linearized system their axis: a scene sampled at any other number of
+    wavelengths failed to broadcast against it, one sampled at the same
+    number was paired with it by position whatever its wavelengths were, and
+    the footprint at a single wavelength came back once for every sample.
+    """
+    system = _system_dispersed()
+    linear = system.linearize()
+    field_stop = linear.field_stop
+
+    assert "wavelength" not in linear.shape
+
+    # between the samples and beyond them, the fit is the outline which the
+    # stops, solved at that wavelength, give directly
+    for factor in [0.985, 1.015, 1.04]:
+        wavelength = _system_grazing.grid_input.wavelength * factor
+        expected = system.field_stop_polygon(wavelength).vertices
+        result = field_stop.polygon(wavelength).vertices
+        tolerance = 1e-6 * u.deg
+        assert np.allclose(result.x, expected.x, rtol=0, atol=tolerance)
+        assert np.allclose(result.y, expected.y, rtol=0, atol=tolerance)
+
+    footprint = linear.footprint(_system_grazing.grid_input.wavelength)
+    assert "wavelength" not in na.shape(footprint)
+
+    # a scene sampled at a different number of wavelengths is imaged, over
+    # every field position any of the sampled wavelengths sees, since the
+    # bounds of the field move with wavelength too
+    fmin = na.Cartesian2dVectorArray(system.field_min.x.min(), system.field_min.y.min())
+    fmax = na.Cartesian2dVectorArray(system.field_max.x.max(), system.field_max.y.max())
+    wmin = na.value(system.grid_input.wavelength).ndarray.min()
+    wmax = na.value(system.grid_input.wavelength).ndarray.max()
+    unit = na.unit(system.grid_input.wavelength)
+    scene = na.FunctionArray(
+        inputs=na.SpectralPositionalVectorArray(
+            wavelength=na.linspace(wmin, wmax, axis="wavelength", num=5) * unit,
+            position=na.Cartesian2dVectorArray(
+                x=na.linspace(fmin.x, fmax.x, axis="field_x", num=13),
+                y=na.linspace(fmin.y, fmax.y, axis="field_y", num=13),
+            ),
+        ),
+        outputs=1
+        * u.photon
+        / u.s
+        / u.cm**2
+        / u.arcsec**2
+        / u.nm
+        * na.ScalarArray(np.ones((12, 12)), axes=("field_x", "field_y")),
+    )
+    image = linear.image(scene, noise=False).outputs
+    assert np.all(np.isfinite(image))
+    assert np.all(image.sum() > 0 * image.unit)
 
 
 def test_area_effective_without_any_illuminated_field():
@@ -1428,8 +1857,8 @@ def test_models_are_invariant_under_a_rigid_motion():
     assert np.abs(illumination_b - illumination_a).max() < 1e-6
 
     # the sampling of this one is random, so hold it to a seed
-    area_a = a.area_effective(wavelength=wavelength, seed=42).area
-    area_b = b.area_effective(wavelength=wavelength, seed=42).area
+    area_a = a.area_effective(wavelength=wavelength, seed_field=42, seed_pupil=42).area
+    area_b = b.area_effective(wavelength=wavelength, seed_field=42, seed_pupil=42).area
     assert np.abs(area_b - area_a).max() < 1e-6 * np.abs(area_a).max()
 
 
@@ -1479,14 +1908,17 @@ def test_area_effective_gives_each_ray_the_pupil_of_its_own_field_point(
     a.__dict__["pupil_fit"] = (walk(-1), walk(+1))
 
     captured = {}
-    rayfunction = optika.systems.AbstractSequentialSystem.rayfunction
+    # every trace, public or not, goes through `_rayfunction`
+    rayfunction = optika.systems.AbstractSequentialSystem._rayfunction
 
     def capture(self, **kwargs):
         captured.update(kwargs)
         return rayfunction(self, **kwargs)
 
-    monkeypatch.setattr(optika.systems.AbstractSequentialSystem, "rayfunction", capture)
-    result = a.area_effective(seed=42)
+    monkeypatch.setattr(
+        optika.systems.AbstractSequentialSystem, "_rayfunction", capture
+    )
+    result = a.area_effective(seed_field=42, seed_pupil=42)
     assert np.all(np.isfinite(result.area))
 
     field = captured["field"]
@@ -1613,9 +2045,11 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
         pupil=pupil,
     )
     shape = na.shape_broadcasted(inputs.wavelength, inputs.field, inputs.pupil)
+    # every ray lands on the middle of the sensor
     rays = optika.rays.RayFunctionArray(
         inputs=inputs,
         outputs=optika.rays.RayVectorArray(
+            position=na.broadcast_to(na.Cartesian3dVectorArray() * u.mm, shape),
             unvignetted=na.broadcast_to(na.ScalarArray(np.array(True)), shape),
         ),
     )
@@ -1630,6 +2064,8 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
             wavelength=inputs.wavelength,
             position=vertices_field,
         ),
+        # a field of view which holds every field position
+        field_of_view=optika.apertures.CircularAperture(10 * u.deg),
         axis_wavelength=axis_wavelength,
         axis_field=axis_field,
         axis_pupil=axis_pupil,
@@ -1641,6 +2077,96 @@ def test_vignetting_weights_each_field_point_by_the_size_of_its_pupil():
     narrow = illumination[{"_vfx": 0}].mean()
     wide = illumination[{"_vfx": 1}].mean()
     assert np.allclose((wide / narrow).ndarray, 4)
+
+
+def test_vignetting_is_normalized_over_field_positions_off_the_sensor_too():
+    """
+    Every field position inside the field of view counts toward the
+    normalization of the vignetting model, whether or not its light lands on
+    the sensor, while only those whose light does are fit.
+
+    A spectrograph can image part of its field of view off the sensor at one
+    wavelength and not at another.  Normalizing each wavelength over only the
+    field positions it puts on the sensor normalizes them over different
+    parts of the field, which shifts one wavelength's illumination against
+    the others' wherever the vignetting varies across the field, and a model
+    which is a polynomial in wavelength cannot follow the step.  On ESIS it
+    doubled the residual of the linear fit at every wavelength.
+
+    Here the illumination falls across the field, and the light of the
+    brightest column lands off the sensor.
+    """
+    a = _system_newtonian
+
+    axis_wavelength = ("_vw",)
+    axis_field = ("_vfx", "_vfy")
+    axis_pupil = ("_vpx", "_vpy")
+    num = 4
+
+    def grid(axis, unit):
+        vertices = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray(*axis),
+            num=num + 1,
+        )
+        return vertices * unit
+
+    vertices_field = grid(axis_field, u.deg)
+    vertices_pupil = grid(axis_pupil, u.mm)
+    inputs = optika.vectors.ObjectVectorArray(
+        wavelength=na.linspace(500, 600, axis=axis_wavelength[0], num=2) * u.nm,
+        field=vertices_field.broadcast_to(na.shape(vertices_field)).cell_centers(
+            axis=axis_field,
+        ),
+        pupil=vertices_pupil.broadcast_to(na.shape(vertices_pupil)).cell_centers(
+            axis=axis_pupil,
+        ),
+    )
+
+    # column i of the field passes the last num - i columns of its pupil,
+    # so the illumination falls across the field, and the light of column 0
+    # lands far beyond the edge of the sensor
+    index = np.indices((num, num, num, num))
+    unvignetted = na.ScalarArray(index[2] >= index[0], axes=axis_field + axis_pupil)
+    x = np.where(index[0] == 0, 1e3, 0.0) * u.mm
+    position = na.Cartesian3dVectorArray(
+        x=na.ScalarArray(x, axes=axis_field + axis_pupil),
+        y=0 * u.mm,
+        z=0 * u.mm,
+    )
+    rays = optika.rays.RayFunctionArray(
+        inputs=inputs,
+        outputs=optika.rays.RayVectorArray(position=position, unvignetted=unvignetted),
+    )
+
+    model = a._fit_vignetting(
+        rays=rays,
+        area=np.abs(vertices_pupil.volume_cell(axis=axis_pupil)),
+        coordinates_scene=na.SpectralPositionalVectorArray(
+            wavelength=inputs.wavelength,
+            position=vertices_field,
+        ),
+        # a field of view which holds every field position
+        field_of_view=optika.apertures.CircularAperture(10 * u.deg),
+        axis_wavelength=axis_wavelength,
+        axis_field=axis_field,
+        axis_pupil=axis_pupil,
+        degree=1,
+    )
+
+    # the column whose light misses the sensor is not fit
+    where = na.broadcast_to(model.where, model.illumination.shape)
+    assert not np.any(where[{"_vfx": 0}])
+    assert np.all(where[{"_vfx": slice(1, None)}])
+
+    # but it is normalized over, along with every other field position
+    mean = model.illumination.mean(axis_field)
+    assert np.allclose(mean, 1)
+
+    # which normalizing over the fitted columns alone would not have given
+    mean_fit = model.illumination[{"_vfx": slice(1, None)}].mean(axis_field)
+    assert np.all(mean_fit < 0.9)
 
 
 def test_pupil_fit_is_anchored_at_the_center_of_the_field_at_every_sampling():
@@ -2059,11 +2585,12 @@ def test_plot_rays_2d_is_a_line():
 
 def test_area_effective_is_reproducible_when_seeded():
     """
-    A seed fixes the sampling, and so fixes the answer.
+    The seeds fix the sampling, and so fix the answer, and each of them
+    moves it.
 
     The field and the pupil are sampled at a point drawn inside each cell,
     which keeps the quadrature from aliasing against an edge but leaves the
-    result a little different on every call. Anything which must be
+    result a little different for every sample. Anything which must be
     reproduced, such as a figure in an article, needs to be able to ask for
     the same sample twice.
     """
@@ -2074,12 +2601,19 @@ def test_area_effective_is_reproducible_when_seeded():
     )
     wavelength = _grid_input_wavelength.wavelength
 
-    a = system.area_effective(wavelength=wavelength, seed=42)(wavelength)
-    b = system.area_effective(wavelength=wavelength, seed=42)(wavelength)
-    c = system.area_effective(wavelength=wavelength, seed=43)(wavelength)
+    def area(seed_field: int, seed_pupil: int) -> na.AbstractScalar:
+        return system.area_effective(
+            wavelength=wavelength,
+            seed_field=seed_field,
+            seed_pupil=seed_pupil,
+        )(wavelength)
+
+    a = area(42, 42)
+    b = area(42, 42)
 
     assert np.all(a == b)
-    assert np.any(a != c)
+    assert np.any(a != area(43, 42))
+    assert np.any(a != area(42, 43))
 
 
 def _spy_results(monkeypatch, name: str) -> list:
@@ -2127,7 +2661,7 @@ def test_linearize_traces_once(monkeypatch):
     second trace and gave the two halves of the system different quadrature
     errors.
     """
-    calls = _spy_results(monkeypatch, "rayfunction")
+    calls = _spy_results(monkeypatch, "_rayfunction")
 
     _system_linearize().linearize(degree=1)
 
@@ -2194,7 +2728,7 @@ def test_linearize_is_reproducible():
 
     a = system.linearize(degree=1)
     b = system.linearize(degree=1)
-    c = system.linearize(degree=1, seed=43)
+    c = system.linearize(degree=1, seed_field=43, seed_pupil=43)
 
     def models(system: optika.systems.LinearSystem):
         return (
@@ -2215,7 +2749,7 @@ def test_linearize_is_reproducible():
 
 def test_vignetting_is_the_model_linearize_fits():
     """
-    Handed the same grids, degree, and seed, :meth:`vignetting` returns the
+    Handed the same grids, degree, and seeds, :meth:`vignetting` returns the
     model :meth:`linearize` carries.
 
     The two used to sample differently: one traced the grids as given and the
@@ -2307,10 +2841,39 @@ def test_models_carry_the_cells_they_were_measured_over():
         assert np.any(samples.position.x != centers.position.x)
 
 
-def test_vignetting_follows_its_seed():
+@pytest.mark.parametrize("method", ["vignetting", "distortion"])
+def test_models_are_fit_only_inside_the_field_of_view(monkeypatch, method: str):
+    """
+    A model is fit over the field cells whose light lands on the sensor and
+    whose centers lie inside the half-light outline of the field of view, and
+    over no others.
+
+    The field stop is open while the rays are traced, so cells beyond the
+    edge of the field of view pass light, and a model fit over them would
+    run on past that edge.  Leaving them out of the fit is what lets the
+    plots of the model stop there with nothing more than its `where`.
+    """
+    lit = _spy_results(monkeypatch, "_on_sensor")
+    system = _system_linearize()
+
+    model = getattr(system, method)(degree=1)
+
+    center = model.coordinates_scene.cell_centers(model.axis_field).position
+    inside = system.field_stop_polygon()(
+        na.Cartesian3dVectorArray(x=center.x, y=center.y, z=0 * center.x)
+    )
+
+    # the open trace passes light beyond the field of view, which a fit to
+    # every lit cell would have included
+    assert np.any(lit[0] & ~inside)
+
+    assert np.all(model.where == (lit[0] & inside))
+
+
+def test_vignetting_follows_its_seeds():
     """
     Fitting the same system twice gives the same vignetting model, and a
-    different seed gives a different one.
+    different seed for either grid gives a different one.
 
     The samples are drawn at random inside each cell, so without a fixed seed
     a model plotted in one place and quoted in another would be two models.
@@ -2319,10 +2882,95 @@ def test_vignetting_follows_its_seed():
 
     a = system.vignetting(degree=1)
     b = system.vignetting(degree=1)
-    c = system.vignetting(degree=1, seed=43)
+    c = system.vignetting(degree=1, seed_field=43)
+    d = system.vignetting(degree=1, seed_pupil=43)
 
     assert np.all(a.illumination == b.illumination)
     assert np.any(a.illumination != c.illumination)
+    assert np.any(a.illumination != d.illumination)
+
+
+def test_each_seed_moves_only_its_own_grid(monkeypatch):
+    """
+    Changing the seed of one grid leaves the samples of the other where they
+    were, so that the spread of a model over the sampling of each can be
+    measured apart.
+    """
+    calls = _spy_arguments(monkeypatch, "_denormalize_grid_from_rays")
+    system = _system_linearize()
+
+    # the first call of each fit is the one which makes the drawn grid
+    # physical
+    def grid(**kwargs) -> optika.vectors.ObjectVectorArray:
+        num_calls = len(calls)
+        system.vignetting(degree=1, **kwargs)
+        return calls[num_calls]["grid"]
+
+    a = grid()
+    b = grid(seed_field=43)
+    c = grid(seed_pupil=43)
+
+    assert np.any(a.field != b.field)
+    assert np.all(a.pupil == b.pupil)
+
+    assert np.all(a.field == c.field)
+    assert np.any(a.pupil != c.pupil)
+
+
+@pytest.mark.parametrize("method", ["vignetting", "distortion"])
+def test_no_field_seed_takes_the_field_cell_centers(monkeypatch, method: str):
+    """
+    Given no seed for the field, every field position is the center of its
+    cell, and the pupil is drawn exactly as it would have been.
+
+    The centers are for a model which is going to be looked at, so that the
+    edge of the field stop is drawn as the cells it covers rather than as a
+    ragged line.  Only the field may change: the pupil has a stream of its
+    own, and one which moved with the field would make the two models differ
+    by more than where the field was sampled.
+    """
+    calls = _spy_arguments(monkeypatch, "_denormalize_grid_from_rays")
+    system = _system_linearize()
+
+    random = getattr(system, method)(degree=1)
+    num_calls = len(calls)
+    centers = getattr(system, method)(degree=1, seed_field=None)
+
+    # every measurement sits at the center of its cell, which the default
+    # does not
+    cells = centers.coordinates_scene.cell_centers(centers.axis_field)
+    assert np.allclose(centers.coordinates_sample.position, cells.position)
+    assert not np.allclose(random.coordinates_sample.position, cells.position)
+
+    # the first call of each fit is the one which makes the drawn grid
+    # physical, and the pupil it was handed is the same in both
+    pupil_random = calls[0]["grid"].pupil
+    pupil_centers = calls[num_calls]["grid"].pupil
+    assert np.all(pupil_random == pupil_centers)
+
+
+def test_no_pupil_seed_takes_the_pupil_cell_centers(monkeypatch):
+    """
+    Given no seed for the pupil, every pupil position is the center of its
+    cell, the same at every field position, and the field is drawn exactly
+    as it would have been.
+    """
+    calls = _spy_arguments(monkeypatch, "_denormalize_grid_from_rays")
+    system = _system_linearize()
+
+    system.vignetting(degree=1)
+    num_calls = len(calls)
+    system.vignetting(degree=1, seed_pupil=None)
+
+    random = calls[0]["grid"]
+    centers = calls[num_calls]["grid"]
+
+    pupil = system._pupil_vertices_default
+    cells = pupil.cell_centers(tuple(na.shape(pupil)))
+    assert np.all(centers.pupil == cells)
+    assert not np.all(random.pupil == cells)
+
+    assert np.all(random.field == centers.field)
 
 
 def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
@@ -2335,7 +2983,7 @@ def test_vignetting_does_not_accumulate_the_efficiency(monkeypatch):
     :meth:`area_effective` uses, and would pay the same price for a number it
     then discards.
     """
-    calls = _spy_arguments(monkeypatch, "rayfunction")
+    calls = _spy_arguments(monkeypatch, "_rayfunction")
 
     _system_linearize().vignetting(degree=1)
 
@@ -2427,7 +3075,8 @@ def test_linearize_fits_around_a_wavelength_with_no_light():
         axis_pupil=axis_pupil,
         normalized_field=True,
         normalized_pupil=True,
-        seed=0,
+        seed_field=0,
+        seed_pupil=0,
         rayfunction_stops=stops,
         pupil_fit=pupil_fit,
     )
@@ -2449,11 +3098,13 @@ def test_linearize_fits_around_a_wavelength_with_no_light():
             rays=rays[index],
             area=area[index],
             coordinates_scene=cells,
+            field_of_view=system._field_stop_polygon_from_rays(stops[index]),
             **kwargs,
         )
         distortion = system._fit_distortion(
             rays=rays[index],
             coordinates_scene=cells,
+            field_of_view=system._field_stop_polygon_from_rays(stops[index]),
             **kwargs,
         )
         return vignetting, distortion

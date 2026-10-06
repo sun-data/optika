@@ -354,3 +354,40 @@ def test_coordinates_sample_defaults_to_the_cell_centers():
     )
 
     assert np.all(a.coordinates_sample_.position == _centers().position)
+
+
+def test_plots_leave_out_the_cells_the_model_was_not_fit_over():
+    """
+    Both plots leave blank every cell the model was not fit over, and draw
+    the rest.
+
+    A model fit by :meth:`~optika.systems.SequentialSystem.vignetting` is fit
+    over the field of view, so the map stops at its edge rather than showing
+    field positions no image contains.
+    """
+    sample = _sample()
+
+    # a field of view which holds the middle of the grid but not its corners,
+    # with one cell in the middle left out as well
+    middle = np.zeros((5, 5), dtype=bool)
+    middle[2, 2] = True
+    where = _centers().position.length < 0.85 * u.deg
+    where = where & ~na.ScalarArray(middle, axes=("field_x", "field_y"))
+    expected = int((~where).sum().ndarray)
+    assert expected > 1
+
+    a = optika.radiometry.PolynomialVignettingModel(
+        coordinates_scene=_scene(),
+        coordinates_sample=sample,
+        illumination=_illumination(sample),
+        axis_wavelength="wavelength",
+        axis_field=("field_x", "field_y"),
+        degree=1,
+        where=where,
+    )
+
+    for method in ("plot", "plot_residual"):
+        fig, ax = getattr(a, method)()
+        mesh = ax.ndarray.reshape(-1)[0].collections[0]
+        assert np.ma.count_masked(mesh.get_array()) == expected
+        plt.close(fig)
