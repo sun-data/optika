@@ -13,7 +13,6 @@ from ._gaussian import (
     _width_average,
     _ratio,
     _probability_same_pixel,
-    _capture,
     _kernel_1d,
 )
 
@@ -23,6 +22,13 @@ __all__ = [
 ]
 
 
+_tolerance_kernel = 1e-6
+"""
+The largest fraction of the charge created at any depth which a kernel of the
+default size may leave out.
+"""
+
+
 def _pixel_vector(
     width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
 ) -> na.AbstractCartesian2dVectorArray:
@@ -30,6 +36,19 @@ def _pixel_vector(
     if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
         width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
     return width_pixel
+
+
+def _indices_kernel(
+    num: int,
+    axis_x: str,
+    axis_y: str,
+) -> na.Cartesian2dVectorArray:
+    """The indices of the pixels of a kernel, relative to its center pixel."""
+    half = num // 2
+    return na.Cartesian2dVectorArray(
+        x=na.linspace(-half, half, axis=axis_x, num=num),
+        y=na.linspace(-half, half, axis=axis_y, num=num),
+    )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -61,7 +80,7 @@ class AbstractDiffusionModel(
     Notes
     -----
 
-    The quantities averaged over depth, such as :meth:`kernel` and
+    The quantities averaged over depth, such as :meth:`kernel_average` and
     :meth:`mean_charge_capture`, average the quantity for charge created at
     each depth :math:`z`, weighted by the probability that a photon is
     absorbed there,
@@ -208,6 +227,49 @@ class AbstractDiffusionModel(
         """
 
     @abc.abstractmethod
+    def kernel(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
+        axis_x: str,
+        axis_y: str,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        """
+        The fraction of the charge created at a given depth which is collected
+        in the pixel the photon was absorbed in and in each of the pixels
+        around it, averaged over the position of the photon within its pixel.
+
+        The fractions are not normalized,
+        so the charge which lands beyond the kernel is missing from their sum.
+
+        Parameters
+        ----------
+        depth
+            The distance from the back surface of the sensor at which the
+            charge was created, between zero and `thickness_substrate`.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        width_pixel
+            The width of a pixel.
+            A scalar gives square pixels; a
+            :class:`named_arrays.AbstractCartesian2dVectorArray` gives
+            rectangular pixels.
+        axis_x
+            The name of the horizontal axis of the kernel.
+        axis_y
+            The name of the vertical axis of the kernel.
+        num
+            The number of pixels along each axis of the kernel,
+            which must be odd so that the kernel is centered on the pixel the
+            photon was absorbed in.
+            If :obj:`None` (the default), the kernel is made just large enough
+            to leave out no more than one part in a million of the charge
+            created at any depth.
+        """
+
+    @abc.abstractmethod
     def width_average(
         self,
         absorption: u.Quantity | na.AbstractScalar,
@@ -226,15 +288,14 @@ class AbstractDiffusionModel(
             The thickness of the light-sensitive region of the sensor.
         """
 
-    @abc.abstractmethod
-    def kernel(
+    def kernel_average(
         self,
         absorption: u.Quantity | na.AbstractScalar,
         thickness_substrate: u.Quantity | na.AbstractScalar,
         width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
         axis_x: str,
         axis_y: str,
-        num: int = 3,
+        num: None | int = None,
     ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
         """
         The fraction of the charge from each photon collected in the pixel it
@@ -242,7 +303,8 @@ class AbstractDiffusionModel(
         the position of the photon within its pixel and over the depth at
         which it was absorbed.
 
-        The fractions are normalized to sum to one over the kernel,
+        This averages :meth:`kernel` with :meth:`average_depth`,
+        and normalizes the fractions to sum to one over the kernel,
         so that convolving an image with it conserves charge.
 
         Parameters
@@ -265,9 +327,30 @@ class AbstractDiffusionModel(
             The number of pixels along each axis of the kernel,
             which must be odd so that the kernel is centered on the pixel the
             photon was absorbed in.
+            If :obj:`None` (the default), the kernel is made just large enough
+            to leave out no more than one part in a million of the charge
+            created at any depth.
         """
+        num = self._num_kernel(num, thickness_substrate, width_pixel)
 
-    @abc.abstractmethod
+        def kernel(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            return self.kernel(
+                depth=depth,
+                thickness_substrate=thickness_substrate,
+                width_pixel=width_pixel,
+                axis_x=axis_x,
+                axis_y=axis_y,
+                num=num,
+            ).outputs
+
+        result = self.average_depth(kernel, absorption, thickness_substrate)
+        result = result / result.sum(axis=(axis_x, axis_y))
+
+        return na.FunctionArray(
+            inputs=_indices_kernel(num, axis_x, axis_y),
+            outputs=result,
+        )
+
     def mean_charge_capture(
         self,
         absorption: u.Quantity | na.AbstractScalar,
@@ -278,6 +361,8 @@ class AbstractDiffusionModel(
         The fraction of the charge from each photon collected in the pixel it
         was absorbed in, averaged over the position of the photon within its
         pixel and over the depth at which it was absorbed :cite:p:`Stern2004`.
+
+        This averages the center of :meth:`kernel` with :meth:`average_depth`.
 
         Parameters
         ----------
@@ -292,6 +377,21 @@ class AbstractDiffusionModel(
             :class:`named_arrays.AbstractCartesian2dVectorArray` gives
             rectangular pixels.
         """
+        axis_x = "_mean_charge_capture_x"
+        axis_y = "_mean_charge_capture_y"
+
+        def capture(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            kernel = self.kernel(
+                depth=depth,
+                thickness_substrate=thickness_substrate,
+                width_pixel=width_pixel,
+                axis_x=axis_x,
+                axis_y=axis_y,
+                num=1,
+            )
+            return kernel.outputs.sum(axis=(axis_x, axis_y))
+
+        return self.average_depth(capture, absorption, thickness_substrate)
 
     @abc.abstractmethod
     def _parameters_monte_carlo(
@@ -308,9 +408,81 @@ class AbstractDiffusionModel(
             The thickness of the light-sensitive region of the sensor.
         """
 
-    def _average_depth(
+    def _num_kernel(
         self,
-        integrand: Callable[[u.Quantity | na.AbstractScalar], na.AbstractScalar],
+        num: None | int,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
+    ) -> int:
+        """
+        The number of pixels along each axis of a kernel:
+        `num` if given, checked to be a positive odd number,
+        or otherwise the smallest which leaves out no more than
+        :obj:`_tolerance_kernel` of the charge created at any depth.
+
+        The widest charge cloud is the one created at the back surface.
+        A kernel which reaches :math:`h` pixels beyond the center pixel
+        misses charge from a photon anywhere in that pixel only if the charge
+        moves more than :math:`h` pixel widths along one of the axes,
+        so the default kernel is the smallest for which the widest cloud
+        reaches that far with a probability of at most
+        :obj:`_tolerance_kernel`, summed over the two axes.
+
+        Parameters
+        ----------
+        num
+            The number of pixels along each axis of the kernel,
+            or :obj:`None` for the default.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        width_pixel
+            The width of a pixel.
+        """
+        if num is not None:
+            if num < 1 or num % 2 != 1:
+                raise ValueError(f"`num` must be a positive odd integer, got {num}.")
+            return num
+
+        s = thickness_substrate
+        width_pixel = _pixel_vector(width_pixel)
+        depth = 0 * s
+
+        # Without a cloud, or without pixels to spread it over,
+        # the charge stays in the pixel the photon was absorbed in.
+        widths = [width_pixel.x, width_pixel.y]
+        if np.all(self.width(depth, s) == 0 * u.um):
+            return 1
+        if all(np.all(w == 0 * w) for w in widths):
+            return 1
+
+        def outside(half: int) -> float:
+            """The fraction of the widest cloud beyond `half` pixels."""
+            result = 0
+            for w in widths:
+                position = half * w
+                inside = self.cdf(position, depth, s) - self.cdf(-position, depth, s)
+                fraction = np.where(w > 0 * w, 1 - inside, 0)
+                result = result + float(na.as_named_array(fraction).max().ndarray)
+            return result
+
+        # Double the half-width until the kernel is large enough,
+        # then bisect between the last two half-widths.
+        high = 1
+        while outside(high) > _tolerance_kernel:
+            high = 2 * high
+        low = high // 2
+        while high - low > 1:
+            middle = (low + high) // 2
+            if outside(middle) > _tolerance_kernel:
+                low = middle
+            else:
+                high = middle
+
+        return 2 * high + 1
+
+    def average_depth(
+        self,
+        function: Callable[[u.Quantity | na.AbstractScalar], na.AbstractScalar],
         absorption: u.Quantity | na.AbstractScalar,
         thickness_substrate: u.Quantity | na.AbstractScalar,
         depth_break: None | u.Quantity | na.AbstractScalar = None,
@@ -323,7 +495,7 @@ class AbstractDiffusionModel(
 
         Parameters
         ----------
-        integrand
+        function
             A function of the distance from the back surface of the sensor at
             which the charge was created.
         absorption
@@ -332,7 +504,7 @@ class AbstractDiffusionModel(
         thickness_substrate
             The thickness of the light-sensitive region of the sensor.
         depth_break
-            An optional depth at which `integrand` has a kink,
+            An optional depth at which `function` has a kink,
             such as the end of the implant layer,
             where the interval of integration is split so that the quadrature
             still converges quickly.
@@ -352,11 +524,11 @@ class AbstractDiffusionModel(
 
         def integrand_f(r: na.AbstractScalar) -> na.AbstractScalar:
             az = -np.log(np.exp(-az_f) + fraction_f * np.square(r))
-            return integrand(az / absorption) * 2 * r
+            return function(az / absorption) * 2 * r
 
         def integrand_d(v: na.AbstractScalar) -> na.AbstractScalar:
             az = az_f - np.log(np.exp(-az_d) + fraction_d * np.square(v))
-            return integrand(az / absorption) * 2 * v
+            return function(az / absorption) * 2 * v
 
         if depth_break is None:
             r_break = v_break = 1
@@ -543,17 +715,20 @@ class JanesickDiffusionModel(
             axs[0].set_ylabel(f"average width ({axs[0].get_ylabel()})")
             axs[1].set_ylabel("mean charge capture")
 
-    Plot the kernel of a 13 micron pixel for photons of 1403 angstroms.
+    Plot the central 3 by 3 pixels of the kernel of a 13 micron pixel for
+    photons of 1403 angstroms, averaged over the depth at which they are
+    absorbed.
 
     .. jupyter-execute::
 
         # Compute the kernel
-        kernel = janesick.kernel(
+        kernel = janesick.kernel_average(
             absorption=optika.chemicals.Chemical("Si").absorption(1403 * u.AA),
             thickness_substrate=thickness_substrate,
             width_pixel=13 * u.um,
             axis_x="x",
             axis_y="y",
+            num=3,
         )
 
         # Plot the kernel
@@ -636,18 +811,19 @@ class JanesickDiffusionModel(
                                       + \dfrac{\sigma_d^2}{x_d} \left( \alpha x_d - e^{-\alpha x_{ff}} + e^{-\alpha x_s} \right)}
                                      {\alpha \left( 1 - e^{-\alpha x_s} \right)},
 
-    where :math:`\alpha` is the absorption coefficient,
-    which reduces to the result of :cite:t:`Janesick2001` for
-    :math:`\sigma_\text{bs} = x_{ff}` and :math:`\sigma_d = 0`.
+    where :math:`\alpha` is the absorption coefficient.
+    For :math:`\sigma_\text{bs} = x_{ff}` and :math:`\sigma_d = 0` this is the
+    average of the width given by :cite:t:`Janesick2001`.
     If the depletion region is thicker than the light-sensitive region,
     there is no field-free region, so :math:`x_{ff}` is zero,
     and the charge created at the back surface crosses only part of the
     depletion region, so the :math:`\alpha x_d` in the second term becomes
     :math:`\alpha x_s`.
 
-    The kernel and the mean charge capture are the averages, over the depth
-    at which photons are absorbed, of those of the Gaussian charge cloud
-    created at each depth,
+    The kernel at each depth, :meth:`kernel`, is that of the Gaussian charge
+    cloud created there.
+    :meth:`kernel_average` and :meth:`mean_charge_capture` average it over the
+    depth at which photons are absorbed,
     as described in the notes of
     :class:`~optika.sensors.diffusion.AbstractDiffusionModel`.
     Since a photon can strike anywhere within its pixel, the Gaussian is
@@ -768,51 +944,23 @@ class JanesickDiffusionModel(
 
     def kernel(
         self,
-        absorption: u.Quantity | na.AbstractScalar,
+        depth: u.Quantity | na.AbstractScalar,
         thickness_substrate: u.Quantity | na.AbstractScalar,
         width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
         axis_x: str,
         axis_y: str,
-        num: int = 3,
+        num: None | int = None,
     ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
-        if num % 2 != 1:
-            raise ValueError(f"`num` must be odd, got {num}.")
-
+        num = self._num_kernel(num, thickness_substrate, width_pixel)
         width_pixel = _pixel_vector(width_pixel)
-
-        half = num // 2
-        index_x = na.linspace(-half, half, axis=axis_x, num=num)
-        index_y = na.linspace(-half, half, axis=axis_y, num=num)
-
-        def kernel(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
-            width = self.width(depth, thickness_substrate)
-            kx = _kernel_1d(_ratio(width, width_pixel.x), index_x)
-            ky = _kernel_1d(_ratio(width, width_pixel.y), index_y)
-            return kx * ky
-
-        result = self._average_depth(kernel, absorption, thickness_substrate)
-        result = result / result.sum(axis=(axis_x, axis_y))
-
+        inputs = _indices_kernel(num, axis_x, axis_y)
+        width = self.width(depth, thickness_substrate)
+        kx = _kernel_1d(_ratio(width, width_pixel.x), inputs.x)
+        ky = _kernel_1d(_ratio(width, width_pixel.y), inputs.y)
         return na.FunctionArray(
-            inputs=na.Cartesian2dVectorArray(index_x, index_y),
-            outputs=result,
+            inputs=inputs,
+            outputs=kx * ky,
         )
-
-    def mean_charge_capture(
-        self,
-        absorption: u.Quantity | na.AbstractScalar,
-        thickness_substrate: u.Quantity | na.AbstractScalar,
-        width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
-    ) -> na.AbstractScalar:
-        width_pixel = _pixel_vector(width_pixel)
-
-        def capture(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
-            width = self.width(depth, thickness_substrate)
-            x = _capture(_ratio(width, width_pixel.x))
-            y = _capture(_ratio(width, width_pixel.y))
-            return x * y
-
-        return self._average_depth(capture, absorption, thickness_substrate)
 
     def _parameters_monte_carlo(
         self,

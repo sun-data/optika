@@ -1626,8 +1626,8 @@ def vmr_signal(
         # thickness and back-surface CCE remain comparable with the values
         # published by :cite:t:`Stern1994` and :cite:t:`Boerner2012`.  Do not
         # trade that away for the quadrature.
-        integral = diffusion._average_depth(
-            integrand=integrand,
+        integral = diffusion.average_depth(
+            function=integrand,
             absorption=absorption,
             thickness_substrate=thickness_substrate,
             depth_break=thickness_implant,

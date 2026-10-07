@@ -14,7 +14,7 @@ _num_gauss_legendre = 32
 The number of Gauss-Legendre nodes used on each subinterval by
 :func:`_integrate_gauss_legendre`.
 Chosen so that the averages over depth computed by
-:meth:`optika.sensors.diffusion.AbstractDiffusionModel._average_depth`
+:meth:`optika.sensors.diffusion.AbstractDiffusionModel.average_depth`
 are accurate to about one part in :math:`10^6` over the full range of
 optical depths encountered by a silicon sensor between 1 and 10000 angstroms.
 """

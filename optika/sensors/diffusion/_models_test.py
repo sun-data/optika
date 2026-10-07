@@ -1,11 +1,11 @@
 import warnings
 import pytest
 import numpy as np
+import scipy.special
 import astropy.units as u
 import named_arrays as na
 import optika
 from optika._tests import test_mixins
-from . import _gaussian
 
 _thickness_substrate = 14 * u.um
 
@@ -126,28 +126,80 @@ class AbstractTestAbstractDiffusionModel(
 
         assert np.allclose(result, np.sqrt(variance), rtol=1e-5, atol=1e-9 * u.um)
 
-    @pytest.mark.parametrize("width_pixel", _width_pixel)
-    @pytest.mark.parametrize("num", [3, 5])
+    @pytest.mark.parametrize("width_pixel", _width_pixel + [4 * u.um, 0 * u.um])
+    @pytest.mark.parametrize("num", [None, 1, 3, 5])
     def test_kernel(
         self,
         a: optika.sensors.diffusion.AbstractDiffusionModel,
         width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
-        num: int,
+        num: None | int,
+    ):
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=8) * u.um
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = a.kernel(depth, s, width_pixel, "x", "y", num=num)
+        assert isinstance(result, na.FunctionArray)
+
+        outputs = result.outputs
+        size = outputs.shape["x"]
+        assert outputs.shape["y"] == size
+        assert size % 2 == 1
+        if num is not None:
+            assert size == num
+        assert np.all(outputs >= 0)
+
+        # the fractions are not normalized, and the default size leaves out
+        # no more than one part in a million of the charge
+        total = outputs.sum(("x", "y"))
+        assert np.all(total <= 1 + 1e-12)
+        if num is None:
+            assert np.all(total >= 1 - 1e-6)
+
+        # the kernel is centered on the pixel the photon was absorbed in,
+        # and the fraction in each pixel does not depend on the size of the
+        # kernel
+        center = outputs[dict(x=size // 2, y=size // 2)]
+        assert np.all(center == outputs.max(("x", "y")))
+        capture = a.kernel(depth, s, width_pixel, "x", "y", num=1).outputs
+        assert np.allclose(capture.sum(("x", "y")), center, rtol=1e-12)
+
+        for invalid in [0, 2, -1]:
+            with pytest.raises(ValueError, match="odd"):
+                a.kernel(depth, s, width_pixel, "x", "y", num=invalid)
+
+    @pytest.mark.parametrize("width_pixel", _width_pixel)
+    @pytest.mark.parametrize("num", [None, 3, 5])
+    def test_kernel_average(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+        num: None | int,
     ):
         absorption = na.geomspace(1e-3, 1e3, axis="absorption", num=4) / u.um
         s = _thickness_substrate
-        result = a.kernel(absorption, s, width_pixel, "x", "y", num=num)
+        result = a.kernel_average(absorption, s, width_pixel, "x", "y", num=num)
         assert isinstance(result, na.FunctionArray)
-        assert result.outputs.shape == dict(absorption=4, x=num, y=num)
-        assert np.all(result.outputs >= 0)
-        assert np.allclose(result.outputs.sum(("x", "y")), 1)
+
+        outputs = result.outputs
+        size = outputs.shape["x"]
+        assert outputs.shape["y"] == size
+        assert size % 2 == 1
+        if num is not None:
+            assert size == num
+        assert np.all(outputs >= 0)
+        assert np.allclose(outputs.sum(("x", "y")), 1)
 
         # the kernel is centered on the pixel the photon was absorbed in
-        center = result.outputs[dict(x=num // 2, y=num // 2)]
-        assert np.all(center == result.outputs.max(("x", "y")))
+        center = outputs[dict(x=size // 2, y=size // 2)]
+        assert np.all(center == outputs.max(("x", "y")))
+
+        # the inputs are the indices of the pixels relative to the center
+        assert np.all(result.inputs.x[dict(x=size // 2)] == 0)
+        assert np.all(result.inputs.y[dict(y=size // 2)] == 0)
 
         with pytest.raises(ValueError, match="odd"):
-            a.kernel(absorption, s, width_pixel, "x", "y", num=num + 1)
+            a.kernel_average(absorption, s, width_pixel, "x", "y", num=2)
 
     @pytest.mark.parametrize("width_pixel", _width_pixel)
     def test_mean_charge_capture(
@@ -163,7 +215,8 @@ class AbstractTestAbstractDiffusionModel(
 
         # the mean charge capture is the center of a kernel wide enough to
         # hold all of the charge
-        kernel = a.kernel(absorption, s, width_pixel, "x", "y", num=15).outputs
+        kernel = a.kernel_average(absorption, s, width_pixel, "x", "y", num=15)
+        kernel = kernel.outputs
         center = kernel[dict(x=7, y=7)]
         assert np.allclose(result, center, rtol=1e-9)
 
@@ -184,7 +237,7 @@ class AbstractTestAbstractDiffusionModel(
 
         def averages():
             mcc = a.mean_charge_capture(absorption, s, width_pixel)
-            kernel = a.kernel(absorption, s, width_pixel, "x", "y", num=5)
+            kernel = a.kernel_average(absorption, s, width_pixel, "x", "y", num=5)
             return mcc, kernel.outputs
 
         mcc, kernel = averages()
@@ -221,11 +274,11 @@ class AbstractTestAbstractDiffusionModel(
         """
         s = _thickness_substrate
 
-        result = a._average_depth(lambda depth: 0 * depth / u.um + 1, absorption, s)
+        result = a.average_depth(lambda depth: 0 * depth / u.um + 1, absorption, s)
         assert np.allclose(result, 1)
 
-        result = a._average_depth(
-            integrand=lambda depth: np.square(a.width(depth, s)),
+        result = a.average_depth(
+            function=lambda depth: np.square(a.width(depth, s)),
             absorption=absorption,
             thickness_substrate=s,
         )
@@ -235,8 +288,8 @@ class AbstractTestAbstractDiffusionModel(
         alpha = absorption
         absorbed = -np.expm1(-alpha * s)
         for depth_break in [0.01 * u.um, 1 * u.um, 12 * u.um, s, 20 * u.um]:
-            result = a._average_depth(
-                integrand=lambda depth: np.minimum(depth / depth_break, 1),
+            result = a.average_depth(
+                function=lambda depth: np.minimum(depth / depth_break, 1),
                 absorption=absorption,
                 thickness_substrate=s,
                 depth_break=depth_break,
@@ -340,7 +393,10 @@ class TestJanesickDiffusionModel(
         self,
         a: optika.sensors.diffusion.JanesickDiffusionModel,
     ):
-        """With Janesick's widths the average reduces to his closed form."""
+        """
+        With Janesick's widths the average is the closed-form average of the
+        width he gives.
+        """
         s = _thickness_substrate
         absorption = na.geomspace(1e-4, 1e3, axis="absorption", num=8) / u.um
         janesick = a.replace(width_backsurface=None, width_depletion=None)
@@ -370,13 +426,31 @@ class TestJanesickDiffusionModel(
         if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
             width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
 
+        def capture(sigma: na.AbstractScalar) -> na.AbstractScalar:
+            # Gaussian charge cloud of standard deviation `sigma`, in pixels,
+            # convolved with a pixel and integrated over another,
+            # one for zero width
+            with np.errstate(divide="ignore"):
+                return np.sqrt(2 / np.pi) * sigma * np.expm1(
+                    -1 / (2 * np.square(sigma))
+                ) + scipy.special.erf(1 / (np.sqrt(2) * sigma))
+
         axis = "depth"
         num = 100000
         depth = (na.arange(0, num, axis=axis) + 0.5) * s / num
         weight = np.exp(-absorption * depth)
         width = a.width(depth, s)
-        capture = _gaussian._capture(_gaussian._ratio(width, width_pixel.x))
-        capture = capture * _gaussian._capture(_gaussian._ratio(width, width_pixel.y))
-        expected = (capture * weight).sum(axis) / weight.sum(axis)
+        x = (width / width_pixel.x).to(u.dimensionless_unscaled).value
+        y = (width / width_pixel.y).to(u.dimensionless_unscaled).value
+        expected = (capture(x) * capture(y) * weight).sum(axis) / weight.sum(axis)
 
         assert np.allclose(result, expected, rtol=1e-5)
+
+
+def test_kernel_sharp():
+    """A model which does not spread the charge has a kernel of one pixel."""
+    s = _thickness_substrate
+    model = optika.sensors.diffusion.JanesickDiffusionModel(thickness_depletion=s)
+    result = model.kernel(0 * u.um, s, 15 * u.um, "x", "y")
+    assert result.outputs.shape == dict(x=1, y=1)
+    assert np.all(result.outputs == 1)

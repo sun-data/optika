@@ -154,31 +154,6 @@ def _probability_same_pixel(
     return np.where(where, result, 1)
 
 
-def _capture(
-    sigma: float | na.AbstractScalar,
-) -> na.AbstractScalar:
-    r"""
-    The fraction of a Gaussian charge cloud collected in the column (or row)
-    of pixels it was created in, averaged over the uniformly-distributed
-    sub-pixel position of the photon,
-
-    .. math::
-
-        c(\sigma) = \sqrt{\frac{2}{\pi}} \, \sigma \left[ e^{-1 / 2 \sigma^2} - 1 \right]
-            + \text{erf} \left( \frac{1}{\sqrt{2} \sigma} \right).
-
-    Parameters
-    ----------
-    sigma
-        The standard deviation of the charge cloud in units of the pixel width.
-    """
-    where = sigma > 0
-    sigma = np.where(where, sigma, 1)
-    result = np.sqrt(2 / np.pi) * sigma * np.expm1(-1 / (2 * np.square(sigma)))
-    result = result + scipy.special.erf(1 / (np.sqrt(2) * sigma))
-    return np.where(where, result, 1)
-
-
 def _kernel_1d(
     sigma: float | na.AbstractScalar,
     index_pixel: na.AbstractScalar,

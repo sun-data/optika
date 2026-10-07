@@ -394,7 +394,7 @@ def test_electrons_measured_kernel(
     )
     result = electrons / electrons.sum(axis_xy)
 
-    kernel = diffusion.kernel(
+    kernel = diffusion.kernel_average(
         absorption=absorption,
         thickness_substrate=thickness_substrate,
         width_pixel=width_pixel,
