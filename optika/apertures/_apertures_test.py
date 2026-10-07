@@ -144,6 +144,20 @@ class AbstractTestAbstractAperture(
         assert "wire" in wire.shape
         assert wire.shape["wire"] == a.samples_wire
 
+    @pytest.mark.parametrize("num", [None, 21, 7, 3])
+    def test_wire_is_closed(
+        self,
+        a: optika.apertures.AbstractAperture,
+        num: None | int,
+    ):
+        # the last sample is the first again, which
+        # `SequentialSystem.field_stop_polygon` relies on to average over
+        # the edge of the pupil stop without counting a ray twice, at the
+        # few samples the stops are solved at as much as at the default
+        wire = a.wire(num=num)
+        num = wire.shape["wire"]
+        assert np.allclose(wire[dict(wire=num - 1)], wire[dict(wire=0)])
+
     class TestPlot(
         test_mixins.AbstractTestPlottable.TestPlot,
     ):
@@ -667,3 +681,45 @@ def test_plot_2d_is_a_line():
     assert len(ax.lines) == 1
     assert not ax.collections
     plt.close(fig)
+
+
+@pytest.mark.parametrize("num_vertices", [5, 8, 24, 32])
+@pytest.mark.parametrize("num", [7, 21, 101])
+def test_polygon_wire_is_closed_with_fewer_samples_than_sides(
+    num_vertices: int,
+    num: int,
+):
+    """
+    A polygon's wire closes on itself, and has as many samples as asked for,
+    even when there are fewer samples than sides.
+
+    With fewer samples than sides some sides get one sample or none, and the
+    single sample left for the last side used to be the corner it starts
+    from rather than the point which closes the wire.
+    """
+    aperture = optika.apertures.RegularPolygonalAperture(
+        radius=1 * u.mm,
+        num_vertices=num_vertices,
+    )
+    wire = aperture.wire(num=num)
+    assert wire.shape["wire"] == num
+    assert np.allclose(wire[dict(wire=num - 1)], wire[dict(wire=0)])
+
+
+@pytest.mark.parametrize("num_vertices", [4, 8])
+@pytest.mark.parametrize("extra", [1, 2, 73])
+def test_polygon_wire_has_every_corner_with_more_samples_than_sides(
+    num_vertices: int,
+    extra: int,
+):
+    """
+    With more samples than sides, every corner of a polygon is on its wire,
+    so the outline the wire traces is the polygon itself.
+    """
+    aperture = optika.apertures.RegularPolygonalAperture(
+        radius=1 * u.mm,
+        num_vertices=num_vertices,
+    )
+    wire = aperture.wire(num=num_vertices + extra)
+    distance = (wire - aperture.vertices).length.min("wire")
+    assert np.all(distance < 1e-12 * u.mm)

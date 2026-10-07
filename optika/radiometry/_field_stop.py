@@ -1,0 +1,295 @@
+import abc
+import dataclasses
+import functools
+import astropy.units as u
+import named_arrays as na
+import optika
+
+__all__ = [
+    "AbstractFieldStopModel",
+    "ApertureFieldStopModel",
+    "PolynomialFieldStopModel",
+]
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class AbstractFieldStopModel(
+    optika.mixins.Printable,
+    optika.mixins.Replaceable,
+    optika.mixins.Shaped,
+):
+    """
+    An interface describing the field of view of an optical system: which
+    points of the scene it passes light from, at each wavelength.
+
+    Unlike an :class:`~optika.apertures.AbstractAperture`, which is a shape in
+    the frame of a single surface, a field-stop model is a function of scene
+    coordinates, wavelength included.  The field of view of a system whose
+    field stop sits behind a dispersive element moves across the scene with
+    wavelength, and a model evaluated at each point of the scene at that
+    point's own wavelength can follow it.
+    """
+
+    @abc.abstractmethod
+    def __call__(
+        self,
+        coordinates: na.AbstractSpectralPositionalVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Whether each point of the scene lies inside the field of view.
+
+        Parameters
+        ----------
+        coordinates
+            The wavelength and position of each point in the scene.
+        """
+
+    @abc.abstractmethod
+    def wire(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        num: None | int = None,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        The outline of the field of view at the given wavelengths, as a
+        sequence of points in field coordinates along the logical axis
+        ``wire``.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to outline the field of view.
+        num
+            The total number of points along the outline, see
+            :meth:`optika.apertures.AbstractAperture.wire`.
+        """
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class ApertureFieldStopModel(
+    AbstractFieldStopModel,
+):
+    """
+    A field of view which is the same at every wavelength, bounded by an
+    aperture in field coordinates.
+
+    This is the field of view of a system whose field stop sits ahead of
+    every dispersive element, and the form an
+    :class:`~optika.apertures.AbstractAperture` given as the
+    :attr:`~optika.systems.LinearSystem.field_stop` of a linear system takes.
+    """
+
+    aperture: optika.apertures.AbstractAperture = dataclasses.MISSING
+    """The outline of the field of view, in field coordinates."""
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return optika.shape(self.aperture)
+
+    def __call__(
+        self,
+        coordinates: na.AbstractSpectralPositionalVectorArray,
+    ) -> na.AbstractScalar:
+        position = coordinates.position
+        return self.aperture(
+            position=na.Cartesian3dVectorArray(x=position.x, y=position.y),
+        )
+
+    def wire(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        num: None | int = None,
+    ) -> na.AbstractCartesian2dVectorArray:
+        return self.aperture.wire(num=num).xy
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class PolynomialFieldStopModel(
+    AbstractFieldStopModel,
+):
+    """
+    A polygonal field of view whose vertices move with wavelength, each fit
+    by a polynomial in wavelength through its position at known wavelengths.
+
+    A vertex is the same point on the edge of the field stop at every
+    wavelength, and dispersion moves it smoothly, so each can be fit on its
+    own.  Vertices which do not vary with wavelength are used as they are,
+    and the field of view is then the same at every wavelength.
+
+    Examples
+    --------
+
+    Outline a square field of view which drifts across the scene with
+    wavelength, known at three wavelengths, at five others.
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        wavelength = na.linspace(500, 600, axis="wavelength", num=3) * u.nm
+        corners = na.linspace(45, 405, axis="vertex", num=5) * u.deg
+        drift = (wavelength - 550 * u.nm) * (0.01 * u.deg / u.nm)
+
+        model = optika.radiometry.PolynomialFieldStopModel(
+            wavelength=wavelength,
+            vertices=na.Cartesian2dVectorArray(
+                x=0.5 * u.deg * np.cos(corners) + drift,
+                y=0.5 * u.deg * np.sin(corners),
+            ),
+            axis_wavelength="wavelength",
+        )
+
+        wire = model.wire(na.linspace(480, 620, axis="wavelength", num=5) * u.nm)
+
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(constrained_layout=True)
+            na.plt.plot(wire.x, wire.y, axis="wire", ax=ax)
+            ax.set_aspect("equal")
+    """
+
+    wavelength: na.AbstractScalar = dataclasses.MISSING
+    """The wavelengths at which the outline of the field of view is known."""
+
+    vertices: na.AbstractCartesian2dVectorArray = dataclasses.MISSING
+    """
+    The vertices of the outline at each of :attr:`wavelength`, in field
+    coordinates and in order along the logical axis ``vertex``.
+    """
+
+    axis_wavelength: str = dataclasses.MISSING
+    """The logical axis corresponding to changing wavelength."""
+
+    degree: int = dataclasses.field(default=2, kw_only=True)
+    """
+    The degree of the polynomial fit to each vertex.
+
+    Held one below the number of wavelengths, the most that many samples can
+    determine.
+    """
+
+    @property
+    def shape(self) -> dict[str, int]:
+        shape = na.broadcast_shapes(
+            optika.shape(self.wavelength),
+            optika.shape(self.vertices),
+        )
+        return {
+            ax: n
+            for ax, n in shape.items()
+            if ax not in (self.axis_wavelength, "vertex")
+        }
+
+    @functools.cached_property
+    def fit(self) -> na.PolynomialFitFunctionArray:
+        """The polynomial fit mapping wavelength to each vertex of the outline."""
+        wavelength = self.wavelength
+        num = na.broadcast_shapes(
+            optika.shape(wavelength),
+            optika.shape(self.vertices),
+        )[self.axis_wavelength]
+        return na.PolynomialFitFunctionArray.from_degree(
+            inputs=wavelength,
+            outputs=self.vertices,
+            degree=min(self.degree, num - 1),
+            center=wavelength.mean(self.axis_wavelength),
+            axis_polynomial=self.axis_wavelength,
+        )
+
+    def polygon(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+    ) -> optika.apertures.PolygonalAperture:
+        """
+        The outline of the field of view at the given wavelengths, as a
+        polygonal aperture in field coordinates.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to outline the field of view.
+        """
+        vertices = self.vertices
+        if self.axis_wavelength in na.shape(vertices):
+            vertices = self.fit(wavelength).outputs
+        return optika.apertures.PolygonalAperture(
+            vertices=na.Cartesian3dVectorArray(
+                x=vertices.x,
+                y=vertices.y,
+                z=0 * vertices.x,
+            ),
+        )
+
+    def __call__(
+        self,
+        coordinates: na.AbstractSpectralPositionalVectorArray,
+    ) -> na.AbstractScalar:
+        position = coordinates.position
+        return _inside_polygon(
+            polygon=self.polygon(coordinates.wavelength),
+            position=na.Cartesian3dVectorArray(x=position.x, y=position.y),
+        )
+
+    def wire(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        num: None | int = None,
+    ) -> na.AbstractCartesian2dVectorArray:
+        wire = self.polygon(wavelength).wire(num=num)
+        return wire.xy
+
+
+def _inside_polygon(
+    polygon: optika.apertures.PolygonalAperture,
+    position: na.AbstractCartesian3dVectorArray,
+) -> na.AbstractScalar:
+    """
+    Test each point against the polygon it shares its other axes with, one
+    polygon at a time.
+
+    A field of view which moves with wavelength is a different polygon at
+    each wavelength, and tested all at once the vertices of every one of
+    them are broadcast against every point of the scene, which takes memory
+    in proportion to both: 1.3 kB per point for an outline of 81 vertices,
+    some 14 GB for ten wavelengths of a :math:`1024 \\times 1024` scene.
+    One at a time, each test is of a single polygon, which takes next to
+    none.  A single polygon along an axis is the polygon of every point
+    along it.  This can go once sun-data/named-arrays#265 is released,
+    which tests each point against its own polygon without the copy.
+
+    Parameters
+    ----------
+    polygon
+        The polygons, one along every axis of their vertices but ``vertex``.
+    position
+        The points to test, which may share any of those axes.
+    """
+    vertices = polygon.vertices
+    shape = na.shape(vertices)
+    axes = [axis for axis in shape if axis != "vertex"]
+    if not axes:
+        return polygon(position)
+
+    axis = axes[0]
+    if shape[axis] == 1:
+        polygon = dataclasses.replace(polygon, vertices=vertices[{axis: 0}])
+        return _inside_polygon(polygon=polygon, position=position)
+
+    position = na.broadcast_to(
+        position,
+        na.broadcast_shapes(na.shape(position), {axis: shape[axis]}),
+    )
+    return na.stack(
+        [
+            _inside_polygon(
+                polygon=dataclasses.replace(polygon, vertices=vertices[{axis: i}]),
+                position=position[{axis: i}],
+            )
+            for i in range(shape[axis])
+        ],
+        axis=axis,
+    )

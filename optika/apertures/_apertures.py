@@ -29,6 +29,55 @@ __all__ = [
 ]
 
 
+def _wire_parameters(num: int, num_sides: int) -> list[na.AbstractScalar]:
+    """
+    Share the samples of a closed outline out among its sides.
+
+    The samples are shared out in integers, so that they always add up to
+    `num` and the outline always ends where it began.  With more samples
+    than sides, every side starts with its first corner and the last side
+    ends at the first corner again, so every corner is sampled.  With as
+    many samples as sides, the last side has room only for the sample which
+    closes the outline, so its own corner is left out.  With fewer, some
+    sides get none, so all but the closing sample are shared out with the
+    first side served first, and the closing sample is added to the last.
+
+    Parameters
+    ----------
+    num
+        The total number of samples.
+    num_sides
+        The number of sides of the outline.
+
+    Returns
+    -------
+        For each side, its samples along the ``wire`` axis, as the fraction
+        of the way from the start of the side to its end.
+    """
+    few = num < num_sides
+    if few:
+        bounds = [-(-s * (num - 1) // num_sides) for s in range(num_sides + 1)]
+    else:
+        bounds = [s * num // num_sides for s in range(num_sides + 1)]
+    result = []
+    for s in range(num_sides):
+        num_s = bounds[s + 1] - bounds[s]
+        last = s == num_sides - 1
+        if last and few:
+            num_s += 1
+        t = na.linspace(
+            # a single sample left for the last side is the point which
+            # closes the outline, not the corner that side starts from
+            start=1 if last and num_s == 1 else 0,
+            stop=1,
+            axis="wire",
+            num=num_s,
+            endpoint=last,
+        )
+        result.append(t)
+    return result
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractAperture(
     optika.mixins.DxfWritable,
@@ -616,20 +665,8 @@ class CircularSectorAperture(
         # Distribute the points evenly across all three segments -- like the
         # polygonal apertures -- so the entire boundary is sampled.  Sampling
         # only the arc would leave the radial arms unsampled.
-        num_segments = 3
-        num_per_segment = num / num_segments
         segments = []
-        num_cumulative = 0
-        for s in range(num_segments):
-            num_s = int((s + 1) * num_per_segment - num_cumulative)
-            num_cumulative += num_s
-            t = na.linspace(
-                start=0,
-                stop=1,
-                axis="wire",
-                num=num_s,
-                endpoint=num_cumulative == num,
-            )
+        for s, t in enumerate(_wire_parameters(num, num_sides=3)):
             if s == 0:  # radial arm from the vertex out to the start of the arc
                 radius = self.radius * t
                 angle = self.angle_start
@@ -1066,11 +1103,23 @@ class AbstractPolygonalAperture(
             position = self.transformation.inverse(position)
 
         if np.any(active):
+            vertices_x = vertices.x
+            vertices_y = vertices.y
+            unit = na.unit(position.x)
+            if unit is not None:
+                # Converted here, the vertices are converted once.  Left to
+                # `named_arrays.geometry.point_in_polygon`, they are converted
+                # after they are broadcast against the points, which takes
+                # memory in proportion to the points times the vertices:
+                # 1.3 kB a point for a field stop of 81 vertices.  This can
+                # go once sun-data/named-arrays#265 is released.
+                vertices_x = na.asanyarray(vertices_x).to(unit)
+                vertices_y = na.asanyarray(vertices_y).to(unit)
             result = na.geometry.point_in_polygon(
                 x=position.x,
                 y=position.y,
-                vertices_x=vertices.x,
-                vertices_y=vertices.y,
+                vertices_x=vertices_x,
+                vertices_y=vertices_y,
                 axis="vertex",
             )
 
@@ -1113,31 +1162,13 @@ class AbstractPolygonalAperture(
             num = self.samples_wire
         vertices = self.vertices.broadcasted
         num_vertices = vertices.shape["vertex"]
-        num_sides = num_vertices
-        num_per_side = num / num_sides
         index_right = na.arange(0, num_vertices, axis="vertex") + 1
         index_right = index_right % num_vertices
         index_right = dict(vertex=index_right)
         vertices_left = vertices
         vertices_right = vertices[index_right]
         wire = []
-        num_cumulative = 0
-        for v in range(num_vertices):
-            num_v = int((v + 1) * num_per_side - num_cumulative)
-            num_cumulative += num_v
-
-            if num_cumulative == num:
-                endpoint = True
-            else:
-                endpoint = False
-
-            t = na.linspace(
-                start=0,
-                stop=1,
-                axis="wire",
-                num=num_v,
-                endpoint=endpoint,
-            )
+        for v, t in enumerate(_wire_parameters(num, num_sides=num_vertices)):
             vertex_left = vertices_left[dict(vertex=v)]
             vertex_right = vertices_right[dict(vertex=v)]
             diff = vertex_right - vertex_left

@@ -81,12 +81,30 @@ class AbstractImagingSensor(
         """
 
     @property
+    @abc.abstractmethod
+    def clip_rays(self) -> bool:
+        """
+        Whether :attr:`aperture` vignettes the rays which miss the
+        light-sensitive area.
+
+        If :obj:`False`, rays which miss it leave the sensor as unvignetted
+        as they arrived, and land where they would have.  The light-sensitive
+        area is the same either way: :meth:`pixels` and :meth:`collect` still
+        bin onto it, and a ray which misses it still falls in no pixel.
+        """
+
+    @property
     def aperture(self):
         """
         The light-sensitive aperture of the sensor.
+
+        It is derived from the pixels, so it cannot be replaced or removed
+        like the aperture of another surface; it vignettes the rays which
+        miss it only if :attr:`clip_rays` is set.
         """
         return optika.apertures.RectangularAperture(
             half_width=self.width_pixel * self.num_pixel / 2,
+            active=self.clip_rays,
         )
 
     def pixels(
@@ -599,6 +617,12 @@ class ImagingSensor(
 
     aperture_mechanical: optika.apertures.RectangularAperture = None
     """The shape of the physical substrate supporting the sensor."""
+
+    clip_rays: bool = dataclasses.field(default=True, kw_only=True)
+    """
+    Whether :attr:`aperture` vignettes the rays which miss the
+    light-sensitive area.
+    """
 
     is_field_stop: bool = False
     """A flag controlling whether this sensor is the field stop for the system."""
