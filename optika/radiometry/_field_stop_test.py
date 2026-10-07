@@ -1,3 +1,4 @@
+import tracemalloc
 import pytest
 import numpy as np
 import astropy.units as u
@@ -195,12 +196,12 @@ def test_field_stop_model_follows_a_field_of_view_across_the_scene():
     assert np.all(result == expected)
 
 
-def test_polynomial_field_stop_tests_one_polygon_at_a_time():
+def test_polynomial_field_stop_does_not_copy_the_vertices_for_every_point() -> None:
     """
-    A field of view which moves with wavelength is tested one wavelength's
-    polygon at a time, which gives the same answer as testing every point
-    against the polygons all at once, without broadcasting the vertices of
-    every polygon against every point.
+    A field of view which moves with wavelength is a different polygon at
+    each wavelength, and testing a scene against it takes memory in
+    proportion to the points of the scene, not to the points times the
+    vertices, even with the scene in a different unit than the vertices.
     """
     wavelength = na.linspace(500, 600, axis="wavelength", num=3) * u.nm
     corners = na.linspace(0, 360, axis="vertex", num=81) * u.deg
@@ -214,22 +215,34 @@ def test_polynomial_field_stop_tests_one_polygon_at_a_time():
         axis_wavelength="wavelength",
     )
     coordinates = na.SpectralPositionalVectorArray(
-        wavelength=na.linspace(480, 620, axis="scene_wavelength", num=5) * u.nm,
+        wavelength=na.linspace(480, 620, axis="scene_wavelength", num=3) * u.nm,
         position=na.Cartesian2dVectorArray(
-            x=na.linspace(-1, 1, axis="scene_x", num=31) * u.deg,
-            y=na.linspace(-1, 1, axis="scene_y", num=31) * u.deg,
+            x=na.linspace(-3600, 3600, axis="scene_x", num=200) * u.arcsec,
+            y=na.linspace(-3600, 3600, axis="scene_y", num=200) * u.arcsec,
         ),
     )
 
-    result = model(coordinates)
+    # compile the test of the points before measuring
+    model(coordinates)
 
-    position = coordinates.position
-    expected = model.polygon(coordinates.wavelength)(
-        na.Cartesian3dVectorArray(x=position.x, y=position.y),
-    )
-    assert np.all(result == expected)
+    tracing = tracemalloc.is_tracing()
+    if not tracing:
+        tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        baseline, _ = tracemalloc.get_traced_memory()
+        result = model(coordinates)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        if not tracing:
+            tracemalloc.stop()
+
     # the field of view moves across the scene, so the test is not empty
     assert np.any(result) and not np.all(result)
+
+    # room for four float64 copies of the points, where a copy of the
+    # vertices for every point takes two times 81 of them
+    assert peak - baseline < 4 * 8 * result.size
 
 
 def test_polynomial_field_stop_tests_every_point_along_an_axis_of_one_polygon():

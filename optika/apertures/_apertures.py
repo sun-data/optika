@@ -1103,23 +1103,11 @@ class AbstractPolygonalAperture(
             position = self.transformation.inverse(position)
 
         if np.any(active):
-            vertices_x = vertices.x
-            vertices_y = vertices.y
-            unit = na.unit(position.x)
-            if unit is not None:
-                # Converted here, the vertices are converted once.  Left to
-                # `named_arrays.geometry.point_in_polygon`, they are converted
-                # after they are broadcast against the points, which takes
-                # memory in proportion to the points times the vertices:
-                # 1.3 kB a point for a field stop of 81 vertices.  This can
-                # go once sun-data/named-arrays#265 is released.
-                vertices_x = na.asanyarray(vertices_x).to(unit)
-                vertices_y = na.asanyarray(vertices_y).to(unit)
             result = na.geometry.point_in_polygon(
                 x=position.x,
                 y=position.y,
-                vertices_x=vertices_x,
-                vertices_y=vertices_y,
+                vertices_x=vertices.x,
+                vertices_y=vertices.y,
                 axis="vertex",
             )
 
