@@ -25,6 +25,7 @@ from ._ramanathan_2020 import (
     electrons_measured,
 )
 from ..diffusion import AbstractDiffusionModel
+from ..diffusion._models import _check_model
 
 __all__ = [
     "energy_bandgap",
@@ -1055,6 +1056,7 @@ _absorbance = absorbance
 def signal(
     photons_expected: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
+    *,
     direction: float | na.AbstractScalar = 1,
     n: complex | na.AbstractScalar = 1,
     n_substrate: None | complex | na.AbstractScalar = None,
@@ -1188,6 +1190,8 @@ def signal(
         ax.set_ylabel(f"variance-to-mean ratio ({electrons.unit:latex_inline})");
     """
 
+    _check_model(diffusion)
+
     if absorbance is None:
         absorbance = _absorbance(
             wavelength=wavelength,
@@ -1252,6 +1256,7 @@ def signal(
 
 def vmr_signal(
     wavelength: u.Quantity | na.ScalarArray,
+    *,
     direction: float | na.AbstractScalar = 1,
     n: complex | na.AbstractScalar = 1,
     n_substrate: None | complex | na.AbstractScalar = None,
@@ -1546,6 +1551,8 @@ def vmr_signal(
     and is a good approximation away from the edges of a sensor
     with ``wrap=False``.
     """
+
+    _check_model(diffusion)
 
     if diffusion is not None and width_pixel is None:
         raise ValueError("`width_pixel` must be given with `diffusion`.")

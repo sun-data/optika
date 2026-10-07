@@ -12,6 +12,7 @@ from .._stern_1994 import (
     _thickness_substrate,
     _cce_backsurface,
 )
+from ...diffusion._models import _check_model, _pixel_vector
 
 __all__ = [
     "energy_bandgap",
@@ -499,6 +500,7 @@ def probability_of_n_pairs(
 def electrons_measured(
     photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
+    *,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
@@ -631,6 +633,8 @@ def electrons_measured(
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
+    _check_model(diffusion)
+
     if diffusion is None:
         # no field-free region and no spread in the depletion region,
         # so the electrons stay in the pixel the photon was absorbed in
@@ -650,8 +654,7 @@ def electrons_measured(
     if shape_random is None:
         shape_random = dict()
 
-    if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
-        width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
+    width_pixel = _pixel_vector(width_pixel)
 
     width_pixel_x = width_pixel.x
     width_pixel_y = width_pixel.y
@@ -847,7 +850,12 @@ def _normal_cdf(  # pragma: nocover
     origin: float,
     scale: float,
 ) -> float:
-    """Gaussian CDF at `edge` for mean `origin`, where ``scale = 1/(sigma*sqrt2)``."""
+    """
+    Gaussian CDF at `edge` for mean `origin`, where ``scale = 1/(sigma*sqrt2)``,
+    and a step at `origin` for zero sigma, where `scale` is infinite.
+    """
+    if scale == math.inf:
+        return 1.0 if edge > origin else 0.0
     return 0.5 * (1.0 + math.erf((edge - origin) * scale))
 
 
@@ -899,6 +907,8 @@ def _diffuse_electrons(  # pragma: nocover
     sigma_x, sigma_y
         The standard deviation of the diffusion kernel along each axis,
         in pixels.
+        Zero along an axis keeps the electrons in the column (or row) of
+        pixels they originate from.
     num_x, num_y
         The shape of the image.
     wrap
@@ -911,8 +921,12 @@ def _diffuse_electrons(  # pragma: nocover
     if m <= 0:
         return
 
-    half_x = int(math.ceil(_num_sigma_window * sigma_x)) + 1
-    half_y = int(math.ceil(_num_sigma_window * sigma_y)) + 1
+    half_x = 0
+    half_y = 0
+    if sigma_x > 0:
+        half_x = int(math.ceil(_num_sigma_window * sigma_x)) + 1
+    if sigma_y > 0:
+        half_y = int(math.ceil(_num_sigma_window * sigma_y)) + 1
     num_window_x = 2 * half_x + 1
     num_window_y = 2 * half_y + 1
 
@@ -920,8 +934,12 @@ def _diffuse_electrons(  # pragma: nocover
     # the window.
     if m < factor_multinomial * num_window_x * num_window_y:
         for _ in range(m):
-            p = round(random.gauss(u, sigma_x))
-            q = round(random.gauss(v, sigma_y))
+            p = 0
+            q = 0
+            if sigma_x > 0:
+                p = round(random.gauss(u, sigma_x))
+            if sigma_y > 0:
+                q = round(random.gauss(v, sigma_y))
             x_e = x + p
             y_e = y + q
             if wrap:
@@ -934,8 +952,12 @@ def _diffuse_electrons(  # pragma: nocover
     # occupied column across y offsets, via conditional binomials. This
     # samples the multinomial distribution with product probabilities
     # P_x(k_x) * P_y(k_y), renormalized over the bounded window.
-    scale_x = 1.0 / (sigma_x * _sqrt2)
-    scale_y = 1.0 / (sigma_y * _sqrt2)
+    scale_x = math.inf
+    scale_y = math.inf
+    if sigma_x > 0:
+        scale_x = 1.0 / (sigma_x * _sqrt2)
+    if sigma_y > 0:
+        scale_y = 1.0 / (sigma_y * _sqrt2)
 
     rem_x = m
     c_hi_x = _normal_cdf(half_x + 0.5, u, scale_x)
@@ -1109,7 +1131,13 @@ def _electrons_measured_numba(  # pragma: nocover
                         w_d = w_depletion * math.sqrt(g)
                     w = math.hypot(w_ff, w_d)
 
-                    if w > 0 and wp_x > 0 and wp_y > 0:
+                    # a pixel of zero width along an axis turns off the
+                    # spread along that axis, as in
+                    # `optika.sensors.diffusion.AbstractDiffusionModel.kernel`
+                    sigma_x = w / wp_x if wp_x > 0 else 0.0
+                    sigma_y = w / wp_y if wp_y > 0 else 0.0
+
+                    if sigma_x > 0 or sigma_y > 0:
                         _diffuse_electrons(
                             result=result,
                             i=i,
@@ -1118,8 +1146,8 @@ def _electrons_measured_numba(  # pragma: nocover
                             m=m_ij,
                             u=u,
                             v=v,
-                            sigma_x=w / wp_x,
-                            sigma_y=w / wp_y,
+                            sigma_x=sigma_x,
+                            sigma_y=sigma_y,
                             num_x=num_x,
                             num_y=num_y,
                             wrap=wrap,

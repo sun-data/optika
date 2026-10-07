@@ -126,6 +126,12 @@ class AbstractTestAbstractDiffusionModel(
 
         assert np.allclose(result, np.sqrt(variance), rtol=1e-5, atol=1e-9 * u.um)
 
+        # the average the base class takes over depth agrees with any closed
+        # form a model overrides it with
+        generic = optika.sensors.diffusion.AbstractDiffusionModel.width_average
+        result_generic = generic(a, absorption, s)
+        assert np.allclose(result_generic, result, rtol=1e-6, atol=1e-9 * u.um)
+
     @pytest.mark.parametrize("width_pixel", _width_pixel + [4 * u.um, 0 * u.um])
     @pytest.mark.parametrize("num", [None, 1, 3, 5])
     def test_kernel(
@@ -164,7 +170,7 @@ class AbstractTestAbstractDiffusionModel(
         capture = a.kernel(depth, s, width_pixel, "x", "y", num=1).outputs
         assert np.allclose(capture.sum(("x", "y")), center, rtol=1e-12)
 
-        for invalid in [0, 2, -1]:
+        for invalid in [0, 2, -1, 3.0]:
             with pytest.raises(ValueError, match="odd"):
                 a.kernel(depth, s, width_pixel, "x", "y", num=invalid)
 
@@ -188,11 +194,20 @@ class AbstractTestAbstractDiffusionModel(
         if num is not None:
             assert size == num
         assert np.all(outputs >= 0)
-        assert np.allclose(outputs.sum(("x", "y")), 1)
 
-        # the kernel is centered on the pixel the photon was absorbed in
+        # the fractions are not normalized, and the default size leaves out
+        # no more than one part in a million of the charge
+        total = outputs.sum(("x", "y"))
+        assert np.all(total <= 1 + 1e-12)
+        if num is None:
+            assert np.all(total >= 1 - 1e-6)
+
+        # the kernel is centered on the pixel the photon was absorbed in,
+        # and its center is the mean charge capture whatever its size
         center = outputs[dict(x=size // 2, y=size // 2)]
         assert np.all(center == outputs.max(("x", "y")))
+        mcc = a.mean_charge_capture(absorption, s, width_pixel)
+        assert np.allclose(center, mcc, rtol=1e-12)
 
         # the inputs are the indices of the pixels relative to the center
         assert np.all(result.inputs.x[dict(x=size // 2)] == 0)
@@ -274,24 +289,39 @@ class AbstractTestAbstractDiffusionModel(
         """
         s = _thickness_substrate
 
-        result = a.average_depth(lambda depth: 0 * depth / u.um + 1, absorption, s)
+        def average_depth(**kwargs) -> na.AbstractScalar:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                return a.average_depth(
+                    absorption=absorption,
+                    thickness_substrate=s,
+                    **kwargs,
+                )
+
+        result = average_depth(function=lambda depth: 0 * depth / u.um + 1)
         assert np.allclose(result, 1)
 
-        result = a.average_depth(
-            function=lambda depth: np.square(a.width(depth, s)),
-            absorption=absorption,
-            thickness_substrate=s,
-        )
+        result = average_depth(function=lambda depth: np.square(a.width(depth, s)))
         expected = np.square(a.width_average(absorption, s))
         assert np.allclose(result, expected, rtol=1e-6, atol=1e-12 * u.um**2)
 
         alpha = absorption
         absorbed = -np.expm1(-alpha * s)
-        for depth_break in [0.01 * u.um, 1 * u.um, 12 * u.um, s, 20 * u.um]:
-            result = a.average_depth(
+        mean = 1 / alpha - s * np.exp(-alpha * s) / absorbed
+        for depth_break in [None, 0.01 * u.um, 1 * u.um, 12 * u.um, s, 20 * u.um]:
+            # the mean depth, which is finite only if the quadrature never
+            # reaches beyond the depletion region
+            result = average_depth(
+                function=lambda depth: depth,
+                depth_break=depth_break,
+            )
+            assert np.allclose(result, mean, rtol=1e-6)
+
+            if depth_break is None:
+                continue
+
+            result = average_depth(
                 function=lambda depth: np.minimum(depth / depth_break, 1),
-                absorption=absorption,
-                thickness_substrate=s,
                 depth_break=depth_break,
             )
             b = np.minimum(depth_break, s)
@@ -300,6 +330,36 @@ class AbstractTestAbstractDiffusionModel(
             expected = ramp + np.exp(-alpha * b) - np.exp(-alpha * s)
             expected = expected / absorbed
             assert np.allclose(result, expected, rtol=1e-6)
+
+    @pytest.mark.parametrize("width_pixel", _width_pixel)
+    def test_transparent(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+    ):
+        """
+        A sensor which absorbs weakly absorbs photons uniformly in depth,
+        and the averages for one which does not absorb are that limit.
+        """
+        s = _thickness_substrate
+
+        def averages(absorption: u.Quantity) -> list[na.AbstractScalar]:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                return [
+                    a.average_depth(lambda depth: depth, absorption, s),
+                    a.width_average(absorption, s),
+                    a.mean_charge_capture(absorption, s, width_pixel),
+                    a.kernel_average(absorption, s, width_pixel, "x", "y").outputs,
+                ]
+
+        result = averages(0 / u.um)
+        expected = averages(1e-9 / u.um)
+
+        assert np.allclose(result[0], s / 2)
+        for r, e in zip(result, expected):
+            assert np.all(np.isfinite(r))
+            assert np.all(np.abs(r - e) <= 1e-7 * np.abs(e))
 
     def test_fit_mean_charge_capture(
         self,

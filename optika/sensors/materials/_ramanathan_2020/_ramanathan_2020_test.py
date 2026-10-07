@@ -362,20 +362,29 @@ def test_electrons_measured_diffusion_profile(
         1 / u.um,
     ],
 )
+@pytest.mark.parametrize(
+    argnames="width_pixel",
+    argvalues=[
+        13 * u.um,
+        na.Cartesian2dVectorArray(0, 13) * u.um,
+    ],
+)
 def test_electrons_measured_kernel(
     diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
     absorption: u.Quantity,
+    width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
 ):
     """
     The fraction of the charge from a pixel collected in it and in each of
     its neighbors is the kernel of the model of diffusion,
     for photons absorbed throughout the sensor as well as for photons
-    absorbed near the back surface.
+    absorbed near the back surface,
+    and for pixels of zero width along one axis, which turns off the spread
+    along that axis.
     """
     num = 9
     axis_xy = ("pixel_x", "pixel_y")
     thickness_substrate = 14 * u.um
-    width_pixel = 13 * u.um
 
     photons = np.zeros((num, num))
     photons[num // 2, num // 2] = 200000

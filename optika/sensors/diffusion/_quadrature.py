@@ -4,10 +4,44 @@ at which photons are absorbed.
 """
 
 from typing import Callable
+import numpy as np
 import scipy.special
+import astropy.units as u
 import named_arrays as na
 
 __all__ = []
+
+_optical_depth_min = 1e-30
+"""
+The smallest optical depth of the light-sensitive region used by the averages
+over depth, see :func:`_absorption_positive`.
+"""
+
+
+def _absorption_positive(
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+) -> u.Quantity | na.AbstractScalar:
+    """
+    The absorption coefficient, raised if necessary so that the optical depth
+    of the light-sensitive region is at least :obj:`_optical_depth_min`.
+
+    The few photons that a weakly absorbing sensor absorbs are absorbed
+    uniformly in depth, and the averages over depth of a sensor which does not
+    absorb at all are taken to be that limit.
+    Evaluating them at a tiny optical depth instead of zero gives the limit to
+    machine precision, since the depth distribution then differs from a
+    uniform one by about that optical depth.
+
+    Parameters
+    ----------
+    absorption
+        The absorption coefficient of the light-sensitive region.
+    thickness_substrate
+        The thickness of the light-sensitive region.
+    """
+    return np.maximum(absorption, _optical_depth_min / thickness_substrate)
+
 
 _num_gauss_legendre = 32
 """

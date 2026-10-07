@@ -334,12 +334,20 @@ def test_vmr_signal(
     assert np.all(result >= 0 * u.electron)
 
 
-def test_vmr_signal_diffusion():
+@pytest.mark.parametrize(
+    argnames="width_pixel",
+    argvalues=[
+        27 * u.um,
+        na.Cartesian2dVectorArray(0, 4) * u.um,
+    ],
+)
+def test_vmr_signal_diffusion(
+    width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+):
     wavelength = 304 * u.AA
     diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
         thickness_depletion=2 * u.um
     )
-    width_pixel = 27 * u.um
     axis_xy = ("detector_x", "detector_y")
 
     photons_expected = na.broadcast_to(
@@ -470,6 +478,58 @@ def test_diffusion_requires_pixels():
             diffusion=diffusion,
             axis_xy=("detector_x", "detector_y"),
         )
+
+
+@pytest.mark.parametrize("diffusion", [False, True, 8 * u.um])
+def test_diffusion_is_a_model(
+    diffusion: object,
+):
+    """
+    The `diffusion` argument is a model of diffusion, not a flag or a
+    parameter of one.
+    """
+    wavelength = 304 * u.AA
+    photons_expected = na.broadcast_to(
+        100 * u.photon,
+        shape=dict(detector_x=4, detector_y=4),
+    )
+    kwargs = dict(
+        diffusion=diffusion,
+        width_pixel=27 * u.um,
+    )
+    with pytest.raises(TypeError, match="AbstractDiffusionModel"):
+        optika.sensors.vmr_signal(wavelength, **kwargs)
+    for method in ["expected", "monte-carlo"]:
+        with pytest.raises(TypeError, match="AbstractDiffusionModel"):
+            optika.sensors.signal(
+                photons_expected,
+                wavelength,
+                method=method,
+                axis_xy=("detector_x", "detector_y"),
+                **kwargs,
+            )
+    with pytest.raises(TypeError, match="AbstractDiffusionModel"):
+        optika.sensors.electrons_measured(
+            photons_expected.astype(int),
+            wavelength,
+            axis_xy=("detector_x", "detector_y"),
+            **kwargs,
+        )
+
+
+def test_keyword_only():
+    """
+    Only the leading arguments are positional, so that removing or adding a
+    parameter can never silently shift the meaning of the others.
+    """
+    wavelength = 304 * u.AA
+    photons = 100 * u.photon
+    with pytest.raises(TypeError, match="positional"):
+        optika.sensors.vmr_signal(wavelength, 1)
+    with pytest.raises(TypeError, match="positional"):
+        optika.sensors.signal(photons, wavelength, 1)
+    with pytest.raises(TypeError, match="positional"):
+        optika.sensors.electrons_measured(photons, wavelength, 1 / u.um)
 
 
 @pytest.mark.parametrize(

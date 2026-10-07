@@ -7,6 +7,7 @@ import numpy as np
 import scipy.special
 import astropy.units as u
 import named_arrays as na
+from ._quadrature import _absorption_positive
 
 __all__ = []
 
@@ -29,15 +30,28 @@ def _absorbed_ramp(
     which goes to zero with the optical depth :math:`\alpha L`,
     so that a layer of zero thickness contributes nothing.
 
+    Below :obj:`_optical_depth_series` the numerator cancels,
+    so the series :math:`\alpha L / 2 - (\alpha L)^2 / 6 + (\alpha L)^3 / 24
+    - (\alpha L)^4 / 120` is used instead.
+
     Parameters
     ----------
     optical_depth
         The optical depth :math:`\alpha L` of the layer.
     """
-    where = optical_depth > 0
-    optical_depth = np.where(where, optical_depth, 1)
-    result = (optical_depth + np.expm1(-optical_depth)) / optical_depth
-    return np.where(where, result, 0)
+    a = np.maximum(optical_depth, 0)
+    series = a < _optical_depth_series
+    a_safe = np.where(series, 1, a)
+    result = (a_safe + np.expm1(-a_safe)) / a_safe
+    result_series = a / 2 * (1 - a / 3 * (1 - a / 4 * (1 - a / 5)))
+    return np.where(series, result_series, result)
+
+
+_optical_depth_series = 1e-3
+"""
+The optical depth below which :func:`_absorbed_ramp` is evaluated by its
+series, where both are accurate to better than one part in :math:`10^{12}`.
+"""
 
 
 def _width_average(
@@ -76,6 +90,8 @@ def _width_average(
 
     if width_backsurface is None:
         width_backsurface = f
+
+    absorption = _absorption_positive(absorption, s)
 
     az_s = (absorption * s).to(u.dimensionless_unscaled).value
     az_f = (absorption * f).to(u.dimensionless_unscaled).value

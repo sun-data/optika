@@ -1,5 +1,6 @@
 import abc
 from typing import Callable
+import numbers
 import dataclasses
 from typing_extensions import Self
 import numpy as np
@@ -8,7 +9,7 @@ import scipy.special
 import astropy.units as u
 import named_arrays as na
 import optika
-from ._quadrature import _integrate_gauss_legendre
+from ._quadrature import _absorption_positive, _integrate_gauss_legendre
 from ._gaussian import (
     _width_average,
     _ratio,
@@ -27,6 +28,25 @@ _tolerance_kernel = 1e-6
 The largest fraction of the charge created at any depth which a kernel of the
 default size may leave out.
 """
+
+
+def _check_model(
+    diffusion: object,
+) -> None:
+    """
+    Raise a :class:`TypeError` unless `diffusion` is :obj:`None` or a model of
+    diffusion.
+
+    Parameters
+    ----------
+    diffusion
+        The value of a `diffusion` argument.
+    """
+    if diffusion is not None and not isinstance(diffusion, AbstractDiffusionModel):
+        raise TypeError(
+            "`diffusion` must be None or an instance of "
+            f"`optika.sensors.diffusion.AbstractDiffusionModel`, got {diffusion!r}."
+        )
 
 
 def _pixel_vector(
@@ -121,9 +141,11 @@ class AbstractDiffusionModel(
 
         \alpha z = -\log \left( e^{-\alpha z_f} + \left( 1 - e^{-\alpha z_f} \right) r^2 \right),
 
-    which is evaluated in this form, rather than through the cumulative
-    probability, so that it stays finite when :math:`e^{-\alpha z_f}`
-    underflows.
+    which is evaluated in this form where most of the photons absorbed in the
+    region are absorbed above the depth, so that it stays accurate when
+    :math:`e^{-\alpha z_f}` underflows,
+    and as the logarithm of one minus the cumulative probability elsewhere,
+    so that it stays accurate when the region is optically thin.
     In the depletion region, of thickness :math:`z_d`, the same substitution
     in terms of :math:`v` puts the branch point at the gates, :math:`v = 0`,
     where the optical depth below the edge of the depletion region is
@@ -140,6 +162,10 @@ class AbstractDiffusionModel(
     which covers silicon between 1 and 10000 angstroms;
     a midpoint rule in the cumulative probability needs some thirty times as
     many nodes to reach a hundred times worse accuracy.
+
+    A sensor which absorbs weakly absorbs photons uniformly in depth,
+    and the averages for a sensor which does not absorb at all,
+    :math:`\alpha = 0`, are that limit.
     """
 
     @property
@@ -269,7 +295,6 @@ class AbstractDiffusionModel(
             created at any depth.
         """
 
-    @abc.abstractmethod
     def width_average(
         self,
         absorption: u.Quantity | na.AbstractScalar,
@@ -279,6 +304,9 @@ class AbstractDiffusionModel(
         The square root of the variance of the charge cloud along one axis
         averaged over the depth at which photons are absorbed.
 
+        This averages the square of :meth:`width` with :meth:`average_depth`.
+        Models for which the average has a closed form override it.
+
         Parameters
         ----------
         absorption
@@ -287,6 +315,12 @@ class AbstractDiffusionModel(
         thickness_substrate
             The thickness of the light-sensitive region of the sensor.
         """
+        s = thickness_substrate
+
+        def variance(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            return np.square(self.width(depth, s))
+
+        return np.sqrt(self.average_depth(variance, absorption, s))
 
     def kernel_average(
         self,
@@ -303,9 +337,15 @@ class AbstractDiffusionModel(
         the position of the photon within its pixel and over the depth at
         which it was absorbed.
 
-        This averages :meth:`kernel` with :meth:`average_depth`,
-        and normalizes the fractions to sum to one over the kernel,
-        so that convolving an image with it conserves charge.
+        This averages :meth:`kernel` with :meth:`average_depth`.
+        Like :meth:`kernel`, the fractions are not normalized,
+        so the center of the kernel is the :meth:`mean_charge_capture` whatever
+        its size, and the charge which lands beyond the kernel is missing from
+        their sum.
+
+        Each depth is weighted by the probability that a photon is absorbed
+        there, so this is the kernel of the charge each photon creates,
+        before any of it is lost near the back surface of the sensor.
 
         Parameters
         ----------
@@ -344,7 +384,6 @@ class AbstractDiffusionModel(
             ).outputs
 
         result = self.average_depth(kernel, absorption, thickness_substrate)
-        result = result / result.sum(axis=(axis_x, axis_y))
 
         return na.FunctionArray(
             inputs=_indices_kernel(num, axis_x, axis_y),
@@ -362,7 +401,9 @@ class AbstractDiffusionModel(
         was absorbed in, averaged over the position of the photon within its
         pixel and over the depth at which it was absorbed :cite:p:`Stern2004`.
 
-        This averages the center of :meth:`kernel` with :meth:`average_depth`.
+        This averages the center of :meth:`kernel` with :meth:`average_depth`,
+        weighting each depth by the probability that a photon is absorbed
+        there, as :meth:`kernel_average` does.
 
         Parameters
         ----------
@@ -439,9 +480,9 @@ class AbstractDiffusionModel(
             The width of a pixel.
         """
         if num is not None:
-            if num < 1 or num % 2 != 1:
+            if not isinstance(num, numbers.Integral) or num < 1 or num % 2 != 1:
                 raise ValueError(f"`num` must be a positive odd integer, got {num}.")
-            return num
+            return int(num)
 
         s = thickness_substrate
         width_pixel = _pixel_vector(width_pixel)
@@ -512,6 +553,8 @@ class AbstractDiffusionModel(
         s = thickness_substrate
         f = np.maximum(s - self.thickness_depletion, 0 * s)
 
+        absorption = _absorption_positive(absorption, s)
+
         az_f = (absorption * f).to(u.dimensionless_unscaled).value
         az_s = (absorption * s).to(u.dimensionless_unscaled).value
         az_d = az_s - az_f
@@ -522,12 +565,34 @@ class AbstractDiffusionModel(
 
         axis = "_diffusion_depth"
 
+        def optical_depth(
+            az_region: na.AbstractScalar,
+            fraction: na.AbstractScalar,
+            t: na.AbstractScalar,
+        ) -> na.AbstractScalar:
+            """
+            The optical depth below the start of a region of optical
+            thickness `az_region` at the substituted variable `t`,
+            accurate near both ends of the region,
+            and equal to the thickness of the region at its end, ``t = 0``,
+            even where the transmittance of the region underflows.
+            """
+            # The probability of a photon being absorbed between the start of
+            # the region and the depth.
+            p = fraction * (1 - np.square(t))
+            near = p < 0.5
+            result_near = -np.log1p(-np.where(near, p, 0))
+            with np.errstate(divide="ignore"):
+                result_far = -np.log(np.exp(-az_region) + fraction * np.square(t))
+            result = np.where(near, result_near, result_far)
+            return np.minimum(result, az_region)
+
         def integrand_f(r: na.AbstractScalar) -> na.AbstractScalar:
-            az = -np.log(np.exp(-az_f) + fraction_f * np.square(r))
+            az = optical_depth(az_f, fraction_f, r)
             return function(az / absorption) * 2 * r
 
         def integrand_d(v: na.AbstractScalar) -> na.AbstractScalar:
-            az = az_f - np.log(np.exp(-az_d) + fraction_d * np.square(v))
+            az = az_f + optical_depth(az_d, fraction_d, v)
             return function(az / absorption) * 2 * v
 
         if depth_break is None:
@@ -537,18 +602,25 @@ class AbstractDiffusionModel(
 
             # Where the break falls in each region; at an end of the region
             # if it is outside it, which leaves a single interval.
+            # The probability of a photon being absorbed between the break and
+            # the end of each region is written with `expm1` so that it stays
+            # accurate in an optically thin region.
             fraction_f_safe = np.where(fraction_f > 0, fraction_f, 1)
             fraction_d_safe = np.where(fraction_d > 0, fraction_d, 1)
+            az_break_d = np.maximum(az_break - az_f, 0)
             r_break = np.sqrt(
                 np.clip(
-                    (np.exp(-az_break) - np.exp(-az_f)) / fraction_f_safe,
+                    np.exp(-az_break)
+                    * -np.expm1(np.minimum(az_break - az_f, 0))
+                    / fraction_f_safe,
                     0,
                     1,
                 ),
             )
             v_break = np.sqrt(
                 np.clip(
-                    (np.exp(np.minimum(az_f - az_break, 0)) - np.exp(-az_d))
+                    np.exp(-az_break_d)
+                    * -np.expm1(np.minimum(az_break_d - az_d, 0))
                     / fraction_d_safe,
                     0,
                     1,
