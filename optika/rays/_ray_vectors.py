@@ -220,7 +220,7 @@ class AbstractRayVectorArray(
         if transformation is not None:
             position = transformation(position)
 
-        position = na.nominal(position.broadcasted)
+        position = position.broadcasted
 
         x = na.as_named_array(position.x)
         y = na.as_named_array(position.y)
