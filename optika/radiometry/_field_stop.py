@@ -229,10 +229,8 @@ class PolynomialFieldStopModel(
         coordinates: na.AbstractSpectralPositionalVectorArray,
     ) -> na.AbstractScalar:
         position = coordinates.position
-        return _inside_polygon(
-            polygon=self.polygon(coordinates.wavelength),
-            position=na.Cartesian3dVectorArray(x=position.x, y=position.y),
-        )
+        polygon = self.polygon(coordinates.wavelength)
+        return polygon(na.Cartesian3dVectorArray(x=position.x, y=position.y))
 
     def wire(
         self,
@@ -241,55 +239,3 @@ class PolynomialFieldStopModel(
     ) -> na.AbstractCartesian2dVectorArray:
         wire = self.polygon(wavelength).wire(num=num)
         return wire.xy
-
-
-def _inside_polygon(
-    polygon: optika.apertures.PolygonalAperture,
-    position: na.AbstractCartesian3dVectorArray,
-) -> na.AbstractScalar:
-    """
-    Test each point against the polygon it shares its other axes with, one
-    polygon at a time.
-
-    A field of view which moves with wavelength is a different polygon at
-    each wavelength, and tested all at once the vertices of every one of
-    them are broadcast against every point of the scene, which takes memory
-    in proportion to both: 1.3 kB per point for an outline of 81 vertices,
-    some 14 GB for ten wavelengths of a :math:`1024 \\times 1024` scene.
-    One at a time, each test is of a single polygon, which takes next to
-    none.  A single polygon along an axis is the polygon of every point
-    along it.  This can go once sun-data/named-arrays#265 is released,
-    which tests each point against its own polygon without the copy.
-
-    Parameters
-    ----------
-    polygon
-        The polygons, one along every axis of their vertices but ``vertex``.
-    position
-        The points to test, which may share any of those axes.
-    """
-    vertices = polygon.vertices
-    shape = na.shape(vertices)
-    axes = [axis for axis in shape if axis != "vertex"]
-    if not axes:
-        return polygon(position)
-
-    axis = axes[0]
-    if shape[axis] == 1:
-        polygon = dataclasses.replace(polygon, vertices=vertices[{axis: 0}])
-        return _inside_polygon(polygon=polygon, position=position)
-
-    position = na.broadcast_to(
-        position,
-        na.broadcast_shapes(na.shape(position), {axis: shape[axis]}),
-    )
-    return na.stack(
-        [
-            _inside_polygon(
-                polygon=dataclasses.replace(polygon, vertices=vertices[{axis: i}]),
-                position=position[{axis: i}],
-            )
-            for i in range(shape[axis])
-        ],
-        axis=axis,
-    )
