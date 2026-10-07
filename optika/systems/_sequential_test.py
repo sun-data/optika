@@ -3450,6 +3450,99 @@ def test_linearize_refuses_a_wavelength_with_no_light_when_uncertain():
     assert isinstance(system.linearize(degree=1), optika.systems.LinearSystem)
 
 
+def _system_baffled(
+    radius: u.Quantity | na.AbstractScalar,
+) -> optika.systems.SequentialSystem:
+    """
+    The system of :func:`_system_vignetted` with a baffle halfway between the
+    mirror and its focus, which clips the converging beam without being
+    either stop.
+
+    Parameters
+    ----------
+    radius
+        The radius of the baffle.
+    """
+    system = _system_vignetted()
+    mirror, stop = system.surfaces
+    baffle = optika.surfaces.Surface(
+        name="baffle",
+        aperture=optika.apertures.CircularAperture(radius),
+        transformation=na.transformations.Cartesian3dTranslation(z=50 * u.mm),
+    )
+    return dataclasses.replace(system, surfaces=[mirror, baffle, stop])
+
+
+def _linearized_outputs(
+    system: optika.systems.SequentialSystem,
+) -> dict[str, na.AbstractScalar]:
+    """
+    Linearize the given system, and evaluate each of its models over a few
+    points of the scene.
+
+    Parameters
+    ----------
+    system
+        The system to linearize.
+    """
+    linear = system.linearize()
+    coordinates = na.SpectralPositionalVectorArray(
+        wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
+        position=na.Cartesian2dVectorArray(
+            x=na.linspace(-0.2, 0.2, axis="field_x", num=5) * u.deg,
+            y=na.linspace(-0.2, 0.2, axis="field_y", num=5) * u.deg,
+        ),
+    )
+    position = linear.distortion.distort(coordinates).position
+    return dict(
+        area=linear.area_effective.area,
+        vignetting=linear.vignetting(coordinates),
+        x=position.x,
+        y=position.y,
+    )
+
+
+def test_linearize_a_system_with_an_uncertain_baffle() -> None:
+    """
+    A baffle whose size is uncertain clips a different part of the beam in
+    every sample without moving either stop, so each sample traces the same
+    rays and only the light they carry differs.  Each sample of the
+    linearized system is the system linearized with that sample's baffle.
+
+    The rays which reach the sensor differ from sample to sample, and
+    summing a certain array over them needs named-arrays 2.14.
+    """
+    radius = na.NormalUncertainScalarArray(
+        nominal=9 * u.mm,
+        width=0.45 * u.mm,
+        num_distribution=3,
+        seed=1,
+    )
+    axis = radius.axis_distribution
+
+    result = _linearized_outputs(_system_baffled(radius))
+
+    nominal = _linearized_outputs(_system_baffled(radius.nominal))
+    samples = [
+        _linearized_outputs(_system_baffled(radius.distribution[{axis: i}]))
+        for i in range(radius.num_distribution)
+    ]
+    for name in result:
+        expected = na.UncertainScalarArray(
+            nominal=nominal[name],
+            distribution=na.stack([sample[name] for sample in samples], axis=axis),
+        )
+        tolerance = 1e-9 * np.abs(expected.nominal).max()
+
+        assert isinstance(result[name], na.AbstractUncertainScalarArray)
+        assert np.all(np.abs(result[name] - expected) < tolerance), name
+
+        # the baffle moves each model by far more than the tolerance, so the
+        # samples can't pass by agreeing with the nominal value
+        spread = expected.distribution.max(axis) - expected.distribution.min(axis)
+        assert spread.max() > 1000 * tolerance, name
+
+
 def test_linearize_weights_the_illumination_by_the_pupil_cell_areas(monkeypatch):
     """
     The vignetting model of a linearized system is fit to the unvignetted
