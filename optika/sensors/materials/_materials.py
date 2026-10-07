@@ -1062,7 +1062,7 @@ def signal(
     n_substrate: None | complex | na.AbstractScalar = None,
     absorbance: None | float | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_substrate: None | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: None | u.Quantity | na.AbstractScalar = None,
     diffusion: None | AbstractDiffusionModel = None,
     width_pixel: (
         None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
@@ -1107,6 +1107,10 @@ def signal(
         Default is the value given in :cite:t:`Stern1994`.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
+        Required if `diffusion` is given, since the thickness of the
+        field-free region, and so how far the charge spreads, depends on it.
+        Otherwise, if :obj:`None` (the default), the value given in
+        :cite:t:`Stern1994` is used.
     diffusion
         A model of the lateral diffusion of charge in the sensor.
         If :obj:`None` (the default), charge does not diffuse.
@@ -1192,6 +1196,11 @@ def signal(
 
     _check_model(diffusion)
 
+    if thickness_substrate is None:
+        if diffusion is not None:
+            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
+        thickness_substrate = _thickness_substrate
+
     if absorbance is None:
         absorbance = _absorbance(
             wavelength=wavelength,
@@ -1261,7 +1270,7 @@ def vmr_signal(
     n: complex | na.AbstractScalar = 1,
     n_substrate: None | complex | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: None | u.Quantity | na.AbstractScalar = None,
     diffusion: None | AbstractDiffusionModel = None,
     width_pixel: (
         None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
@@ -1293,6 +1302,10 @@ def vmr_signal(
         Default is the value given in :cite:t:`Stern1994`.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
+        Required if `diffusion` is given, since the thickness of the
+        field-free region, and so how far the charge spreads, depends on it.
+        Otherwise, if :obj:`None` (the default), the value given in
+        :cite:t:`Stern1994` is used.
     diffusion
         A model of the lateral diffusion of charge in the sensor.
         If :obj:`None` (the default), charge does not diffuse.
@@ -1381,6 +1394,9 @@ def vmr_signal(
         import named_arrays as na
         import optika
 
+        # Define the thickness of the light-sensitive substrate
+        thickness_substrate = 7 * u.um
+
         # Define a model of charge diffusion whose depletion region
         # is thinner than the substrate,
         # so that there is a field-free region where charge diffuses
@@ -1409,6 +1425,7 @@ def vmr_signal(
         signal = optika.sensors.signal(
             photons_expected=photons_expected,
             wavelength=wavelength,
+            thickness_substrate=thickness_substrate,
             diffusion=diffusion,
             width_pixel=width_pixel,
             axis_xy=axis_xy,
@@ -1423,11 +1440,13 @@ def vmr_signal(
         # Compute the VMR analytically with and without charge diffusion
         vmr_diffusion = optika.sensors.vmr_signal(
             wavelength=wavelength,
+            thickness_substrate=thickness_substrate,
             diffusion=diffusion,
             width_pixel=width_pixel,
         )
         vmr_no_diffusion = optika.sensors.vmr_signal(
             wavelength=wavelength,
+            thickness_substrate=thickness_substrate,
         )
 
         # Plot the measured and analytic VMRs as a function of wavelength
@@ -1553,6 +1572,11 @@ def vmr_signal(
     """
 
     _check_model(diffusion)
+
+    if thickness_substrate is None:
+        if diffusion is not None:
+            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
+        thickness_substrate = _thickness_substrate
 
     if diffusion is not None and width_pixel is None:
         raise ValueError("`width_pixel` must be given with `diffusion`.")

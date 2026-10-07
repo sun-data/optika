@@ -503,7 +503,7 @@ def electrons_measured(
     *,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: None | u.Quantity | na.AbstractScalar = None,
     diffusion: "None | optika.sensors.diffusion.AbstractDiffusionModel" = None,
     width_pixel: (
         None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
@@ -538,6 +538,10 @@ def electrons_measured(
         The thickness of the implant layer, where partial-charge collection occurs.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
+        Required if `diffusion` is given, since the thickness of the
+        field-free region, and so how far the charge spreads, depends on it.
+        Otherwise, if :obj:`None` (the default), the value given in
+        :cite:t:`Stern1994` is used.
     diffusion
         A model of the lateral diffusion of charge in the sensor.
         If :obj:`None` (the default), charge does not diffuse.
@@ -634,6 +638,11 @@ def electrons_measured(
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
     _check_model(diffusion)
+
+    if thickness_substrate is None:
+        if diffusion is not None:
+            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
+        thickness_substrate = _thickness_substrate
 
     if diffusion is None:
         # no field-free region and no spread in the depletion region,

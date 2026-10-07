@@ -358,6 +358,7 @@ def test_vmr_signal_diffusion(
     signal = optika.sensors.signal(
         photons_expected=photons_expected,
         wavelength=wavelength,
+        thickness_substrate=7 * u.um,
         diffusion=diffusion,
         width_pixel=width_pixel,
         axis_xy=axis_xy,
@@ -369,6 +370,7 @@ def test_vmr_signal_diffusion(
 
     result = optika.sensors.vmr_signal(
         wavelength=wavelength,
+        thickness_substrate=7 * u.um,
         diffusion=diffusion,
         width_pixel=width_pixel,
     )
@@ -456,9 +458,14 @@ def test_diffusion_requires_pixels():
         thickness_depletion=2 * u.um
     )
     wavelength = 304 * u.AA
+    thickness_substrate = 7 * u.um
 
     with pytest.raises(ValueError, match="width_pixel"):
-        optika.sensors.vmr_signal(wavelength=wavelength, diffusion=diffusion)
+        optika.sensors.vmr_signal(
+            wavelength=wavelength,
+            thickness_substrate=thickness_substrate,
+            diffusion=diffusion,
+        )
 
     photons_expected = na.broadcast_to(
         100 * u.photon,
@@ -468,6 +475,7 @@ def test_diffusion_requires_pixels():
         optika.sensors.signal(
             photons_expected=photons_expected,
             wavelength=wavelength,
+            thickness_substrate=thickness_substrate,
             diffusion=diffusion,
             width_pixel=27 * u.um,
         )
@@ -475,9 +483,54 @@ def test_diffusion_requires_pixels():
         optika.sensors.signal(
             photons_expected=photons_expected,
             wavelength=wavelength,
+            thickness_substrate=thickness_substrate,
             diffusion=diffusion,
             axis_xy=("detector_x", "detector_y"),
         )
+
+
+def test_diffusion_requires_substrate():
+    """
+    The depletion region of a model of diffusion is only meaningful relative
+    to the substrate, so a model needs the thickness of the substrate rather
+    than the default, which could silently leave no field-free region at all.
+    """
+    diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
+        thickness_depletion=8 * u.um
+    )
+    wavelength = 304 * u.AA
+    photons_expected = na.broadcast_to(
+        100 * u.photon,
+        shape=dict(detector_x=4, detector_y=4),
+    )
+    kwargs = dict(
+        diffusion=diffusion,
+        width_pixel=27 * u.um,
+    )
+    with pytest.raises(ValueError, match="thickness_substrate"):
+        optika.sensors.vmr_signal(wavelength, **kwargs)
+    for method in ["expected", "monte-carlo"]:
+        with pytest.raises(ValueError, match="thickness_substrate"):
+            optika.sensors.signal(
+                photons_expected,
+                wavelength,
+                method=method,
+                axis_xy=("detector_x", "detector_y"),
+                **kwargs,
+            )
+    with pytest.raises(ValueError, match="thickness_substrate"):
+        optika.sensors.electrons_measured(
+            photons_expected.astype(int),
+            wavelength,
+            axis_xy=("detector_x", "detector_y"),
+            **kwargs,
+        )
+
+    # without a model, the default substrate is still that of Stern (1994)
+    assert np.all(
+        optika.sensors.vmr_signal(wavelength)
+        == optika.sensors.vmr_signal(wavelength, thickness_substrate=7 * u.um)
+    )
 
 
 @pytest.mark.parametrize("diffusion", [False, True, 8 * u.um])
