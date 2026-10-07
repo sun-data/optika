@@ -240,6 +240,17 @@ def test_polynomial_field_stop_does_not_copy_the_vertices_for_every_point() -> N
     # the field of view moves across the scene, so the test is not empty
     assert np.any(result) and not np.all(result)
 
+    # each wavelength of the scene is tested against the field of view at
+    # that wavelength, outlined on its own
+    position = na.Cartesian3dVectorArray(
+        x=coordinates.position.x,
+        y=coordinates.position.y,
+    )
+    for i in range(coordinates.wavelength.shape["scene_wavelength"]):
+        index = dict(scene_wavelength=i)
+        expected = model.polygon(coordinates.wavelength[index])(position)
+        assert np.all(result[index] == expected)
+
     # room for four float64 copies of the points, where a copy of the
     # vertices for every point takes two times 81 of them
     assert peak - baseline < 4 * 8 * result.size
