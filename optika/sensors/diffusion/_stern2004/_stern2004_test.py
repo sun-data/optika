@@ -17,7 +17,7 @@ def test_mcc_stern2004(kind: str, thickness_substrate: u.Quantity):
     comparison of a model against it needs.
     """
     result = optika.sensors.diffusion.mcc_stern2004(kind)
-    assert isinstance(result, optika.sensors.diffusion.MeanChargeCaptureFunctionArray)
+    assert isinstance(result, optika.sensors.diffusion.MeanChargeCapture)
     assert np.all(result.inputs > 0 * u.AA)
     assert np.all(result.outputs > 0)
     assert np.all(result.outputs <= 1)

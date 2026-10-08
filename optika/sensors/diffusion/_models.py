@@ -10,7 +10,7 @@ import astropy.units as u
 import named_arrays as na
 import optika
 from ._quadrature import _absorption_positive, _integrate_gauss_legendre
-from ._measurements import MeanChargeCaptureFunctionArray
+from ._measurements import MeanChargeCapture
 from ._gaussian import (
     _width_average,
     _ratio,
@@ -646,7 +646,7 @@ class AbstractDiffusionModel(
 
     def fit_mean_charge_capture(
         self,
-        mcc_measured: MeanChargeCaptureFunctionArray,
+        mcc_measured: MeanChargeCapture,
     ) -> Self:
         """
         A copy of this model with the thickness of its depletion region fitted

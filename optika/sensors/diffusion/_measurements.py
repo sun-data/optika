@@ -4,12 +4,12 @@ import named_arrays as na
 import optika
 
 __all__ = [
-    "MeanChargeCaptureFunctionArray",
+    "MeanChargeCapture",
 ]
 
 
 @dataclasses.dataclass(eq=False, repr=False, kw_only=True)
-class MeanChargeCaptureFunctionArray(
+class MeanChargeCapture(
     na.FunctionArray[na.AbstractScalar, na.AbstractScalar],
 ):
     """

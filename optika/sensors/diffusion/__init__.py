@@ -16,7 +16,7 @@ arguments.
 """
 
 from ._measurements import (
-    MeanChargeCaptureFunctionArray,
+    MeanChargeCapture,
 )
 from ._models import (
     AbstractDiffusionModel,
@@ -29,7 +29,7 @@ from ._stern2004 import (
 )
 
 __all__ = [
-    "MeanChargeCaptureFunctionArray",
+    "MeanChargeCapture",
     "AbstractDiffusionModel",
     "JanesickDiffusionModel",
     "mcc_stern2004",

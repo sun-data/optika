@@ -4,7 +4,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-from .._measurements import MeanChargeCaptureFunctionArray
+from .._measurements import MeanChargeCapture
 from .._models import JanesickDiffusionModel
 
 __all__ = [
@@ -28,7 +28,7 @@ _width_pixel = 16 * u.um
 
 def mcc_stern2004(
     kind: Literal["thick", "thin"],
-) -> MeanChargeCaptureFunctionArray:
+) -> MeanChargeCapture:
     r"""
     The mean charge capture of an e2v CCD64 measured by :cite:t:`Stern2004`,
     as a function of the vacuum wavelength of the incident photons,
@@ -40,9 +40,9 @@ def mcc_stern2004(
     and a "thin" one of 20 :math:`\Omega`-cm silicon with an 8 micron
     light-sensitive region.
     The result carries both as
-    :attr:`~optika.sensors.diffusion.MeanChargeCaptureFunctionArray.thickness_substrate`
+    :attr:`~optika.sensors.diffusion.MeanChargeCapture.thickness_substrate`
     and
-    :attr:`~optika.sensors.diffusion.MeanChargeCaptureFunctionArray.width_pixel`.
+    :attr:`~optika.sensors.diffusion.MeanChargeCapture.width_pixel`.
 
     Parameters
     ----------
@@ -59,7 +59,7 @@ def mcc_stern2004(
     energy = energy << u.keV
     wavelength = energy.to(u.AA, equivalencies=u.spectral())
 
-    return MeanChargeCaptureFunctionArray(
+    return MeanChargeCapture(
         inputs=na.ScalarArray(wavelength, axes="wavelength"),
         outputs=na.ScalarArray(mcc, axes="wavelength"),
         thickness_substrate=_thickness_substrate[kind],
