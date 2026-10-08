@@ -148,7 +148,11 @@ def test_sample():
     """The Monte Carlo draws are distributed as the tabulated quantiles."""
 
     @numba.njit
-    def draw(delta: float, num: int, table: np.ndarray) -> np.ndarray:
+    def draw(  # pragma: nocover
+        delta: float,
+        num: int,
+        table: np.ndarray,
+    ) -> np.ndarray:
         result = np.empty(num)
         for i in range(num):
             result[i] = _slab._sample(delta, table)
