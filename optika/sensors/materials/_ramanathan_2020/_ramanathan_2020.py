@@ -12,7 +12,13 @@ from .._stern_1994 import (
     _thickness_substrate,
     _cce_backsurface,
 )
-from ...diffusion._models import _check_model, _pixel_vector
+from ...diffusion._models import (
+    _check_model,
+    _pixel_vector,
+    _monte_carlo_gaussian,
+    _monte_carlo_slab,
+)
+from ...diffusion import _slab
 
 __all__ = [
     "energy_bandgap",
@@ -650,6 +656,7 @@ def electrons_measured(
         thickness_depletion = thickness_substrate
         width_backsurface = width_depletion = 0 * u.um
         width_pixel = 0 * u.um
+        kind_diffusion = _monte_carlo_gaussian
     else:
         if axis_xy is None:
             raise ValueError("`axis_xy` must be given with `diffusion`.")
@@ -659,6 +666,14 @@ def electrons_measured(
         thickness_depletion = parameters["thickness_depletion"]
         width_backsurface = parameters["width_backsurface"]
         width_depletion = parameters["width_depletion"]
+        kind_diffusion = diffusion._kind_monte_carlo
+
+    # the table of the time each electron takes to cross the field-free
+    # region, if the model draws it
+    if kind_diffusion == _monte_carlo_slab:
+        table_transit = _slab._table(_slab._kind_single)
+    else:
+        table_transit = np.zeros((2, 2))
 
     if shape_random is None:
         shape_random = dict()
@@ -742,6 +757,8 @@ def electrons_measured(
         energy_pair_inf=energy_pair_inf.ndarray,
         fano_inf=fano_inf.ndarray,
         wrap=wrap,
+        kind_diffusion=kind_diffusion,
+        table_transit=table_transit,
     )
 
     result = na.ScalarArray(
@@ -772,6 +789,8 @@ def _electrons_measured_quantity(
     energy_pair_inf: u.Quantity,
     fano_inf: u.Quantity,
     wrap: bool,
+    kind_diffusion: int,
+    table_transit: np.ndarray,
 ) -> u.Quantity:
 
     shape = np.broadcast_shapes(
@@ -824,6 +843,8 @@ def _electrons_measured_quantity(
         fano_inf=fano_inf.reshape(-1, num_x, num_y),
         wrap=wrap,
         factor_multinomial=_factor_multinomial,
+        kind_diffusion=kind_diffusion,
+        table_transit=table_transit,
     )
 
     result = result.reshape(shape)
@@ -1030,6 +1051,89 @@ def _diffuse_electrons(  # pragma: nocover
                 result[i, ix, y_e] += n_ky
 
 
+@numba.njit(cache=True)
+def _diffuse_electrons_slab(  # pragma: nocover
+    result: np.ndarray,
+    i: int,
+    x: int,
+    y: int,
+    m: int,
+    u: float,
+    v: float,
+    delta: float,
+    thickness_field_free: float,
+    variance_depletion: float,
+    width_pixel_x: float,
+    width_pixel_y: float,
+    num_x: int,
+    num_y: int,
+    wrap: bool,
+    table_transit: np.ndarray,
+) -> None:
+    """
+    Diffuse `m` electrons created in the field-free region in pixel
+    ``(x, y)`` of image ``result[i]`` and deposit them in place,
+    as :class:`optika.sensors.diffusion.SlabDiffusionModel` describes.
+
+    Each electron takes its own time to reach the depletion region,
+    so each draws the variance it acquires crossing the field-free region,
+    and then lands at an offset that is Gaussian with that variance plus the
+    variance acquired in the depletion region.
+    So the electrons of a photon do not share a width,
+    and each is sampled on its own.
+
+    Parameters
+    ----------
+    result
+        The output image stack, indexed ``result[i, x, y]``. Modified in place.
+    i
+        Index of the image within the stack.
+    x, y
+        The pixel the electrons originate from.
+    m
+        The number of electrons to diffuse.
+    u, v
+        The sub-pixel origin of the electrons within pixel ``(x, y)``, each in
+        ``[-0.5, 0.5]``. Shared by all `m` electrons of one photon.
+    delta
+        The distance from the depletion region at which the electrons were
+        created, in units of the thickness of the field-free region.
+    thickness_field_free
+        The thickness of the field-free region.
+    variance_depletion
+        The variance acquired along each axis crossing the depletion region.
+    width_pixel_x, width_pixel_y
+        The width of a pixel along each axis, in the units of
+        `thickness_field_free`.
+        Zero along an axis keeps the electrons in the column (or row) of
+        pixels they originate from.
+    num_x, num_y
+        The shape of the image.
+    wrap
+        Whether charge diffusing off the sensor re-enters the opposite edge.
+        If :obj:`False`, it is lost.
+    table_transit
+        The table of the variance of a single electron,
+        from :func:`optika.sensors.diffusion._slab._table`.
+    """
+    for _ in range(m):
+        s = _slab._sample(delta, table_transit)
+        variance = s * thickness_field_free**2 + variance_depletion
+        width = math.sqrt(variance)
+        p = 0
+        q = 0
+        if width_pixel_x > 0:
+            p = round(random.gauss(u, width / width_pixel_x))
+        if width_pixel_y > 0:
+            q = round(random.gauss(v, width / width_pixel_y))
+        x_e = x + p
+        y_e = y + q
+        if wrap:
+            result[i, x_e % num_x, y_e % num_y] += 1
+        elif (0 <= x_e < num_x) and (0 <= y_e < num_y):
+            result[i, x_e, y_e] += 1
+
+
 @numba.njit(
     cache=True,
     fastmath=True,
@@ -1053,6 +1157,8 @@ def _electrons_measured_numba(  # pragma: nocover
     fano_inf: np.ndarray,
     wrap: bool,
     factor_multinomial: float,
+    kind_diffusion: int,
+    table_transit: np.ndarray,
 ) -> np.ndarray:
 
     num_i, num_x, num_y, num_n = p_n.shape
@@ -1126,6 +1232,33 @@ def _electrons_measured_numba(  # pragma: nocover
 
                     u = random.uniform(-0.5, 0.5)
                     v = random.uniform(-0.5, 0.5)
+
+                    if kind_diffusion == _monte_carlo_slab and z_ij < z_ff:
+                        variance_d = 0.0
+                        if w_depletion > 0:
+                            g = 1.0
+                            if z_d > 0:
+                                g = min(max((z_substrate - z_ij) / z_d, 0.0), 1.0)
+                            variance_d = w_depletion**2 * g
+                        _diffuse_electrons_slab(
+                            result=result,
+                            i=i,
+                            x=x,
+                            y=y,
+                            m=m_ij,
+                            u=u,
+                            v=v,
+                            delta=1 - z_ij / z_ff,
+                            thickness_field_free=z_ff,
+                            variance_depletion=variance_d,
+                            width_pixel_x=wp_x,
+                            width_pixel_y=wp_y,
+                            num_x=num_x,
+                            num_y=num_y,
+                            wrap=wrap,
+                            table_transit=table_transit,
+                        )
+                        continue
 
                     # the width of the charge cloud at this depth, as in
                     # `optika.sensors.diffusion.JanesickDiffusionModel.width`

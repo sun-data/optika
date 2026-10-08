@@ -341,13 +341,19 @@ def test_vmr_signal(
         na.Cartesian2dVectorArray(0, 4) * u.um,
     ],
 )
+@pytest.mark.parametrize(
+    argnames="model",
+    argvalues=[
+        optika.sensors.diffusion.JanesickDiffusionModel,
+        optika.sensors.diffusion.SlabDiffusionModel,
+    ],
+)
 def test_vmr_signal_diffusion(
     width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+    model: type[optika.sensors.diffusion.AbstractDiffusionModel],
 ):
     wavelength = 304 * u.AA
-    diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
-        thickness_depletion=2 * u.um
-    )
+    diffusion = model(thickness_depletion=2 * u.um)
     axis_xy = ("detector_x", "detector_y")
 
     photons_expected = na.broadcast_to(

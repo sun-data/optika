@@ -21,6 +21,7 @@ from ._measurements import (
 from ._models import (
     AbstractDiffusionModel,
     JanesickDiffusionModel,
+    SlabDiffusionModel,
 )
 from ._stern2004 import (
     mcc_stern2004,
@@ -32,6 +33,7 @@ __all__ = [
     "MeanChargeCapture",
     "AbstractDiffusionModel",
     "JanesickDiffusionModel",
+    "SlabDiffusionModel",
     "mcc_stern2004",
     "e2v_ccd64_thick",
     "e2v_ccd64_thin",

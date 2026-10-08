@@ -275,35 +275,56 @@ def test_electrons_measured_diffusion():
 
 
 @pytest.mark.parametrize(
-    argnames="thickness_depletion,width_backsurface,width_depletion",
+    argnames="diffusion",
     argvalues=[
-        (8 * u.um, 4 * u.um, None),
-        (8 * u.um, None, 1.5 * u.um),
-        (8 * u.um, 4 * u.um, 1.5 * u.um),
-        (14 * u.um, None, 3 * u.um),
-        (20 * u.um, None, 3 * u.um),
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=8 * u.um,
+            width_backsurface=4 * u.um,
+        ),
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=8 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=8 * u.um,
+            width_backsurface=4 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=14 * u.um,
+            width_depletion=3 * u.um,
+        ),
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=20 * u.um,
+            width_depletion=3 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=8 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=8 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=14 * u.um,
+            width_depletion=3 * u.um,
+        ),
     ],
 )
 def test_electrons_measured_diffusion_profile(
-    thickness_depletion: u.Quantity | na.AbstractScalar,
-    width_backsurface: None | u.Quantity | na.AbstractScalar,
-    width_depletion: None | u.Quantity | na.AbstractScalar,
+    diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
 ):
     """
-    The spread of the diffused charge matches
-    :meth:`optika.sensors.diffusion.JanesickDiffusionModel.width_average` when the width at the back surface
-    differs from the thickness of the field-free region, and when the charge
-    also spreads in the depletion region, including a sensor with no
-    field-free region at all.
+    The spread of the diffused charge matches the width given by
+    :meth:`~optika.sensors.diffusion.AbstractDiffusionModel.width_average`
+    when the width at the back surface differs from the thickness of the
+    field-free region, when the charge also spreads in the depletion region,
+    including a sensor with no field-free region at all,
+    and when each electron takes its own time to cross the field-free region.
     """
-    num = 81
+    # wide enough to hold the exponential tails of the slab model
+    num = 161
     axis_xy = ("pixel_x", "pixel_y")
-
-    diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
-        thickness_depletion=thickness_depletion,
-        width_backsurface=width_backsurface,
-        width_depletion=width_depletion,
-    )
 
     absorption = 1 / u.um
     thickness_substrate = 14 * u.um
@@ -351,6 +372,13 @@ def test_electrons_measured_diffusion_profile(
         optika.sensors.diffusion.JanesickDiffusionModel(
             thickness_depletion=7.85 * u.um,
             width_backsurface=4 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
             width_depletion=1.5 * u.um,
         ),
     ],
