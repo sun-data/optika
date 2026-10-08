@@ -273,7 +273,8 @@ class MeasuredMirror(
     used at every angle of incidence.
     The direction may be repeated along any axis, as it is when
     measurements at the same angle are stacked, but it must be the same
-    everywhere.
+    everywhere. The wavelengths of a stack vary along the stacking axis too,
+    so a stack also needs :attr:`axis_wavelength`.
     Otherwise, the directions of :attr:`efficiency_measured` must be angles
     of incidence, measured from the surface normal and increasing along
     this axis, and the reflectivity is interpolated linearly in both
@@ -707,7 +708,8 @@ class MeasuredFilter(
     used at every angle of incidence.
     The direction may be repeated along any axis, as it is when
     measurements at the same angle are stacked, but it must be the same
-    everywhere.
+    everywhere. The wavelengths of a stack vary along the stacking axis too,
+    so a stack also needs :attr:`axis_wavelength`.
     Otherwise, the directions of :attr:`efficiency_measured` must be angles
     of incidence, measured from the surface normal and increasing along
     this axis, and the transmissivity is interpolated linearly in both

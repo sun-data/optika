@@ -141,19 +141,13 @@ def test_interp_efficiency_measured(
     assert np.allclose(result, result_expected)
 
 
-@pytest.mark.parametrize(
-    argnames="axis_angle,shape_expected",
-    argvalues=[
-        # without an axis of the angles, a measurement at several angles is
-        # refused by the shape too, see
-        # test_efficiency_measured_more_than_one_direction
-        ("angle", dict(channel=2)),
-    ],
-)
-def test_shape_efficiency_measured(
-    axis_angle: None | str,
-    shape_expected: dict[str, int],
-):
+def test_shape_efficiency_measured() -> None:
+    """
+    The wavelength and the angles are interpolated over, and leave the shape.
+
+    Without an axis of the angles, a measurement at several angles is refused
+    by the shape too, see test_efficiency_measured_more_than_one_direction.
+    """
     measurement = na.FunctionArray(
         inputs=na.SpectralDirectionalVectorArray(
             wavelength=_wavelength_measured,
@@ -164,20 +158,29 @@ def test_shape_efficiency_measured(
     )
     result = optika._util._shape_efficiency_measured(
         measurement=measurement,
-        axis_angle=axis_angle,
+        axis_angle="angle",
     )
-    assert result == shape_expected
+    assert result == dict(channel=2)
 
 
 @pytest.mark.parametrize(
-    argnames="wavelength,direction,axis_angle,error",
+    argnames="wavelength,direction,axis_angle,error,match",
     argvalues=[
-        # a single angle needs one-dimensional wavelengths
+        # wavelengths which vary along two axes need the one to interpolate
+        # along named
         (
             _wavelength_measured + na.linspace(0, 1, axis="other", num=2) * u.nm,
             4 * u.deg,
             None,
             ValueError,
+            "specify the axis along which the wavelength varies",
+        ),
+        (
+            _wavelength_measured + na.linspace(0, 1, axis="other", num=2) * u.nm,
+            _angle_measured,
+            "angle",
+            ValueError,
+            "specify the axis along which the wavelength varies",
         ),
         # more than one angle needs the axis they vary along
         (
@@ -185,6 +188,7 @@ def test_shape_efficiency_measured(
             _angle_measured,
             None,
             ValueError,
+            "specify the axis along which the angle of incidence varies",
         ),
         # more than one angle must be given as angles of incidence
         (
@@ -192,40 +196,39 @@ def test_shape_efficiency_measured(
             na.Cartesian3dVectorArray(0, 0, na.linspace(1, 2, axis="angle", num=3)),
             "angle",
             TypeError,
+            "scalar angles of incidence",
         ),
         (
             _wavelength_measured,
             _angle_measured,
             "other",
             ValueError,
+            "have no axis 'other'",
         ),
         (
             _wavelength_measured,
             na.ScalarArray([10, 14, 18] * u.m, axes="angle"),
             "angle",
             ValueError,
+            "must be angles",
         ),
         (
             _wavelength_measured,
             na.ScalarArray([18, 14, 10] * u.deg, axes="angle"),
             "angle",
             ValueError,
-        ),
-        # the wavelengths may only vary along the angle axis
-        (
-            _wavelength_measured + na.linspace(0, 1, axis="other", num=2) * u.nm,
-            _angle_measured,
-            "angle",
-            ValueError,
+            "must increase along 'angle'",
         ),
     ],
 )
-def test_interp_efficiency_measured_error(
+def test_efficiency_measured_error(
     wavelength: na.AbstractScalar,
-    direction,
+    direction: na.AbstractArray | u.Quantity,
     axis_angle: None | str,
     error: type[Exception],
-):
+    match: str,
+) -> None:
+    """The shape and the interpolation refuse the same measurements alike."""
     measurement = na.FunctionArray(
         inputs=na.SpectralDirectionalVectorArray(
             wavelength=wavelength,
@@ -233,7 +236,12 @@ def test_interp_efficiency_measured_error(
         ),
         outputs=0.5 + 0 * wavelength.value,
     )
-    with pytest.raises(error):
+    with pytest.raises(error, match=match):
+        optika._util._shape_efficiency_measured(
+            measurement=measurement,
+            axis_angle=axis_angle,
+        )
+    with pytest.raises(error, match=match):
         optika._util._interp_efficiency_measured(
             measurement=measurement,
             rays=_rays(_angle_rays),
@@ -245,7 +253,13 @@ def test_interp_efficiency_measured_error(
 _wavelength_channel = _wavelength_measured + na.ScalarArray(
     [0, 3] * u.nm, axes="channel"
 )
-"""Wavelength samples which differ for each of two channels."""
+"""
+Wavelength samples which differ for each of two channels.
+
+These are in the units and range of :func:`_linear`, which interpolation
+reproduces exactly, where the class tests share theirs from
+:mod:`optika._tests._measured`.
+"""
 
 _offset_channel = na.ScalarArray(np.array([0, 0.1]), axes="channel")
 """An efficiency added to each channel, so that the channels can be told apart."""
@@ -320,19 +334,7 @@ def test_interp_efficiency_measured_axis_wavelength_broadcasts_rays() -> None:
     assert np.allclose(result, result_expected)
 
 
-@pytest.mark.parametrize(
-    argnames="axis_angle,shape_expected",
-    argvalues=[
-        # without an axis of the angles, a measurement at several angles is
-        # refused by the shape too, see
-        # test_efficiency_measured_more_than_one_direction
-        ("angle", dict(channel=2)),
-    ],
-)
-def test_shape_efficiency_measured_axis_wavelength(
-    axis_angle: None | str,
-    shape_expected: dict[str, int],
-) -> None:
+def test_shape_efficiency_measured_axis_wavelength() -> None:
     """The axes the wavelengths vary along, besides the interpolated one, stay."""
     measurement = na.FunctionArray(
         inputs=na.SpectralDirectionalVectorArray(
@@ -343,39 +345,10 @@ def test_shape_efficiency_measured_axis_wavelength(
     )
     result = optika._util._shape_efficiency_measured(
         measurement=measurement,
-        axis_angle=axis_angle,
+        axis_angle="angle",
         axis_wavelength="wavelength",
     )
-    assert result == shape_expected
-
-
-@pytest.mark.parametrize(
-    argnames="direction,axis_angle",
-    argvalues=[
-        (4 * u.deg, None),
-        (_angle_measured, "angle"),
-    ],
-)
-def test_interp_efficiency_measured_axis_wavelength_missing(
-    direction: na.AbstractScalar | u.Quantity,
-    axis_angle: None | str,
-) -> None:
-    """An axis the wavelengths do not have is refused."""
-    measurement = na.FunctionArray(
-        inputs=na.SpectralDirectionalVectorArray(
-            wavelength=_wavelength_channel,
-            direction=direction,
-        ),
-        outputs=0.5 + 0 * _wavelength_channel.value,
-    )
-    with pytest.raises(ValueError, match="have no axis 'other'"):
-        optika._util._interp_efficiency_measured(
-            measurement=measurement,
-            rays=_rays(_angle_rays),
-            normal=na.Cartesian3dVectorArray(0, 0, -1),
-            axis_angle=axis_angle,
-            axis_wavelength="other",
-        )
+    assert result == dict(channel=2)
 
 
 def test_interp_efficiency_measured_stacked() -> None:
@@ -413,6 +386,15 @@ def test_interp_efficiency_measured_stacked() -> None:
 
 
 @pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        _wavelength_measured,
+        # each angle with its own samples, so that the wavelengths vary
+        # along the axis of the angles too
+        _wavelength_measured + _angle_measured.value * u.nm,
+    ],
+)
+@pytest.mark.parametrize(
     argnames="direction,outputs",
     argvalues=[
         # a measurement at several angles whose axis was not named
@@ -430,6 +412,7 @@ def test_interp_efficiency_measured_stacked() -> None:
     ],
 )
 def test_efficiency_measured_more_than_one_direction(
+    wavelength: na.AbstractScalar,
     direction: na.AbstractScalar,
     outputs: na.AbstractScalar,
 ) -> None:
@@ -439,7 +422,7 @@ def test_efficiency_measured_more_than_one_direction(
     """
     measurement = na.FunctionArray(
         inputs=na.SpectralDirectionalVectorArray(
-            wavelength=_wavelength_measured,
+            wavelength=wavelength,
             direction=direction,
         ),
         outputs=outputs,
@@ -514,6 +497,13 @@ def test_shape_efficiency_measured_agrees_with_result(
             _wavelength_measured,
             4 * u.deg,
             None,
+            "other",
+            "have no axis 'other'",
+        ),
+        (
+            _wavelength_measured,
+            _angle_measured,
+            "angle",
             "other",
             "have no axis 'other'",
         ),
@@ -618,3 +608,38 @@ def test_interp_efficiency_measured_uncertain_wavelength() -> None:
     assert np.all(np.abs(result - expected) < 1e-12)
     # the samples of the wavelengths move the interpolated efficiency
     assert not np.allclose(result.distribution, result.nominal)
+
+
+def test_interp_efficiency_measured_broadcast_angles() -> None:
+    """
+    Angles which are repeated along the interpolated axis, as in a table of
+    wavelength against angle, are as good as angles without it.
+    """
+    outputs = _linear(_wavelength_measured, _angle_measured)
+    shape = na.broadcast_shapes(_wavelength_measured.shape, _angle_measured.shape)
+    kwargs = dict(
+        rays=_rays(_angle_rays),
+        normal=na.Cartesian3dVectorArray(0, 0, -1),
+        axis_angle="angle",
+    )
+    measurements = [
+        na.FunctionArray(
+            inputs=na.SpectralDirectionalVectorArray(
+                wavelength=_wavelength_measured,
+                direction=direction,
+            ),
+            outputs=outputs,
+        )
+        for direction in (_angle_measured, na.broadcast_to(_angle_measured, shape))
+    ]
+    shapes = [
+        optika._util._shape_efficiency_measured(m, axis_angle="angle")
+        for m in measurements
+    ]
+    results = [
+        optika._util._interp_efficiency_measured(measurement=m, **kwargs)
+        for m in measurements
+    ]
+    assert shapes[0] == shapes[1] == {}
+    assert results[0].shape == results[1].shape
+    assert np.all(results[0] == results[1])

@@ -167,14 +167,25 @@ def _axis_wavelength(
         `axis_angle`, and that axis is the one returned.
     """
     wavelength = measurement.inputs.wavelength
-    direction = measurement.inputs.direction
+    direction = na.as_named_array(measurement.inputs.direction)
     axes = list(shape(wavelength))
 
-    if axis_angle is not None and axis_angle not in shape(direction):
-        raise ValueError(
-            f"the angles of incidence, with shape {shape(direction)}, "
-            f"have no axis {axis_angle!r}"
-        )
+    # the angles are checked first, since a measurement at several angles
+    # whose axis was not named also has wavelengths along that axis, and
+    # would otherwise be blamed on them
+    if axis_angle is None:
+        # Measured at a single angle, which is used at every angle of
+        # incidence. The direction may be repeated along any axis, as it is
+        # when measurements at the same angle are stacked, but it may not
+        # differ anywhere, since the measurement does not say which angle
+        # each part of it was made at.
+        if na.shape(na.debroadcast(direction)):
+            raise ValueError(
+                "the efficiency was measured at more than one direction, "
+                "specify the axis along which the angle of incidence varies"
+            )
+    else:
+        _check_angles(direction, axis_angle)
 
     if axis_wavelength is None:
         candidates = [ax for ax in axes if ax != axis_angle]
@@ -203,18 +214,11 @@ def _axis_wavelength(
     else:
         result = axis_wavelength
 
-    if axis_angle is None:
-        # Measured at a single angle, which is used at every angle of
-        # incidence. The direction may be repeated along any axis, as it is
-        # when measurements at the same angle are stacked, but it may not
-        # differ anywhere, since the measurement does not say which angle
-        # each part of it was made at.
-        if not _is_uniform(direction):
-            raise ValueError(
-                "the efficiency was measured at more than one direction, "
-                "specify the axis along which the angle of incidence varies"
-            )
-    elif result in shape(direction):
+    # angles which are only repeated along the interpolated axis, as they
+    # are in a broadcast table, are as good as angles without it
+    if axis_angle is not None and result in na.shape(
+        na.debroadcast(direction, axes=result)
+    ):
         raise ValueError(
             f"the angles of incidence, with shape {shape(direction)}, cannot "
             f"vary along the axis the wavelength is interpolated along, "
@@ -224,23 +228,46 @@ def _axis_wavelength(
     return result
 
 
-def _is_uniform(a: Any) -> bool:
+def _check_angles(
+    direction: na.AbstractArray,
+    axis_angle: str,
+) -> None:
     """
-    Whether every element of an array is the same, however many times it is
-    repeated.
+    Refuse angles of incidence which cannot be interpolated over.
 
     Parameters
     ----------
-    a
-        A scalar or vector array, or a value which is not an array at all.
+    direction
+        The directions of a measured efficiency.
+    axis_angle
+        The logical axis along which the angle of incidence varies.
     """
-    a = na.as_named_array(a)
-    difference = a - a[{ax: 0 for ax in a.shape}]
-    if isinstance(difference, na.AbstractVectorArray):
-        difference = difference.length
-    unit = na.unit(difference)
-    zero = 0 if unit is None else 0 * unit
-    return bool(np.all(difference == zero))
+    if axis_angle not in shape(direction):
+        raise ValueError(
+            f"the angles of incidence, with shape {shape(direction)}, "
+            f"have no axis {axis_angle!r}"
+        )
+
+    if not isinstance(direction, na.AbstractScalar):
+        raise TypeError(
+            "to interpolate over the angle of incidence, the directions must be "
+            f"given as scalar angles of incidence, got {type(direction)}"
+        )
+
+    unit = na.unit_normalized(direction)
+    if not unit.is_equivalent(u.deg):
+        raise ValueError(f"angles of incidence must be angles, got unit {unit}")
+
+    direction = direction.explicit
+    step = (
+        direction[{axis_angle: slice(1, None)}]
+        - direction[{axis_angle: slice(None, ~0)}]
+    )
+    if not np.all(step > 0):
+        raise ValueError(
+            f"angles of incidence must increase along {axis_angle!r}, "
+            f"got {direction}"
+        )
 
 
 def _interp_efficiency_measured(
@@ -275,13 +302,14 @@ def _interp_efficiency_measured(
         is used at every angle of incidence.
         The direction may be repeated along any axis, as it is when
         measurements at the same angle are stacked, but it must be the same
-        everywhere.
+        everywhere. The wavelengths of a stack vary along the stacking axis
+        too, so a stack also needs `axis_wavelength`.
         If not :obj:`None`, ``measurement.inputs.direction`` must be scalar
         angles of incidence, increasing along this axis, and
         ``measurement.inputs.wavelength`` may vary along it too, so that each
         angle can have its own wavelength samples.
-        The angles may not vary along the axis the wavelength is interpolated
-        along.
+        The angles may be repeated along the axis the wavelength is
+        interpolated along, but may not vary along it.
     axis_wavelength
         The logical axis along which ``measurement.inputs.wavelength``
         varies.
@@ -311,27 +339,10 @@ def _interp_efficiency_measured(
             axis=axis,
         )
 
-    if not isinstance(direction, na.AbstractScalar):
-        raise TypeError(
-            "to interpolate over the angle of incidence, the directions must be "
-            f"given as scalar angles of incidence, got {type(direction)}"
-        )
-
-    direction = direction.explicit
-
+    # the angles were checked by `_axis_wavelength`, and may only be repeated
+    # along the interpolated axis, which would otherwise reach the weights
+    direction = na.debroadcast(direction.explicit, axes=axis)
     unit = na.unit_normalized(direction)
-    if not unit.is_equivalent(u.deg):
-        raise ValueError(f"angles of incidence must be angles, got unit {unit}")
-
-    step = (
-        direction[{axis_angle: slice(1, None)}]
-        - direction[{axis_angle: slice(None, ~0)}]
-    )
-    if not np.all(step > 0):
-        raise ValueError(
-            f"angles of incidence must increase along {axis_angle!r}, "
-            f"got {direction}"
-        )
 
     num = direction.shape[axis_angle]
 
