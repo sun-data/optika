@@ -50,11 +50,12 @@ def test_e2v_ccd64(
     kind: str,
 ) -> None:
     """
-    Each model is Janesick's, with a depletion region inside the substrate
-    that reproduces the measurement to a few percent.
+    Each model is of the field-free region, with a depletion region inside
+    the substrate that reproduces the measurement to within the scatter of
+    repeated measurements.
     """
     result = model()
-    assert isinstance(result, optika.sensors.diffusion.JanesickDiffusionModel)
+    assert isinstance(result, optika.sensors.diffusion.SlabDiffusionModel)
 
     # a single thickness is fitted, which is a quantity like the other fields
     assert isinstance(result.thickness_depletion, u.Quantity)
@@ -69,4 +70,4 @@ def test_e2v_ccd64(
         width_pixel=16 * u.um,
     )
     rms = np.sqrt(np.mean(np.square(mcc - measured.outputs)))
-    assert rms < 0.05
+    assert rms < 0.03
