@@ -115,25 +115,76 @@ def _shape_efficiency_measured(
         The logical axis along which the angle of incidence varies, or
         :obj:`None` if the efficiency was measured at a single angle.
     axis_wavelength
-        The logical axis along which the wavelength varies, or :obj:`None`
-        if every axis of the wavelengths is one interpolated over.
-        If given, the other axes of the wavelengths are part of the shape,
-        such as one set of samples for each of several measurements.
+        The logical axis along which the wavelength varies, see
+        :func:`_axis_wavelength`.
+        The other axes of the wavelengths are part of the shape, such as one
+        set of samples for each of several measurements.
     """
-    if axis_wavelength is None:
-        axes = list(shape(measurement.inputs.wavelength))
-        result = shape(measurement.outputs)
-    else:
-        axes = [axis_wavelength]
-        result = na.broadcast_shapes(
-            shape(measurement.outputs),
-            shape(measurement.inputs.wavelength),
-        )
-    if axis_angle is not None:
-        axes.append(axis_angle)
-    for ax in axes:
-        result.pop(ax, None)
+    axis = _axis_wavelength(
+        measurement=measurement,
+        axis_angle=axis_angle,
+        axis_wavelength=axis_wavelength,
+    )
+    # every axis the measurement varies along reaches the efficiency, except
+    # the ones interpolated over: the directions too, through the weights of
+    # the angles of incidence
+    result = na.broadcast_shapes(
+        shape(measurement.outputs),
+        shape(measurement.inputs.wavelength),
+        shape(measurement.inputs.direction),
+    )
+    for ax in (axis, axis_angle):
+        if ax is not None:
+            result.pop(ax, None)
     return result
+
+
+def _axis_wavelength(
+    measurement: na.FunctionArray[na.SpectralDirectionalVectorArray, na.AbstractScalar],
+    axis_angle: None | str = None,
+    axis_wavelength: None | str = None,
+) -> str:
+    """
+    The logical axis of a measured efficiency's wavelengths which
+    :func:`_interp_efficiency_measured` interpolates along.
+
+    Parameters
+    ----------
+    measurement
+        A function array mapping wavelength and angle of incidence to the
+        measured efficiency.
+    axis_angle
+        The logical axis along which the angle of incidence varies, or
+        :obj:`None` if the efficiency was measured at a single angle.
+    axis_wavelength
+        The logical axis along which the wavelength varies.
+        If :obj:`None`, the wavelengths must vary along a single axis besides
+        `axis_angle`, and that axis is the one returned.
+    """
+    axes = list(shape(measurement.inputs.wavelength))
+
+    if axis_wavelength is None:
+        result = [ax for ax in axes if ax != axis_angle]
+        if len(result) != 1:
+            raise ValueError(
+                f"the wavelengths vary along {result} besides the angle of "
+                f"incidence, specify the axis along which the wavelength varies"
+            )
+        return result[0]
+
+    if axis_wavelength == axis_angle:
+        raise ValueError(
+            "the wavelength and the angle of incidence cannot both vary along "
+            f"{axis_wavelength!r}"
+        )
+
+    if axis_wavelength not in axes:
+        raise ValueError(
+            f"the wavelengths, with shape {shape(measurement.inputs.wavelength)}, "
+            f"have no axis {axis_wavelength!r}"
+        )
+
+    return axis_wavelength
 
 
 def _interp_efficiency_measured(
@@ -164,9 +215,12 @@ def _interp_efficiency_measured(
         The vector normal to the surface.
     axis_angle
         The logical axis along which the angle of incidence varies.
-        If :obj:`None`, the efficiency was measured at a single angle and is
-        used at every angle of incidence, and
-        ``measurement.inputs.direction`` is otherwise ignored.
+        If :obj:`None`, each measurement was made at a single angle, which is
+        used at every angle of incidence.
+        The directions of separate measurements may differ, along axes the
+        wavelengths or the efficiency vary along too, but they may not vary
+        along an axis of their own, which would be more than one angle for
+        the same efficiency.
         If not :obj:`None`, ``measurement.inputs.direction`` must be scalar
         angles of incidence, increasing along this axis, and
         ``measurement.inputs.wavelength`` may vary along it too, so that each
@@ -182,32 +236,30 @@ def _interp_efficiency_measured(
         the rays.
     """
 
-    wavelength = measurement.inputs.wavelength
+    axis = _axis_wavelength(
+        measurement=measurement,
+        axis_angle=axis_angle,
+        axis_wavelength=axis_wavelength,
+    )
 
-    if axis_wavelength is not None and axis_wavelength not in shape(wavelength):
-        raise ValueError(
-            f"the wavelengths, with shape {shape(wavelength)}, "
-            f"have no axis {axis_wavelength!r}"
-        )
+    wavelength = measurement.inputs.wavelength
     direction = na.as_named_array(measurement.inputs.direction)
     efficiency = measurement.outputs
 
     if axis_angle is None:
-        if direction.size != 1:
+        axes_measurement = na.broadcast_shapes(shape(wavelength), shape(efficiency))
+        axes_direction = [ax for ax in shape(direction) if ax not in axes_measurement]
+        if axes_direction:
             raise ValueError(
-                "the efficiency was measured at more than one direction, "
-                "specify the axis along which the angle of incidence varies"
-            )
-        if axis_wavelength is None and wavelength.ndim != 1:
-            raise ValueError(
-                f"wavelength must be one dimensional, got shape {wavelength.shape}, "
-                f"specify the axis along which the wavelength varies"
+                "the efficiency was measured at more than one direction, along "
+                f"{axes_direction}, specify the axis along which the angle of "
+                f"incidence varies"
             )
         return na.interp(
             x=rays.wavelength,
             xp=wavelength,
             fp=efficiency,
-            axis=axis_wavelength,
+            axis=axis,
         )
 
     if not isinstance(direction, na.AbstractScalar):
@@ -248,14 +300,6 @@ def _interp_efficiency_measured(
     for i in range(num):
         index = {axis_angle: i}
 
-        wavelength_i = wavelength[index]
-        if axis_wavelength is None and wavelength_i.ndim != 1:
-            raise ValueError(
-                "for each angle of incidence, wavelength must be one dimensional, "
-                f"got shape {wavelength_i.shape}, "
-                f"specify the axis along which the wavelength varies"
-            )
-
         # linear interpolation in angle, as the weight this measurement
         # receives: np.interp of a one-hot vector is the hat function
         # centered on it, clamped at the ends of the measured range
@@ -268,9 +312,9 @@ def _interp_efficiency_measured(
 
         efficiency_i = na.interp(
             x=rays.wavelength,
-            xp=wavelength_i,
+            xp=wavelength[index],
             fp=efficiency[index],
-            axis=axis_wavelength,
+            axis=axis,
         )
 
         result = result + weight * efficiency_i

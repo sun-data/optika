@@ -271,6 +271,8 @@ class MeasuredMirror(
 
     If :obj:`None`, the reflectivity was measured at a single angle and is
     used at every angle of incidence.
+    Separate measurements, along the other axes of the wavelengths or of
+    the measured values, may each have been made at an angle of their own.
     Otherwise, the directions of :attr:`efficiency_measured` must be angles
     of incidence, measured from the surface normal and increasing along
     this axis, and the reflectivity is interpolated linearly in both
@@ -702,6 +704,8 @@ class MeasuredFilter(
 
     If :obj:`None`, the transmissivity was measured at a single angle and is
     used at every angle of incidence.
+    Separate measurements, along the other axes of the wavelengths or of
+    the measured values, may each have been made at an angle of their own.
     Otherwise, the directions of :attr:`efficiency_measured` must be angles
     of incidence, measured from the surface normal and increasing along
     this axis, and the transmissivity is interpolated linearly in both

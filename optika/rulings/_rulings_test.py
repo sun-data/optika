@@ -9,6 +9,15 @@ from optika.rays._tests import test_ray_vectors
 
 _wavelength = na.linspace(100, 300, axis="wavelength", num=11) * u.AA
 
+_wavelength_channel = _wavelength + na.linspace(0, 5, axis="channel", num=2) * u.AA
+"""Wavelength samples which differ for each of two channels."""
+
+_efficiency_channel = np.exp(-np.square((_wavelength - 200 * u.AA) / (100 * u.AA)) / 2)
+"""
+An efficiency which is the same at each sample of every channel, and so is
+different at the same wavelength in each, since the samples are not.
+"""
+
 
 class AbstractTestAbstractRulings(
     test_mixins.AbstractTestPrintable,
@@ -128,11 +137,10 @@ class TestRulings(
             diffraction_order=1,
             efficiency_measured=na.FunctionArray(
                 inputs=na.SpectralDirectionalVectorArray(
-                    wavelength=_wavelength
-                    + na.linspace(0, 5, axis="channel", num=2) * u.AA,
+                    wavelength=_wavelength_channel,
                     direction=na.Cartesian3dVectorArray(0, 0, 1),
                 ),
-                outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2),
+                outputs=_efficiency_channel,
             ),
             axis_wavelength="wavelength",
         ),
@@ -445,3 +453,41 @@ def test_triangular_rulings_efficiency_resonant():
     assert np.isclose(result.sum("m"), 1)
     assert np.isclose(result[dict(m=100 - 2)], 1 / 4)
     assert np.isclose(result[dict(m=100 + 2)], 1 / 4)
+
+
+def test_measured_rulings_axis_wavelength() -> None:
+    """Each channel is interpolated on its own samples, and keeps its axis."""
+    measurement = na.FunctionArray(
+        inputs=na.SpectralDirectionalVectorArray(
+            wavelength=_wavelength_channel,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+        ),
+        outputs=_efficiency_channel,
+    )
+    a = optika.rulings.MeasuredRulings(
+        spacing=1 * u.um,
+        diffraction_order=1,
+        efficiency_measured=measurement,
+        axis_wavelength="wavelength",
+    )
+    assert a.shape == dict(channel=2)
+    wavelength = 150 * u.AA
+    rays = optika.rays.RayVectorArray(
+        wavelength=wavelength,
+        position=na.Cartesian3dVectorArray() * u.mm,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    result = a.efficiency(rays, na.Cartesian3dVectorArray(0, 0, -1))
+    expected = np.array(
+        [
+            np.interp(
+                wavelength.to_value(u.AA),
+                _wavelength_channel[dict(channel=i)].ndarray.to_value(u.AA),
+                _efficiency_channel.ndarray,
+            )
+            for i in range(2)
+        ]
+    )
+    assert result.shape == dict(channel=2)
+    assert np.allclose(result.ndarray, expected)
+    assert not np.allclose(expected[0], expected[1])
