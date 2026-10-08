@@ -299,6 +299,13 @@ class AbstractTestAbstractLinearSystem(
         result_b = b.image(scene, noise=False)
         assert np.allclose(result_a.outputs, result_b.outputs)
 
+    def test_image_device_host(self, a: optika.systems.AbstractLinearSystem):
+        # `device=None` is the host path and must reproduce the default exactly
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        result = a.image(scene, noise=False)
+        result_host = a.image(scene, noise=False, device=None)
+        assert np.all(result.outputs == result_host.outputs)
+
     def test_image_uncertainty(self, a: optika.systems.AbstractLinearSystem):
         scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
         result = a.image(scene, noise=False, uncertainty=True)
