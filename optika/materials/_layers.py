@@ -377,6 +377,18 @@ class AbstractLayerSequence(
     def layers(self) -> Sequence[AbstractLayer]:
         """A sequence of layers."""
 
+    @property
+    @abc.abstractmethod
+    def layers_(self) -> list[Layer]:
+        """
+        Every :class:`Layer` of this sequence, from first to last.
+
+        Each nested sequence is written out in place, and each period of a
+        :class:`PeriodicLayerSequence` in turn, so counting the layers of one
+        material in this list counts the layers of that material deposited,
+        however the sequence was built.
+        """
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class LayerSequence(AbstractLayerSequence):
@@ -466,6 +478,16 @@ class LayerSequence(AbstractLayerSequence):
             return self.layers[item]
         else:
             return type(self)(self.layers[item])
+
+    @property
+    def layers_(self) -> list[Layer]:
+        result = []
+        for layer in self.layers:
+            if isinstance(layer, AbstractLayerSequence):
+                result += layer.layers_
+            else:
+                result.append(layer)
+        return result
 
     @property
     def layer_sequence(self) -> LayerSequence:
@@ -604,6 +626,10 @@ class PeriodicLayerSequence(AbstractLayerSequence):
     @property
     def interface(self) -> None | optika.materials.profiles.AbstractInterfaceProfile:
         return self.layers[0].interface
+
+    @property
+    def layers_(self) -> list[Layer]:
+        return self.num_periods * LayerSequence(self.layers).layers_
 
     @property
     def layer_sequence(self) -> LayerSequence:
