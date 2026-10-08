@@ -486,8 +486,9 @@ class MeasuredRulings(
 
     If :obj:`None`, the efficiency was measured at a single angle and is
     used at every angle of incidence.
-    Separate measurements, along the other axes of the wavelengths or of
-    the measured values, may each have been made at an angle of their own.
+    The direction may be repeated along any axis, as it is when
+    measurements at the same angle are stacked, but it must be the same
+    everywhere.
     Otherwise, the directions of :attr:`efficiency_measured` must be angles
     of incidence, measured from the surface normal and increasing along
     this axis, and the efficiency is interpolated linearly in both
