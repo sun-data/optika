@@ -494,6 +494,19 @@ class MeasuredRulings(
     Each angle may have its own wavelength samples.
     """
 
+    axis_wavelength: None | str = dataclasses.field(default=None, kw_only=True)
+    """
+    The logical axis of :attr:`efficiency_measured` along which the
+    wavelength varies.
+
+    If :obj:`None`, the wavelengths must vary along a single axis besides
+    :attr:`axis_angle`, which is the one interpolated over.
+    Otherwise the efficiency is interpolated along this axis, and the
+    wavelengths may vary along other axes too, such as one set of samples
+    for each of several measurements, which broadcast against the rays and
+    are part of :attr:`shape`.
+    """
+
     @property
     def shape(self) -> dict[str, int]:
         return na.broadcast_shapes(
@@ -502,6 +515,7 @@ class MeasuredRulings(
             optika._util._shape_efficiency_measured(
                 measurement=self.efficiency_measured,
                 axis_angle=self.axis_angle,
+                axis_wavelength=self.axis_wavelength,
             ),
         )
 
@@ -518,6 +532,7 @@ class MeasuredRulings(
             rays=rays,
             normal=normal,
             axis_angle=self.axis_angle,
+            axis_wavelength=self.axis_wavelength,
         )
 
 

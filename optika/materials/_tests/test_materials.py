@@ -10,6 +10,9 @@ _wavelength = na.linspace(100, 300, axis="wavelength", num=11) * u.AA
 
 _angle = na.linspace(0, 40, axis="angle", num=3) * u.deg
 
+_wavelength_channel = _wavelength + na.linspace(0, 5, axis="channel", num=2) * u.AA
+"""Wavelength samples which differ for each of two channels."""
+
 
 class AbstractTestAbstractMaterial(
     optika._tests.test_mixins.AbstractTestTransformable,
@@ -113,6 +116,16 @@ class TestMirror(
                 * np.cos(_angle),
             ),
             axis_angle="angle",
+        ),
+        optika.materials.MeasuredMirror(
+            efficiency_measured=na.FunctionArray(
+                inputs=na.SpectralDirectionalVectorArray(
+                    wavelength=_wavelength_channel,
+                    direction=na.Cartesian3dVectorArray(0, 0, 1),
+                ),
+                outputs=np.exp(-np.square(_wavelength_channel / (10 * u.AA)) / 2),
+            ),
+            axis_wavelength="wavelength",
         ),
     ],
 )
@@ -245,6 +258,17 @@ def test_dielectric_mgf2():
         optika.materials.MeasuredFilter(
             efficiency_measured=_efficiency_measured_angle,
             axis_angle="angle",
+            medium=optika.materials.Dielectric("MgF2"),
+        ),
+        optika.materials.MeasuredFilter(
+            efficiency_measured=na.FunctionArray(
+                inputs=na.SpectralDirectionalVectorArray(
+                    wavelength=_wavelength_channel,
+                    direction=na.Cartesian3dVectorArray(0, 0, 1),
+                ),
+                outputs=np.exp(-np.square(_wavelength_channel / (10 * u.AA)) / 2),
+            ),
+            axis_wavelength="wavelength",
             medium=optika.materials.Dielectric("MgF2"),
         ),
     ],

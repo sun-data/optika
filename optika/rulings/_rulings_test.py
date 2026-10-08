@@ -123,6 +123,19 @@ class TestRulings(
             ),
             axis_angle="angle",
         ),
+        optika.rulings.MeasuredRulings(
+            spacing=1 * u.um,
+            diffraction_order=1,
+            efficiency_measured=na.FunctionArray(
+                inputs=na.SpectralDirectionalVectorArray(
+                    wavelength=_wavelength
+                    + na.linspace(0, 5, axis="channel", num=2) * u.AA,
+                    direction=na.Cartesian3dVectorArray(0, 0, 1),
+                ),
+                outputs=np.exp(-np.square(_wavelength / (10 * u.AA)) / 2),
+            ),
+            axis_wavelength="wavelength",
+        ),
     ],
 )
 class TestMeasuredRulings(

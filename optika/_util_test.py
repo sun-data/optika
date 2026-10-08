@@ -237,3 +237,137 @@ def test_interp_efficiency_measured_error(
             normal=na.Cartesian3dVectorArray(0, 0, -1),
             axis_angle=axis_angle,
         )
+
+
+_wavelength_channel = _wavelength_measured + na.ScalarArray(
+    [0, 3] * u.nm, axes="channel"
+)
+"""Wavelength samples which differ for each of two channels."""
+
+_offset_channel = na.ScalarArray(np.array([0, 0.1]), axes="channel")
+"""An efficiency added to each channel, so that the channels can be told apart."""
+
+
+@pytest.mark.parametrize(
+    argnames="direction,axis_angle",
+    argvalues=[
+        (4 * u.deg, None),
+        (_angle_measured, "angle"),
+    ],
+)
+def test_interp_efficiency_measured_axis_wavelength(
+    direction: na.AbstractScalar | u.Quantity,
+    axis_angle: None | str,
+) -> None:
+    """
+    Wavelengths which vary along another axis besides the one interpolated
+    over are interpolated separately for each index along it.
+    """
+    angle = 0 * u.deg if axis_angle is None else direction
+    measurement = na.FunctionArray(
+        inputs=na.SpectralDirectionalVectorArray(
+            wavelength=_wavelength_channel,
+            direction=direction,
+        ),
+        outputs=_linear(_wavelength_channel, angle) + _offset_channel,
+    )
+    result = optika._util._interp_efficiency_measured(
+        measurement=measurement,
+        rays=_rays(_angle_rays),
+        normal=na.Cartesian3dVectorArray(0, 0, -1),
+        axis_angle=axis_angle,
+        axis_wavelength="wavelength",
+    )
+
+    if axis_angle is None:
+        angle_expected = 0 * u.deg
+    else:
+        angle_expected = np.minimum(
+            np.maximum(_angle_rays, direction[{"angle": 0}]),
+            direction[{"angle": ~0}],
+        )
+    result_expected = _linear(150 * u.nm, angle_expected) + _offset_channel
+
+    assert result.shape == result_expected.shape
+    assert np.allclose(result, result_expected)
+
+
+def test_interp_efficiency_measured_axis_wavelength_broadcasts_rays() -> None:
+    """Rays with an axis of the measurement are matched to it, not crossed with it."""
+    measurement = na.FunctionArray(
+        inputs=na.SpectralDirectionalVectorArray(
+            wavelength=_wavelength_channel,
+            direction=4 * u.deg,
+        ),
+        outputs=_linear(_wavelength_channel, 0 * u.deg) + _offset_channel,
+    )
+    wavelength = na.ScalarArray([120, 180] * u.nm, axes="channel")
+    rays = optika.rays.RayVectorArray(
+        wavelength=wavelength,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    result = optika._util._interp_efficiency_measured(
+        measurement=measurement,
+        rays=rays,
+        normal=na.Cartesian3dVectorArray(0, 0, -1),
+        axis_wavelength="wavelength",
+    )
+    result_expected = _linear(wavelength, 0 * u.deg) + _offset_channel
+    assert result.shape == dict(channel=2)
+    assert np.allclose(result, result_expected)
+
+
+@pytest.mark.parametrize(
+    argnames="axis_angle,shape_expected",
+    argvalues=[
+        (None, dict(angle=3, channel=2)),
+        ("angle", dict(channel=2)),
+    ],
+)
+def test_shape_efficiency_measured_axis_wavelength(
+    axis_angle: None | str,
+    shape_expected: dict[str, int],
+) -> None:
+    """The axes the wavelengths vary along, besides the interpolated one, stay."""
+    measurement = na.FunctionArray(
+        inputs=na.SpectralDirectionalVectorArray(
+            wavelength=_wavelength_channel,
+            direction=_angle_measured,
+        ),
+        outputs=_linear(_wavelength_channel, _angle_measured),
+    )
+    result = optika._util._shape_efficiency_measured(
+        measurement=measurement,
+        axis_angle=axis_angle,
+        axis_wavelength="wavelength",
+    )
+    assert result == shape_expected
+
+
+@pytest.mark.parametrize(
+    argnames="direction,axis_angle",
+    argvalues=[
+        (4 * u.deg, None),
+        (_angle_measured, "angle"),
+    ],
+)
+def test_interp_efficiency_measured_axis_wavelength_missing(
+    direction: na.AbstractScalar | u.Quantity,
+    axis_angle: None | str,
+) -> None:
+    """An axis the wavelengths do not have is refused."""
+    measurement = na.FunctionArray(
+        inputs=na.SpectralDirectionalVectorArray(
+            wavelength=_wavelength_channel,
+            direction=direction,
+        ),
+        outputs=0.5 + 0 * _wavelength_channel.value,
+    )
+    with pytest.raises(ValueError, match="have no axis 'other'"):
+        optika._util._interp_efficiency_measured(
+            measurement=measurement,
+            rays=_rays(_angle_rays),
+            normal=na.Cartesian3dVectorArray(0, 0, -1),
+            axis_angle=axis_angle,
+            axis_wavelength="other",
+        )
