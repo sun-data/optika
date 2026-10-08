@@ -39,11 +39,12 @@ def test_mcc_stern2004(kind: str, thickness_substrate: u.Quantity):
 )
 def test_e2v_ccd64(model, kind: str):
     """
-    Each model is Janesick's, with a depletion region inside the substrate
-    that reproduces the measurement to a few percent.
+    Each model is of the field-free region, with a depletion region inside
+    the substrate that reproduces the measurement to within the scatter of
+    repeated measurements.
     """
     result = model()
-    assert isinstance(result, optika.sensors.diffusion.JanesickDiffusionModel)
+    assert isinstance(result, optika.sensors.diffusion.SlabDiffusionModel)
 
     measured = optika.sensors.diffusion.mcc_stern2004(kind)
     thickness_substrate = measured.thickness_substrate
@@ -55,4 +56,4 @@ def test_e2v_ccd64(model, kind: str):
         width_pixel=16 * u.um,
     )
     rms = np.sqrt(np.mean(np.square(mcc - measured.outputs)))
-    assert rms < 0.05
+    assert rms < 0.03

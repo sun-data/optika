@@ -5,7 +5,7 @@ import astropy.units as u
 import named_arrays as na
 import optika
 from .._measurements import MeanChargeCapture
-from .._models import JanesickDiffusionModel
+from .._models import SlabDiffusionModel
 
 __all__ = [
     "mcc_stern2004",
@@ -69,9 +69,9 @@ def mcc_stern2004(
 
 def _e2v_ccd64(
     kind: Literal["thick", "thin"],
-) -> JanesickDiffusionModel:
-    """The model of Janesick (2001) fitted to the measurement of one CCD64."""
-    return JanesickDiffusionModel(
+) -> SlabDiffusionModel:
+    """The model of the field-free region fitted to the measurement of one CCD64."""
+    return SlabDiffusionModel(
         thickness_depletion=0 * u.um,
     ).fit_mean_charge_capture(
         mcc_measured=mcc_stern2004(kind),
@@ -79,11 +79,13 @@ def _e2v_ccd64(
 
 
 @optika.memory.cache
-def e2v_ccd64_thick() -> JanesickDiffusionModel:
+def e2v_ccd64_thick() -> SlabDiffusionModel:
     r"""
-    The model of :cite:t:`Janesick2001` for a "thick" (100 :math:`\Omega`-cm)
-    e2v CCD64, with the thickness of its depletion region fitted to the mean
-    charge capture measured by :cite:t:`Stern2004`, :func:`mcc_stern2004`.
+    The model of charge diffusing across the field-free region,
+    :class:`~optika.sensors.diffusion.SlabDiffusionModel`,
+    for a "thick" (100 :math:`\Omega`-cm) e2v CCD64,
+    with the thickness of its depletion region fitted to the mean charge
+    capture measured by :cite:t:`Stern2004`, :func:`mcc_stern2004`.
 
     Examples
     --------
@@ -131,16 +133,27 @@ def e2v_ccd64_thick() -> JanesickDiffusionModel:
     .. jupyter-execute::
 
         model.thickness_depletion
+
+    The model of :cite:t:`Janesick2001` fitted to the same measurement,
+    which fits it a little worse, is
+
+    .. jupyter-execute::
+
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=0 * u.um,
+        ).fit_mean_charge_capture(mcc_measured)
     """
     return _e2v_ccd64("thick")
 
 
 @optika.memory.cache
-def e2v_ccd64_thin() -> JanesickDiffusionModel:
+def e2v_ccd64_thin() -> SlabDiffusionModel:
     r"""
-    The model of :cite:t:`Janesick2001` for a "thin" (20 :math:`\Omega`-cm)
-    e2v CCD64, with the thickness of its depletion region fitted to the mean
-    charge capture measured by :cite:t:`Stern2004`, :func:`mcc_stern2004`.
+    The model of charge diffusing across the field-free region,
+    :class:`~optika.sensors.diffusion.SlabDiffusionModel`,
+    for a "thin" (20 :math:`\Omega`-cm) e2v CCD64,
+    with the thickness of its depletion region fitted to the mean charge
+    capture measured by :cite:t:`Stern2004`, :func:`mcc_stern2004`.
 
     Examples
     --------
@@ -149,8 +162,20 @@ def e2v_ccd64_thin() -> JanesickDiffusionModel:
 
     .. jupyter-execute::
 
+        import astropy.units as u
         import optika
 
         optika.sensors.diffusion.e2v_ccd64_thin().thickness_depletion
+
+    The model of :cite:t:`Janesick2001` fitted to the same measurement,
+    which fits it a little worse, is
+
+    .. jupyter-execute::
+
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=0 * u.um,
+        ).fit_mean_charge_capture(
+            mcc_measured=optika.sensors.diffusion.mcc_stern2004("thin"),
+        )
     """
     return _e2v_ccd64("thin")
