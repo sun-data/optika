@@ -265,10 +265,6 @@ class AbstractLinearSystem(
 
         axis_pixel = self.sensor.axis_pixel
 
-        # only ask for a device when one is requested, so that the host path
-        # keeps working with versions of `named_arrays` that predate the option
-        kwargs_device = dict() if device is None else dict(device=device)
-
         result = na.regridding.weights(
             coordinates_input=position_sensor,
             coordinates_output=self.coordinates_sensor,
@@ -276,7 +272,7 @@ class AbstractLinearSystem(
             axis_output=(axis_pixel.x, axis_pixel.y),
             weights_input=weights_input,
             method="conservative",
-            **kwargs_device,
+            device=device,
         )
 
         return result
