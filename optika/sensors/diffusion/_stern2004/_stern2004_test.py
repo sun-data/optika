@@ -1,17 +1,33 @@
 import pytest
 import numpy as np
 import astropy.units as u
-import named_arrays as na
 import optika
 
 
-@pytest.mark.parametrize("kind", ["thick", "thin"])
-def test_mcc_stern2004(kind: str):
+@pytest.mark.parametrize(
+    argnames="kind,thickness_substrate",
+    argvalues=[
+        ("thick", 15 * u.um),
+        ("thin", 8 * u.um),
+    ],
+)
+def test_mcc_stern2004(kind: str, thickness_substrate: u.Quantity):
+    """
+    The measurement carries the CCD64 it was made on, which every
+    comparison of a model against it needs.
+    """
     result = optika.sensors.diffusion.mcc_stern2004(kind)
-    assert isinstance(result, na.FunctionArray)
+    assert isinstance(result, optika.sensors.diffusion.MeanChargeCaptureFunctionArray)
     assert np.all(result.inputs > 0 * u.AA)
     assert np.all(result.outputs > 0)
     assert np.all(result.outputs <= 1)
+    assert result.thickness_substrate == thickness_substrate
+    assert result.width_pixel == 16 * u.um
+    assert result.chemical_substrate == "Si"
+
+    # the fields follow the measurement when it is indexed
+    first = result[dict(wavelength=slice(0, 1))]
+    assert first.thickness_substrate == thickness_substrate
 
 
 @pytest.mark.parametrize(
@@ -29,12 +45,10 @@ def test_e2v_ccd64(model, kind: str):
     result = model()
     assert isinstance(result, optika.sensors.diffusion.JanesickDiffusionModel)
 
-    thickness_substrate = (
-        optika.sensors.diffusion._stern2004._stern2004._thickness_substrate[kind]
-    )
+    measured = optika.sensors.diffusion.mcc_stern2004(kind)
+    thickness_substrate = measured.thickness_substrate
     assert 0 * u.um < result.thickness_depletion < thickness_substrate
 
-    measured = optika.sensors.diffusion.mcc_stern2004(kind)
     mcc = result.mean_charge_capture(
         absorption=optika.chemicals.Chemical("Si").absorption(measured.inputs),
         thickness_substrate=thickness_substrate,

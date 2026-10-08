@@ -10,6 +10,7 @@ import astropy.units as u
 import named_arrays as na
 import optika
 from ._quadrature import _absorption_positive, _integrate_gauss_legendre
+from ._measurements import MeanChargeCaptureFunctionArray
 from ._gaussian import (
     _width_average,
     _ratio,
@@ -645,10 +646,7 @@ class AbstractDiffusionModel(
 
     def fit_mean_charge_capture(
         self,
-        mcc_measured: na.AbstractFunctionArray,
-        thickness_substrate: u.Quantity,
-        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
-        chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
+        mcc_measured: MeanChargeCaptureFunctionArray,
     ) -> Self:
         """
         A copy of this model with the thickness of its depletion region fitted
@@ -656,23 +654,21 @@ class AbstractDiffusionModel(
 
         The fit minimizes the root-mean-square difference between the
         measured and the modeled mean charge capture,
-        with the thickness of the depletion region between zero and
-        `thickness_substrate`.
+        with the thickness of the depletion region between zero and the
+        thickness of the light-sensitive region of the sensor that was
+        measured.
 
         Parameters
         ----------
         mcc_measured
             The measured mean charge capture as a function of the vacuum
-            wavelength of the incident photons.
-        thickness_substrate
-            The thickness of the light-sensitive region of the sensor that was
-            measured.
-        width_pixel
-            The width of a pixel of the sensor that was measured.
-        chemical_substrate
-            The material of the light-sensitive region, which gives its
-            absorption coefficient.
+            wavelength of the incident photons,
+            together with the sensor it was measured on.
         """
+        thickness_substrate = mcc_measured.thickness_substrate
+        width_pixel = mcc_measured.width_pixel
+        chemical_substrate = mcc_measured.chemical_substrate
+
         if isinstance(chemical_substrate, str):
             chemical_substrate = optika.chemicals.Chemical(chemical_substrate)
 

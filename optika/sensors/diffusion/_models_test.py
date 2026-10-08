@@ -374,12 +374,14 @@ class AbstractTestAbstractDiffusionModel(
         wavelength = na.geomspace(10, 1e4, axis="wavelength", num=31) * u.AA
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
         target = a.replace(thickness_depletion=0.3 * s)
-        mcc_measured = na.FunctionArray(
+        mcc_measured = optika.sensors.diffusion.MeanChargeCaptureFunctionArray(
             inputs=wavelength,
             outputs=target.mean_charge_capture(absorption, s, width_pixel),
+            thickness_substrate=s,
+            width_pixel=width_pixel,
         )
         start = a.replace(thickness_depletion=s / 2)
-        result = start.fit_mean_charge_capture(mcc_measured, s, width_pixel)
+        result = start.fit_mean_charge_capture(mcc_measured)
         assert isinstance(result, type(a))
         mcc = result.mean_charge_capture(absorption, s, width_pixel)
         assert np.allclose(mcc, mcc_measured.outputs, atol=1e-4)

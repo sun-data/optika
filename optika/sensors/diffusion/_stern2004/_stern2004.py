@@ -4,6 +4,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from .._measurements import MeanChargeCaptureFunctionArray
 from .._models import JanesickDiffusionModel
 
 __all__ = [
@@ -27,16 +28,21 @@ _width_pixel = 16 * u.um
 
 def mcc_stern2004(
     kind: Literal["thick", "thin"],
-) -> na.FunctionArray[na.ScalarArray, na.ScalarArray]:
+) -> MeanChargeCaptureFunctionArray:
     r"""
     The mean charge capture of an e2v CCD64 measured by :cite:t:`Stern2004`,
-    as a function of the vacuum wavelength of the incident photons.
+    as a function of the vacuum wavelength of the incident photons,
+    together with the CCD it was measured on.
 
     The CCD64 has 16 micron pixels, and was made in two versions:
     a "thick" one of 100 :math:`\Omega`-cm silicon with a 15 micron
     light-sensitive region,
     and a "thin" one of 20 :math:`\Omega`-cm silicon with an 8 micron
     light-sensitive region.
+    The result carries both as
+    :attr:`~optika.sensors.diffusion.MeanChargeCaptureFunctionArray.thickness_substrate`
+    and
+    :attr:`~optika.sensors.diffusion.MeanChargeCaptureFunctionArray.width_pixel`.
 
     Parameters
     ----------
@@ -53,9 +59,11 @@ def mcc_stern2004(
     energy = energy << u.keV
     wavelength = energy.to(u.AA, equivalencies=u.spectral())
 
-    return na.FunctionArray(
+    return MeanChargeCaptureFunctionArray(
         inputs=na.ScalarArray(wavelength, axes="wavelength"),
         outputs=na.ScalarArray(mcc, axes="wavelength"),
+        thickness_substrate=_thickness_substrate[kind],
+        width_pixel=_width_pixel,
     )
 
 
@@ -67,8 +75,6 @@ def _e2v_ccd64(
         thickness_depletion=0 * u.um,
     ).fit_mean_charge_capture(
         mcc_measured=mcc_stern2004(kind),
-        thickness_substrate=_thickness_substrate[kind],
-        width_pixel=_width_pixel,
     )
 
 
@@ -98,10 +104,11 @@ def e2v_ccd64_thick() -> JanesickDiffusionModel:
 
         # Evaluate the fitted mean charge capture over a grid of wavelengths
         wavelength = na.geomspace(1, 10000, axis="wavelength", num=1001) * u.AA
+        # on the CCD the measurement was made on
         mcc_fit = model.mean_charge_capture(
             absorption=optika.chemicals.Chemical("Si").absorption(wavelength),
-            thickness_substrate=15 * u.um,
-            width_pixel=16 * u.um,
+            thickness_substrate=mcc_measured.thickness_substrate,
+            width_pixel=mcc_measured.width_pixel,
         )
 
         # Plot the measurement against the fit

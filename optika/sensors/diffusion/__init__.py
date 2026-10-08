@@ -15,6 +15,9 @@ properties of the sensor rather than of the model, so the methods take them as
 arguments.
 """
 
+from ._measurements import (
+    MeanChargeCaptureFunctionArray,
+)
 from ._models import (
     AbstractDiffusionModel,
     JanesickDiffusionModel,
@@ -26,6 +29,7 @@ from ._stern2004 import (
 )
 
 __all__ = [
+    "MeanChargeCaptureFunctionArray",
     "AbstractDiffusionModel",
     "JanesickDiffusionModel",
     "mcc_stern2004",
