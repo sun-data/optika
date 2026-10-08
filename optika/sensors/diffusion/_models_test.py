@@ -596,7 +596,7 @@ class TestSlabDiffusionModel(
         """
         Without a spread in the depletion region, the profile along one axis
         is the closed form of the reflected diffusion across the field-free
-        region.
+        region, to the accuracy of the mixture of Gaussians at a single depth.
         """
         s = _thickness_substrate
         f = s - a.thickness_depletion
@@ -609,36 +609,7 @@ class TestSlabDiffusionModel(
         u_depth = (depth / f).to(u.dimensionless_unscaled).value
         expected = np.arctan(np.sinh(np.pi * ratio / 2) / np.cos(np.pi * u_depth / 2))
         expected = 1 / 2 + expected / np.pi
-        assert np.allclose(result, expected, atol=2e-5)
-
-    @pytest.mark.parametrize("width_pixel", _width_pixel)
-    def test_probability_same_pixel_pair(
-        self,
-        a: optika.sensors.diffusion.SlabDiffusionModel,
-        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
-    ):
-        """
-        The probability that two electrons share a pixel, from the
-        distribution of the sum of their variances, is the average over the
-        variances of both electrons drawn independently.
-        """
-        s = _thickness_substrate
-        depth = na.linspace(0, 14, axis="depth", num=8) * u.um
-        result = a.probability_same_pixel(depth, s, width_pixel)
-
-        slab = optika.sensors.diffusion._slab
-        variance_1, weight_1 = a._variance_transit(depth, s, slab._kind_single, "n1")
-        variance_2, weight_2 = a._variance_transit(depth, s, slab._kind_single, "n2")
-        variance = (variance_1 + variance_2) / 2 + a._variance_depletion(depth, s)
-        width = np.sqrt(variance)
-        if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
-            width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
-        gaussian = optika.sensors.diffusion._gaussian
-        x = gaussian._probability_same_pixel(gaussian._ratio(width, width_pixel.x))
-        y = gaussian._probability_same_pixel(gaussian._ratio(width, width_pixel.y))
-        expected = (weight_1 * weight_2 * x * y).sum(("n1", "n2"))
-
-        assert np.allclose(result, expected, atol=5e-5)
+        assert np.allclose(result, expected, atol=2e-3)
 
 
 @pytest.mark.parametrize(
@@ -658,8 +629,9 @@ def test_slab_probability_same_pixel_fourier(
     expected: float,
 ):
     r"""
-    The probability that two electrons share a 15 micron pixel agrees with
-    the integral over the Fourier transform of the separation of the two
+    The probability that two electrons share a 15 micron pixel agrees,
+    to the accuracy of the mixture of Gaussians at a single depth,
+    with the integral over the Fourier transform of the separation of the two
     electrons,
 
     .. math::
@@ -675,7 +647,50 @@ def test_slab_probability_same_pixel_fourier(
         thickness_depletion=s - thickness_field_free,
     )
     result = model.probability_same_pixel(depth, s, 15 * u.um)
-    assert np.allclose(result, expected, atol=2e-5)
+    assert np.allclose(result, expected, atol=2e-3)
+
+
+@pytest.mark.parametrize("width_pixel", [15 * u.um, 4 * u.um])
+def test_slab_mixture_converged(
+    width_pixel: u.Quantity,
+):
+    """
+    Averaged over the depth at which the charge was created,
+    the kernel and the probability that two electrons share a pixel of the
+    mixture of Gaussians agree with those of a mixture of many more,
+    which converges to the exact charge cloud.
+    """
+    s = _thickness_substrate
+    model = optika.sensors.diffusion.SlabDiffusionModel(
+        thickness_depletion=8.7 * u.um,
+    )
+    absorption = na.geomspace(1e-3, 1e3, axis="absorption", num=7) / u.um
+
+    def averages() -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        kernel = model.kernel_average(absorption, s, width_pixel, "x", "y", num=5)
+        same = model.average_depth(
+            function=lambda depth: model.probability_same_pixel(depth, s, width_pixel),
+            absorption=absorption,
+            thickness_substrate=s,
+        )
+        return kernel.outputs, same
+
+    kernel, same = averages()
+
+    slab = optika.sensors.diffusion._slab
+    num = slab._num_nodes
+    try:
+        slab._num_nodes = 64
+        slab._nodes.cache_clear()
+        slab._table.cache_clear()
+        kernel_expected, same_expected = averages()
+    finally:
+        slab._num_nodes = num
+        slab._nodes.cache_clear()
+        slab._table.cache_clear()
+
+    assert np.allclose(kernel, kernel_expected, atol=3e-5)
+    assert np.allclose(same, same_expected, atol=3e-5)
 
 
 def test_kernel_sharp():

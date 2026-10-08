@@ -311,8 +311,16 @@ def test_electrons_measured_diffusion():
         ),
     ],
 )
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[
+        500 * u.nm,
+        20 * u.AA,
+    ],
+)
 def test_electrons_measured_diffusion_profile(
     diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
+    wavelength: u.Quantity,
 ):
     """
     The spread of the diffused charge matches the width given by
@@ -320,7 +328,9 @@ def test_electrons_measured_diffusion_profile(
     when the width at the back surface differs from the thickness of the
     field-free region, when the charge also spreads in the depletion region,
     including a sensor with no field-free region at all,
-    and when each electron takes its own time to cross the field-free region.
+    and when each electron is drawn from a mixture of Gaussians,
+    for photons which liberate one electron each and photons which liberate
+    many, whose clouds may be too wide for the multinomial path.
     """
     # wide enough to hold the exponential tails of the slab model
     num = 161
@@ -336,7 +346,7 @@ def test_electrons_measured_diffusion_profile(
 
     electrons = _ramanathan_2020.electrons_measured(
         photons_absorbed=photons,
-        wavelength=500 * u.nm,
+        wavelength=wavelength,
         absorption=absorption,
         thickness_implant=0 * u.um,
         thickness_substrate=thickness_substrate,
@@ -477,6 +487,21 @@ def test_electrons_measured_wrap():
 
 
 @pytest.mark.parametrize(
+    argnames="diffusion",
+    argvalues=[
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=7.85 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+    ],
+)
+@pytest.mark.parametrize(
     argnames="factor_multinomial",
     argvalues=[
         0,
@@ -484,13 +509,15 @@ def test_electrons_measured_wrap():
     ],
 )
 def test_electrons_measured_factor_multinomial(
+    diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
     factor_multinomial: float,
     monkeypatch: pytest.MonkeyPatch,
 ):
     """
     The per-electron and multinomial paths of :func:`_diffuse_electrons`
-    sample the same distribution, so forcing either one should reproduce the
-    analytic charge-diffusion width.
+    sample the same distribution, so forcing either one reproduces the
+    kernel of the model of diffusion, for photons which each liberate
+    hundreds of electrons.
     """
     monkeypatch.setattr(
         _ramanathan_2020,
@@ -498,16 +525,15 @@ def test_electrons_measured_factor_multinomial(
         factor_multinomial,
     )
 
-    num = 41
+    num = 9
     axis_xy = ("pixel_x", "pixel_y")
 
-    absorption = 1 / u.um
+    absorption = 0.3 / u.um
     thickness_substrate = 14 * u.um
-    thickness_depletion = 2 * u.um
-    width_pixel = 5 * u.um
+    width_pixel = 13 * u.um
 
     photons = np.zeros((num, num))
-    photons[num // 2, num // 2] = 3000
+    photons[num // 2, num // 2] = 100000
     photons = na.ScalarArray(photons << u.photon, axes=axis_xy).astype(int)
 
     # A short wavelength, so that each photon liberates enough electrons
@@ -518,27 +544,21 @@ def test_electrons_measured_factor_multinomial(
         absorption=absorption,
         thickness_implant=0 * u.um,
         thickness_substrate=thickness_substrate,
-        diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
-            thickness_depletion=thickness_depletion
-        ),
+        diffusion=diffusion,
         width_pixel=width_pixel,
         cce_backsurface=1,
         axis_xy=axis_xy,
         wrap=True,
     )
+    result = electrons / electrons.sum(axis_xy)
 
-    offset_x = (na.arange(0, num, axis=axis_xy[0]) - num // 2) * width_pixel
-    offset_y = (na.arange(0, num, axis=axis_xy[1]) - num // 2) * width_pixel
+    kernel = diffusion.kernel_average(
+        absorption=absorption,
+        thickness_substrate=thickness_substrate,
+        width_pixel=width_pixel,
+        axis_x=axis_xy[0],
+        axis_y=axis_xy[1],
+        num=num,
+    )
 
-    total = electrons.sum(axis_xy)
-    mean_x = (electrons * offset_x).sum(axis_xy) / total
-    mean_y = (electrons * offset_y).sum(axis_xy) / total
-    var_x = (electrons * np.square(offset_x - mean_x)).sum(axis_xy) / total
-    var_y = (electrons * np.square(offset_y - mean_y)).sum(axis_xy) / total
-    std_measured = np.sqrt((var_x + var_y) / 2)
-
-    std_expected = optika.sensors.diffusion.JanesickDiffusionModel(
-        thickness_depletion=thickness_depletion,
-    ).width_average(absorption, thickness_substrate)
-
-    assert np.allclose(std_measured, std_expected, rtol=0.05)
+    assert np.allclose(result, kernel.outputs, atol=0.004)

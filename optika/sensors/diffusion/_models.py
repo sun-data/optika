@@ -43,9 +43,9 @@ model gives there.
 _monte_carlo_slab = 1
 """
 The Monte Carlo simulation of :func:`optika.sensors.electrons_measured`
-draws the time each electron created in the field-free region takes to
-reach the depletion region, as :class:`SlabDiffusionModel` describes,
-and spreads it with a Gaussian of the variance it acquires in that time.
+spreads the electrons created in the field-free region with the mixture of
+Gaussians of :class:`SlabDiffusionModel` at the depth they were created at,
+and the electrons created in the depletion region with a Gaussian.
 """
 
 
@@ -1154,7 +1154,7 @@ class SlabDiffusionModel(
     AbstractDiffusionModel,
 ):
     r"""
-    The exact charge cloud of charge diffusing across a field-free region,
+    The charge cloud of charge diffusing across a field-free region,
     reflected at the back surface, until it reaches the depletion region,
     with an optional spread acquired in the depletion region.
 
@@ -1331,19 +1331,37 @@ class SlabDiffusionModel(
     independently, so the probability that two of them are collected in the
     same pixel depends on the sum of their variances.
 
-    The averages over :math:`T` have no closed form,
-    so they are evaluated by quadrature over its quantiles,
-    which are found from series for its distribution and tabulated once,
-    accurate to a few parts in :math:`10^5`.
+    The average over :math:`T` has no closed form,
+    so it is taken by quadrature over the quantiles of :math:`T`
+    with eight nodes,
+    which makes the charge cloud at each depth a mixture of eight Gaussians
+    whose variances are tabulated once against depth.
+    Each electron is drawn from the mixture independently,
+    so two electrons of the same photon may be drawn from different
+    Gaussians.
+    Averaged over the depth at which the charge was created,
+    the kernel and the probability that two electrons share a pixel agree
+    with the exact cloud to about one part in :math:`10^5`;
+    at a single depth they agree to about one part in :math:`10^3`.
+    The variance of the mixture is that of the exact cloud, which
+    :meth:`width` gives, to about a percent farther than a tenth of
+    :math:`x_{ff}` from the depletion region.
+    Closer than that, the rare electrons which wander back toward the back
+    surface set the variance, and only the widest Gaussian holds them.
+    Likewise, the tail of the mixture follows the exponential tail of the
+    exact cloud to within ten percent until less than about :math:`10^{-5}`
+    of the charge lies beyond it, and then falls off as the widest Gaussian.
+    The Monte Carlo simulation of :func:`optika.sensors.electrons_measured`
+    samples the same mixture, so it agrees with the averages of this model,
+    and its cost does not grow with the number of electrons per photon.
+
     Near the depletion region, the few electrons that wander back toward the
     back surface give the charge cloud a heavy tail,
     so the averages over depth converge more slowly than those of
     :class:`~optika.sensors.diffusion.JanesickDiffusionModel`:
-    to about one part in :math:`10^6` where a pixel is at least half as wide
-    as the field-free region is thick,
-    and to a few parts in :math:`10^5` where it is a quarter as wide.
-    The Monte Carlo simulation of :func:`optika.sensors.electrons_measured`
-    draws each electron's :math:`T` from the same table.
+    to a few parts in :math:`10^6` where a pixel is at least three quarters
+    as wide as the field-free region is thick,
+    and to about two parts in :math:`10^5` where it is a quarter as wide.
     """
 
     thickness_depletion: u.Quantity | na.AbstractScalar = dataclasses.MISSING
@@ -1411,13 +1429,11 @@ class SlabDiffusionModel(
         self,
         depth: u.Quantity | na.AbstractScalar,
         thickness_substrate: u.Quantity | na.AbstractScalar,
-        kind: int,
         axis: str,
     ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
         """
         The variance acquired along each axis crossing the field-free region
-        at the nodes of the quadrature over its distribution,
-        and the weights of the nodes.
+        by each Gaussian of the mixture, and the weights of the Gaussians.
 
         Parameters
         ----------
@@ -1426,13 +1442,8 @@ class SlabDiffusionModel(
             charge was created.
         thickness_substrate
             The thickness of the light-sensitive region of the sensor.
-        kind
-            :obj:`~optika.sensors.diffusion._slab._kind_single` for the
-            variance of one electron, or
-            :obj:`~optika.sensors.diffusion._slab._kind_pair` for the sum
-            of the variances of two.
         axis
-            The logical axis of the nodes.
+            The logical axis of the Gaussians.
         """
         f = self._thickness_field_free(thickness_substrate)
         where = f > 0 * f
@@ -1443,7 +1454,7 @@ class SlabDiffusionModel(
         delta = ((f - depth) / f_safe).to(u.dimensionless_unscaled).value
         delta = np.where(where, np.clip(delta, 0, 1), 0)
 
-        s, weight = _slab._transit(delta, kind, axis)
+        s, weight = _slab._transit(delta, axis)
 
         return s * np.square(f), weight
 
@@ -1468,7 +1479,6 @@ class SlabDiffusionModel(
         variance, weight = self._variance_transit(
             depth=depth,
             thickness_substrate=thickness_substrate,
-            kind=_slab._kind_single,
             axis=axis,
         )
         variance = variance + self._variance_depletion(depth, thickness_substrate)
@@ -1487,19 +1497,27 @@ class SlabDiffusionModel(
         width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
     ) -> na.AbstractScalar:
         axis = "_diffusion_transit"
+        axis_pair = "_diffusion_transit_pair"
         width_pixel = _pixel_vector(width_pixel)
 
-        # The two electrons diffuse independently, so their separation is
-        # Gaussian with the sum of their variances, which is twice the
-        # variance of a single electron with the mean of the two.
         variance, weight = self._variance_transit(
             depth=depth,
             thickness_substrate=thickness_substrate,
-            kind=_slab._kind_pair,
             axis=axis,
         )
-        variance = variance / 2
+
+        # Each electron is drawn from the mixture independently, and given
+        # the Gaussians they are drawn from, their separation is Gaussian
+        # with the sum of their variances, which is twice the variance of a
+        # single electron with the mean of the two.
+        # Exchanging the electrons gives the same pair, so each pair of
+        # different Gaussians is counted once, with twice the weight.
+        i, j = np.triu_indices(weight.shape[axis])
+        i = na.ScalarArray(i, axes=axis_pair)
+        j = na.ScalarArray(j, axes=axis_pair)
+        variance = (variance[{axis: i}] + variance[{axis: j}]) / 2
         variance = variance + self._variance_depletion(depth, thickness_substrate)
+        weight = weight[{axis: i}] * weight[{axis: j}] * np.where(i == j, 1, 2)
         width = np.sqrt(variance)
 
         x = _probability_same_pixel(_ratio(width, width_pixel.x))
@@ -1507,7 +1525,7 @@ class SlabDiffusionModel(
 
         # Averaging the probability of not sharing a pixel keeps the result
         # exactly one where the charge does not spread.
-        return 1 - (weight * (1 - x * y)).sum(axis)
+        return 1 - (weight * (1 - x * y)).sum(axis_pair)
 
     def kernel(
         self,
@@ -1526,7 +1544,6 @@ class SlabDiffusionModel(
         variance, weight = self._variance_transit(
             depth=depth,
             thickness_substrate=thickness_substrate,
-            kind=_slab._kind_single,
             axis=axis,
         )
         variance = variance + self._variance_depletion(depth, thickness_substrate)

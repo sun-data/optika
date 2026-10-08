@@ -668,12 +668,14 @@ def electrons_measured(
         width_depletion = parameters["width_depletion"]
         kind_diffusion = diffusion._kind_monte_carlo
 
-    # the table of the time each electron takes to cross the field-free
-    # region, if the model draws it
+    # the variances and the weights of the mixture of Gaussians the charge
+    # created in the field-free region spreads with, if the model has one
     if kind_diffusion == _monte_carlo_slab:
-        table_transit = _slab._table(_slab._kind_single)
+        table_transit = _slab._table()
+        _, _, weight_transit = _slab._nodes()
     else:
-        table_transit = np.zeros((2, 2))
+        table_transit = np.zeros((2, 1))
+        weight_transit = np.ones(1)
 
     if shape_random is None:
         shape_random = dict()
@@ -759,6 +761,7 @@ def electrons_measured(
         wrap=wrap,
         kind_diffusion=kind_diffusion,
         table_transit=table_transit,
+        weight_transit=weight_transit,
     )
 
     result = na.ScalarArray(
@@ -791,6 +794,7 @@ def _electrons_measured_quantity(
     wrap: bool,
     kind_diffusion: int,
     table_transit: np.ndarray,
+    weight_transit: np.ndarray,
 ) -> u.Quantity:
 
     shape = np.broadcast_shapes(
@@ -845,6 +849,7 @@ def _electrons_measured_quantity(
         factor_multinomial=_factor_multinomial,
         kind_diffusion=kind_diffusion,
         table_transit=table_transit,
+        weight_transit=weight_transit,
     )
 
     result = result.reshape(shape)
@@ -865,10 +870,17 @@ and ``0`` forces the multinomial path.
 
 _num_sigma_window = 6.0
 """
-Half-width, in standard deviations, of the bounded offset window used by the
-multinomial path of :func:`_diffuse_electrons`. Probability mass beyond the
-window (~1e-9) is folded into the edge bins, so the total is still conserved
-exactly.
+Half-width, in standard deviations of the widest Gaussian, of the bounded
+offset window used by the multinomial path of :func:`_diffuse_electrons`.
+Probability mass beyond the window (~1e-9) is folded into the edge bins, so
+the total is still conserved exactly.
+"""
+
+_num_window_max = 255
+"""
+The most integer offsets along each axis that the multinomial path of
+:func:`_diffuse_electrons` holds.
+Wider clouds are sampled per electron.
 """
 
 _sqrt2 = math.sqrt(2.0)
@@ -886,10 +898,88 @@ def _normal_cdf(  # pragma: nocover
     """
     if scale == math.inf:
         return 1.0 if edge > origin else 0.0
-    return 0.5 * (1.0 + math.erf((edge - origin) * scale))
+    t = (edge - origin) * scale
+    # beyond six, the error function is one to double precision
+    if t > 6:
+        return 1.0
+    if t < -6:
+        return 0.0
+    return 0.5 * (1.0 + math.erf(t))
 
 
 @numba.njit(cache=True)
+def _mass_window(  # pragma: nocover
+    out: np.ndarray,
+    row: int,
+    half: int,
+    origin: float,
+    sigma: float,
+    weight: float,
+) -> None:
+    """
+    The fraction of the charge of one Gaussian which lands at each integer
+    offset of a window, times `weight`, with the charge beyond the window
+    in its edge offsets.
+
+    Parameters
+    ----------
+    out
+        The array whose row `row` holds the fraction at each offset from
+        ``-half`` to ``half`` in its first ``2 * half + 1`` elements,
+        filled in place.
+    row
+        The row of `out` to fill.
+    half
+        The largest offset of the window.
+    origin
+        The sub-pixel origin of the charge, in ``[-0.5, 0.5]``.
+    sigma
+        The standard deviation of the Gaussian, in pixels.
+        Zero keeps the charge at offset zero.
+    weight
+        The factor every fraction is multiplied by.
+    """
+    scale = math.inf
+    if sigma > 0:
+        scale = 1.0 / (sigma * _sqrt2)
+    lower = 0.0
+    last = 2 * half
+    for a in range(last + 1):
+        upper = 1.0
+        if a < last:
+            upper = _normal_cdf(a - half + 0.5, origin, scale)
+        out[row, a] = weight * (upper - lower)
+        lower = upper
+
+
+@numba.njit(cache=True, inline="always")
+def _offset_center_out(  # pragma: nocover
+    j: int,
+) -> int:
+    """The `j`-th integer offset visited from zero outward: 0, 1, -1, 2, -2, ..."""
+    half = (j + 1) // 2
+    return half if j % 2 == 1 else -half
+
+
+@numba.njit(cache=True, inline="always")
+def _binomial_remaining(  # pragma: nocover
+    n: int,
+    mass: float,
+    remaining: float,
+    last: bool,
+) -> int:
+    """
+    The number of `n` electrons which land in a bin holding `mass` of the
+    `remaining` probability, every one of them in the last bin.
+    """
+    if last or mass >= remaining:
+        return n
+    if mass <= 0:
+        return 0
+    return np.random.binomial(n, mass / remaining)
+
+
+@numba.njit(cache=True, inline="always")
 def _diffuse_electrons(  # pragma: nocover
     result: np.ndarray,
     i: int,
@@ -898,28 +988,36 @@ def _diffuse_electrons(  # pragma: nocover
     m: int,
     u: float,
     v: float,
-    sigma_x: float,
-    sigma_y: float,
+    sigma_x: np.ndarray,
+    sigma_y: np.ndarray,
+    weight: np.ndarray,
     num_x: int,
     num_y: int,
     wrap: bool,
     factor_multinomial: float,
+    scratch: np.ndarray,
 ) -> None:
     """
     Diffuse `m` electrons originating in pixel ``(x, y)`` of image
     ``result[i]`` and deposit the (integer) counts in place.
 
-    Each electron lands in exactly one pixel, at an integer offset distributed
-    as ``round(gauss(u, sigma_x)), round(gauss(v, sigma_y))``, so the counts
-    are marginally multinomial and the total charge is conserved exactly
-    (up to electrons diffusing off the sensor when `wrap` is :obj:`False`).
+    The charge cloud is a mixture of Gaussians.
+    Each electron is drawn from Gaussian ``k`` with probability
+    ``weight[k]``, and lands at an integer offset distributed as
+    ``round(gauss(u, sigma_x[k])), round(gauss(v, sigma_y[k]))``,
+    so the counts are marginally multinomial and the total charge is conserved
+    exactly (up to electrons diffusing off the sensor when `wrap` is
+    :obj:`False`).
 
     For small `m` the offsets are sampled per electron. For large `m` the
     electrons are partitioned across a bounded window of integer offsets via
-    conditional binomials, with per-bin probabilities given by the Gaussian
-    integrated over each pixel (an :func:`math.erf` difference). The two paths
-    sample the same distribution, but for photons that liberate many electrons
-    the partition costs ``O(window)`` rather than ``O(m)``.
+    conditional binomials, with per-bin probabilities given by the mixture
+    integrated over each pixel (a weighted sum over the Gaussians of products
+    of :func:`math.erf` differences). The two paths sample the same
+    distribution, but for photons that liberate many electrons the partition
+    costs ``O(window)`` rather than ``O(m)``.
+    Clouds too wide for the window to fit in `scratch` are sampled per
+    electron.
 
     Parameters
     ----------
@@ -935,10 +1033,11 @@ def _diffuse_electrons(  # pragma: nocover
         The sub-pixel origin of the electrons within pixel ``(x, y)``, each in
         ``[-0.5, 0.5]``. Shared by all `m` electrons of one photon.
     sigma_x, sigma_y
-        The standard deviation of the diffusion kernel along each axis,
-        in pixels.
+        The standard deviation of each Gaussian along each axis, in pixels.
         Zero along an axis keeps the electrons in the column (or row) of
         pixels they originate from.
+    weight
+        The probability of each Gaussian, summing to one.
     num_x, num_y
         The shape of the image.
     wrap
@@ -946,30 +1045,49 @@ def _diffuse_electrons(  # pragma: nocover
         If :obj:`False`, it is lost.
     factor_multinomial
         See :obj:`_factor_multinomial`.
+    scratch
+        Working space for the multinomial path, of shape
+        ``(2 * weight.size, _num_window_max)``.
     """
 
     if m <= 0:
         return
 
+    num = weight.size
+
+    sigma_max_x = 0.0
+    sigma_max_y = 0.0
+    for k in range(num):
+        sigma_max_x = max(sigma_max_x, sigma_x[k])
+        sigma_max_y = max(sigma_max_y, sigma_y[k])
+
     half_x = 0
     half_y = 0
-    if sigma_x > 0:
-        half_x = int(math.ceil(_num_sigma_window * sigma_x)) + 1
-    if sigma_y > 0:
-        half_y = int(math.ceil(_num_sigma_window * sigma_y)) + 1
+    if sigma_max_x > 0:
+        half_x = int(math.ceil(_num_sigma_window * sigma_max_x)) + 1
+    if sigma_max_y > 0:
+        half_y = int(math.ceil(_num_sigma_window * sigma_max_y)) + 1
     num_window_x = 2 * half_x + 1
     num_window_y = 2 * half_y + 1
 
     # For few electrons, per-electron sampling is cheaper than partitioning
     # the window.
-    if m < factor_multinomial * num_window_x * num_window_y:
+    per_electron = m < factor_multinomial * num_window_x * num_window_y
+    if per_electron or max(num_window_x, num_window_y) > scratch.shape[1]:
         for _ in range(m):
+            k = 0
+            if num > 1:
+                r = random.random()
+                total = weight[0]
+                while r >= total and k < num - 1:
+                    k += 1
+                    total += weight[k]
             p = 0
             q = 0
-            if sigma_x > 0:
-                p = round(random.gauss(u, sigma_x))
-            if sigma_y > 0:
-                q = round(random.gauss(v, sigma_y))
+            if sigma_x[k] > 0:
+                p = round(random.gauss(u, sigma_x[k]))
+            if sigma_y[k] > 0:
+                q = round(random.gauss(v, sigma_y[k]))
             x_e = x + p
             y_e = y + q
             if wrap:
@@ -978,41 +1096,35 @@ def _diffuse_electrons(  # pragma: nocover
                 result[i, x_e, y_e] += 1
         return
 
-    # Many electrons: partition them across x offsets, then partition each
-    # occupied column across y offsets, via conditional binomials. This
-    # samples the multinomial distribution with product probabilities
-    # P_x(k_x) * P_y(k_y), renormalized over the bounded window.
-    scale_x = math.inf
-    scale_y = math.inf
-    if sigma_x > 0:
-        scale_x = 1.0 / (sigma_x * _sqrt2)
-    if sigma_y > 0:
-        scale_y = 1.0 / (sigma_y * _sqrt2)
+    # Many electrons: the fraction of the charge of each Gaussian at each
+    # offset along x in the first rows of `scratch`, with the weight of the
+    # Gaussian folded in, and along y in the next rows.
+    for k in range(num):
+        _mass_window(scratch, k, half_x, u, sigma_x[k], weight[k])
+        _mass_window(scratch, num + k, half_y, v, sigma_y[k], 1.0)
 
+    # Partition the electrons across x offsets, then partition each occupied
+    # column across y offsets, via conditional binomials. This samples the
+    # multinomial distribution with probabilities
+    # sum_k weight[k] * P_x(k_x | k) * P_y(k_y | k).
+    # The offsets are visited from the center outward, so the partition
+    # usually places every electron before it reaches the edges.
     rem_x = m
-    c_hi_x = _normal_cdf(half_x + 0.5, u, scale_x)
-    c_left = _normal_cdf(-half_x - 0.5, u, scale_x)
-    for kx in range(-half_x, half_x + 1):
+    remaining_x = 1.0
+    for jx in range(num_window_x):
         if rem_x == 0:
             break
-        c_right = _normal_cdf(kx + 0.5, u, scale_x)
-        denom_x = c_hi_x - c_left
-        if denom_x <= 0.0:
-            n_kx = rem_x
-        else:
-            pc_x = (c_right - c_left) / denom_x
-            if pc_x >= 1.0:
-                n_kx = rem_x
-            elif pc_x <= 0.0:
-                n_kx = 0
-            else:
-                n_kx = np.random.binomial(rem_x, pc_x)
-        c_left = c_right
+        kx = half_x + _offset_center_out(jx)
+        mass = 0.0
+        for k in range(num):
+            mass += scratch[k, kx]
+        n_kx = _binomial_remaining(rem_x, mass, remaining_x, jx == num_window_x - 1)
+        remaining_x -= mass
         rem_x -= n_kx
         if n_kx == 0:
             continue
 
-        x_e = x + kx
+        x_e = x + kx - half_x
         if wrap:
             ix = x_e % num_x
         elif 0 <= x_e < num_x:
@@ -1022,116 +1134,30 @@ def _diffuse_electrons(  # pragma: nocover
             continue
 
         rem_y = n_kx
-        c_hi_y = _normal_cdf(half_y + 0.5, v, scale_y)
-        cy_left = _normal_cdf(-half_y - 0.5, v, scale_y)
-        for ky in range(-half_y, half_y + 1):
+        remaining_y = mass
+        for jy in range(num_window_y):
             if rem_y == 0:
                 break
-            cy_right = _normal_cdf(ky + 0.5, v, scale_y)
-            denom_y = c_hi_y - cy_left
-            if denom_y <= 0.0:
-                n_ky = rem_y
-            else:
-                pc_y = (cy_right - cy_left) / denom_y
-                if pc_y >= 1.0:
-                    n_ky = rem_y
-                elif pc_y <= 0.0:
-                    n_ky = 0
-                else:
-                    n_ky = np.random.binomial(rem_y, pc_y)
-            cy_left = cy_right
+            ky = half_y + _offset_center_out(jy)
+            mass_column = 0.0
+            for k in range(num):
+                mass_column += scratch[k, kx] * scratch[num + k, ky]
+            n_ky = _binomial_remaining(
+                rem_y,
+                mass_column,
+                remaining_y,
+                jy == num_window_y - 1,
+            )
+            remaining_y -= mass_column
             rem_y -= n_ky
             if n_ky == 0:
                 continue
 
-            y_e = y + ky
+            y_e = y + ky - half_y
             if wrap:
                 result[i, ix, y_e % num_y] += n_ky
             elif 0 <= y_e < num_y:
                 result[i, ix, y_e] += n_ky
-
-
-@numba.njit(cache=True)
-def _diffuse_electrons_slab(  # pragma: nocover
-    result: np.ndarray,
-    i: int,
-    x: int,
-    y: int,
-    m: int,
-    u: float,
-    v: float,
-    delta: float,
-    thickness_field_free: float,
-    variance_depletion: float,
-    width_pixel_x: float,
-    width_pixel_y: float,
-    num_x: int,
-    num_y: int,
-    wrap: bool,
-    table_transit: np.ndarray,
-) -> None:
-    """
-    Diffuse `m` electrons created in the field-free region in pixel
-    ``(x, y)`` of image ``result[i]`` and deposit them in place,
-    as :class:`optika.sensors.diffusion.SlabDiffusionModel` describes.
-
-    Each electron takes its own time to reach the depletion region,
-    so each draws the variance it acquires crossing the field-free region,
-    and then lands at an offset that is Gaussian with that variance plus the
-    variance acquired in the depletion region.
-    So the electrons of a photon do not share a width,
-    and each is sampled on its own.
-
-    Parameters
-    ----------
-    result
-        The output image stack, indexed ``result[i, x, y]``. Modified in place.
-    i
-        Index of the image within the stack.
-    x, y
-        The pixel the electrons originate from.
-    m
-        The number of electrons to diffuse.
-    u, v
-        The sub-pixel origin of the electrons within pixel ``(x, y)``, each in
-        ``[-0.5, 0.5]``. Shared by all `m` electrons of one photon.
-    delta
-        The distance from the depletion region at which the electrons were
-        created, in units of the thickness of the field-free region.
-    thickness_field_free
-        The thickness of the field-free region.
-    variance_depletion
-        The variance acquired along each axis crossing the depletion region.
-    width_pixel_x, width_pixel_y
-        The width of a pixel along each axis, in the units of
-        `thickness_field_free`.
-        Zero along an axis keeps the electrons in the column (or row) of
-        pixels they originate from.
-    num_x, num_y
-        The shape of the image.
-    wrap
-        Whether charge diffusing off the sensor re-enters the opposite edge.
-        If :obj:`False`, it is lost.
-    table_transit
-        The table of the variance of a single electron,
-        from :func:`optika.sensors.diffusion._slab._table`.
-    """
-    for _ in range(m):
-        s = _slab._sample(delta, table_transit)
-        variance = s * thickness_field_free**2 + variance_depletion
-        width = math.sqrt(variance)
-        p = 0
-        q = 0
-        if width_pixel_x > 0:
-            p = round(random.gauss(u, width / width_pixel_x))
-        if width_pixel_y > 0:
-            q = round(random.gauss(v, width / width_pixel_y))
-        x_e = x + p
-        y_e = y + q
-        if wrap:
-            result[i, x_e % num_x, y_e % num_y] += 1
-        elif (0 <= x_e < num_x) and (0 <= y_e < num_y):
-            result[i, x_e, y_e] += 1
 
 
 @numba.njit(
@@ -1159,13 +1185,26 @@ def _electrons_measured_numba(  # pragma: nocover
     factor_multinomial: float,
     kind_diffusion: int,
     table_transit: np.ndarray,
+    weight_transit: np.ndarray,
 ) -> np.ndarray:
 
     num_i, num_x, num_y, num_n = p_n.shape
 
     result = np.zeros((num_i, num_x, num_y))
 
+    num_gaussian = weight_transit.size
+    weight_one = np.ones(1)
+
     for i in numba.prange(num_i):
+        # the variance each Gaussian of the mixture acquires crossing the
+        # field-free region, and their widths in pixels along each axis
+        variance_transit = np.empty(num_gaussian)
+        sigma_x = np.empty(num_gaussian)
+        sigma_y = np.empty(num_gaussian)
+        # the width of a single Gaussian along each axis
+        sigma_x_one = np.empty(1)
+        sigma_y_one = np.empty(1)
+        scratch = np.empty((2 * num_gaussian, _num_window_max))
         for x in range(num_x):
             for y in range(num_y):
                 num_photon = int(photons_absorbed[i, x, y])
@@ -1234,13 +1273,24 @@ def _electrons_measured_numba(  # pragma: nocover
                     v = random.uniform(-0.5, 0.5)
 
                     if kind_diffusion == _monte_carlo_slab and z_ij < z_ff:
+                        # the mixture of Gaussians of
+                        # `optika.sensors.diffusion.SlabDiffusionModel`
                         variance_d = 0.0
                         if w_depletion > 0:
                             g = 1.0
                             if z_d > 0:
                                 g = min(max((z_substrate - z_ij) / z_d, 0.0), 1.0)
                             variance_d = w_depletion**2 * g
-                        _diffuse_electrons_slab(
+                        _slab._variances(
+                            delta=1 - z_ij / z_ff,
+                            table=table_transit,
+                            out=variance_transit,
+                        )
+                        for k in range(num_gaussian):
+                            w_k = math.sqrt(variance_transit[k] * z_ff**2 + variance_d)
+                            sigma_x[k] = w_k / wp_x if wp_x > 0 else 0.0
+                            sigma_y[k] = w_k / wp_y if wp_y > 0 else 0.0
+                        _diffuse_electrons(
                             result=result,
                             i=i,
                             x=x,
@@ -1248,15 +1298,14 @@ def _electrons_measured_numba(  # pragma: nocover
                             m=m_ij,
                             u=u,
                             v=v,
-                            delta=1 - z_ij / z_ff,
-                            thickness_field_free=z_ff,
-                            variance_depletion=variance_d,
-                            width_pixel_x=wp_x,
-                            width_pixel_y=wp_y,
+                            sigma_x=sigma_x,
+                            sigma_y=sigma_y,
+                            weight=weight_transit,
                             num_x=num_x,
                             num_y=num_y,
                             wrap=wrap,
-                            table_transit=table_transit,
+                            factor_multinomial=factor_multinomial,
+                            scratch=scratch,
                         )
                         continue
 
@@ -1276,10 +1325,10 @@ def _electrons_measured_numba(  # pragma: nocover
                     # a pixel of zero width along an axis turns off the
                     # spread along that axis, as in
                     # `optika.sensors.diffusion.AbstractDiffusionModel.kernel`
-                    sigma_x = w / wp_x if wp_x > 0 else 0.0
-                    sigma_y = w / wp_y if wp_y > 0 else 0.0
+                    sigma_x_one[0] = w / wp_x if wp_x > 0 else 0.0
+                    sigma_y_one[0] = w / wp_y if wp_y > 0 else 0.0
 
-                    if sigma_x > 0 or sigma_y > 0:
+                    if sigma_x_one[0] > 0 or sigma_y_one[0] > 0:
                         _diffuse_electrons(
                             result=result,
                             i=i,
@@ -1288,12 +1337,14 @@ def _electrons_measured_numba(  # pragma: nocover
                             m=m_ij,
                             u=u,
                             v=v,
-                            sigma_x=sigma_x,
-                            sigma_y=sigma_y,
+                            sigma_x=sigma_x_one,
+                            sigma_y=sigma_y_one,
+                            weight=weight_one,
                             num_x=num_x,
                             num_y=num_y,
                             wrap=wrap,
                             factor_multinomial=factor_multinomial,
+                            scratch=scratch,
                         )
                     else:
                         # no diffusion: all of the electrons stay in the
