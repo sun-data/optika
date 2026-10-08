@@ -208,6 +208,7 @@ class AbstractLinearSystem(
         coordinates: na.SpectralPositionalVectorArray,
         axis_wavelength: str,
         axis_field: tuple[str, str],
+        device: None | str = None,
     ) -> tuple[na.AbstractScalar, dict[str, int], dict[str, int]]:
         """
         Compute the weights which map the overlap of each pixel on the object
@@ -221,6 +222,10 @@ class AbstractLinearSystem(
             The logical axis corresponding to changing wavelength coordinate.
         axis_field
             The logical axes corresponding to changing field coordinate.
+        device
+            The device on which to build the weights, passed through to
+            :func:`named_arrays.regridding.weights`.
+            If :obj:`None` (the default), the weights are built on the host.
         """
 
         coordinates = coordinates.spectral_positional
@@ -263,6 +268,7 @@ class AbstractLinearSystem(
             axis_output=(axis_pixel.x, axis_pixel.y),
             weights_input=weights_input,
             method="conservative",
+            device=device,
         )
 
         return result
@@ -587,6 +593,7 @@ class AbstractLinearSystem(
         integrate: bool = True,
         noise: bool = True,
         uncertainty: bool = False,
+        device: None | str = None,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -626,6 +633,9 @@ class AbstractLinearSystem(
             to the result, as a
             :class:`~named_arrays.NormalUncertainScalarArray`, using the
             sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
+        device
+            The device on which to build and apply the weights, see
+            :meth:`weights`. If :obj:`None` (the default), the host is used.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -656,6 +666,7 @@ class AbstractLinearSystem(
             coordinates=coordinates,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
+            device=device,
         )
 
         return self.image_from_weights(
