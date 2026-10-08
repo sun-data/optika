@@ -258,10 +258,6 @@ class AbstractLinearSystem(
         weights_input = (
             weights_vignetting * weights_stop * weights_area.to_value(self.weights_unit)
         )
-        # every factor above is dimensionless by construction, but a
-        # dimensionless Quantity would drag device-built weight values back
-        # to the host when it multiplies them
-        weights_input = na.value(weights_input)
 
         axis_pixel = self.sensor.axis_pixel
 
