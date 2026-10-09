@@ -341,13 +341,19 @@ def test_vmr_signal(
         na.Cartesian2dVectorArray(0, 4) * u.um,
     ],
 )
+@pytest.mark.parametrize(
+    argnames="model",
+    argvalues=[
+        optika.sensors.diffusion.JanesickDiffusionModel,
+        optika.sensors.diffusion.SlabDiffusionModel,
+    ],
+)
 def test_vmr_signal_diffusion(
     width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+    model: type[optika.sensors.diffusion.AbstractDiffusionModel],
 ):
     wavelength = 304 * u.AA
-    diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
-        thickness_depletion=2 * u.um
-    )
+    diffusion = model(thickness_depletion=2 * u.um)
     axis_xy = ("detector_x", "detector_y")
 
     photons_expected = na.broadcast_to(
@@ -1224,13 +1230,17 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
         assert np.all(result >= 0 * u.electron)
 
 
-def _e2v_ccd97_widths() -> (
+def _e2v_ccd97_janesick() -> (
     optika.sensors.materials.BackIlluminatedSiliconSensorMaterial
 ):
-    """An e2v CCD97 whose charge spreads in the depletion region too."""
+    """
+    An e2v CCD97 with the model of Janesick (2001), whose charge spreads in
+    the depletion region too.
+    """
     result = optika.sensors.materials.e2v_ccd97()
     return result.replace(
-        diffusion=result.diffusion.replace(
+        diffusion=optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=result.diffusion.thickness_depletion,
             width_backsurface=5 * u.um,
             width_depletion=0.8 * u.um,
         ),
@@ -1243,7 +1253,7 @@ def _e2v_ccd97_widths() -> (
         optika.sensors.materials.tektronix_tk512cb(),
         optika.sensors.materials.e2v_ccd97(),
         optika.sensors.materials.e2v_ccd203(),
-        _e2v_ccd97_widths(),
+        _e2v_ccd97_janesick(),
         optika.sensors.materials.e2v_ccd97().replace(diffusion=None),
     ],
 )
