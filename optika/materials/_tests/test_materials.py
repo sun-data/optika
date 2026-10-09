@@ -5,6 +5,11 @@ import named_arrays as na
 import optika
 import optika._tests.test_mixins
 import optika.rays._tests.test_ray_vectors
+from optika._tests._measured import (
+    wavelength_channel,
+    efficiency_channel,
+    interp_each,
+)
 
 _wavelength = na.linspace(100, 300, axis="wavelength", num=11) * u.AA
 
@@ -91,6 +96,28 @@ class TestMirror(
     pass
 
 
+_measurement_channel = na.FunctionArray(
+    inputs=na.SpectralDirectionalVectorArray(
+        wavelength=wavelength_channel,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    ),
+    outputs=efficiency_channel,
+)
+"""A measured efficiency with its own wavelength samples in each of two channels."""
+
+_mirror_channel = optika.materials.MeasuredMirror(
+    efficiency_measured=_measurement_channel,
+    axis_wavelength="wavelength",
+)
+"""A mirror measured in each of two channels."""
+
+_filter_channel = optika.materials.MeasuredFilter(
+    efficiency_measured=_measurement_channel,
+    axis_wavelength="wavelength",
+)
+"""A filter measured in each of two channels."""
+
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
@@ -114,6 +141,7 @@ class TestMirror(
             ),
             axis_angle="angle",
         ),
+        _mirror_channel,
     ],
 )
 class TestMeasuredMirror(
@@ -247,6 +275,7 @@ def test_dielectric_mgf2():
             axis_angle="angle",
             medium=optika.materials.Dielectric("MgF2"),
         ),
+        _filter_channel.replace(medium=optika.materials.Dielectric("MgF2")),
     ],
 )
 class TestMeasuredFilter(
@@ -370,3 +399,37 @@ def test_measured_filter_is_medium_measured(is_medium_measured: bool):
         transmission = np.exp(-(attenuation * thickness).to(u.dimensionless_unscaled))
         assert transmission < 0.9
         assert np.allclose(rays_back.intensity, efficiency * transmission)
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        _mirror_channel,
+        _filter_channel,
+    ],
+)
+def test_measured_axis_wavelength(
+    a: optika.materials.MeasuredMirror | optika.materials.MeasuredFilter,
+) -> None:
+    """Each channel is interpolated on its own samples, and keeps its axis."""
+    assert a.shape == dict(channel=2)
+    wavelength = 150 * u.AA
+    rays = optika.rays.RayVectorArray(
+        wavelength=wavelength,
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+    result = a.efficiency(rays, na.Cartesian3dVectorArray(0, 0, -1))
+    measurement = a.efficiency_measured
+    expected = interp_each(
+        x=wavelength,
+        xp=measurement.inputs.wavelength,
+        fp=measurement.outputs,
+        axis="wavelength",
+        axis_each="channel",
+    )
+    assert result.shape == dict(channel=2)
+    assert np.allclose(result, expected)
+    assert not np.allclose(
+        expected[dict(channel=0)],
+        expected[dict(channel=1)],
+    )

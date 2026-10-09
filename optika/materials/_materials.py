@@ -271,12 +271,29 @@ class MeasuredMirror(
 
     If :obj:`None`, the reflectivity was measured at a single angle and is
     used at every angle of incidence.
+    The direction may be repeated along any axis, as it is when
+    measurements at the same angle are stacked, but it must be the same
+    everywhere. The wavelengths of a stack vary along the stacking axis too,
+    so a stack also needs :attr:`axis_wavelength`.
     Otherwise, the directions of :attr:`efficiency_measured` must be angles
     of incidence, measured from the surface normal and increasing along
     this axis, and the reflectivity is interpolated linearly in both
     wavelength and angle of incidence, holding the nearest measurement
     outside the measured range.
     Each angle may have its own wavelength samples.
+    """
+
+    axis_wavelength: None | str = dataclasses.field(default=None, kw_only=True)
+    """
+    The logical axis of :attr:`efficiency_measured` along which the
+    wavelength varies.
+
+    If :obj:`None`, the wavelengths must vary along a single axis besides
+    :attr:`axis_angle`, which is the one interpolated over.
+    Otherwise the reflectivity is interpolated along this axis, and the
+    wavelengths may vary along other axes too, such as one set of samples
+    for each of several measurements, which broadcast against the rays and
+    are part of :attr:`shape`.
     """
 
     substrate: None | Layer = None
@@ -291,6 +308,7 @@ class MeasuredMirror(
             optika._util._shape_efficiency_measured(
                 measurement=self.efficiency_measured,
                 axis_angle=self.axis_angle,
+                axis_wavelength=self.axis_wavelength,
             ),
             optika.shape(self.substrate),
             optika.shape(self.serial_number),
@@ -307,6 +325,7 @@ class MeasuredMirror(
             rays=rays,
             normal=normal,
             axis_angle=self.axis_angle,
+            axis_wavelength=self.axis_wavelength,
         )
 
 
@@ -687,12 +706,29 @@ class MeasuredFilter(
 
     If :obj:`None`, the transmissivity was measured at a single angle and is
     used at every angle of incidence.
+    The direction may be repeated along any axis, as it is when
+    measurements at the same angle are stacked, but it must be the same
+    everywhere. The wavelengths of a stack vary along the stacking axis too,
+    so a stack also needs :attr:`axis_wavelength`.
     Otherwise, the directions of :attr:`efficiency_measured` must be angles
     of incidence, measured from the surface normal and increasing along
     this axis, and the transmissivity is interpolated linearly in both
     wavelength and angle of incidence, holding the nearest measurement
     outside the measured range.
     Each angle may have its own wavelength samples.
+    """
+
+    axis_wavelength: None | str = dataclasses.field(default=None, kw_only=True)
+    """
+    The logical axis of :attr:`efficiency_measured` along which the
+    wavelength varies.
+
+    If :obj:`None`, the wavelengths must vary along a single axis besides
+    :attr:`axis_angle`, which is the one interpolated over.
+    Otherwise the transmissivity is interpolated along this axis, and the
+    wavelengths may vary along other axes too, such as one set of samples
+    for each of several measurements, which broadcast against the rays and
+    are part of :attr:`shape`.
     """
 
     medium: AbstractMaterial = dataclasses.field(default_factory=Vacuum)
@@ -720,6 +756,7 @@ class MeasuredFilter(
             optika._util._shape_efficiency_measured(
                 measurement=self.efficiency_measured,
                 axis_angle=self.axis_angle,
+                axis_wavelength=self.axis_wavelength,
             ),
             optika.shape(self.medium),
             optika.shape(self.serial_number),
@@ -754,6 +791,7 @@ class MeasuredFilter(
             rays=rays,
             normal=normal,
             axis_angle=self.axis_angle,
+            axis_wavelength=self.axis_wavelength,
         )
         return result * self.medium.efficiency(rays, normal)
 
