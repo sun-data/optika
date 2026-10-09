@@ -208,6 +208,49 @@ class AbstractTestAbstractDiffusionModel(
             with pytest.raises(ValueError, match="odd"):
                 a.kernel(depth, s, width_pixel, "x", "y", num=invalid)
 
+    @pytest.mark.parametrize("width_pixel", _width_pixel + [4 * u.um, 0 * u.um])
+    @pytest.mark.parametrize("num", [None, 1, 3])
+    def test_kernel_pair(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+        num: None | int,
+    ):
+        """
+        The center of the kernel of pairs of electrons is the probability that
+        they share a pixel, the kernel is symmetric,
+        and the default size leaves out no more than one part in a million of
+        the pairs, which needs a kernel at least as large as :meth:`kernel`.
+        """
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=8) * u.um
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = a.kernel_pair(depth, s, width_pixel, "x", "y", num=num)
+        assert isinstance(result, na.FunctionArray)
+
+        outputs = result.outputs
+        size = outputs.shape["x"]
+        assert outputs.shape["y"] == size
+        if num is not None:
+            assert size == num
+        else:
+            kernel = a.kernel(depth, s, width_pixel, "x", "y")
+            assert size >= kernel.outputs.shape["x"]
+        assert np.all(outputs >= 0)
+
+        total = outputs.sum(("x", "y"))
+        assert np.all(total <= 1 + 1e-12)
+        if num is None:
+            assert np.all(total >= 1 - 1e-6)
+
+        center = outputs[dict(x=size // 2, y=size // 2)]
+        same = a.probability_same_pixel(depth, s, width_pixel)
+        assert np.allclose(center, same, rtol=1e-12)
+
+        flipped = outputs[dict(x=slice(None, None, -1), y=slice(None, None, -1))]
+        assert np.allclose(outputs, flipped, rtol=1e-12)
+
     @pytest.mark.parametrize("width_pixel", _width_pixel)
     @pytest.mark.parametrize("num", [None, 3, 5])
     def test_kernel_average(
@@ -758,6 +801,66 @@ def test_slab_mixture_converged(
 
     assert np.allclose(kernel, kernel_expected, atol=3e-5)
     assert np.allclose(same, same_expected, atol=3e-5)
+
+
+@pytest.mark.parametrize(
+    argnames="model",
+    argvalues=[
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=8.7 * u.um,
+            width_depletion=0.8 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=8.7 * u.um,
+            width_depletion=0.8 * u.um,
+        ),
+    ],
+)
+def test_kernel_pair_brute_force(
+    model: optika.sensors.diffusion.AbstractDiffusionModel,
+):
+    """
+    Along each axis, the kernel of pairs of electrons is the probability that
+    the two electrons are collected in pixels a given offset apart,
+    summed over the pixels and averaged over the position of the photon
+    within its pixel,
+    with each electron drawn from the mixture independently.
+    """
+    s = _thickness_substrate
+    p = 10 * u.um
+    depth = na.ScalarArray(np.array([0, 3, 5.2, 9]) * u.um, axes="depth")
+    num = 7
+    result = model.kernel_pair(
+        depth, s, na.Cartesian2dVectorArray(p, 1e6 * u.um), "x", "y", num=num
+    )
+    result = result.outputs.sum("y").ndarray_aligned(("depth", "x"))
+
+    variance, weight = model.mixture(depth, s, "g")
+    sigma = np.sqrt(variance / np.square(p)).to(u.dimensionless_unscaled)
+    sigma = na.as_named_array(sigma).ndarray_aligned(("depth", "g")).value
+    weight = na.broadcast_to(weight, dict(g=sigma.shape[1])).ndarray
+
+    # the fraction of each Gaussian collected in each pixel, for each
+    # position of the photon within its pixel, by the midpoint rule
+    position = (np.arange(2000) + 0.5) / 2000 - 0.5
+    pixel = np.arange(-40, 41)
+    t = (pixel[:, None] - position[None, :])[None, None]
+    sigma = np.maximum(sigma, 1e-12)[..., None, None]
+    erf = scipy.special.erf
+    q = erf((t + 0.5) / (np.sqrt(2) * sigma)) - erf((t - 0.5) / (np.sqrt(2) * sigma))
+    q = q / 2
+
+    expected = np.empty_like(result)
+    for i, offset in enumerate(range(-(num // 2), num // 2 + 1)):
+        shifted = np.zeros_like(q)
+        if offset >= 0:
+            shifted[:, :, : pixel.size - offset] = q[:, :, offset:]
+        else:
+            shifted[:, :, -offset:] = q[:, :, :offset]
+        pair = np.einsum("dgkp,dhkp->dgh", q, shifted) / position.size
+        expected[:, i] = np.einsum("g,h,dgh->d", weight, weight, pair)
+
+    assert np.allclose(result, expected, atol=1e-7)
 
 
 def test_kernel_sharp():

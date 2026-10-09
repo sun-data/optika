@@ -179,6 +179,38 @@ def _indices_kernel(
     )
 
 
+def _kernel_mixture(
+    variance: na.AbstractScalar,
+    weight: na.AbstractScalar,
+    axis: str,
+    width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
+    inputs: na.Cartesian2dVectorArray,
+) -> na.ScalarArray:
+    """
+    The kernel of a mixture of Gaussians, which are independent along the
+    two axes of the kernel,
+    averaged over the position of the photon within its pixel.
+
+    Parameters
+    ----------
+    variance
+        The variance of each Gaussian along one axis.
+    weight
+        The weight of each Gaussian.
+    axis
+        The logical axis of the Gaussians.
+    width_pixel
+        The width of a pixel.
+    inputs
+        The indices of the pixels of the kernel, from :func:`_indices_kernel`.
+    """
+    width_pixel = _pixel_vector(width_pixel)
+    width = np.sqrt(variance)
+    kx = weight * _kernel_1d(_ratio(width, width_pixel.x), inputs.x)
+    ky = _kernel_1d(_ratio(width, width_pixel.y), inputs.y)
+    return _sum_product(kx, ky, axis)
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractDiffusionModel(
     optika.mixins.Printable,
@@ -502,19 +534,80 @@ class AbstractDiffusionModel(
             created at any depth.
         """
         num = self._num_kernel(num, thickness_substrate, width_pixel)
-        width_pixel = _pixel_vector(width_pixel)
         inputs = _indices_kernel(num, axis_x, axis_y)
-
         axis = "_diffusion_mixture"
         variance, weight = self.mixture(depth, thickness_substrate, axis)
-        width = np.sqrt(variance)
-
-        kx = weight * _kernel_1d(_ratio(width, width_pixel.x), inputs.x)
-        ky = _kernel_1d(_ratio(width, width_pixel.y), inputs.y)
-
         return na.FunctionArray(
             inputs=inputs,
-            outputs=_sum_product(kx, ky, axis),
+            outputs=_kernel_mixture(variance, weight, axis, width_pixel, inputs),
+        )
+
+    def kernel_pair(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
+        axis_x: str,
+        axis_y: str,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        r"""
+        The probability that two electrons created at a given depth by the
+        same photon are collected in pixels a given offset apart,
+        averaged over the position of the photon within its pixel.
+
+        Its center is :meth:`probability_same_pixel`,
+        and it sums to one, except for the pairs of electrons which land
+        farther apart than the kernel reaches.
+        Under uniform illumination, it is the shape of the covariance that
+        charge diffusion gives the noise of neighboring pixels;
+        see :func:`optika.sensors.covariance_signal`.
+
+        Given the Gaussians of :meth:`mixture` the two electrons are drawn
+        from, their separation along each axis is Gaussian with the sum of
+        their variances.
+        In units of the width of a pixel, a separation :math:`\delta` puts
+        the electrons :math:`\Delta` pixels apart with probability
+        :math:`(1 - |\delta - \Delta|)_+`
+        for a photon anywhere within its pixel,
+        which is also the probability that a single electron displaced by
+        :math:`\delta` lands :math:`\Delta` pixels away.
+        So along each axis, a pair of Gaussians has the kernel of a single
+        Gaussian with the sum of their variances,
+        and the kernels of the pairs are averaged with their weights.
+
+        Parameters
+        ----------
+        depth
+            The distance from the back surface of the sensor at which the
+            electrons were created, between zero and `thickness_substrate`.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        width_pixel
+            The width of a pixel.
+            A scalar gives square pixels; a
+            :class:`named_arrays.AbstractCartesian2dVectorArray` gives
+            rectangular pixels.
+        axis_x
+            The name of the horizontal axis of the kernel.
+        axis_y
+            The name of the vertical axis of the kernel.
+        num
+            The number of pixels along each axis of the kernel,
+            which must be odd so that the kernel is centered on zero offset.
+            If :obj:`None` (the default), the kernel is made just large enough
+            to leave out no more than one part in a million of the pairs of
+            electrons created at any depth,
+            which takes about :math:`\sqrt{2}` times as many pixels beyond the
+            center as :meth:`kernel`.
+        """
+        num = self._num_kernel(num, thickness_substrate, width_pixel, pair=True)
+        inputs = _indices_kernel(num, axis_x, axis_y)
+        axis = "_diffusion_mixture_pair"
+        variance, weight = self._mixture_pairs(depth, thickness_substrate, axis)
+        return na.FunctionArray(
+            inputs=inputs,
+            outputs=_kernel_mixture(variance, weight, axis, width_pixel, inputs),
         )
 
     def width_average(
@@ -685,19 +778,24 @@ class AbstractDiffusionModel(
         num: None | int,
         thickness_substrate: u.Quantity | na.AbstractScalar,
         width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
+        pair: bool = False,
     ) -> int:
         """
         The number of pixels along each axis of a kernel:
         `num` if given, checked to be a positive odd number,
         or otherwise the smallest which leaves out no more than
-        :obj:`_tolerance_kernel` of the charge created at any depth.
+        :obj:`_tolerance_kernel` of the charge created at any depth,
+        or of the pairs of electrons if `pair` is :obj:`True`.
 
         The widest charge cloud is the one created at the back surface.
         A kernel which reaches :math:`h` pixels beyond the center pixel
         misses charge from a photon anywhere in that pixel only if the charge
         moves more than :math:`h` pixel widths along one of the axes,
-        so the default kernel is the smallest for which the widest cloud
-        reaches that far with a probability of at most
+        and the kernel of :meth:`kernel_pair` misses a pair of electrons only
+        if they are separated by more than that,
+        so the default kernel is the smallest for which the displacements of
+        the widest cloud, or the separations of its pairs of electrons,
+        reach that far with a probability of at most
         :obj:`_tolerance_kernel`, summed over the two axes.
 
         Parameters
@@ -709,6 +807,8 @@ class AbstractDiffusionModel(
             The thickness of the light-sensitive region of the sensor.
         width_pixel
             The width of a pixel.
+        pair
+            Whether the kernel is that of :meth:`kernel_pair`.
         """
         if num is not None:
             return _check_num(num)
@@ -717,21 +817,34 @@ class AbstractDiffusionModel(
         width_pixel = _pixel_vector(width_pixel)
         depth = 0 * s
 
+        axis = "_diffusion_num_kernel"
+        if pair:
+            variance, weight = self._mixture_pairs(depth, s, axis)
+        else:
+            variance, weight = self.mixture(depth, s, axis)
+        width = np.sqrt(variance)
+
         # Without a cloud, or without pixels to spread it over,
         # the charge stays in the pixel the photon was absorbed in.
         widths = [width_pixel.x, width_pixel.y]
-        if np.all(self.width(depth, s) == 0 * u.um):
+        if np.all(width == 0 * u.um):
             return 1
         if all(np.all(w == 0 * w) for w in widths):
             return 1
 
+        where = width > 0 * u.um
+        width = np.where(where, width, 1 * u.um)
+
         def outside(half: int) -> float:
-            """The fraction of the widest cloud beyond `half` pixels."""
+            """
+            The fraction of the displacements, or of the separations,
+            beyond `half` pixels.
+            """
             result = 0
             for w in widths:
-                position = half * w
-                inside = self.cdf(position, depth, s) - self.cdf(-position, depth, s)
-                fraction = np.where(w > 0 * w, 1 - inside, 0)
+                t = (half * w / (np.sqrt(2) * width)).to(u.dimensionless_unscaled)
+                beyond = np.where(where, scipy.special.erfc(t.value), 0)
+                fraction = np.where(w > 0 * w, (weight * beyond).sum(axis), 0)
                 result = result + float(na.as_named_array(fraction).max().ndarray)
             return result
 

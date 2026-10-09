@@ -328,6 +328,10 @@ class AbstractImagingSensor(
         variance of the noise in each pixel that :meth:`expose` reports with
         `uncertainty`, without the read noise.
 
+        This is not the covariance between pixels, :meth:`kernel_covariance`,
+        though under uniform illumination its sum is the center of
+        :meth:`kernel_covariance`, the variance of a single pixel.
+
         Parameters
         ----------
         wavelength
@@ -355,6 +359,53 @@ class AbstractImagingSensor(
         vmr = np.square(uncertainty) / electron
 
         return kernel.replace(outputs=vmr * kernel.outputs)
+
+    def kernel_covariance(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        """
+        The covariance between the electrons measured in a pixel and in each
+        of the pixels around it under uniform illumination,
+        per absorbed photon,
+        using the
+        :meth:`~optika.sensors.materials.AbstractSensorMaterial.kernel_covariance`
+        of :attr:`material`.
+
+        Charge diffusion spreads the electrons of each photon over several
+        pixels, which correlates the noise of neighboring pixels.
+        Multiplying this kernel by the number of photons absorbed in each
+        pixel gives the covariance of the noise of a uniformly illuminated
+        image, without the read noise,
+        and dividing it by its center gives the correlation coefficient.
+        The axes of the kernel have the names of the axes of the pixel grid,
+        :attr:`axis_pixel`, and it is centered on zero offset.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive
+            region, as produced by :meth:`collect`.
+        num
+            The number of pixels along each axis of the kernel,
+            which must be odd so that the kernel is centered on zero offset.
+            If :obj:`None` (the default), the kernel is made just large enough
+            to leave out no more than one part in a million of the pairs of
+            electrons of a photon,
+            or is a single pixel if charge does not diffuse.
+        """
+        return self.material.kernel_covariance(
+            wavelength=wavelength,
+            axis_x=self.axis_pixel.x,
+            axis_y=self.axis_pixel.y,
+            direction=direction,
+            width_pixel=self.width_pixel,
+            num=num,
+        )
 
     def expose(
         self,
