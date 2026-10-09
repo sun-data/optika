@@ -60,6 +60,26 @@ class AbstractTestAbstractDiffusionModel(
         if a.thickness_depletion > 0 * u.um:
             assert np.allclose(a.width(s, s), 0 * u.um)
 
+    def test_mixture(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+    ):
+        """
+        The weights of the Gaussians are positive and sum to one,
+        and their variances are areas which are never negative.
+        """
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=15) * u.um
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            variance, weight = a.mixture(depth, s, axis="g")
+        assert "g" in na.shape(variance)
+        assert na.shape(weight)["g"] == na.shape(variance)["g"]
+        assert np.all(weight > 0)
+        assert np.allclose(weight.sum("g"), 1, rtol=1e-12)
+        assert np.all(np.isfinite(variance))
+        assert np.all(variance >= 0 * u.um**2)
+
     def test_cdf(
         self,
         a: optika.sensors.diffusion.AbstractDiffusionModel,
@@ -465,6 +485,19 @@ class TestJanesickDiffusionModel(
             assert np.allclose(a.width(0 * u.um, s), back)
         assert np.allclose(a.width(f, s), width_depletion)
 
+    def test_mixture_single(
+        self,
+        a: optika.sensors.diffusion.JanesickDiffusionModel,
+    ):
+        """The mixture is a single Gaussian with the variance of the width."""
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=15) * u.um
+        variance, weight = a.mixture(depth, s, axis="g")
+        assert na.shape(weight) == dict(g=1)
+        assert np.all(weight == 1)
+        expected = np.square(a.width(depth, s))
+        assert np.allclose(variance.sum("g"), expected, atol=1e-12 * u.um**2)
+
     def test_width_average_janesick(
         self,
         a: optika.sensors.diffusion.JanesickDiffusionModel,
@@ -611,6 +644,35 @@ class TestSlabDiffusionModel(
         expected = 1 / 2 + expected / np.pi
         assert np.allclose(result, expected, atol=2e-3)
 
+    def test_mixture_scaling(
+        self,
+        a: optika.sensors.diffusion.SlabDiffusionModel,
+    ):
+        """
+        Without a spread in the depletion region, the variances of the
+        Gaussians at a given fraction of the way across the field-free region
+        are proportional to the square of its thickness,
+        and their weighted sum is the square of the width,
+        to a percent farther than a tenth of the field-free region from the
+        depletion region.
+        """
+        s = _thickness_substrate
+        f = s - a.thickness_depletion
+        if a.width_depletion is not None or f <= 0 * u.um:
+            return
+        fraction = na.linspace(0, 1, axis="depth", num=11)
+        variance, weight = a.mixture(fraction * f, s, axis="g")
+
+        s_double = a.thickness_depletion + 2 * f
+        variance_double, weight_double = a.mixture(fraction * 2 * f, s_double, "g")
+        assert np.allclose(weight_double, weight, rtol=1e-14)
+        assert np.allclose(variance_double, 4 * variance, rtol=1e-12)
+
+        near = fraction[dict(depth=slice(None, 10))]
+        variance_near = (weight * a.mixture(near * f, s, "g")[0]).sum("g")
+        expected = np.square(a.width(near * f, s))
+        assert np.allclose(variance_near, expected, rtol=0.01)
+
 
 @pytest.mark.parametrize(
     argnames="thickness_field_free,depth,expected",
@@ -666,10 +728,15 @@ def test_slab_mixture_converged(
     )
     absorption = na.geomspace(1e-3, 1e3, axis="absorption", num=7) / u.um
 
+    def probability(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+        """The probability that two electrons share a pixel."""
+        return model.probability_same_pixel(depth, s, width_pixel)
+
     def averages() -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        """The kernel and the probability averaged over depth."""
         kernel = model.kernel_average(absorption, s, width_pixel, "x", "y", num=5)
         same = model.average_depth(
-            function=lambda depth: model.probability_same_pixel(depth, s, width_pixel),
+            function=probability,
             absorption=absorption,
             thickness_substrate=s,
         )

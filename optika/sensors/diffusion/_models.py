@@ -174,8 +174,9 @@ class AbstractDiffusionModel(
     Charge created in the field-free region between the back surface and
     the depletion region diffuses until it reaches the depletion region,
     and then drifts to the gates.
-    Each model gives the charge cloud that arrives at the gates as a function
-    of the depth at which the charge was created,
+    Each model gives the charge cloud that arrives at the gates as a mixture
+    of Gaussians, :meth:`mixture`, which depends on the depth at which the
+    charge was created,
     and the quantities that follow from it, either at a single depth or
     averaged over the depths at which photons with a given absorption
     coefficient are absorbed.
@@ -283,6 +284,84 @@ class AbstractDiffusionModel(
         """
 
     @abc.abstractmethod
+    def mixture(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        axis: str,
+    ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        """
+        The charge cloud created at a given depth as a mixture of Gaussians:
+        the variance of each Gaussian along one axis, including the spread
+        acquired in the depletion region, and the weight of each Gaussian.
+
+        Each electron is drawn from the mixture independently of the other
+        electrons created by the same photon,
+        and given the Gaussian it is drawn from,
+        its offsets along the two axes are independent of each other.
+        :meth:`cdf`, :meth:`kernel`, and :meth:`probability_same_pixel` are
+        computed from the mixture,
+        which can also be used directly where the charge cloud is evaluated
+        too many times to go through them,
+        such as in a fit of the model to the charge clouds of particle tracks.
+
+        Parameters
+        ----------
+        depth
+            The distance from the back surface of the sensor at which the
+            charge was created, between zero and `thickness_substrate`.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        axis
+            The logical axis of the Gaussians.
+
+        Returns
+        -------
+        variance
+            The variance of each Gaussian along one axis.
+        weight
+            The weight of each Gaussian, which sum to one along `axis`.
+        """
+
+    def _mixture_pairs(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        axis: str,
+    ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        """
+        The separation along one axis of two electrons created at a given
+        depth by the same photon, as a mixture of Gaussians:
+        the variance of the separation for each pair of Gaussians of
+        :meth:`mixture` the electrons may be drawn from, and the weight of
+        the pair.
+
+        Given the Gaussians they are drawn from, the separation of the two
+        electrons is Gaussian with the sum of their variances.
+        Exchanging the electrons gives the same pair, so each pair of
+        different Gaussians is counted once, with twice the weight.
+
+        Parameters
+        ----------
+        depth
+            The distance from the back surface of the sensor at which the
+            electrons were created.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        axis
+            The logical axis of the pairs of Gaussians.
+        """
+        axis_mixture = "_diffusion_mixture"
+        variance, weight = self.mixture(depth, thickness_substrate, axis_mixture)
+        num = na.broadcast_shapes(na.shape(variance), na.shape(weight))[axis_mixture]
+        i, j = np.triu_indices(num)
+        i = na.ScalarArray(i, axes=axis)
+        j = na.ScalarArray(j, axes=axis)
+        variance = variance[{axis_mixture: i}] + variance[{axis_mixture: j}]
+        weight = weight[{axis_mixture: i}] * weight[{axis_mixture: j}]
+        weight = weight * np.where(i == j, 1, 2)
+        return variance, weight
+
     def cdf(
         self,
         position: u.Quantity | na.AbstractScalar,
@@ -309,8 +388,16 @@ class AbstractDiffusionModel(
         thickness_substrate
             The thickness of the light-sensitive region of the sensor.
         """
+        axis = "_diffusion_mixture"
+        variance, weight = self.mixture(depth, thickness_substrate, axis)
+        width = np.sqrt(variance)
+        where = width > 0 * u.um
+        width = np.where(where, width, 1 * u.um)
+        t = (position / (np.sqrt(2) * width)).to(u.dimensionless_unscaled).value
+        result = (1 + scipy.special.erf(t)) / 2
+        result = np.where(where, result, position >= 0 * u.um)
+        return (weight * result).sum(axis)
 
-    @abc.abstractmethod
     def probability_same_pixel(
         self,
         depth: u.Quantity | na.AbstractScalar,
@@ -341,8 +428,20 @@ class AbstractDiffusionModel(
             A pixel of zero width turns off the effect of diffusion,
             so that the result is one.
         """
+        axis = "_diffusion_mixture_pair"
+        width_pixel = _pixel_vector(width_pixel)
+        variance, weight = self._mixture_pairs(depth, thickness_substrate, axis)
 
-    @abc.abstractmethod
+        # The separation of the electrons has twice the variance of a single
+        # electron with the mean of their variances.
+        width = np.sqrt(variance / 2)
+        x = _probability_same_pixel(_ratio(width, width_pixel.x))
+        y = _probability_same_pixel(_ratio(width, width_pixel.y))
+
+        # Averaging the probability of not sharing a pixel keeps the result
+        # exactly one where the charge does not spread.
+        return 1 - (weight * (1 - x * y)).sum(axis)
+
     def kernel(
         self,
         depth: u.Quantity | na.AbstractScalar,
@@ -384,6 +483,21 @@ class AbstractDiffusionModel(
             to leave out no more than one part in a million of the charge
             created at any depth.
         """
+        num = self._num_kernel(num, thickness_substrate, width_pixel)
+        width_pixel = _pixel_vector(width_pixel)
+        inputs = _indices_kernel(num, axis_x, axis_y)
+
+        axis = "_diffusion_mixture"
+        variance, weight = self.mixture(depth, thickness_substrate, axis)
+        width = np.sqrt(variance)
+
+        kx = weight * _kernel_1d(_ratio(width, width_pixel.x), inputs.x)
+        ky = _kernel_1d(_ratio(width, width_pixel.y), inputs.y)
+
+        return na.FunctionArray(
+            inputs=inputs,
+            outputs=_sum_product(kx, ky, axis),
+        )
 
     def width_average(
         self,
@@ -986,8 +1100,9 @@ class JanesickDiffusionModel(
     depletion region, so the :math:`\alpha x_d` in the second term becomes
     :math:`\alpha x_s`.
 
-    The kernel at each depth, :meth:`kernel`, is that of the Gaussian charge
-    cloud created there.
+    The charge cloud at each depth is a single Gaussian,
+    so its :meth:`mixture` has one component,
+    and the kernel at each depth, :meth:`kernel`, is that of the Gaussian.
     :meth:`kernel_average` and :meth:`mean_charge_capture` average it over the
     depth at which photons are absorbed,
     as described in the notes of
@@ -1041,11 +1156,23 @@ class JanesickDiffusionModel(
             na.shape(self.width_depletion),
         )
 
-    def width(
+    def _variance(
         self,
         depth: u.Quantity | na.AbstractScalar,
         thickness_substrate: u.Quantity | na.AbstractScalar,
-    ) -> na.AbstractScalar:
+    ) -> u.Quantity | na.AbstractScalar:
+        """
+        The variance of the charge cloud along one axis for charge created at
+        a given depth.
+
+        Parameters
+        ----------
+        depth
+            The distance from the back surface of the sensor at which the
+            charge was created.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        """
         s = thickness_substrate
         d = self.thickness_depletion
         f = s - d
@@ -1065,32 +1192,24 @@ class JanesickDiffusionModel(
             crossed = _fraction_depletion(x, s, d)
             variance = variance + np.square(self.width_depletion) * crossed
 
-        return np.sqrt(variance).to(u.um)
+        return variance.to(u.um**2)
 
-    def cdf(
-        self,
-        position: u.Quantity | na.AbstractScalar,
-        depth: u.Quantity | na.AbstractScalar,
-        thickness_substrate: u.Quantity | na.AbstractScalar,
-    ) -> na.AbstractScalar:
-        width = self.width(depth, thickness_substrate)
-        where = width > 0 * u.um
-        width = np.where(where, width, 1 * u.um)
-        t = (position / (np.sqrt(2) * width)).to(u.dimensionless_unscaled).value
-        result = (1 + scipy.special.erf(t)) / 2
-        return np.where(where, result, position >= 0 * u.um)
-
-    def probability_same_pixel(
+    def width(
         self,
         depth: u.Quantity | na.AbstractScalar,
         thickness_substrate: u.Quantity | na.AbstractScalar,
-        width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
     ) -> na.AbstractScalar:
-        width_pixel = _pixel_vector(width_pixel)
-        width = self.width(depth, thickness_substrate)
-        x = _probability_same_pixel(_ratio(width, width_pixel.x))
-        y = _probability_same_pixel(_ratio(width, width_pixel.y))
-        return x * y
+        return np.sqrt(self._variance(depth, thickness_substrate))
+
+    def mixture(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        axis: str,
+    ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        variance = na.add_axes(self._variance(depth, thickness_substrate), axis)
+        weight = na.ScalarArray(np.ones(1), axes=axis)
+        return variance, weight
 
     def width_average(
         self,
@@ -1103,26 +1222,6 @@ class JanesickDiffusionModel(
             thickness_depletion=self.thickness_depletion,
             width_backsurface=self.width_backsurface,
             width_depletion=self.width_depletion,
-        )
-
-    def kernel(
-        self,
-        depth: u.Quantity | na.AbstractScalar,
-        thickness_substrate: u.Quantity | na.AbstractScalar,
-        width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
-        axis_x: str,
-        axis_y: str,
-        num: None | int = None,
-    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
-        num = self._num_kernel(num, thickness_substrate, width_pixel)
-        width_pixel = _pixel_vector(width_pixel)
-        inputs = _indices_kernel(num, axis_x, axis_y)
-        width = self.width(depth, thickness_substrate)
-        kx = _kernel_1d(_ratio(width, width_pixel.x), inputs.x)
-        ky = _kernel_1d(_ratio(width, width_pixel.y), inputs.y)
-        return na.FunctionArray(
-            inputs=inputs,
-            outputs=kx * ky,
         )
 
     def _parameters_monte_carlo(
@@ -1339,6 +1438,14 @@ class SlabDiffusionModel(
     Each electron is drawn from the mixture independently,
     so two electrons of the same photon may be drawn from different
     Gaussians.
+    The mixture is given by :meth:`mixture`.
+    Its weights are the same at every depth,
+    and the variance each Gaussian acquires crossing the field-free region is
+    the square of the thickness of that region times a function of the
+    fraction of the way across it the charge was created,
+    so the mixture for one thickness of the field-free region follows from
+    that for another by scaling the variances,
+    before the spread of the depletion region is added.
     Averaged over the depth at which the charge was created,
     the kernel and the probability that two electrons share a pixel agree
     with the exact cloud to about one part in :math:`10^5`;
@@ -1425,26 +1532,12 @@ class SlabDiffusionModel(
         )
         return np.square(self.width_depletion) * crossed
 
-    def _variance_transit(
+    def mixture(
         self,
         depth: u.Quantity | na.AbstractScalar,
         thickness_substrate: u.Quantity | na.AbstractScalar,
         axis: str,
     ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
-        """
-        The variance acquired along each axis crossing the field-free region
-        by each Gaussian of the mixture, and the weights of the Gaussians.
-
-        Parameters
-        ----------
-        depth
-            The distance from the back surface of the sensor at which the
-            charge was created.
-        thickness_substrate
-            The thickness of the light-sensitive region of the sensor.
-        axis
-            The logical axis of the Gaussians.
-        """
         f = self._thickness_field_free(thickness_substrate)
         where = f > 0 * f
         f_safe = np.where(where, f, 1 * u.um)
@@ -1456,7 +1549,10 @@ class SlabDiffusionModel(
 
         s, weight = _slab._transit(delta, axis)
 
-        return s * np.square(f), weight
+        variance = s * np.square(f)
+        variance = variance + self._variance_depletion(depth, thickness_substrate)
+
+        return variance, weight
 
     def width(
         self,
@@ -1468,94 +1564,6 @@ class SlabDiffusionModel(
         variance = np.maximum(f - x, 0 * f) * (f + x)
         variance = variance + self._variance_depletion(depth, thickness_substrate)
         return np.sqrt(variance).to(u.um)
-
-    def cdf(
-        self,
-        position: u.Quantity | na.AbstractScalar,
-        depth: u.Quantity | na.AbstractScalar,
-        thickness_substrate: u.Quantity | na.AbstractScalar,
-    ) -> na.AbstractScalar:
-        axis = "_diffusion_transit"
-        variance, weight = self._variance_transit(
-            depth=depth,
-            thickness_substrate=thickness_substrate,
-            axis=axis,
-        )
-        variance = variance + self._variance_depletion(depth, thickness_substrate)
-        width = np.sqrt(variance)
-        where = width > 0 * u.um
-        width = np.where(where, width, 1 * u.um)
-        t = (position / (np.sqrt(2) * width)).to(u.dimensionless_unscaled).value
-        result = (1 + scipy.special.erf(t)) / 2
-        result = np.where(where, result, position >= 0 * u.um)
-        return (weight * result).sum(axis)
-
-    def probability_same_pixel(
-        self,
-        depth: u.Quantity | na.AbstractScalar,
-        thickness_substrate: u.Quantity | na.AbstractScalar,
-        width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
-    ) -> na.AbstractScalar:
-        axis = "_diffusion_transit"
-        axis_pair = "_diffusion_transit_pair"
-        width_pixel = _pixel_vector(width_pixel)
-
-        variance, weight = self._variance_transit(
-            depth=depth,
-            thickness_substrate=thickness_substrate,
-            axis=axis,
-        )
-
-        # Each electron is drawn from the mixture independently, and given
-        # the Gaussians they are drawn from, their separation is Gaussian
-        # with the sum of their variances, which is twice the variance of a
-        # single electron with the mean of the two.
-        # Exchanging the electrons gives the same pair, so each pair of
-        # different Gaussians is counted once, with twice the weight.
-        i, j = np.triu_indices(weight.shape[axis])
-        i = na.ScalarArray(i, axes=axis_pair)
-        j = na.ScalarArray(j, axes=axis_pair)
-        variance = (variance[{axis: i}] + variance[{axis: j}]) / 2
-        variance = variance + self._variance_depletion(depth, thickness_substrate)
-        weight = weight[{axis: i}] * weight[{axis: j}] * np.where(i == j, 1, 2)
-        width = np.sqrt(variance)
-
-        x = _probability_same_pixel(_ratio(width, width_pixel.x))
-        y = _probability_same_pixel(_ratio(width, width_pixel.y))
-
-        # Averaging the probability of not sharing a pixel keeps the result
-        # exactly one where the charge does not spread.
-        return 1 - (weight * (1 - x * y)).sum(axis_pair)
-
-    def kernel(
-        self,
-        depth: u.Quantity | na.AbstractScalar,
-        thickness_substrate: u.Quantity | na.AbstractScalar,
-        width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
-        axis_x: str,
-        axis_y: str,
-        num: None | int = None,
-    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
-        num = self._num_kernel(num, thickness_substrate, width_pixel)
-        width_pixel = _pixel_vector(width_pixel)
-        inputs = _indices_kernel(num, axis_x, axis_y)
-
-        axis = "_diffusion_transit"
-        variance, weight = self._variance_transit(
-            depth=depth,
-            thickness_substrate=thickness_substrate,
-            axis=axis,
-        )
-        variance = variance + self._variance_depletion(depth, thickness_substrate)
-        width = np.sqrt(variance)
-
-        kx = weight * _kernel_1d(_ratio(width, width_pixel.x), inputs.x)
-        ky = _kernel_1d(_ratio(width, width_pixel.y), inputs.y)
-
-        return na.FunctionArray(
-            inputs=inputs,
-            outputs=_sum_product(kx, ky, axis),
-        )
 
     def _parameters_monte_carlo(
         self,
