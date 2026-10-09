@@ -108,89 +108,176 @@ class AbstractTestAbstractImagingSensor(
         assert a.axis_pixel.x in result_lines.outputs.shape
         assert a.axis_pixel.y in result_lines.outputs.shape
 
-    def test_photons_absorbed(self, a: optika.sensors.AbstractImagingSensor):
+    @staticmethod
+    def _image(
+        a: optika.sensors.AbstractImagingSensor,
+        outputs: float | na.AbstractScalar,
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+        """An image on 12 by 10 pixels of the sensor, in three wavelength bins."""
+        return na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
+                position=na.Cartesian2dVectorArray(
+                    x=na.arange(0, 12, axis=a.axis_pixel.x) * u.pix,
+                    y=na.arange(0, 10, axis=a.axis_pixel.y) * u.pix,
+                ),
+            ),
+            outputs=outputs,
+        )
+
+    @staticmethod
+    def _shape(
+        a: optika.sensors.AbstractImagingSensor,
+        wavelength: bool = True,
+    ) -> dict[str, int]:
+        """The shape of the outputs of :meth:`_image`, with or without wavelength."""
+        result = {a.axis_pixel.x: 12, a.axis_pixel.y: 10}
+        if wavelength:
+            result = dict(wavelength=3) | result
+        return result
+
+    def test_kernel(self, a: optika.sensors.AbstractImagingSensor):
+        """
+        The noiseless exposure of photons absorbed in a single pixel is the
+        kernel, centered on that pixel.
+        """
+        a = dataclasses.replace(a, timedelta_exposure=10 * u.s)
+        result = a.kernel(550 * u.nm)
+
+        assert isinstance(result, na.FunctionArray)
+        assert result.outputs.unit.is_equivalent(u.electron / u.photon)
+        num_x = result.outputs.shape[a.axis_pixel.x]
+        num_y = result.outputs.shape[a.axis_pixel.y]
+
+        rate = np.zeros((12, 10)) * u.photon / u.s
+        rate[6, 5] = 100 * u.photon / u.s
+        image = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.ScalarArray([549, 551] * u.nm, axes="wavelength"),
+                position=self._image(a, 0).inputs.position,
+            ),
+            outputs=na.ScalarArray(rate, axes=(a.axis_pixel.x, a.axis_pixel.y)),
+        )
+        electrons = a.expose(image, noise=False, integrate=False).outputs
+        electrons = electrons[dict(wavelength=0)]
+
+        window = {
+            a.axis_pixel.x: slice(6 - num_x // 2, 6 + num_x // 2 + 1),
+            a.axis_pixel.y: slice(5 - num_y // 2, 5 + num_y // 2 + 1),
+        }
+        expected = 100 * u.photon / u.s * a.timedelta_exposure * result.outputs
+        assert np.allclose(electrons[window], expected)
+        assert np.isclose(electrons.sum(), expected.sum())
+        assert electrons[{a.axis_pixel.x: 6, a.axis_pixel.y: 5}] == electrons.max()
+
+    def test_kernel_variance(self, a: optika.sensors.AbstractImagingSensor):
+        wavelength = 550 * u.nm
+        kernel = a.kernel(wavelength)
+        result = a.kernel_variance(wavelength)
+        assert isinstance(result, na.FunctionArray)
+        assert result.outputs.unit.is_equivalent(u.electron**2 / u.photon)
+
+        # the ratio of the variance to the mean is that of the noise model
+        electrons = 1000 * u.electron
+        uncertainty = a.material.uncertainty(
+            electrons=electrons,
+            wavelength=wavelength,
+            width_pixel=a.width_pixel,
+        )
+        vmr = np.square(uncertainty) / electrons
+        assert np.allclose(result.outputs, vmr * kernel.outputs)
+
+    @pytest.mark.parametrize("integrate", [False, True])
+    def test_expose_transposed(
+        self,
+        a: optika.sensors.AbstractImagingSensor,
+        integrate: bool,
+    ):
+        """The transpose is the adjoint of the noiseless exposure."""
+        a = dataclasses.replace(a, timedelta_exposure=10 * u.s)
+
+        rate = na.random.uniform(0, 100, shape_random=self._shape(a))
+        image = self._image(a, rate * u.photon / u.s)
+        electrons = na.random.uniform(
+            low=0,
+            high=1000,
+            shape_random=self._shape(a, wavelength=not integrate),
+        )
+        image_electrons = self._image(a, electrons * u.electron)
+
+        forward = a.expose(image, noise=False, integrate=integrate)
+        result = a.expose_transposed(image_electrons)
+
+        assert isinstance(result, na.FunctionArray)
+        assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
+        assert "wavelength" in na.shape(result.outputs)
+        assert np.isclose(
+            (forward.outputs * image_electrons.outputs).sum(),
+            (image.outputs * result.outputs).sum(),
+            rtol=1e-12,
+        )
+
+    def test_backproject(self, a: optika.sensors.AbstractImagingSensor):
         # use a nonzero exposure time so the default `timedelta` is invertible
         a = dataclasses.replace(a, timedelta_exposure=10 * u.s)
 
-        # a photon rate incident on a few pixels, as a function of the
-        # wavelength bin edges
-        wavelength = na.linspace(500, 600, axis="wavelength", num=4) * u.nm
-        position = na.Cartesian2dVectorArray(
-            x=na.arange(0, 5, axis=a.axis_pixel.x) * u.pix,
-            y=na.arange(0, 5, axis=a.axis_pixel.y) * u.pix,
-        )
-        rate = (
-            na.random.uniform(
-                low=0,
-                high=100,
-                shape_random={"wavelength": 3, a.axis_pixel.x: 5, a.axis_pixel.y: 5},
-            )
-            * u.photon
-            / u.s
-        )
-        image = na.FunctionArray(
-            inputs=na.SpectralPositionalVectorArray(
-                wavelength=wavelength,
-                position=position,
-            ),
-            outputs=rate,
-        )
+        rate = na.random.uniform(0, 100, shape_random=self._shape(a))
+        rate = rate * u.photon / u.s
+        image = self._image(a, rate)
 
-        # per wavelength, `photons_absorbed` is the exact inverse of `expose`
         electrons = a.expose(image, noise=False, integrate=False)
-        result = a.photons_absorbed(electrons, integrate=False)
+        result = a.backproject(electrons, integrate=False)
 
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
         assert result.outputs.unit.is_equivalent(u.photon / u.s)
-        assert np.allclose(
-            result.outputs.to_value(u.photon / u.s),
-            rate.to_value(u.photon / u.s),
-        )
+
+        # without diffusion, the backprojection is the exact inverse of
+        # `expose`, and with it, it maps a uniform rate back onto itself
+        # in the middle of a sensor wide enough that no charge reaching the
+        # middle pixel leaves it
+        kernel = a.kernel(550 * u.nm)
+        if kernel.outputs.size == 1:
+            assert np.allclose(result.outputs, rate)
+        else:
+            num = 4 * kernel.outputs.shape[a.axis_pixel.x]
+            shape = {a.axis_pixel.x: num, a.axis_pixel.y: num}
+            uniform = na.FunctionArray(
+                inputs=na.SpectralPositionalVectorArray(
+                    wavelength=self._image(a, 0).inputs.wavelength,
+                    position=na.Cartesian2dVectorArray(
+                        x=na.arange(0, num, axis=a.axis_pixel.x) * u.pix,
+                        y=na.arange(0, num, axis=a.axis_pixel.y) * u.pix,
+                    ),
+                ),
+                outputs=na.broadcast_to(50 * u.photon / u.s, shape),
+            )
+            electrons = a.expose(uniform, noise=False, integrate=False)
+            result = a.backproject(electrons, integrate=False)
+            middle = {a.axis_pixel.x: num // 2, a.axis_pixel.y: num // 2}
+            assert np.allclose(result.outputs[middle], 50 * u.photon / u.s, rtol=1e-5)
 
         # an integrated readout is spread back over the wavelength bins
-        integrated = na.FunctionArray(
-            inputs=na.SpectralPositionalVectorArray(
-                wavelength=wavelength,
-                position=position,
-            ),
+        integrated = self._image(
+            a,
             outputs=na.random.uniform(
                 low=0,
                 high=1000,
-                shape_random={a.axis_pixel.x: 5, a.axis_pixel.y: 5},
+                shape_random=self._shape(a, wavelength=False),
             )
             * u.electron,
         )
-        result = a.photons_absorbed(integrated, integrate=True)
+        result = a.backproject(integrated, integrate=True)
         assert result.outputs.unit.is_equivalent(u.photon / u.s)
+        assert "wavelength" in na.shape(result.outputs)
         assert np.all(np.isfinite(result.outputs.to_value(u.photon / u.s)))
 
     def test_uncertainty(self, a: optika.sensors.AbstractImagingSensor):
-        # electrons measured in a few pixels, as a function of the wavelength
-        # bin edges
-        wavelength = na.linspace(500, 600, axis="wavelength", num=4) * u.nm
-        position = na.Cartesian2dVectorArray(
-            x=na.arange(0, 5, axis=a.axis_pixel.x) * u.pix,
-            y=na.arange(0, 5, axis=a.axis_pixel.y) * u.pix,
-        )
-        electrons = (
-            na.random.uniform(
-                low=0,
-                high=1000,
-                shape_random={"wavelength": 3, a.axis_pixel.x: 5, a.axis_pixel.y: 5},
-            )
-            * u.electron
-        )
-        image = na.FunctionArray(
-            inputs=na.SpectralPositionalVectorArray(
-                wavelength=wavelength,
-                position=position,
-            ),
-            outputs=electrons,
-        )
+        electrons = na.random.uniform(0, 1000, shape_random=self._shape(a))
+        image = self._image(a, electrons * u.electron)
 
         # integrated over wavelength (the default), with read noise once
-        result = a.uncertainty(image)
+        result = a._uncertainty(image)
 
         assert isinstance(result, na.FunctionArray)
         assert isinstance(result.inputs, na.SpectralPositionalVectorArray)
@@ -200,10 +287,26 @@ class AbstractTestAbstractImagingSensor(
         assert np.all(result.outputs >= a.read_noise)
 
         # per wavelength (no integration, no read noise)
-        result = a.uncertainty(image, integrate=False)
+        result = a._uncertainty(image, integrate=False)
         assert result.outputs.unit.is_equivalent(u.electron)
         assert "wavelength" in na.shape(result.outputs)
         assert np.all(result.outputs >= 0 * u.electron)
+
+    def test_expose_uncertainty(self, a: optika.sensors.AbstractImagingSensor):
+        """
+        The width of the noise of an exposure is that of the noise model at the
+        expected electrons, which the kernel spreads over the pixels.
+        """
+        a = dataclasses.replace(a, timedelta_exposure=10 * u.s)
+        rate = na.random.uniform(0, 100, shape_random=self._shape(a))
+        image = self._image(a, rate * u.photon / u.s)
+
+        result = a.expose(image, noise=False, uncertainty=True)
+        expected = a.expose(image, noise=False, integrate=False)
+        width = a._uncertainty(expected)
+
+        assert isinstance(result.outputs, na.NormalUncertainScalarArray)
+        assert np.allclose(result.outputs.width, width.outputs)
 
 
 def _sensor(clip_rays: bool = True) -> optika.sensors.ImagingSensor:
@@ -219,11 +322,21 @@ def _sensor(clip_rays: bool = True) -> optika.sensors.ImagingSensor:
     )
 
 
+def _sensor_ccd97() -> optika.sensors.ImagingSensor:
+    """A sensor of e2v CCD97 silicon, over whose 16-micron pixels charge diffuses."""
+    return dataclasses.replace(
+        _sensor(),
+        width_pixel=16 * u.um,
+        material=optika.sensors.materials.e2v_ccd97(),
+    )
+
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
         _sensor(),
         _sensor(clip_rays=False),
+        _sensor_ccd97(),
     ],
 )
 class TestImagingSensor(
