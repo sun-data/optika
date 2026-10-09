@@ -10,9 +10,9 @@ import optika
 from .._stern_1994 import (
     _thickness_implant,
     _thickness_substrate,
-    _width_pixel,
     _cce_backsurface,
 )
+from ...diffusion._models import _check_model, _pixel_vector
 
 __all__ = [
     "energy_bandgap",
@@ -500,13 +500,14 @@ def probability_of_n_pairs(
 def electrons_measured(
     photons_absorbed: u.Quantity | na.AbstractScalar,
     wavelength: u.Quantity | na.ScalarArray,
+    *,
     absorption: None | u.Quantity | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
-    thickness_depletion: None | u.Quantity | na.AbstractScalar = None,
-    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: None | u.Quantity | na.AbstractScalar = None,
+    diffusion: "None | optika.sensors.diffusion.AbstractDiffusionModel" = None,
     width_pixel: (
-        u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
-    ) = _width_pixel,
+        None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = None,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     axis_xy: None | tuple[str, str] = None,
@@ -535,19 +536,26 @@ def electrons_measured(
         refracted angle, so no separate angle argument is needed.
     thickness_implant
         The thickness of the implant layer, where partial-charge collection occurs.
-    thickness_depletion
-        The thickness of the depletion region, the region with significant electric
-        field.
-        If :obj:`None` (the default), this is set to the same value as
-        `thickness_substrate`.
     thickness_substrate
         The thickness of the entire light-sensitive region of the device.
+        Required if `diffusion` is given, since the thickness of the
+        field-free region, and so how far the charge spreads, depends on it.
+        Otherwise, if :obj:`None` (the default), the value given in
+        :cite:t:`Stern1994` is used.
+    diffusion
+        A model of the lateral diffusion of charge in the sensor.
+        If :obj:`None` (the default), charge does not diffuse.
+        Otherwise, the electrons liberated by each photon spread over the
+        pixel grid given by `axis_xy`, as a cloud whose width depends on the
+        depth at which the photon was absorbed,
+        so both `axis_xy` and `width_pixel` must be given with it.
     width_pixel
         The size of a single pixel on the sensor.
         A scalar gives square pixels; a
         :class:`named_arrays.AbstractCartesian2dVectorArray` whose ``x``/``y``
         components are the pixel widths along ``axis_xy[0]``/``axis_xy[1]``
         gives rectangular pixels.
+        Only used, and then required, if `diffusion` is given.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -556,8 +564,8 @@ def electrons_measured(
         Default is room temperature.
     axis_xy
         The two logical axes corresponding to the pixel grid of the sensor
-        along which electrons will diffuse.
-        If :obj:`None` (the default), there is no charge diffusion.
+        along which electrons diffuse.
+        Only used, and then required, if `diffusion` is given.
     wrap
         Controls how diffused charge is treated at the edges of the pixel grid.
         If :obj:`False` (the default), charge that diffuses past the edge of the
@@ -629,14 +637,33 @@ def electrons_measured(
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
-    if thickness_depletion is None:
+    _check_model(diffusion)
+
+    if thickness_substrate is None:
+        if diffusion is not None:
+            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
+        thickness_substrate = _thickness_substrate
+
+    if diffusion is None:
+        # no field-free region and no spread in the depletion region,
+        # so the electrons stay in the pixel the photon was absorbed in
         thickness_depletion = thickness_substrate
+        width_backsurface = width_depletion = 0 * u.um
+        width_pixel = 0 * u.um
+    else:
+        if axis_xy is None:
+            raise ValueError("`axis_xy` must be given with `diffusion`.")
+        if width_pixel is None:
+            raise ValueError("`width_pixel` must be given with `diffusion`.")
+        parameters = diffusion._parameters_monte_carlo(thickness_substrate)
+        thickness_depletion = parameters["thickness_depletion"]
+        width_backsurface = parameters["width_backsurface"]
+        width_depletion = parameters["width_depletion"]
 
     if shape_random is None:
         shape_random = dict()
 
-    if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
-        width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
+    width_pixel = _pixel_vector(width_pixel)
 
     width_pixel_x = width_pixel.x
     width_pixel_y = width_pixel.y
@@ -648,6 +675,8 @@ def electrons_measured(
         na.shape(thickness_implant),
         na.shape(thickness_depletion),
         na.shape(thickness_substrate),
+        na.shape(width_backsurface),
+        na.shape(width_depletion),
         na.shape(width_pixel_x),
         na.shape(width_pixel_y),
         na.shape(cce_backsurface),
@@ -670,6 +699,8 @@ def electrons_measured(
     thickness_implant = na.broadcast_to(thickness_implant, shape)
     thickness_depletion = na.broadcast_to(thickness_depletion, shape)
     thickness_substrate = na.broadcast_to(thickness_substrate, shape)
+    width_backsurface = na.broadcast_to(width_backsurface, shape)
+    width_depletion = na.broadcast_to(width_depletion, shape)
     width_pixel_x = na.broadcast_to(width_pixel_x, shape)
     width_pixel_y = na.broadcast_to(width_pixel_y, shape)
     cce_backsurface = na.broadcast_to(cce_backsurface, shape)
@@ -701,6 +732,8 @@ def electrons_measured(
         thickness_implant=thickness_implant.ndarray,
         thickness_depletion=thickness_depletion.ndarray,
         thickness_substrate=thickness_substrate.ndarray,
+        width_backsurface=width_backsurface.ndarray,
+        width_depletion=width_depletion.ndarray,
         width_pixel_x=width_pixel_x.ndarray,
         width_pixel_y=width_pixel_y.ndarray,
         cce_backsurface=cce_backsurface.ndarray,
@@ -729,6 +762,8 @@ def _electrons_measured_quantity(
     thickness_implant: u.Quantity,
     thickness_depletion: u.Quantity,
     thickness_substrate: u.Quantity,
+    width_backsurface: u.Quantity,
+    width_depletion: u.Quantity,
     width_pixel_x: u.Quantity,
     width_pixel_y: u.Quantity,
     cce_backsurface: u.Quantity,
@@ -745,6 +780,8 @@ def _electrons_measured_quantity(
         thickness_implant.shape,
         thickness_depletion.shape,
         thickness_substrate.shape,
+        width_backsurface.shape,
+        width_depletion.shape,
         cce_backsurface.shape,
         width_pixel_x.shape,
         width_pixel_y.shape,
@@ -761,6 +798,8 @@ def _electrons_measured_quantity(
     thickness_implant = thickness_implant.to_value(unit_length)
     thickness_depletion = thickness_depletion.to_value(unit_length)
     thickness_substrate = thickness_substrate.to_value(unit_length)
+    width_backsurface = width_backsurface.to_value(unit_length)
+    width_depletion = width_depletion.to_value(unit_length)
     width_pixel_x = width_pixel_x.to_value(unit_length)
     width_pixel_y = width_pixel_y.to_value(unit_length)
     cce_backsurface = cce_backsurface.to_value(u.dimensionless_unscaled)
@@ -774,6 +813,8 @@ def _electrons_measured_quantity(
         thickness_implant=thickness_implant.reshape(-1, num_x, num_y),
         thickness_depletion=thickness_depletion.reshape(-1, num_x, num_y),
         thickness_substrate=thickness_substrate.reshape(-1, num_x, num_y),
+        width_backsurface=width_backsurface.reshape(-1, num_x, num_y),
+        width_depletion=width_depletion.reshape(-1, num_x, num_y),
         width_pixel_x=width_pixel_x.reshape(-1, num_x, num_y),
         width_pixel_y=width_pixel_y.reshape(-1, num_x, num_y),
         cce_backsurface=cce_backsurface.reshape(-1, num_x, num_y),
@@ -818,7 +859,12 @@ def _normal_cdf(  # pragma: nocover
     origin: float,
     scale: float,
 ) -> float:
-    """Gaussian CDF at `edge` for mean `origin`, where ``scale = 1/(sigma*sqrt2)``."""
+    """
+    Gaussian CDF at `edge` for mean `origin`, where ``scale = 1/(sigma*sqrt2)``,
+    and a step at `origin` for zero sigma, where `scale` is infinite.
+    """
+    if scale == math.inf:
+        return 1.0 if edge > origin else 0.0
     return 0.5 * (1.0 + math.erf((edge - origin) * scale))
 
 
@@ -870,6 +916,8 @@ def _diffuse_electrons(  # pragma: nocover
     sigma_x, sigma_y
         The standard deviation of the diffusion kernel along each axis,
         in pixels.
+        Zero along an axis keeps the electrons in the column (or row) of
+        pixels they originate from.
     num_x, num_y
         The shape of the image.
     wrap
@@ -882,8 +930,12 @@ def _diffuse_electrons(  # pragma: nocover
     if m <= 0:
         return
 
-    half_x = int(math.ceil(_num_sigma_window * sigma_x)) + 1
-    half_y = int(math.ceil(_num_sigma_window * sigma_y)) + 1
+    half_x = 0
+    half_y = 0
+    if sigma_x > 0:
+        half_x = int(math.ceil(_num_sigma_window * sigma_x)) + 1
+    if sigma_y > 0:
+        half_y = int(math.ceil(_num_sigma_window * sigma_y)) + 1
     num_window_x = 2 * half_x + 1
     num_window_y = 2 * half_y + 1
 
@@ -891,8 +943,12 @@ def _diffuse_electrons(  # pragma: nocover
     # the window.
     if m < factor_multinomial * num_window_x * num_window_y:
         for _ in range(m):
-            p = round(random.gauss(u, sigma_x))
-            q = round(random.gauss(v, sigma_y))
+            p = 0
+            q = 0
+            if sigma_x > 0:
+                p = round(random.gauss(u, sigma_x))
+            if sigma_y > 0:
+                q = round(random.gauss(v, sigma_y))
             x_e = x + p
             y_e = y + q
             if wrap:
@@ -905,8 +961,12 @@ def _diffuse_electrons(  # pragma: nocover
     # occupied column across y offsets, via conditional binomials. This
     # samples the multinomial distribution with product probabilities
     # P_x(k_x) * P_y(k_y), renormalized over the bounded window.
-    scale_x = 1.0 / (sigma_x * _sqrt2)
-    scale_y = 1.0 / (sigma_y * _sqrt2)
+    scale_x = math.inf
+    scale_y = math.inf
+    if sigma_x > 0:
+        scale_x = 1.0 / (sigma_x * _sqrt2)
+    if sigma_y > 0:
+        scale_y = 1.0 / (sigma_y * _sqrt2)
 
     rem_x = m
     c_hi_x = _normal_cdf(half_x + 0.5, u, scale_x)
@@ -982,6 +1042,8 @@ def _electrons_measured_numba(  # pragma: nocover
     thickness_implant: np.ndarray,
     thickness_depletion: np.ndarray,
     thickness_substrate: np.ndarray,
+    width_backsurface: np.ndarray,
+    width_depletion: np.ndarray,
     width_pixel_x: np.ndarray,
     width_pixel_y: np.ndarray,
     cce_backsurface: np.ndarray,
@@ -1010,7 +1072,10 @@ def _electrons_measured_numba(  # pragma: nocover
                 energy_pair_inf_i = energy_pair_inf[i, x, y]
                 fano_inf_i = fano_inf[i, x, y]
                 z_substrate = thickness_substrate[i, x, y]
-                z_ff = z_substrate - thickness_depletion[i, x, y]
+                z_d = thickness_depletion[i, x, y]
+                z_ff = z_substrate - z_d
+                w_backsurface = width_backsurface[i, x, y]
+                w_depletion = width_depletion[i, x, y]
                 wp_x = width_pixel_x[i, x, y]
                 wp_y = width_pixel_y[i, x, y]
 
@@ -1062,8 +1127,26 @@ def _electrons_measured_numba(  # pragma: nocover
                     u = random.uniform(-0.5, 0.5)
                     v = random.uniform(-0.5, 0.5)
 
-                    if z_ij < z_ff and wp_x > 0 and wp_y > 0:
-                        w = z_ff * math.sqrt(1 - z_ij / z_ff)
+                    # the width of the charge cloud at this depth, as in
+                    # `optika.sensors.diffusion.JanesickDiffusionModel.width`
+                    w_ff = 0.0
+                    if z_ij < z_ff:
+                        w_ff = w_backsurface * math.sqrt(1 - z_ij / z_ff)
+                    w_d = 0.0
+                    if w_depletion > 0:
+                        g = 1.0
+                        if z_d > 0:
+                            g = min(max((z_substrate - z_ij) / z_d, 0.0), 1.0)
+                        w_d = w_depletion * math.sqrt(g)
+                    w = math.hypot(w_ff, w_d)
+
+                    # a pixel of zero width along an axis turns off the
+                    # spread along that axis, as in
+                    # `optika.sensors.diffusion.AbstractDiffusionModel.kernel`
+                    sigma_x = w / wp_x if wp_x > 0 else 0.0
+                    sigma_y = w / wp_y if wp_y > 0 else 0.0
+
+                    if sigma_x > 0 or sigma_y > 0:
                         _diffuse_electrons(
                             result=result,
                             i=i,
@@ -1072,8 +1155,8 @@ def _electrons_measured_numba(  # pragma: nocover
                             m=m_ij,
                             u=u,
                             v=v,
-                            sigma_x=w / wp_x,
-                            sigma_y=w / wp_y,
+                            sigma_x=sigma_x,
+                            sigma_y=sigma_y,
                             num_x=num_x,
                             num_y=num_y,
                             wrap=wrap,
