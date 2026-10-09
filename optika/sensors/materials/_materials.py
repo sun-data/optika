@@ -46,6 +46,7 @@ __all__ = [
     "signal",
     "vmr_signal",
     "kernel_signal",
+    "covariance_signal",
     "AbstractSensorMaterial",
     "IdealSensorMaterial",
     "AbstractSiliconSensorMaterial",
@@ -2012,6 +2013,314 @@ def _kernel_signal(
     )
 
 
+def covariance_signal(
+    wavelength: u.Quantity | na.ScalarArray,
+    *,
+    axis_x: str,
+    axis_y: str,
+    direction: float | na.AbstractScalar = 1,
+    n: complex | na.AbstractScalar = 1,
+    n_substrate: None | complex | na.AbstractScalar = None,
+    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_substrate: None | u.Quantity | na.AbstractScalar = None,
+    diffusion: None | AbstractDiffusionModel = None,
+    width_pixel: (
+        None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = None,
+    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    num: None | int = None,
+) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+    r"""
+    The covariance between the electrons measured in a pixel and in each of
+    the pixels around it under uniform illumination, per absorbed photon.
+
+    Charge diffusion spreads the electrons of each photon over several pixels,
+    which correlates the noise of neighboring pixels.
+    Under uniform illumination the covariance depends only on the offset
+    between the two pixels, and it is proportional to the number of photons
+    absorbed in each pixel.
+    The center of the result is the variance of a single pixel,
+    the result of :func:`vmr_signal` times the expected number of electrons
+    measured per absorbed photon,
+    and its sum is the variance without diffusion, since diffusion moves
+    variance between pixels without creating or destroying any,
+    except for the variance which lands beyond the kernel.
+    Dividing the result by its center gives the correlation coefficient of
+    the noise of two pixels.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the absorbed photons.
+    axis_x
+        The name of the horizontal axis of the kernel.
+    axis_y
+        The name of the vertical axis of the kernel.
+    direction
+        The cosine of the incidence angle.
+    n
+        The complex index of refraction of the ambient medium.
+    n_substrate
+        The complex index of refraction of the light-sensitive material.
+        If :obj:`None` (the default), the result of
+        :meth:`optika.chemicals.Chemical.n` for silicon will be used.
+    thickness_implant
+        The thickness of the implant layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+        Required if `diffusion` is given, since the thickness of the
+        field-free region, and so how far the charge spreads, depends on it.
+        Otherwise, if :obj:`None` (the default), the value given in
+        :cite:t:`Stern1994` is used.
+    diffusion
+        A model of the lateral diffusion of charge in the sensor.
+        If :obj:`None` (the default), charge does not diffuse,
+        so the noise of different pixels is not correlated.
+    width_pixel
+        The size of a single pixel on the sensor.
+        Only used, and then required, if `diffusion` is given.
+        A scalar gives square pixels; a
+        :class:`named_arrays.AbstractCartesian2dVectorArray`
+        gives rectangular pixels.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    temperature
+        The temperature of the light-sensitive silicon layer.
+    num
+        The number of pixels along each axis of the kernel,
+        which must be odd so that the kernel is centered on zero offset.
+        If :obj:`None` (the default), the kernel is made just large enough
+        to leave out no more than one part in a million of the pairs of
+        electrons created at any depth, or is a single pixel if charge does
+        not diffuse.
+
+    Examples
+    --------
+
+    Plot the correlation coefficient between the noise of a pixel and its
+    neighbors for an e2v CCD97 with 16-micron pixels
+    and photons of 304 angstroms.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the light-sensitive material of the sensor
+        material = optika.sensors.materials.e2v_ccd97()
+
+        # Compute the covariance between the central pixel and its neighbors
+        covariance = optika.sensors.covariance_signal(
+            wavelength=304 * u.AA,
+            axis_x="x",
+            axis_y="y",
+            thickness_implant=material.thickness_implant,
+            thickness_substrate=material.thickness_substrate,
+            diffusion=material.diffusion,
+            width_pixel=16 * u.um,
+            cce_backsurface=material.cce_backsurface,
+            num=3,
+        )
+
+        # Divide by the variance of a single pixel
+        variance = covariance.outputs[dict(x=1, y=1)]
+        correlation = (covariance.outputs / variance).to(u.dimensionless_unscaled)
+
+        # Plot the correlation coefficients
+        fig, ax = plt.subplots(figsize=(3, 3), constrained_layout=True)
+        na.plt.pcolormesh(
+            covariance.inputs.x,
+            covariance.inputs.y,
+            C=correlation.value,
+            facecolors="None",
+            edgecolors="black",
+        )
+        na.plt.text(
+            x=covariance.inputs.x,
+            y=covariance.inputs.y,
+            s=correlation.value.to_string_array(format_value="%.3f"),
+            color="black",
+            ha="center",
+            va="center",
+        )
+        ax.set_xlabel("pixel offset $x$");
+        ax.set_ylabel("pixel offset $y$");
+        ax.set_aspect("equal");
+        ax.set_xticks([-1, 0, 1]);
+        ax.set_yticks([-1, 0, 1]);
+
+    Notes
+    -----
+
+    Under uniform illumination the number of photons absorbed in each pixel is
+    Poisson distributed with mean :math:`\lambda`,
+    so the covariance between the electrons :math:`X_j` and :math:`X_k`
+    measured in pixels :math:`j` and :math:`k` is :math:`\lambda` times the
+    expected value of :math:`X_j X_k` for a single photon,
+    summed over the pixels it could be absorbed in.
+
+    A photon absorbed at a depth :math:`z` creates :math:`n` electrons,
+    with mean :math:`\overline{n}` and Fano factor :math:`\mathcal{F}`.
+    Each survives the implant layer with probability :math:`\eta(z)`,
+    the differential charge collection efficiency of
+    :func:`charge_collection_efficiency`,
+    and each survivor is collected in pixel :math:`j` with probability
+    :math:`q_j`, independently of the others.
+    So the :math:`m` survivors deliver
+
+    .. math::
+
+        E[X_j X_k] = E[m] \, q_j \, \delta_{jk} + E[m (m - 1)] \, q_j q_k,
+
+    where :math:`E[m] = \overline{n} \eta`
+    and :math:`E[m (m - 1)] = \overline{n} (\overline{n} + \mathcal{F} - 1) \eta^2`.
+    Summing over the pixel the photon is absorbed in,
+    and averaging over its position within that pixel and over the depth at
+    which it is absorbed,
+    gives the covariance per absorbed photon between pixels :math:`\Delta`
+    apart,
+
+    .. math::
+
+        C_\Delta = \overline{n} \left\langle \eta(z) \right\rangle \delta_{\Delta 0}
+            + \overline{n} (\overline{n} + \mathcal{F} - 1)
+            \left\langle P_\Delta(z) \, \eta^2(z) \right\rangle,
+
+    where :math:`P_\Delta(z)` is the probability that two electrons created at
+    depth :math:`z` are collected :math:`\Delta` pixels apart,
+    :meth:`optika.sensors.diffusion.AbstractDiffusionModel.kernel_pair`,
+    and :math:`\langle \cdot \rangle` is the average over the depth at which
+    photons are absorbed in the light-sensitive region,
+    :meth:`optika.sensors.diffusion.AbstractDiffusionModel.average_depth`.
+    :math:`P_0` is the probability that the two electrons share a pixel,
+    so the center of :math:`C_\Delta` is the result of :func:`vmr_signal`
+    times :math:`\overline{n} \langle \eta \rangle`,
+    and since :math:`P_\Delta` sums to one,
+    the sum of :math:`C_\Delta` is the variance without diffusion.
+
+    :func:`vmr_signal` evaluates the variance without diffusion in closed
+    form for a substrate of infinite thickness,
+    so to keep both of these exact, this function evaluates
+
+    .. math::
+
+        C_\Delta = \sigma_0^2 \, \delta_{\Delta 0}
+            + \overline{n} (\overline{n} + \mathcal{F} - 1)
+            \left\langle \left[ P_\Delta(z) - \delta_{\Delta 0} \right] \eta^2(z) \right\rangle,
+
+    where :math:`\sigma_0^2` is the variance per absorbed photon without
+    diffusion,
+    the result of :func:`vmr_signal` without diffusion times
+    the quantum yield and the result of :func:`charge_collection_efficiency`.
+    The second term only moves variance between pixels, and its sum is zero.
+    Its integrand has a kink where the implant ends, so the average is split
+    there, as in :func:`vmr_signal`.
+
+    Under illumination which is not uniform, the covariance also depends on
+    where the two pixels are, and it is not given by this function.
+    """
+    _check_model(diffusion)
+
+    if thickness_substrate is None:
+        if diffusion is not None:
+            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
+        thickness_substrate = _thickness_substrate
+
+    if diffusion is not None and width_pixel is None:
+        raise ValueError("`width_pixel` must be given with `diffusion`.")
+
+    if n_substrate is None:
+        n_substrate = optika.chemicals.Chemical("Si").n(wavelength)
+
+    vmr = vmr_signal(
+        wavelength=wavelength,
+        direction=direction,
+        n=n,
+        n_substrate=n_substrate,
+        thickness_implant=thickness_implant,
+        cce_backsurface=cce_backsurface,
+        temperature=temperature,
+    )
+
+    direction_substrate = optika.materials.snells_law_scalar(
+        cos_incidence=direction,
+        index_refraction=n,
+        index_refraction_new=n_substrate,
+    )
+
+    absorption = absorption_effective(
+        wavelength=wavelength,
+        n_substrate=n_substrate,
+        direction_substrate=direction_substrate,
+    )
+
+    iqy = quantum_yield_ideal(
+        wavelength=wavelength,
+        temperature=temperature,
+    )
+
+    cce = charge_collection_efficiency(
+        absorption=absorption,
+        thickness_implant=thickness_implant,
+        cce_backsurface=cce_backsurface,
+    )
+
+    # the variance of a pixel without diffusion, per absorbed photon
+    variance = vmr * iqy * cce
+
+    if diffusion is None:
+        num = 1 if num is None else _check_num(num)
+        inputs = _indices_kernel(num, axis_x, axis_y)
+        center = (inputs.x == 0) & (inputs.y == 0)
+        return na.FunctionArray(
+            inputs=inputs,
+            outputs=variance * center,
+        )
+
+    num = diffusion._num_kernel(num, thickness_substrate, width_pixel, pair=True)
+    inputs = _indices_kernel(num, axis_x, axis_y)
+    center = (inputs.x == 0) & (inputs.y == 0)
+
+    def integrand(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+        eta = _cce_differential(
+            depth=depth,
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            cce_backsurface=cce_backsurface,
+        )
+        pair = diffusion.kernel_pair(
+            depth=depth,
+            thickness_substrate=thickness_substrate,
+            width_pixel=width_pixel,
+            axis_x=axis_x,
+            axis_y=axis_y,
+            num=num,
+        )
+        return np.square(eta) * (pair.outputs - center)
+
+    # the variance diffusion moves from the center to the other pixels
+    moved = diffusion.average_depth(
+        function=integrand,
+        absorption=absorption,
+        thickness_substrate=thickness_substrate,
+        depth_break=thickness_implant,
+    )
+
+    F = fano_factor(wavelength)
+    unit = u.electron / u.photon
+
+    return na.FunctionArray(
+        inputs=inputs,
+        outputs=variance * center + iqy * (iqy + F - 1 * unit) * moved * u.photon,
+    )
+
+
 def _cce_differential(
     depth: u.Quantity | na.AbstractScalar,
     absorption: u.Quantity | na.AbstractScalar,
@@ -2397,6 +2706,55 @@ class AbstractSensorMaterial(
         """
 
     @abc.abstractmethod
+    def kernel_covariance(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        axis_x: str,
+        axis_y: str,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        """
+        The covariance between the electrons measured in a pixel and in each
+        of the pixels around it under uniform illumination,
+        per absorbed photon, using :func:`covariance_signal`.
+
+        Its center is the variance of the electrons measured in a pixel per
+        absorbed photon, the variance :meth:`uncertainty` gives,
+        and the rest is the covariance charge diffusion gives neighboring
+        pixels by spreading the electrons of each photon over them.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        axis_x
+            The name of the horizontal axis of the kernel.
+        axis_y
+            The name of the vertical axis of the kernel.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        width_pixel
+            The physical size of each pixel.
+            If given, charge diffuses over the pixel grid according to the
+            model of charge diffusion of the material, if it has one,
+            as in :meth:`signal`.
+            If :obj:`None` (the default), the sensor is not resolved into
+            pixels and charge does not diffuse.
+        num
+            The number of pixels along each axis of the kernel,
+            which must be odd so that the kernel is centered on zero offset.
+            If :obj:`None` (the default), the kernel is made just large enough
+            to leave out no more than one part in a million of the pairs of
+            electrons of a photon,
+            or is a single pixel if charge does not diffuse.
+        """
+
+    @abc.abstractmethod
     def signal_transposed(
         self,
         electrons: u.Quantity | na.AbstractScalar,
@@ -2604,6 +2962,28 @@ class IdealSensorMaterial(
         return na.FunctionArray(
             inputs=inputs,
             outputs=center * u.electron / u.photon,
+        )
+
+    def kernel_covariance(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        axis_x: str,
+        axis_y: str,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        # an ideal sensor measures each photon as one electron in the pixel it
+        # was absorbed in, so the electrons are Poisson distributed and the
+        # noise of different pixels is not correlated
+        num = 1 if num is None else _check_num(num)
+        inputs = _indices_kernel(num, axis_x, axis_y)
+        center = (inputs.x == 0) & (inputs.y == 0)
+        return na.FunctionArray(
+            inputs=inputs,
+            outputs=center * u.electron**2 / u.photon,
         )
 
     def signal_transposed(
@@ -3213,6 +3593,37 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
         n_substrate = self._chemical.n(wavelength)
 
         return kernel_signal(
+            wavelength=wavelength,
+            axis_x=axis_x,
+            axis_y=axis_y,
+            direction=direction,
+            n=n_substrate,
+            n_substrate=n_substrate,
+            thickness_implant=self.thickness_implant,
+            thickness_substrate=self.thickness_substrate,
+            diffusion=self.diffusion if width_pixel is not None else None,
+            width_pixel=width_pixel,
+            cce_backsurface=self.cce_backsurface,
+            temperature=self.temperature,
+            num=num,
+        )
+
+    def kernel_covariance(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        axis_x: str,
+        axis_y: str,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        # `direction` is the cosine of the refracted angle inside the
+        # substrate, so pass ``n == n_substrate``, as in `kernel`
+        n_substrate = self._chemical.n(wavelength)
+
+        return covariance_signal(
             wavelength=wavelength,
             axis_x=axis_x,
             axis_y=axis_y,

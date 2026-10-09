@@ -480,6 +480,14 @@ def test_diffusion_requires_pixels():
             thickness_substrate=thickness_substrate,
             diffusion=diffusion,
         )
+    with pytest.raises(ValueError, match="width_pixel"):
+        optika.sensors.covariance_signal(
+            wavelength=wavelength,
+            axis_x="kernel_x",
+            axis_y="kernel_y",
+            thickness_substrate=thickness_substrate,
+            diffusion=diffusion,
+        )
 
     photons_expected = na.broadcast_to(
         100 * u.photon,
@@ -546,6 +554,13 @@ def test_diffusion_requires_substrate():
             axis_y="kernel_y",
             **kwargs,
         )
+    with pytest.raises(ValueError, match="thickness_substrate"):
+        optika.sensors.covariance_signal(
+            wavelength,
+            axis_x="kernel_x",
+            axis_y="kernel_y",
+            **kwargs,
+        )
     for method in ["expected", "monte-carlo"]:
         with pytest.raises(ValueError, match="thickness_substrate"):
             optika.sensors.signal(
@@ -596,6 +611,13 @@ def test_diffusion_is_a_model(
             axis_y="kernel_y",
             **kwargs,
         )
+    with pytest.raises(TypeError, match="AbstractDiffusionModel"):
+        optika.sensors.covariance_signal(
+            wavelength,
+            axis_x="kernel_x",
+            axis_y="kernel_y",
+            **kwargs,
+        )
     for method in ["expected", "monte-carlo"]:
         with pytest.raises(TypeError, match="AbstractDiffusionModel"):
             optika.sensors.signal(
@@ -625,6 +647,8 @@ def test_keyword_only():
         optika.sensors.vmr_signal(wavelength, 1)
     with pytest.raises(TypeError, match="positional"):
         optika.sensors.kernel_signal(wavelength, "kernel_x", "kernel_y")
+    with pytest.raises(TypeError, match="positional"):
+        optika.sensors.covariance_signal(wavelength, "kernel_x", "kernel_y")
     with pytest.raises(TypeError, match="positional"):
         optika.sensors.signal(photons, wavelength, 1)
     with pytest.raises(TypeError, match="positional"):
@@ -833,6 +857,159 @@ def test_kernel_signal_monte_carlo(
 
     gain = kernel.outputs.sum(axis_xy)
     assert np.allclose(result, kernel.outputs, atol=0.004 * gain.ndarray)
+
+
+@pytest.mark.parametrize(
+    argnames="diffusion",
+    argvalues=[
+        None,
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=7.85 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="width_pixel",
+    argvalues=[
+        16 * u.um,
+        na.Cartesian2dVectorArray(0, 13) * u.um,
+    ],
+)
+def test_covariance_signal(
+    diffusion: None | optika.sensors.diffusion.AbstractDiffusionModel,
+    width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+):
+    """
+    The center of the covariance is the variance of :func:`vmr_signal`,
+    and its sum is the variance without diffusion,
+    at every wavelength,
+    since diffusion only moves variance between pixels.
+    """
+    axis = ("kernel_x", "kernel_y")
+    wavelength = na.geomspace(1, 7000, axis="wavelength", num=13) * u.AA
+    kwargs = dict(
+        thickness_implant=0.2 * u.um,
+        cce_backsurface=0.2,
+    )
+    kwargs_diffusion = dict(
+        thickness_substrate=14 * u.um,
+        diffusion=diffusion,
+        width_pixel=width_pixel,
+    )
+
+    result = optika.sensors.covariance_signal(
+        wavelength=wavelength,
+        axis_x=axis[0],
+        axis_y=axis[1],
+        **kwargs,
+        **kwargs_diffusion,
+    )
+    assert isinstance(result, na.FunctionArray)
+    outputs = result.outputs
+    assert outputs.unit.is_equivalent(u.electron**2 / u.photon)
+    num = outputs.shape[axis[0]]
+    assert outputs.shape[axis[1]] == num
+
+    absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+    iqy = optika.sensors.quantum_yield_ideal(wavelength)
+    cce = optika.sensors.charge_collection_efficiency(absorption, **kwargs)
+    gain = iqy * cce
+    undiffused = optika.sensors.vmr_signal(wavelength, **kwargs) * gain
+
+    center = outputs[{axis[0]: num // 2, axis[1]: num // 2}]
+    vmr = optika.sensors.vmr_signal(wavelength, **kwargs, **kwargs_diffusion)
+    assert np.allclose(center, vmr * gain, rtol=1e-12)
+    assert np.allclose(outputs.sum(axis), undiffused, rtol=1e-6)
+
+    # the covariance is symmetric, and diffusion only correlates the noise of
+    # different pixels positively
+    flipped = outputs[{axis[0]: slice(None, None, -1), axis[1]: slice(None, None, -1)}]
+    assert np.allclose(outputs, flipped, rtol=1e-12)
+    assert np.all(outputs >= 0 * outputs.unit)
+
+    if diffusion is None:
+        assert num == 1
+        result = optika.sensors.covariance_signal(
+            wavelength=wavelength,
+            axis_x=axis[0],
+            axis_y=axis[1],
+            num=3,
+            **kwargs,
+        )
+        assert np.allclose(result.outputs.sum(axis), undiffused, rtol=1e-12)
+        assert np.all(result.outputs[{axis[0]: 0}] == 0)
+        return
+
+    assert num > 1
+
+
+@pytest.mark.parametrize(
+    argnames="diffusion",
+    argvalues=[
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=7.85 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+    ],
+)
+def test_covariance_signal_monte_carlo(
+    diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
+):
+    """
+    The covariance is that of the noise of flat fields simulated by the Monte
+    Carlo on a periodic grid,
+    in the same pixel, side by side, diagonally, and two pixels apart,
+    to six times its standard error estimated from the scatter between the
+    frames,
+    including the charge lost to recombination near the back surface.
+    """
+    num_frame = 64
+    num_pixel = 64
+    photons = 20 * u.photon
+    axis_xy = ("pixel_x", "pixel_y")
+    kwargs = dict(
+        wavelength=304 * u.AA,
+        thickness_implant=0.2 * u.um,
+        thickness_substrate=14 * u.um,
+        diffusion=diffusion,
+        width_pixel=13 * u.um,
+        cce_backsurface=0.2,
+    )
+
+    frames = optika.sensors.signal(
+        photons_expected=na.broadcast_to(
+            photons,
+            shape={axis_xy[0]: num_pixel, axis_xy[1]: num_pixel},
+        ),
+        absorbance=1,
+        axis_xy=axis_xy,
+        wrap=True,
+        shape_random=dict(frame=num_frame),
+        **kwargs,
+    )
+    frames = frames - frames.mean(axis_xy)
+
+    expected = optika.sensors.covariance_signal(
+        axis_x=axis_xy[0],
+        axis_y=axis_xy[1],
+        num=5,
+        **kwargs,
+    ).outputs
+
+    for offset in [(0, 0), (1, 0), (1, 1), (2, 0)]:
+        shifted = np.roll(frames, offset, axis=axis_xy)
+        result = (frames * shifted).mean(axis_xy) / photons
+        mean = result.mean("frame")
+        error = result.std("frame") / np.sqrt(num_frame)
+        index = {axis_xy[0]: 2 + offset[0], axis_xy[1]: 2 + offset[1]}
+        assert np.abs(mean - expected[index]) < 6 * error
 
 
 @pytest.mark.parametrize(
@@ -1080,6 +1257,67 @@ class AbstractTestAbstractSensorMaterial(
 
         with pytest.raises(ValueError, match="num"):
             a.kernel(wavelength, *axis, direction=direction, num=2)
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
+        ],
+    )
+    def test_kernel_covariance(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
+    ):
+        """
+        Without pixels the covariance is the variance of the noise of a
+        single pixel per absorbed photon, the variance of :meth:`uncertainty`,
+        and with them diffusion moves some of the variance of each pixel to
+        the covariance with the pixels around it.
+        """
+        axis = ("kernel_x", "kernel_y")
+        unit = u.electron**2 / u.photon
+        electrons = a.signal(
+            photons=1 * u.photon,
+            wavelength=wavelength,
+            direction=direction,
+            noise=False,
+        )
+        uncertainty = a.uncertainty(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+        )
+        variance = np.square(uncertainty) / u.photon
+
+        result = a.kernel_covariance(wavelength, *axis, direction=direction)
+        assert isinstance(result, na.FunctionArray)
+        assert result.outputs.unit.is_equivalent(unit)
+        assert na.shape(result.outputs) == dict(kernel_x=1, kernel_y=1)
+        assert np.allclose(result.outputs.sum(axis), variance)
+
+        result = a.kernel_covariance(
+            wavelength,
+            *axis,
+            direction=direction,
+            width_pixel=15 * u.um,
+        )
+        center = result.outputs[dict(kernel_x=result.outputs.shape["kernel_x"] // 2)]
+        center = center[dict(kernel_y=result.outputs.shape["kernel_y"] // 2)]
+        assert np.all(result.outputs >= 0 * unit)
+        assert np.all(result.outputs <= center)
+        assert np.allclose(result.outputs.sum(axis), variance, rtol=1e-5)
+
+        with pytest.raises(ValueError, match="num"):
+            a.kernel_covariance(wavelength, *axis, direction=direction, num=2)
 
     @pytest.mark.parametrize(
         argnames="direction",

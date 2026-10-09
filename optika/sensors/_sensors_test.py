@@ -187,6 +187,26 @@ class AbstractTestAbstractImagingSensor(
         vmr = np.square(uncertainty) / electrons
         assert np.allclose(result.outputs, vmr * kernel.outputs)
 
+    def test_kernel_covariance(self, a: optika.sensors.AbstractImagingSensor):
+        """
+        Under uniform illumination, the variance of a pixel, the center of the
+        covariance, is the sum of the variance spread by
+        :meth:`kernel_variance`,
+        and the noise of different pixels is correlated only positively.
+        """
+        wavelength = 304 * u.AA
+        axis = (a.axis_pixel.x, a.axis_pixel.y)
+        result = a.kernel_covariance(wavelength)
+        assert isinstance(result, na.FunctionArray)
+        outputs = result.outputs
+        assert outputs.unit.is_equivalent(u.electron**2 / u.photon)
+        assert np.all(outputs >= 0 * outputs.unit)
+
+        num = outputs.shape[axis[0]]
+        center = outputs[{axis[0]: num // 2, axis[1]: num // 2}]
+        variance = a.kernel_variance(wavelength).outputs.sum(axis)
+        assert np.allclose(center, variance, rtol=1e-6)
+
     @pytest.mark.parametrize("integrate", [False, True])
     def test_expose_transposed(
         self,
