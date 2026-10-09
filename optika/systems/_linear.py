@@ -385,8 +385,8 @@ class AbstractLinearSystem(
         uncertainty
             Whether to attach the standard deviation of the measurement noise
             to the result, as a
-            :class:`~named_arrays.NormalUncertainScalarArray`, using the
-            sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
+            :class:`~named_arrays.NormalUncertainScalarArray`, as computed by
+            the sensor's :meth:`~optika.sensors.AbstractImagingSensor.expose`.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -471,8 +471,8 @@ class AbstractLinearSystem(
 
         This is the transpose of :meth:`image_from_weights`:
         :meth:`weights_transposed` builds the (expensive) transposed operator
-        once, and this method reuses it to invert the sensor response
-        (:meth:`~optika.sensors.AbstractImagingSensor.photons_absorbed`),
+        once, and this method reuses it to backproject the sensor response
+        (:meth:`~optika.sensors.AbstractImagingSensor.backproject`),
         spread the result back onto the object plane, and divide out the voxel
         volume. :meth:`backproject` is the special case that builds the weights
         on the fly.
@@ -548,9 +548,9 @@ class AbstractLinearSystem(
                 ),
             )
 
-        # invert the detector response, mapping the measured electrons back into
-        # the photon rate per pixel produced by `image_from_weights`.
-        image = self.sensor.photons_absorbed(
+        # backproject the detector response, mapping the measured electrons
+        # back onto the photon rate per pixel produced by `image_from_weights`.
+        image = self.sensor.backproject(
             image,
             direction=self.direction,
             axis_wavelength=axis_wavelength,
@@ -631,8 +631,8 @@ class AbstractLinearSystem(
         uncertainty
             Whether to attach the standard deviation of the measurement noise
             to the result, as a
-            :class:`~named_arrays.NormalUncertainScalarArray`, using the
-            sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
+            :class:`~named_arrays.NormalUncertainScalarArray`, as computed by
+            the sensor's :meth:`~optika.sensors.AbstractImagingSensor.expose`.
         device
             The device on which to build and apply the weights, see
             :meth:`weights`. If :obj:`None` (the default), the host is used.
@@ -697,7 +697,8 @@ class AbstractLinearSystem(
         """
         Transpose of the linear forward model, :meth:`image`.
 
-        Inverts the detector response (:meth:`~optika.sensors.AbstractImagingSensor.expose`)
+        Backprojects the detector response
+        (:meth:`~optika.sensors.AbstractImagingSensor.backproject`)
         and then applies the transpose of the optical regridding, projecting a
         detector-plane image of electrons back onto the object plane by
         spreading each pixel's value across every object-plane cell that could

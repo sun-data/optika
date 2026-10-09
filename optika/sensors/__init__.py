@@ -20,6 +20,7 @@ from .materials._materials import (
     electrons_measured_approx,
     signal,
     vmr_signal,
+    kernel_signal,
 )
 from . import diffusion
 from . import materials
@@ -45,6 +46,7 @@ __all__ = [
     "electrons_measured_approx",
     "signal",
     "vmr_signal",
+    "kernel_signal",
     "diffusion",
     "materials",
     "AbstractImagingSensor",

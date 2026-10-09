@@ -148,6 +148,24 @@ def _sum_product(
     )
 
 
+def _check_num(
+    num: int,
+) -> int:
+    """
+    The number of pixels along each axis of a kernel,
+    checked to be a positive odd integer,
+    so that the kernel is centered on the pixel the photon was absorbed in.
+
+    Parameters
+    ----------
+    num
+        The number of pixels along each axis of the kernel.
+    """
+    if not isinstance(num, numbers.Integral) or num < 1 or num % 2 != 1:
+        raise ValueError(f"`num` must be a positive odd integer, got {num}.")
+    return int(num)
+
+
 def _indices_kernel(
     num: int,
     axis_x: str,
@@ -693,9 +711,7 @@ class AbstractDiffusionModel(
             The width of a pixel.
         """
         if num is not None:
-            if not isinstance(num, numbers.Integral) or num < 1 or num % 2 != 1:
-                raise ValueError(f"`num` must be a positive odd integer, got {num}.")
-            return int(num)
+            return _check_num(num)
 
         s = thickness_substrate
         width_pixel = _pixel_vector(width_pixel)
