@@ -25,7 +25,8 @@ from ._ramanathan_2020 import (
     electrons_measured,
 )
 from ..diffusion import AbstractDiffusionModel
-from ..diffusion._models import _check_model
+from ..diffusion._models import _check_model, _check_num, _indices_kernel
+from ._blur import _blur, _axis_interpolation
 
 __all__ = [
     "energy_bandgap",
@@ -44,6 +45,7 @@ __all__ = [
     "electrons_measured_approx",
     "signal",
     "vmr_signal",
+    "kernel_signal",
     "AbstractSensorMaterial",
     "IdealSensorMaterial",
     "AbstractSiliconSensorMaterial",
@@ -1115,8 +1117,7 @@ def signal(
         A model of the lateral diffusion of charge in the sensor.
         If :obj:`None` (the default), charge does not diffuse.
         The electrons of each photon spread over the pixel grid given by
-        `axis_xy`, so both `axis_xy` and `width_pixel` must be given with it
-        for the ``"monte-carlo"`` method.
+        `axis_xy`, so both `axis_xy` and `width_pixel` must be given with it.
     width_pixel
         The size of a single pixel on the sensor.
         A scalar gives square pixels; a
@@ -1135,8 +1136,10 @@ def signal(
         photon using :func:`electrons_measured`, including shot, Fano, and
         recombination noise as well as charge diffusion.
         The `expected` method adds no noise and just returns the expected
-        number of electrons in each pixel; since it is a per-pixel expectation,
-        it does not apply charge diffusion.
+        number of electrons in each pixel.
+        With `diffusion`, the electrons of the photons absorbed in each pixel
+        are spread over the pixels around it with :func:`kernel_signal`,
+        with the same boundary as the `monte-carlo` method, given by `wrap`.
     axis_xy
         The two logical axes corresponding to the pixel grid of the sensor
         along which electrons diffuse.
@@ -1225,6 +1228,28 @@ def signal(
     )
 
     if method == "expected":
+        photons = absorbance * photons_expected.to(u.ph)
+
+        if diffusion is not None:
+            if axis_xy is None:
+                raise ValueError("`axis_xy` must be given with `diffusion`.")
+            if width_pixel is None:
+                raise ValueError("`width_pixel` must be given with `diffusion`.")
+            return _spread(
+                values=photons,
+                wavelength=wavelength,
+                absorption=absorption,
+                thickness_implant=thickness_implant,
+                thickness_substrate=thickness_substrate,
+                diffusion=diffusion,
+                width_pixel=width_pixel,
+                cce_backsurface=cce_backsurface,
+                temperature=temperature,
+                axis_xy=axis_xy,
+                wrap=wrap,
+                transpose=False,
+            )
+
         iqy = quantum_yield_ideal(
             wavelength=wavelength,
             temperature=temperature,
@@ -1235,7 +1260,7 @@ def signal(
             thickness_implant=thickness_implant,
             cce_backsurface=cce_backsurface,
         )
-        return iqy * absorbance * cce * photons_expected.to(u.ph)
+        return iqy * cce * photons
 
     elif method == "monte-carlo":
 
@@ -1673,6 +1698,546 @@ def vmr_signal(
     return result * u.photon
 
 
+def kernel_signal(
+    wavelength: u.Quantity | na.ScalarArray,
+    *,
+    axis_x: str,
+    axis_y: str,
+    direction: float | na.AbstractScalar = 1,
+    n: complex | na.AbstractScalar = 1,
+    n_substrate: None | complex | na.AbstractScalar = None,
+    thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_substrate: None | u.Quantity | na.AbstractScalar = None,
+    diffusion: None | AbstractDiffusionModel = None,
+    width_pixel: (
+        None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = None,
+    cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
+    temperature: u.Quantity | na.ScalarArray = 300 * u.K,
+    num: None | int = None,
+) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+    r"""
+    The expected number of electrons measured in the pixel a photon is
+    absorbed in and in each of the pixels around it, per absorbed photon,
+    averaged over the position of the photon within its pixel and over the
+    depth at which it is absorbed.
+
+    This is the kernel the ``"expected"`` method of :func:`signal` spreads the
+    photons absorbed in each pixel with,
+    and the mean of the electrons the ``"monte-carlo"`` method measures
+    around each one.
+    Its sum is the expected number of electrons measured per absorbed photon,
+    the quantum yield times the charge collection efficiency,
+    except for the electrons which land beyond the kernel.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the absorbed photons.
+    axis_x
+        The name of the horizontal axis of the kernel.
+    axis_y
+        The name of the vertical axis of the kernel.
+    direction
+        The cosine of the incidence angle.
+    n
+        The complex index of refraction of the ambient medium.
+    n_substrate
+        The complex index of refraction of the light-sensitive material.
+        If :obj:`None` (the default), the result of
+        :meth:`optika.chemicals.Chemical.n` for silicon will be used.
+    thickness_implant
+        The thickness of the implant layer.
+        Default is the value given in :cite:t:`Stern1994`.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+        Required if `diffusion` is given, since the thickness of the
+        field-free region, and so how far the charge spreads, depends on it.
+        Otherwise, if :obj:`None` (the default), the value given in
+        :cite:t:`Stern1994` is used.
+    diffusion
+        A model of the lateral diffusion of charge in the sensor.
+        If :obj:`None` (the default), charge does not diffuse,
+        so all of it is measured in the pixel the photon was absorbed in.
+    width_pixel
+        The size of a single pixel on the sensor.
+        Only used, and then required, if `diffusion` is given.
+        A scalar gives square pixels; a
+        :class:`named_arrays.AbstractCartesian2dVectorArray`
+        gives rectangular pixels.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+        Default is the value given in :cite:t:`Stern1994`.
+    temperature
+        The temperature of the light-sensitive silicon layer.
+    num
+        The number of pixels along each axis of the kernel,
+        which must be odd so that the kernel is centered on the pixel the
+        photon was absorbed in.
+        If :obj:`None` (the default), the kernel is made just large enough
+        to leave out no more than one part in a million of the charge
+        created at any depth, or is a single pixel if charge does not
+        diffuse.
+
+    Examples
+    --------
+
+    Plot the middle row of the kernel of an e2v CCD97 with 16-micron pixels
+    for photons of two wavelengths, one absorbed near the back surface and one
+    absorbed throughout the substrate.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the light-sensitive material of the sensor
+        material = optika.sensors.materials.e2v_ccd97()
+
+        # Define the wavelengths of the incident photons
+        wavelength = na.ScalarArray([304, 6000] * u.AA, axes="wavelength")
+
+        # Compute the kernel for each wavelength
+        kernel = optika.sensors.kernel_signal(
+            wavelength=wavelength,
+            axis_x="x",
+            axis_y="y",
+            thickness_implant=material.thickness_implant,
+            thickness_substrate=material.thickness_substrate,
+            diffusion=material.diffusion,
+            width_pixel=16 * u.um,
+            cce_backsurface=material.cce_backsurface,
+        )
+
+        # Select the middle row of the kernel
+        row = kernel.outputs[dict(y=kernel.outputs.shape["y"] // 2)]
+
+        # Plot the middle row of the kernel for each wavelength
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.plot(
+            kernel.inputs.x,
+            row.to(u.electron / u.photon).value,
+            axis="x",
+            ax=ax,
+            label=wavelength.to_string_array(),
+        );
+        ax.set_yscale("log");
+        ax.set_xlabel("pixel offset");
+        ax.set_ylabel("electrons per photon");
+        ax.legend();
+
+    The sum of the kernel is the expected number of electrons measured per
+    absorbed photon,
+
+    .. jupyter-execute::
+
+        kernel.outputs.sum(("x", "y"))
+
+    Notes
+    -----
+
+    A photon absorbed at a depth :math:`z` creates :math:`\overline{n}`
+    electrons on average, where :math:`\overline{n}` is the quantum yield,
+    of which a fraction :math:`\eta(z)` survive the implant layer,
+    where :math:`\eta` is the differential charge collection efficiency of
+    :func:`charge_collection_efficiency`.
+    The survivors are collected in the pixel :math:`k` pixels from the one the
+    photon was absorbed in with probability :math:`K_k(z)`,
+    the kernel of
+    :meth:`optika.sensors.diffusion.AbstractDiffusionModel.kernel`
+    of `diffusion` at that depth.
+    The kernel of the signal is then
+
+    .. math::
+
+        \mathcal{K}_k = \overline{n} \left\langle \eta(z) \, K_k(z) \right\rangle,
+
+    where :math:`\left\langle \cdot \right\rangle` is the average over the
+    depth at which photons are absorbed in the light-sensitive region,
+    :meth:`optika.sensors.diffusion.AbstractDiffusionModel.average_depth`.
+    The integrand has a kink where the implant ends, so the average is split
+    there, as in :func:`vmr_signal`.
+
+    Since the average is over the photons absorbed in the light-sensitive
+    region, as in the Monte Carlo simulation of :func:`electrons_measured`,
+    the sum of the kernel with `diffusion` differs from the result of
+    :func:`charge_collection_efficiency`, which assumes a substrate of
+    infinite thickness, for photons which the substrate absorbs weakly.
+    For a substrate 14 microns thick the difference is less than one part in
+    :math:`10^7` between 20 and 5000 angstroms,
+    and grows to a few tenths of a percent at 1 angstrom and at 1 micron.
+    """
+    _check_model(diffusion)
+
+    if thickness_substrate is None:
+        if diffusion is not None:
+            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
+        thickness_substrate = _thickness_substrate
+
+    if diffusion is not None and width_pixel is None:
+        raise ValueError("`width_pixel` must be given with `diffusion`.")
+
+    if n_substrate is None:
+        n_substrate = optika.chemicals.Chemical("Si").n(wavelength)
+
+    direction_substrate = optika.materials.snells_law_scalar(
+        cos_incidence=direction,
+        index_refraction=n,
+        index_refraction_new=n_substrate,
+    )
+
+    absorption = absorption_effective(
+        wavelength=wavelength,
+        n_substrate=n_substrate,
+        direction_substrate=direction_substrate,
+    )
+
+    return _kernel_signal(
+        wavelength=wavelength,
+        absorption=absorption,
+        thickness_implant=thickness_implant,
+        thickness_substrate=thickness_substrate,
+        diffusion=diffusion,
+        width_pixel=width_pixel,
+        cce_backsurface=cce_backsurface,
+        temperature=temperature,
+        axis_x=axis_x,
+        axis_y=axis_y,
+        num=num,
+    )
+
+
+def _kernel_signal(
+    wavelength: u.Quantity | na.AbstractScalar,
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+    diffusion: None | AbstractDiffusionModel,
+    width_pixel: (
+        None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ),
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.AbstractScalar,
+    axis_x: str,
+    axis_y: str,
+    num: None | int = None,
+) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+    """
+    The body of :func:`kernel_signal`,
+    given the absorption coefficient per unit perpendicular depth.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the absorbed photons.
+    absorption
+        The absorption coefficient of the light-sensitive region,
+        per unit perpendicular depth.
+    thickness_implant
+        The thickness of the implant layer.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    diffusion
+        A model of the lateral diffusion of charge in the sensor,
+        or :obj:`None` if charge does not diffuse.
+    width_pixel
+        The size of a single pixel on the sensor,
+        required if `diffusion` is given.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+    temperature
+        The temperature of the light-sensitive silicon layer.
+    axis_x
+        The name of the horizontal axis of the kernel.
+    axis_y
+        The name of the vertical axis of the kernel.
+    num
+        The number of pixels along each axis of the kernel,
+        or :obj:`None` for the default of :func:`kernel_signal`.
+    """
+    iqy = quantum_yield_ideal(
+        wavelength=wavelength,
+        temperature=temperature,
+    )
+
+    if diffusion is None:
+        num = 1 if num is None else _check_num(num)
+        inputs = _indices_kernel(num, axis_x, axis_y)
+        cce = charge_collection_efficiency(
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            cce_backsurface=cce_backsurface,
+        )
+        center = (inputs.x == 0) & (inputs.y == 0)
+        return na.FunctionArray(
+            inputs=inputs,
+            outputs=iqy * cce * center,
+        )
+
+    num = diffusion._num_kernel(num, thickness_substrate, width_pixel)
+
+    def integrand(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+        eta = _cce_differential(
+            depth=depth,
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            cce_backsurface=cce_backsurface,
+        )
+        kernel = diffusion.kernel(
+            depth=depth,
+            thickness_substrate=thickness_substrate,
+            width_pixel=width_pixel,
+            axis_x=axis_x,
+            axis_y=axis_y,
+            num=num,
+        )
+        return eta * kernel.outputs
+
+    # The integrand has a kink where the implant ends and the differential
+    # CCE saturates, so the average is split there, as in `vmr_signal`.
+    result = diffusion.average_depth(
+        function=integrand,
+        absorption=absorption,
+        thickness_substrate=thickness_substrate,
+        depth_break=thickness_implant,
+    )
+
+    return na.FunctionArray(
+        inputs=_indices_kernel(num, axis_x, axis_y),
+        outputs=iqy * result,
+    )
+
+
+def _cce_differential(
+    depth: u.Quantity | na.AbstractScalar,
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+) -> na.AbstractScalar:
+    """
+    The differential charge collection efficiency,
+    the fraction of the electrons created at a given depth which survive the
+    implant layer, as in :func:`charge_collection_efficiency`,
+    written in terms of optical depths as in :func:`vmr_signal`.
+
+    Parameters
+    ----------
+    depth
+        The distance from the back surface of the sensor at which the
+        electrons were created.
+    absorption
+        The absorption coefficient of the light-sensitive region,
+        per unit perpendicular depth.
+    thickness_implant
+        The thickness of the implant layer.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+    """
+    n0 = cce_backsurface
+    az = (absorption * depth).to(u.dimensionless_unscaled).value
+    aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
+    return np.minimum(n0 + (1 - n0) * az / aW, 1)
+
+
+def _gain(
+    wavelength: u.Quantity | na.AbstractScalar,
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+    diffusion: None | AbstractDiffusionModel,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.AbstractScalar,
+) -> na.AbstractScalar:
+    """
+    The expected number of electrons measured per absorbed photon,
+    the sum of the kernel of :func:`kernel_signal`.
+
+    Without diffusion this is the quantum yield times the result of
+    :func:`charge_collection_efficiency`,
+    and with it, the charge collection efficiency is averaged over the depth
+    at which photons are absorbed in the light-sensitive region instead,
+    as the kernel is.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the absorbed photons.
+    absorption
+        The absorption coefficient of the light-sensitive region,
+        per unit perpendicular depth.
+    thickness_implant
+        The thickness of the implant layer.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    diffusion
+        A model of the lateral diffusion of charge in the sensor,
+        or :obj:`None` if charge does not diffuse.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+    temperature
+        The temperature of the light-sensitive silicon layer.
+    """
+    iqy = quantum_yield_ideal(
+        wavelength=wavelength,
+        temperature=temperature,
+    )
+
+    if diffusion is None:
+        cce = charge_collection_efficiency(
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            cce_backsurface=cce_backsurface,
+        )
+        return iqy * cce
+
+    def eta(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+        return _cce_differential(
+            depth=depth,
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            cce_backsurface=cce_backsurface,
+        )
+
+    cce = diffusion.average_depth(
+        function=eta,
+        absorption=absorption,
+        thickness_substrate=thickness_substrate,
+        depth_break=thickness_implant,
+    )
+
+    return iqy * cce
+
+
+_num_interpolation_kernel = 16
+"""
+The number of nodes the kernel of :func:`kernel_signal` is interpolated
+between when the absorption coefficient varies from pixel to pixel,
+see :func:`_spread`.
+"""
+
+
+def _spread(
+    values: na.AbstractScalar,
+    wavelength: u.Quantity | na.AbstractScalar,
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+    diffusion: AbstractDiffusionModel,
+    width_pixel: u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.AbstractScalar,
+    axis_xy: tuple[str, str],
+    wrap: bool,
+    transpose: bool,
+) -> na.AbstractScalar:
+    """
+    The expected electrons measured in each pixel of a grid,
+    given the photons absorbed in each pixel,
+    spreading the electrons of each photon with the kernel of
+    :func:`kernel_signal`, or the transpose of this map.
+
+    The kernel of each pixel is the one for the absorption coefficient of the
+    photons absorbed in it.
+    Computing a kernel for every pixel would cost as much as the number of
+    pixels in the kernel times the number of nodes of the average over depth,
+    so if the absorption coefficient varies along axes which nothing else
+    varies along, such as the axes of the pixel grid when the angle of
+    incidence varies across the sensor,
+    the kernel is instead computed at :obj:`_num_interpolation_kernel` optical
+    depths of the light-sensitive region spanning those axes,
+    and interpolated linearly for each pixel.
+
+    Parameters
+    ----------
+    values
+        The photons absorbed in each pixel, or, for the transpose,
+        the electrons measured in each pixel.
+    wavelength
+        The vacuum wavelength of the absorbed photons.
+    absorption
+        The absorption coefficient of the light-sensitive region,
+        per unit perpendicular depth.
+    thickness_implant
+        The thickness of the implant layer.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    diffusion
+        A model of the lateral diffusion of charge in the sensor.
+    width_pixel
+        The size of a single pixel on the sensor.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+    temperature
+        The temperature of the light-sensitive silicon layer.
+    axis_xy
+        The two logical axes of the pixel grid.
+    wrap
+        If :obj:`False`, the charge which diffuses past the edge of the grid
+        is lost.
+        If :obj:`True`, the grid is periodic, and it re-enters the opposite
+        edge.
+    transpose
+        Whether to apply the transpose of the map instead.
+    """
+    axis_kernel = ("_kernel_x", "_kernel_y")
+
+    shape = na.broadcast_shapes(
+        na.shape(wavelength),
+        na.shape(thickness_implant),
+        na.shape(thickness_substrate),
+        optika.shape(diffusion),
+        na.shape(width_pixel),
+        na.shape(cce_backsurface),
+        na.shape(temperature),
+    )
+    axis = tuple(a for a in na.shape(absorption) if a not in shape)
+
+    def kernel(absorption: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+        return _kernel_signal(
+            wavelength=wavelength,
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            thickness_substrate=thickness_substrate,
+            diffusion=diffusion,
+            width_pixel=width_pixel,
+            cce_backsurface=cce_backsurface,
+            temperature=temperature,
+            axis_x=axis_kernel[0],
+            axis_y=axis_kernel[1],
+        ).outputs
+
+    if not axis:
+        table = kernel(absorption)
+        interpolation = None
+    else:
+        optical_depth = (absorption * thickness_substrate).to(u.dimensionless_unscaled)
+        nodes = na.linspace(
+            start=optical_depth.min(axis),
+            stop=optical_depth.max(axis),
+            axis=_axis_interpolation,
+            num=_num_interpolation_kernel,
+        )
+        table = kernel(nodes / thickness_substrate)
+        interpolation = (optical_depth, nodes)
+
+    return _blur(
+        values=values,
+        kernel=table,
+        axis_xy=axis_xy,
+        axis_kernel=axis_kernel,
+        wrap=wrap,
+        transpose=transpose,
+        interpolation=interpolation,
+    )
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSensorMaterial(
     optika.materials.AbstractMaterial,
@@ -1785,20 +2350,75 @@ class AbstractSensorMaterial(
         """
 
     @abc.abstractmethod
-    def photons_absorbed(
+    def kernel(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        axis_x: str,
+        axis_y: str,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        """
+        The expected number of electrons measured in the pixel a photon is
+        absorbed in and in each of the pixels around it, per absorbed photon,
+        using :func:`kernel_signal`.
+
+        This is the kernel :meth:`signal` spreads the photons absorbed in
+        each pixel with if `noise` is :obj:`False`.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        axis_x
+            The name of the horizontal axis of the kernel.
+        axis_y
+            The name of the vertical axis of the kernel.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        width_pixel
+            The physical size of each pixel.
+            If given, charge diffuses over the pixel grid according to the
+            model of charge diffusion of the material, if it has one,
+            as in :meth:`signal`.
+            If :obj:`None` (the default), the sensor is not resolved into
+            pixels and charge does not diffuse.
+        num
+            The number of pixels along each axis of the kernel,
+            which must be odd so that the kernel is centered on the pixel the
+            photon was absorbed in.
+            If :obj:`None` (the default), the kernel is made just large enough
+            to leave out no more than one part in a million of the charge,
+            or is a single pixel if charge does not diffuse.
+        """
+
+    @abc.abstractmethod
+    def signal_transposed(
         self,
         electrons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        axis_xy: None | tuple[str, str] = None,
+        wrap: bool = False,
     ) -> na.AbstractScalar:
         """
-        Given the number of electrons measured by the sensor, compute the
-        expected number of photons *absorbed* by the light-sensitive region.
+        The transpose of :meth:`signal` without noise,
+        which is a linear map from the photons absorbed in each pixel to the
+        electrons measured in each pixel.
 
-        This is the inverse of :meth:`signal`: it divides out only the quantum
-        yield and the charge collection efficiency, not the absorbance. The
-        absorbance is deliberately excluded because it is usually accounted for
-        elsewhere (for example in the effective area of the optical system).
+        The transpose maps the electrons measured in each pixel to a value in
+        each pixel the photons could have been absorbed in,
+        collecting the electrons with the :meth:`kernel` of that pixel.
+        It is the exact adjoint of :meth:`signal`, so it gives the gradient of
+        a function of the measured electrons with respect to the photons,
+        but it does not invert :meth:`signal`; see :meth:`backproject`.
 
         Parameters
         ----------
@@ -1809,6 +2429,68 @@ class AbstractSensorMaterial(
         direction
             The cosine of the refracted angle inside the light-sensitive region,
             as produced by :meth:`direction_refracted`.
+        width_pixel
+            The physical size of each pixel, as passed to :meth:`signal`.
+        axis_xy
+            The two logical axes corresponding to the pixel grid of the sensor,
+            as passed to :meth:`signal`.
+        wrap
+            Controls how diffused charge is treated at the edges of the pixel
+            grid, as passed to :meth:`signal`.
+        """
+
+    @abc.abstractmethod
+    def backproject(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        axis_xy: None | tuple[str, str] = None,
+        wrap: bool = False,
+    ) -> na.AbstractScalar:
+        r"""
+        Map the electrons measured in each pixel back onto the photons
+        absorbed in each pixel by the light-sensitive region.
+
+        This is :meth:`signal_transposed` divided by the square of the gain,
+        :math:`g`, the expected number of electrons measured per absorbed
+        photon, which is the sum of the :meth:`kernel`,
+
+        .. math::
+
+            p_j = \frac{1}{g_j^2} \sum_k K_k(j) \, e_{j + k}.
+
+        Without diffusion this is the inverse of :meth:`signal`,
+        :math:`p_j = e_j / g_j`,
+        and with it, it is the backprojection that spreads each measured
+        electron back over the pixels it could have come from,
+        in proportion to how likely it is to have come from each,
+        so that an image which varies slowly across the kernel is mapped to
+        the photons that produced it.
+
+        The absorbance is not divided out, since it is usually accounted for
+        elsewhere, for example in the effective area of an optical system.
+
+        Parameters
+        ----------
+        electrons
+            The number of electrons measured by each pixel.
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        width_pixel
+            The physical size of each pixel, as passed to :meth:`signal`.
+        axis_xy
+            The two logical axes corresponding to the pixel grid of the sensor,
+            as passed to :meth:`signal`.
+        wrap
+            Controls how diffused charge is treated at the edges of the pixel
+            grid, as passed to :meth:`signal`.
         """
 
     @abc.abstractmethod
@@ -1903,11 +2585,50 @@ class IdealSensorMaterial(
     ) -> na.AbstractScalar:
         return electrons * u.photon / u.electron
 
-    def photons_absorbed(
+    def kernel(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        axis_x: str,
+        axis_y: str,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        # an ideal sensor measures one electron for every photon, in the pixel
+        # it was absorbed in
+        num = 1 if num is None else _check_num(num)
+        inputs = _indices_kernel(num, axis_x, axis_y)
+        center = (inputs.x == 0) & (inputs.y == 0)
+        return na.FunctionArray(
+            inputs=inputs,
+            outputs=center * u.electron / u.photon,
+        )
+
+    def signal_transposed(
         self,
         electrons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        axis_xy: None | tuple[str, str] = None,
+        wrap: bool = False,
+    ) -> na.AbstractScalar:
+        return electrons * u.electron / u.photon
+
+    def backproject(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        axis_xy: None | tuple[str, str] = None,
+        wrap: bool = False,
     ) -> na.AbstractScalar:
         return electrons * u.photon / u.electron
 
@@ -2475,36 +3196,138 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
         return electrons / qe
 
-    def photons_absorbed(
+    def kernel(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        axis_x: str,
+        axis_y: str,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        # `direction` is the cosine of the refracted angle *inside* the
+        # substrate (as passed to `signal`); pass ``n == n_substrate`` so
+        # `kernel_signal` uses it directly as the substrate direction.
+        n_substrate = self._chemical.n(wavelength)
+
+        return kernel_signal(
+            wavelength=wavelength,
+            axis_x=axis_x,
+            axis_y=axis_y,
+            direction=direction,
+            n=n_substrate,
+            n_substrate=n_substrate,
+            thickness_implant=self.thickness_implant,
+            thickness_substrate=self.thickness_substrate,
+            diffusion=self.diffusion if width_pixel is not None else None,
+            width_pixel=width_pixel,
+            cce_backsurface=self.cce_backsurface,
+            temperature=self.temperature,
+            num=num,
+        )
+
+    def _absorption(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The absorption coefficient per unit perpendicular depth,
+        given the cosine of the refracted angle inside the light-sensitive
+        region, as passed to :meth:`signal`.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region.
+        """
+        return absorption_effective(
+            wavelength=wavelength,
+            n_substrate=self._chemical.n(wavelength),
+            direction_substrate=direction,
+        )
+
+    def signal_transposed(
         self,
         electrons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        axis_xy: None | tuple[str, str] = None,
+        wrap: bool = False,
     ) -> na.AbstractScalar:
-        # `direction` is the cosine of the refracted angle *inside* the
-        # substrate (as passed to `signal`), so compute the substrate
-        # absorption directly from it and divide out only the quantum yield and
-        # charge collection efficiency, matching `signal` at ``absorbance=1``.
-        n_substrate = self._chemical.n(wavelength)
+        absorption = self._absorption(wavelength, direction)
+        diffusion = self.diffusion if width_pixel is not None else None
 
-        absorption = absorption_effective(
+        if diffusion is None:
+            # each pixel keeps its own electrons, so the map is diagonal and
+            # its transpose is the gain itself
+            gain = _gain(
+                wavelength=wavelength,
+                absorption=absorption,
+                thickness_implant=self.thickness_implant,
+                thickness_substrate=self.thickness_substrate,
+                diffusion=None,
+                cce_backsurface=self.cce_backsurface,
+                temperature=self.temperature,
+            )
+            return electrons * gain
+
+        if axis_xy is None:
+            raise ValueError("`axis_xy` must be given with `width_pixel`.")
+
+        return _spread(
+            values=electrons,
             wavelength=wavelength,
-            n_substrate=n_substrate,
-            direction_substrate=direction,
+            absorption=absorption,
+            thickness_implant=self.thickness_implant,
+            thickness_substrate=self.thickness_substrate,
+            diffusion=diffusion,
+            width_pixel=width_pixel,
+            cce_backsurface=self.cce_backsurface,
+            temperature=self.temperature,
+            axis_xy=axis_xy,
+            wrap=wrap,
+            transpose=True,
         )
 
-        iqy = quantum_yield_ideal(
+    def backproject(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = None,
+        axis_xy: None | tuple[str, str] = None,
+        wrap: bool = False,
+    ) -> na.AbstractScalar:
+        gain = _gain(
             wavelength=wavelength,
+            absorption=self._absorption(wavelength, direction),
+            thickness_implant=self.thickness_implant,
+            thickness_substrate=self.thickness_substrate,
+            diffusion=self.diffusion if width_pixel is not None else None,
+            cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
         )
 
-        cce = charge_collection_efficiency(
-            absorption=absorption,
-            thickness_implant=self.thickness_implant,
-            cce_backsurface=self.cce_backsurface,
+        transposed = self.signal_transposed(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+            width_pixel=width_pixel,
+            axis_xy=axis_xy,
+            wrap=wrap,
         )
 
-        return electrons / (iqy * cce)
+        return transposed / np.square(gain)
 
     def uncertainty(
         self,

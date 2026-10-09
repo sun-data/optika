@@ -246,6 +246,116 @@ class AbstractImagingSensor(
         inputs = self._collapse_wavelength(image.inputs, axis_wavelength)
         return dataclasses.replace(image, inputs=inputs, outputs=electrons)
 
+    @staticmethod
+    def _axis_wavelength(
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        axis_wavelength: None | str,
+    ) -> str:
+        """
+        The logical axis of an image corresponding to changing wavelength,
+        the only axis of its wavelengths if `axis_wavelength` is :obj:`None`.
+        """
+        if axis_wavelength is None:
+            shape_wavelength = na.shape(image.inputs.wavelength)
+            if len(shape_wavelength) != 1:  # pragma: nocover
+                raise ValueError(
+                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
+                    f"must have exactly one logical axis, got {shape_wavelength}."
+                )
+            (axis_wavelength,) = shape_wavelength
+        return axis_wavelength
+
+    def kernel(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        """
+        The expected number of electrons measured in the pixel a photon is
+        absorbed in and in each of the pixels around it, per absorbed photon,
+        using the
+        :meth:`~optika.sensors.materials.AbstractSensorMaterial.kernel`
+        of :attr:`material`.
+
+        :meth:`expose` without noise spreads the photons absorbed in each pixel
+        with this kernel, so it is the point-spread function of the sensor.
+        The axes of the kernel have the names of the axes of the pixel grid,
+        :attr:`axis_pixel`, and it is centered on its middle pixel.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive
+            region, as produced by :meth:`collect`.
+        num
+            The number of pixels along each axis of the kernel,
+            which must be odd so that the kernel is centered on the pixel the
+            photon was absorbed in.
+            If :obj:`None` (the default), the kernel is made just large enough
+            to leave out no more than one part in a million of the charge,
+            or is a single pixel if charge does not diffuse.
+        """
+        return self.material.kernel(
+            wavelength=wavelength,
+            axis_x=self.axis_pixel.x,
+            axis_y=self.axis_pixel.y,
+            direction=direction,
+            width_pixel=self.width_pixel,
+            num=num,
+        )
+
+    def kernel_variance(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        num: None | int = None,
+    ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+        """
+        The variance of the electrons measured in the pixel a photon is
+        absorbed in and in each of the pixels around it, per absorbed photon.
+
+        This is the :meth:`kernel` times the variance-to-mean ratio of the
+        measured electrons given by the
+        :meth:`~optika.sensors.materials.AbstractSensorMaterial.uncertainty`
+        of :attr:`material`,
+        so spreading the photons absorbed in each pixel with it gives the
+        variance of the noise in each pixel that :meth:`expose` reports with
+        `uncertainty`, without the read noise.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive
+            region, as produced by :meth:`collect`.
+        num
+            The number of pixels along each axis of the kernel,
+            as in :meth:`kernel`.
+        """
+        kernel = self.kernel(
+            wavelength=wavelength,
+            direction=direction,
+            num=num,
+        )
+
+        electron = 1 * u.electron
+        uncertainty = self.material.uncertainty(
+            electrons=electron,
+            wavelength=wavelength,
+            direction=direction,
+            width_pixel=self.width_pixel,
+        )
+        vmr = np.square(uncertainty) / electron
+
+        return kernel.replace(outputs=vmr * kernel.outputs)
+
     def expose(
         self,
         image: na.FunctionArray[
@@ -278,6 +388,13 @@ class AbstractImagingSensor(
         then summed over wavelength into a single readout and the sensor's
         :attr:`read_noise` is added once.
 
+        Without noise, the result is the expected number of electrons in each
+        pixel, the photons absorbed in each pixel spread over the pixels
+        around it with the :meth:`kernel`,
+        and the charge which diffuses past the edge of the sensor is lost.
+        This is a linear map of the image,
+        whose transpose is :meth:`expose_transposed`.
+
         Parameters
         ----------
         image
@@ -308,19 +425,16 @@ class AbstractImagingSensor(
         uncertainty
             Whether to attach the standard deviation of the measurement noise to
             the result as a
-            :class:`~named_arrays.NormalUncertainScalarArray`, computed with
-            :meth:`uncertainty`.
-            The width uses the *expected* electrons, so the noiseless signal
-            model is only re-evaluated when `noise` is also :obj:`True`.
+            :class:`~named_arrays.NormalUncertainScalarArray`.
+            This uses the analytic noise model of the material,
+            :meth:`~optika.sensors.materials.AbstractSensorMaterial.uncertainty`,
+            evaluated at the *expected* electrons,
+            and, if `integrate`, sums the variances over wavelength and adds
+            the variance of the :attr:`read_noise` once.
+            The noiseless signal model is only re-evaluated when `noise` is
+            also :obj:`True`.
         """
-        if axis_wavelength is None:
-            shape_wavelength = na.shape(image.inputs.wavelength)
-            if len(shape_wavelength) != 1:  # pragma: nocover
-                raise ValueError(
-                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
-                    f"must have exactly one logical axis, got {shape_wavelength}."
-                )
-            (axis_wavelength,) = shape_wavelength
+        axis_wavelength = self._axis_wavelength(image, axis_wavelength)
 
         if timedelta is None:
             timedelta = self.timedelta_exposure
@@ -344,7 +458,7 @@ class AbstractImagingSensor(
             # the width uses the expected electrons, which are the same as the
             # nominal result unless `noise` added a realization
             expected = result if not noise else image.replace(outputs=signal(False))
-            width = self.uncertainty(
+            width = self._uncertainty(
                 expected,
                 direction=direction,
                 axis_wavelength=axis_wavelength,
@@ -365,7 +479,82 @@ class AbstractImagingSensor(
 
         return result
 
-    def photons_absorbed(
+    def expose_transposed(
+        self,
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        direction: float | na.AbstractScalar = 1,
+        axis_wavelength: None | str = None,
+        timedelta: None | u.Quantity | na.AbstractScalar = None,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """
+        The transpose of :meth:`expose` without noise,
+        which is a linear map from the photon flux incident on each pixel to
+        the electrons measured in each pixel.
+
+        This is the exact adjoint of :meth:`expose` for a photon flux,
+        so it gives the gradient of a function of the measured electrons,
+        such as the misfit of a model to a measurement,
+        with respect to the photon flux.
+        It does not invert :meth:`expose`; see :meth:`backproject`.
+
+        The transpose of the sum over wavelength of a single readout, as
+        produced by :meth:`expose` with ``integrate=True``, gives every
+        wavelength bin the whole readout, so an image without a wavelength axis
+        is treated as such a readout.
+
+        Parameters
+        ----------
+        image
+            The electrons measured in each pixel, as a function of wavelength
+            and pixel position, or of pixel position alone for a single
+            readout.
+            The wavelength inputs (``image.inputs.wavelength``) must be the
+            bin *edges* the result is computed on, not the centers,
+            even for a single readout.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            matching the value passed to :meth:`expose`.
+        axis_wavelength
+            The logical axis of `image` corresponding to changing wavelength.
+            If :obj:`None` (the default), ``image.inputs.wavelength`` must have
+            only one logical axis.
+        timedelta
+            The exposure time of the measurement.
+            If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
+            will be used.
+        """
+        axis_wavelength = self._axis_wavelength(image, axis_wavelength)
+
+        if timedelta is None:
+            timedelta = self.timedelta_exposure
+
+        wavelength = image.inputs.wavelength.cell_centers(axis_wavelength)
+
+        result = self.material.signal_transposed(
+            electrons=image.outputs,
+            wavelength=wavelength,
+            direction=direction,
+            width_pixel=self.width_pixel,
+            axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
+        )
+
+        # every wavelength bin gets a value, even from a material which does
+        # not depend on wavelength
+        result = na.broadcast_to(
+            result,
+            na.broadcast_shapes(na.shape(result), na.shape(wavelength)),
+        )
+
+        # the transpose of multiplying the flux by the exposure time
+        return dataclasses.replace(image, outputs=result * timedelta)
+
+    def backproject(
         self,
         image: na.FunctionArray[
             na.SpectralPositionalVectorArray,
@@ -380,15 +569,20 @@ class AbstractImagingSensor(
         na.AbstractScalar,
     ]:
         """
-        Invert :meth:`expose`, mapping the electrons measured in each pixel back
-        into a photon flux absorbed by the light-sensitive region.
+        Map the electrons measured in each pixel back onto the photon flux
+        absorbed by the light-sensitive region of each pixel.
+
+        This uses the
+        :meth:`~optika.sensors.materials.AbstractSensorMaterial.backproject`
+        of :attr:`material`, which divides out the quantum yield and the
+        charge collection efficiency, and spreads the electrons back over the
+        pixels they could have come from.
+        Without diffusion it is the inverse of :meth:`expose` without noise.
 
         The absorbance is *not* restored, since :meth:`expose` runs the
         detector with an absorbance of one (the absorbance is usually accounted
-        for elsewhere, such as in the effective area of an optical system), so
-        this only divides out the quantum yield, the charge collection
-        efficiency, and the exposure time. It is the deterministic inverse of
-        :meth:`expose`; the sensor noise is not undone.
+        for elsewhere, such as in the effective area of an optical system),
+        and the sensor noise is not undone.
 
         Parameters
         ----------
@@ -396,7 +590,8 @@ class AbstractImagingSensor(
             The electrons measured in each pixel, as a function of wavelength
             and pixel position.
             The wavelength inputs (``image.inputs.wavelength``) must be the
-            bin *edges*, not the centers.
+            bin *edges* the result is computed on, not the centers,
+            even if `integrate` is :obj:`True`.
         direction
             The cosine of the refracted angle inside the light-sensitive region,
             matching the value passed to :meth:`expose`.
@@ -412,17 +607,10 @@ class AbstractImagingSensor(
             Whether `image` is a single wavelength-integrated readout (as
             produced by :meth:`expose` with ``integrate=True``).
             If :obj:`True` (the default), the readout is spread uniformly across
-            the wavelength bins before the per-wavelength inverse, mirroring the
-            integration performed by :meth:`expose`.
+            the wavelength bins before the per-wavelength backprojection,
+            mirroring the integration performed by :meth:`expose`.
         """
-        if axis_wavelength is None:
-            shape_wavelength = na.shape(image.inputs.wavelength)
-            if len(shape_wavelength) != 1:  # pragma: nocover
-                raise ValueError(
-                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
-                    f"must have exactly one logical axis, got {shape_wavelength}."
-                )
-            (axis_wavelength,) = shape_wavelength
+        axis_wavelength = self._axis_wavelength(image, axis_wavelength)
 
         if timedelta is None:
             timedelta = self.timedelta_exposure
@@ -434,15 +622,26 @@ class AbstractImagingSensor(
             num_wavelength = na.shape(image.inputs.wavelength)[axis_wavelength] - 1
             electrons = electrons / num_wavelength
 
-        photons = self.material.photons_absorbed(
+        wavelength = image.inputs.wavelength.cell_centers(axis_wavelength)
+
+        photons = self.material.backproject(
             electrons=electrons,
-            wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
+            wavelength=wavelength,
             direction=direction,
+            width_pixel=self.width_pixel,
+            axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
+        )
+
+        # every wavelength bin gets a value, even from a material which does
+        # not depend on wavelength
+        photons = na.broadcast_to(
+            photons,
+            na.broadcast_shapes(na.shape(photons), na.shape(wavelength)),
         )
 
         return dataclasses.replace(image, outputs=photons / timedelta)
 
-    def uncertainty(
+    def _uncertainty(
         self,
         image: na.FunctionArray[
             na.SpectralPositionalVectorArray,
@@ -457,7 +656,7 @@ class AbstractImagingSensor(
     ]:
         """
         Compute the standard deviation of the noise in an image of electrons
-        measured by the sensor.
+        measured by the sensor, for :meth:`expose`.
 
         This uses the material's analytic per-wavelength noise model
         (:meth:`~optika.sensors.materials.AbstractSensorMaterial.uncertainty`),
@@ -471,7 +670,7 @@ class AbstractImagingSensor(
         Parameters
         ----------
         image
-            The electrons measured in each pixel, as a function of wavelength
+            The expected electrons in each pixel, as a function of wavelength
             and pixel position.
             The wavelength inputs (``image.inputs.wavelength``) must be the
             bin *edges*, not the centers.
@@ -488,14 +687,7 @@ class AbstractImagingSensor(
             :attr:`read_noise` is added once.
             Defaults to :obj:`True`, matching :meth:`expose`.
         """
-        if axis_wavelength is None:
-            shape_wavelength = na.shape(image.inputs.wavelength)
-            if len(shape_wavelength) != 1:  # pragma: nocover
-                raise ValueError(
-                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
-                    f"must have exactly one logical axis, got {shape_wavelength}."
-                )
-            (axis_wavelength,) = shape_wavelength
+        axis_wavelength = self._axis_wavelength(image, axis_wavelength)
 
         uncertainty = self.material.uncertainty(
             electrons=image.outputs,

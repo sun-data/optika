@@ -472,26 +472,50 @@ def test_diffusion_requires_pixels():
             thickness_substrate=thickness_substrate,
             diffusion=diffusion,
         )
+    with pytest.raises(ValueError, match="width_pixel"):
+        optika.sensors.kernel_signal(
+            wavelength=wavelength,
+            axis_x="kernel_x",
+            axis_y="kernel_y",
+            thickness_substrate=thickness_substrate,
+            diffusion=diffusion,
+        )
 
     photons_expected = na.broadcast_to(
         100 * u.photon,
         shape=dict(detector_x=4, detector_y=4),
     )
-    with pytest.raises(ValueError, match="axis_xy"):
+    for method in ["expected", "monte-carlo"]:
+        with pytest.raises(ValueError, match="axis_xy"):
+            optika.sensors.signal(
+                photons_expected=photons_expected,
+                wavelength=wavelength,
+                thickness_substrate=thickness_substrate,
+                diffusion=diffusion,
+                width_pixel=27 * u.um,
+                method=method,
+            )
+        with pytest.raises(ValueError, match="width_pixel"):
+            optika.sensors.signal(
+                photons_expected=photons_expected,
+                wavelength=wavelength,
+                thickness_substrate=thickness_substrate,
+                diffusion=diffusion,
+                axis_xy=("detector_x", "detector_y"),
+                method=method,
+            )
+
+    # the expected signal spreads the charge over the pixel grid,
+    # so the photons must vary along both of its axes
+    with pytest.raises(ValueError, match="both axes"):
         optika.sensors.signal(
-            photons_expected=photons_expected,
+            photons_expected=photons_expected[dict(detector_y=0)],
             wavelength=wavelength,
             thickness_substrate=thickness_substrate,
             diffusion=diffusion,
             width_pixel=27 * u.um,
-        )
-    with pytest.raises(ValueError, match="width_pixel"):
-        optika.sensors.signal(
-            photons_expected=photons_expected,
-            wavelength=wavelength,
-            thickness_substrate=thickness_substrate,
-            diffusion=diffusion,
             axis_xy=("detector_x", "detector_y"),
+            method="expected",
         )
 
 
@@ -515,6 +539,13 @@ def test_diffusion_requires_substrate():
     )
     with pytest.raises(ValueError, match="thickness_substrate"):
         optika.sensors.vmr_signal(wavelength, **kwargs)
+    with pytest.raises(ValueError, match="thickness_substrate"):
+        optika.sensors.kernel_signal(
+            wavelength,
+            axis_x="kernel_x",
+            axis_y="kernel_y",
+            **kwargs,
+        )
     for method in ["expected", "monte-carlo"]:
         with pytest.raises(ValueError, match="thickness_substrate"):
             optika.sensors.signal(
@@ -558,6 +589,13 @@ def test_diffusion_is_a_model(
     )
     with pytest.raises(TypeError, match="AbstractDiffusionModel"):
         optika.sensors.vmr_signal(wavelength, **kwargs)
+    with pytest.raises(TypeError, match="AbstractDiffusionModel"):
+        optika.sensors.kernel_signal(
+            wavelength,
+            axis_x="kernel_x",
+            axis_y="kernel_y",
+            **kwargs,
+        )
     for method in ["expected", "monte-carlo"]:
         with pytest.raises(TypeError, match="AbstractDiffusionModel"):
             optika.sensors.signal(
@@ -585,6 +623,8 @@ def test_keyword_only():
     photons = 100 * u.photon
     with pytest.raises(TypeError, match="positional"):
         optika.sensors.vmr_signal(wavelength, 1)
+    with pytest.raises(TypeError, match="positional"):
+        optika.sensors.kernel_signal(wavelength, "kernel_x", "kernel_y")
     with pytest.raises(TypeError, match="positional"):
         optika.sensors.signal(photons, wavelength, 1)
     with pytest.raises(TypeError, match="positional"):
@@ -636,6 +676,277 @@ def test_vmr_signal_quadrature(
         quadrature._num_gauss_legendre = num
 
     assert np.all(np.abs(result / expected - 1) < 1e-5)
+
+
+@pytest.mark.parametrize(
+    argnames="diffusion",
+    argvalues=[
+        None,
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=7.85 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+            width_depletion=1.5 * u.um,
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="width_pixel",
+    argvalues=[
+        16 * u.um,
+        na.Cartesian2dVectorArray(0, 13) * u.um,
+    ],
+)
+def test_kernel_signal(
+    diffusion: None | optika.sensors.diffusion.AbstractDiffusionModel,
+    width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+):
+    """
+    The kernel sums to the expected number of electrons per absorbed photon,
+    and with a back surface which loses no charge it is the kernel of the
+    model of diffusion times the quantum yield.
+
+    Without diffusion the sum is the charge collection efficiency of a
+    substrate of infinite thickness, and with it, the efficiency for the
+    photons absorbed in the substrate, which differ for the X-rays the
+    substrate absorbs weakly.
+    """
+    axis = ("kernel_x", "kernel_y")
+    wavelength = na.geomspace(10, 3000, axis="wavelength", num=11) * u.AA
+    thickness_implant = 0.2 * u.um
+    thickness_substrate = 14 * u.um
+    cce_backsurface = 0.2
+    kwargs = dict(
+        thickness_implant=thickness_implant,
+        thickness_substrate=thickness_substrate,
+        diffusion=diffusion,
+        width_pixel=width_pixel,
+    )
+
+    result = optika.sensors.kernel_signal(
+        wavelength=wavelength,
+        axis_x=axis[0],
+        axis_y=axis[1],
+        cce_backsurface=cce_backsurface,
+        **kwargs,
+    )
+    assert isinstance(result, na.FunctionArray)
+    assert result.outputs.unit.is_equivalent(u.electron / u.photon)
+    assert np.all(result.outputs >= 0 * u.electron / u.photon)
+
+    absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
+    iqy = optika.sensors.quantum_yield_ideal(wavelength)
+
+    # the fraction of the electrons lost in the implant, per photon absorbed
+    # in a substrate of infinite thickness
+    aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
+    lost = (1 - cce_backsurface) * (aW + np.expm1(-aW)) / aW
+    cce = 1 - lost
+    cce_substrate = 1 - lost / -np.expm1(-absorption * thickness_substrate)
+
+    if diffusion is None:
+        assert np.allclose(result.outputs.sum(axis), iqy * cce, rtol=1e-12)
+        assert na.shape(result.outputs) == dict(wavelength=11, kernel_x=1, kernel_y=1)
+        result = optika.sensors.kernel_signal(
+            wavelength=wavelength,
+            axis_x=axis[0],
+            axis_y=axis[1],
+            thickness_implant=thickness_implant,
+            cce_backsurface=cce_backsurface,
+            num=3,
+        )
+        assert np.allclose(result.outputs.sum(axis), iqy * cce, rtol=1e-12)
+        assert result.outputs[dict(kernel_x=0)].sum() == 0
+        return
+
+    assert np.allclose(result.outputs.sum(axis), iqy * cce_substrate, rtol=1e-5)
+    assert not np.allclose(result.outputs.sum(axis), iqy * cce, rtol=1e-5)
+
+    result = optika.sensors.kernel_signal(
+        wavelength=wavelength,
+        axis_x=axis[0],
+        axis_y=axis[1],
+        cce_backsurface=1,
+        **kwargs,
+    )
+    kernel = diffusion.kernel_average(
+        absorption=absorption,
+        thickness_substrate=14 * u.um,
+        width_pixel=width_pixel,
+        axis_x=axis[0],
+        axis_y=axis[1],
+    )
+    expected = iqy * kernel.outputs
+    assert np.allclose(result.outputs, expected, atol=1e-6 * expected.max().ndarray)
+
+
+@pytest.mark.parametrize(
+    argnames="diffusion",
+    argvalues=[
+        optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=7.85 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+        ),
+    ],
+)
+def test_kernel_signal_monte_carlo(
+    diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
+):
+    """
+    The kernel is the mean of the electrons the Monte Carlo simulation
+    measures around each absorbed photon,
+    including the charge lost to recombination near the back surface,
+    for photons absorbed within the implant layer.
+    """
+    num = 9
+    num_photon = 100000
+    axis_xy = ("pixel_x", "pixel_y")
+    kwargs = dict(
+        wavelength=304 * u.AA,
+        thickness_implant=0.2 * u.um,
+        thickness_substrate=14 * u.um,
+        diffusion=diffusion,
+        width_pixel=13 * u.um,
+        cce_backsurface=0.2,
+    )
+
+    photons = np.zeros((num, num))
+    photons[num // 2, num // 2] = num_photon
+    photons = na.ScalarArray(photons << u.photon, axes=axis_xy).astype(int)
+
+    electrons = optika.sensors.electrons_measured(
+        photons_absorbed=photons,
+        axis_xy=axis_xy,
+        **kwargs,
+    )
+    result = electrons / (num_photon * u.photon)
+
+    kernel = optika.sensors.kernel_signal(
+        axis_x=axis_xy[0],
+        axis_y=axis_xy[1],
+        num=num,
+        **kwargs,
+    )
+
+    gain = kernel.outputs.sum(axis_xy)
+    assert np.allclose(result, kernel.outputs, atol=0.004 * gain.ndarray)
+
+
+@pytest.mark.parametrize(
+    argnames="wrap",
+    argvalues=[False, True],
+)
+def test_signal_expected_diffusion(
+    wrap: bool,
+):
+    """
+    Without noise, the electrons of the photons absorbed in each pixel are
+    spread over the pixels around it with the kernel,
+    and the charge which leaves the grid is lost unless it wraps around.
+    """
+    axis_xy = ("pixel_x", "pixel_y")
+    num_x, num_y = 7, 6
+    i_x, i_y = 1, 3
+    num_photon = 1000
+
+    kwargs = dict(
+        wavelength=304 * u.AA,
+        thickness_substrate=14 * u.um,
+        diffusion=optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+        ),
+        width_pixel=8 * u.um,
+    )
+
+    photons = np.zeros((num_x, num_y))
+    photons[i_x, i_y] = num_photon
+    photons = na.ScalarArray(photons << u.photon, axes=axis_xy)
+
+    result = optika.sensors.signal(
+        photons_expected=photons,
+        absorbance=1,
+        method="expected",
+        axis_xy=axis_xy,
+        wrap=wrap,
+        **kwargs,
+    )
+
+    kernel = optika.sensors.kernel_signal(
+        axis_x="kernel_x",
+        axis_y="kernel_y",
+        **kwargs,
+    )
+    kernel = kernel.outputs.ndarray_aligned(("kernel_x", "kernel_y"))
+    half_x, half_y = kernel.shape[0] // 2, kernel.shape[1] // 2
+
+    expected = np.zeros((num_x, num_y)) * u.electron
+    for k_x in range(kernel.shape[0]):
+        for k_y in range(kernel.shape[1]):
+            j_x = i_x + k_x - half_x
+            j_y = i_y + k_y - half_y
+            if wrap:
+                j_x, j_y = j_x % num_x, j_y % num_y
+            elif not (0 <= j_x < num_x and 0 <= j_y < num_y):
+                continue
+            expected[j_x, j_y] += num_photon * u.photon * kernel[k_x, k_y]
+
+    assert np.allclose(result.ndarray_aligned(axis_xy), expected)
+    if wrap:
+        total = num_photon * u.photon * kernel.sum()
+        assert np.isclose(result.sum(axis_xy).ndarray, total)
+
+
+def test_signal_expected_direction():
+    """
+    A direction which varies over the pixel grid gives the photons absorbed
+    in each pixel the kernel of their own absorption coefficient,
+    interpolated to about one part in a million.
+    """
+    axis_xy = ("pixel_x", "pixel_y")
+    shape = dict(pixel_x=5, pixel_y=4)
+    angle = na.linspace(0, 30, axis="pixel_x", num=5) * u.deg
+    angle = angle + na.linspace(0, 5, axis="pixel_y", num=4) * u.deg
+    direction = np.cos(angle)
+    photons = na.random.uniform(0, 100, shape_random=shape) * u.photon
+
+    kwargs = dict(
+        wavelength=304 * u.AA,
+        thickness_substrate=14 * u.um,
+        diffusion=optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+        ),
+        width_pixel=8 * u.um,
+    )
+
+    result = optika.sensors.signal(
+        photons_expected=photons,
+        direction=direction,
+        absorbance=1,
+        method="expected",
+        axis_xy=axis_xy,
+        **kwargs,
+    )
+
+    # the electrons of each pixel spread with the kernel of its own direction
+    expected = 0 * u.electron
+    for i_x in range(shape["pixel_x"]):
+        for i_y in range(shape["pixel_y"]):
+            index = dict(pixel_x=i_x, pixel_y=i_y)
+            source = np.zeros(tuple(shape.values())) * u.photon
+            source[i_x, i_y] = photons[index].ndarray
+            expected = expected + optika.sensors.signal(
+                photons_expected=na.ScalarArray(source, axes=axis_xy),
+                direction=direction[index],
+                absorbance=1,
+                method="expected",
+                axis_xy=axis_xy,
+                **kwargs,
+            )
+
+    assert np.allclose(result, expected, atol=1e-6 * expected.max().ndarray)
 
 
 class AbstractTestAbstractSensorMaterial(
@@ -723,12 +1034,6 @@ class AbstractTestAbstractSensorMaterial(
         assert result.unit.is_equivalent(u.photon)
 
     @pytest.mark.parametrize(
-        argnames="photons",
-        argvalues=[
-            100 * u.photon,
-        ],
-    )
-    @pytest.mark.parametrize(
         argnames="wavelength",
         argvalues=[
             100 * u.AA,
@@ -741,34 +1046,142 @@ class AbstractTestAbstractSensorMaterial(
             0.5,
         ],
     )
-    def test_photons_absorbed(
+    def test_kernel(
         self,
         a: optika.sensors.materials.AbstractSensorMaterial,
-        photons: u.Quantity | na.AbstractScalar,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar,
     ):
-        # `photons_absorbed` inverts the noiseless `signal` (which uses unit
-        # absorbance), recovering the number of absorbed photons.
+        """
+        Without pixels the kernel is the noiseless signal of one photon in a
+        single pixel, and with them it spreads the same signal over the
+        pixels around it.
+        """
+        axis = ("kernel_x", "kernel_y")
+        signal = a.signal(
+            photons=1 * u.photon,
+            wavelength=wavelength,
+            direction=direction,
+            noise=False,
+        )
+
+        result = a.kernel(wavelength, *axis, direction=direction)
+        assert isinstance(result, na.FunctionArray)
+        assert result.outputs.unit.is_equivalent(u.electron / u.photon)
+        assert na.shape(result.outputs) == dict(kernel_x=1, kernel_y=1)
+        assert np.allclose(result.outputs.sum(axis) * u.photon, signal)
+
+        result = a.kernel(wavelength, *axis, direction=direction, width_pixel=15 * u.um)
+        center = result.outputs[dict(kernel_x=result.outputs.shape["kernel_x"] // 2)]
+        center = center[dict(kernel_y=result.outputs.shape["kernel_y"] // 2)]
+        assert np.all(result.outputs >= 0 * u.electron / u.photon)
+        assert np.all(result.outputs <= center)
+        assert np.allclose(result.outputs.sum(axis) * u.photon, signal, rtol=1e-5)
+
+        with pytest.raises(ValueError, match="num"):
+            a.kernel(wavelength, *axis, direction=direction, num=2)
+
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
+            na.linspace(0.8, 1, axis="detector_x", num=12),
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="width_pixel",
+        argvalues=[
+            None,
+            15 * u.um,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="wrap",
+        argvalues=[False, True],
+    )
+    def test_signal_transposed(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        direction: float | na.AbstractScalar,
+        width_pixel: None | u.Quantity,
+        wrap: bool,
+    ):
+        """
+        The transpose is the adjoint of the noiseless signal,
+        whether or not the charge diffuses,
+        and whether or not each pixel has its own kernel.
+        """
+        axis_xy = ("detector_x", "detector_y")
+        shape = dict(detector_x=12, detector_y=10)
+        wavelength = 100 * u.AA
+        photons = na.random.uniform(0, 100, shape_random=shape) * u.photon
+        electrons = na.random.uniform(0, 100, shape_random=shape) * u.electron
+        kwargs = dict(
+            wavelength=wavelength,
+            direction=direction,
+            width_pixel=width_pixel,
+            axis_xy=axis_xy,
+            wrap=wrap,
+        )
+
+        forward = a.signal(photons, noise=False, **kwargs)
+        result = a.signal_transposed(electrons, **kwargs)
+
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert np.allclose(
+            (forward * electrons).sum(axis_xy),
+            (photons * result).sum(axis_xy),
+            rtol=1e-12,
+        )
+
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
+        ],
+    )
+    def test_backproject(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        direction: float | na.AbstractScalar,
+    ):
+        """
+        The backprojection inverts the noiseless signal (which uses unit
+        absorbance) of the photons absorbed in a single pixel,
+        and of photons absorbed uniformly across a periodic grid of pixels
+        over which the charge diffuses.
+        """
+        wavelength = 100 * u.AA
+        photons = 100 * u.photon
         electrons = a.signal(
             photons=photons,
             wavelength=wavelength,
             direction=direction,
             noise=False,
         )
-        result = a.photons_absorbed(
+        result = a.backproject(
             electrons=electrons,
             wavelength=wavelength,
             direction=direction,
         )
         assert isinstance(na.as_named_array(result), na.AbstractScalar)
         assert result.unit.is_equivalent(u.photon)
-        assert np.allclose(
-            na.as_named_array(result / photons).ndarray.to_value(
-                u.dimensionless_unscaled
-            ),
-            1,
+        assert np.allclose(result, photons)
+
+        axis_xy = ("detector_x", "detector_y")
+        photons = na.broadcast_to(photons, dict(detector_x=12, detector_y=10))
+        kwargs = dict(
+            wavelength=wavelength,
+            direction=direction,
+            width_pixel=15 * u.um,
+            axis_xy=axis_xy,
+            wrap=True,
         )
+        electrons = a.signal(photons, noise=False, **kwargs)
+        result = a.backproject(electrons, **kwargs)
+        assert np.allclose(result, photons, rtol=1e-5)
 
     @pytest.mark.parametrize(
         argnames="electrons",
@@ -1012,17 +1425,19 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
             shape=dict(detector_x=4, detector_y=4),
         )
         kwargs = dict(
-            photons=photons,
             wavelength=304 * u.AA,
             width_pixel=15 * u.um,
         )
-        result = a.signal(axis_xy=axis_xy, **kwargs)
-        assert result.shape == photons.shape
-        assert np.all(result >= 0 * u.electron)
+        for noise in [True, False]:
+            result = a.signal(photons, axis_xy=axis_xy, noise=noise, **kwargs)
+            assert result.shape == photons.shape
+            assert np.all(result >= 0 * u.electron)
 
-        if a.diffusion is not None:
-            with pytest.raises(ValueError, match="axis_xy"):
-                a.signal(**kwargs)
+            if a.diffusion is not None:
+                with pytest.raises(ValueError, match="axis_xy"):
+                    a.signal(photons, noise=noise, **kwargs)
+                with pytest.raises(ValueError, match="axis_xy"):
+                    a.signal_transposed(result, **kwargs)
 
     @pytest.mark.parametrize(
         argnames="wavelength",
