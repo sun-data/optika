@@ -759,6 +759,38 @@ class AbstractSequentialSystem(
         center = center.broadcast_to(na.broadcast_shapes(na.shape(center), {axis: 1}))
         return np.concatenate([wire, center], axis=axis)
 
+    @staticmethod
+    def _pairs_stops(
+        surfaces: Sequence[optika.surfaces.AbstractSurface],
+    ) -> list[tuple[int, int]]:
+        """
+        The pairs of a pupil stop and a field stop which
+        :meth:`_calc_rayfunction_stops_only` solves between, in the order it
+        solves them, as their indices in `surfaces`.
+
+        Each pair after the first replaces whichever stop of the last comes
+        first in the system with the next stop of its kind, until there is
+        none.  The rays the solve returns connect the edges of the last pair,
+        which with a single surface marked as each stop is the only one.
+
+        Parameters
+        ----------
+        surfaces
+            The surfaces of the system, as :attr:`surfaces_all` gives them.
+        """
+        indices_pupil_stop = [i for i, s in enumerate(surfaces) if s.is_pupil_stop]
+        indices_field_stop = [i for i, s in enumerate(surfaces) if s.is_field_stop]
+        result = []
+        while indices_pupil_stop and indices_field_stop:
+            index_pupil_stop = indices_pupil_stop[0]
+            index_field_stop = indices_field_stop[0]
+            result.append((index_pupil_stop, index_field_stop))
+            if index_pupil_stop <= index_field_stop:
+                indices_pupil_stop.pop(0)
+            else:
+                indices_field_stop.pop(0)
+        return result
+
     def _calc_rayfunction_stops_only(
         self,
         wavelength_input: na.ScalarLike,
@@ -789,18 +821,13 @@ class AbstractSequentialSystem(
         )
 
         surfaces = self.surfaces_all
-        indices_pupil_stop = self._indices_pupil_stop
-        indices_field_stop = self._indices_field_stop
+        pairs = self._pairs_stops(surfaces)
         # both stops have been looked up by the caller, which raises a
         # fuller message of its own if either is missing
-        if not indices_pupil_stop:  # pragma: nocover
-            raise ValueError("pupil not defined")
-        if not indices_field_stop:  # pragma: nocover
-            raise ValueError("field stop not defined")
+        if not pairs:  # pragma: nocover
+            raise ValueError("pupil or field stop not defined")
 
-        while indices_pupil_stop and indices_field_stop:
-            index_pupil_stop = indices_pupil_stop[0]
-            index_field_stop = indices_field_stop[0]
+        for index_pupil_stop, index_field_stop in pairs:
             pupil_stop = surfaces[index_pupil_stop]
             field_stop = surfaces[index_field_stop]
 
@@ -823,11 +850,9 @@ class AbstractSequentialSystem(
             result.inputs.field = grid_field
 
             if index_pupil_stop <= index_field_stop:
-                indices_pupil_stop.pop(0)
                 subsystem = surfaces[index_pupil_stop : index_field_stop + 1]
                 grid_first, grid_last = grid_pupil, grid_field
             else:
-                indices_field_stop.pop(0)
                 subsystem = surfaces[index_field_stop : index_pupil_stop + 1]
                 grid_first, grid_last = grid_field, grid_pupil
 
@@ -1605,16 +1630,208 @@ class AbstractSequentialSystem(
         :attr:`~optika.sensors.AbstractImagingSensor.clip_rays` instead.
         """
         surfaces = self.surfaces_all
+        indices = {i for i, surface in enumerate(surfaces) if surface.is_field_stop}
+        if self.sensor is not None:
+            indices.add(len(surfaces) - 1)
+        return self._surfaces_with_open(surfaces, indices)
+
+    def _surfaces_with_open(
+        self,
+        surfaces: list[optika.surfaces.AbstractSurface],
+        indices: set[int],
+    ) -> list[optika.surfaces.AbstractSurface]:
+        """
+        A copy of the surfaces of this system, with those at the given indices
+        left open, the way :attr:`_surfaces_open` leaves them.
+
+        Parameters
+        ----------
+        surfaces
+            The surfaces of this system, as :attr:`surfaces_all` gives them,
+            which the caller has already built.
+        indices
+            The indices in `surfaces` of the surfaces which no longer
+            vignette.
+        """
         index_sensor = len(surfaces) - 1 if self.sensor is not None else None
         result = []
         for i, surface in enumerate(surfaces):
-            if i == index_sensor:
-                surface = dataclasses.replace(surface, clip_rays=False)
-            elif surface.is_field_stop and surface.aperture is not None:
-                aperture = dataclasses.replace(surface.aperture, active=False)
-                surface = dataclasses.replace(surface, aperture=aperture)
+            if i in indices:
+                if i == index_sensor:
+                    surface = dataclasses.replace(surface, clip_rays=False)
+                elif surface.aperture is not None:
+                    aperture = dataclasses.replace(surface.aperture, active=False)
+                    surface = dataclasses.replace(surface, aperture=aperture)
             result.append(surface)
         return result
+
+    def beam_footprint(
+        self,
+        index: int,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        samples_field_stop: int = 401,
+        samples_pupil_stop: int = 401,
+    ) -> optika.apertures.PolygonalAperture:
+        """
+        The outline of the beam on one surface of this system: the convex hull
+        of the points where the light which reaches the end of the system
+        crosses that surface.
+
+        The hull is that of two sets of rays, each traced through the whole
+        system, of which only those which reach its end are kept:
+
+        - the rays which graze the edges of both stops, solved for as they
+          are for :attr:`rayfunction_stops`;
+        - the rays of :attr:`grid_input`, traced at `wavelength` as
+          :meth:`raytrace` traces them.
+
+        Where the stops bound the beam, every ray which reaches the end of the
+        system passes inside both stops, and the outermost of them pass
+        through the edges of both: as long as the system carries its stops
+        onto the surface nearly linearly, a ray through the inside of either
+        stop lands between rays through its edge.  Where another aperture
+        cuts the beam, the corners it makes where its edge crosses the
+        outline of the beam it cuts are found from these rays too, to within
+        the spacing of the samples along the edges.
+
+        A grid of rays over the field and the pupil finds the corners of the
+        hull only to within the spacing of the grid, which shrinks as the
+        fourth root of the number of rays traced.  Along the edges of the
+        stops the spacing shrinks as the square root, so the hull of the rays
+        along them is much sharper for the same number.
+
+        The rays of the grid fill in what the rays along the edges of the
+        stops miss, to within the spacing of the grid: a corner of another
+        aperture which lies inside the beam, and a beam which another
+        aperture, smaller than it everywhere, bounds instead of the stops,
+        so that it blocks every ray along their edges.  So the outline holds
+        every ray of the grid which reaches the end of the system, but where
+        the stops do not bound the beam, it is only as close to the beam as
+        the grid is fine.
+
+        Each ray along the edges lies on the edge of both stops, where
+        rounding would block about half of them, so both stops are left open
+        for their trace, the way :attr:`_surfaces_open` leaves the field
+        stop.  If more than one surface is marked as either stop, these are
+        the pair the solve finishes on, see :meth:`_pairs_stops`, and the
+        others vignette the rays like any other aperture.
+
+        The outline is convex, so where an obscuration cuts a notch into the
+        beam, the outline spans it.
+
+        Parameters
+        ----------
+        index
+            The index in :attr:`surfaces_all` of the surface to outline the
+            beam on.
+        wavelength
+            The wavelengths of the beam.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            is used.
+        samples_field_stop
+            The number of points along the edge of the field stop.
+            A polygonal stop with fewer corners than this is sampled at every
+            one of them.
+        samples_pupil_stop
+            The number of points along the edge of the pupil stop, sampled the
+            same way.
+
+        Returns
+        -------
+            The outline of the beam, in the local coordinates of the surface.
+            An aperture with a transformation of its own gives its vertices
+            before that transformation, so on a stop the outline matches
+            ``aperture.transformation(aperture.vertices)`` rather than
+            ``aperture.vertices``.  The vertices of the outline vary along an
+            axis named ``vertex``, as :func:`named_arrays.geometry.convex_hull`
+            gives them, and every other axis of the system, of `wavelength` and
+            of :attr:`grid_input` other than its field and pupil gets an
+            outline of its own.  The vertices of an outline which no ray
+            reaches are all NaN.
+        """
+        surfaces = self.surfaces_all
+        transformation = surfaces[index].transformation
+
+        def hull(
+            rays: optika.rays.AbstractRayVectorArray,
+            axis: tuple[str, ...],
+        ) -> na.AbstractCartesian2dVectorArray:
+            """
+            The convex hull of the points where the given rays, traced through
+            every surface of the system, cross the surface at `index`, in its
+            local coordinates, keeping only those which reach the end.
+
+            Parameters
+            ----------
+            rays
+                The rays, accumulated along :attr:`axis_surface`.
+            axis
+                The axes along which the rays of a single beam vary.
+            """
+            position = rays.position[{self.axis_surface: index}]
+            if transformation is not None:
+                position = transformation.inverse(position)
+            return na.geometry.convex_hull(
+                points=position.xy,
+                axis=axis,
+                where=rays.unvignetted[{self.axis_surface: ~0}],
+            )
+
+        rays_grid = self._raytrace(
+            surfaces=surfaces,
+            wavelength=wavelength,
+            efficiency=False,
+        ).outputs
+
+        if wavelength is None:
+            wavelength = self.grid_input.wavelength
+
+        rayfunction_stops = self._without_center(
+            self._calc_rayfunction_stops(
+                wavelength_input=wavelength,
+                samples_pupil_stop=samples_pupil_stop,
+                samples_field_stop=samples_field_stop,
+            )
+        )
+        field, pupil = self._field_and_pupil(rayfunction_stops.outputs)
+
+        rays_edge = self._raytrace(
+            surfaces=self._surfaces_with_open(
+                surfaces=surfaces,
+                indices=set(self._pairs_stops(surfaces)[~0]),
+            ),
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=False,
+            normalized_pupil=False,
+            efficiency=False,
+        ).outputs
+
+        # The hull of both sets of rays is the hull of the vertices of the
+        # hull of each.  Vertices which are not a number, of a hull which no
+        # ray reaches, are left out of it.
+        hulls = [
+            hull(rays_edge, self.axis_stops),
+            hull(rays_grid, self.axis_field_ + self.axis_pupil_),
+        ]
+        axis = "vertex"
+        shape = na.broadcast_shapes(
+            *[{a: n for a, n in na.shape(h).items() if a != axis} for h in hulls]
+        )
+        hulls = [h.broadcast_to(shape | {axis: na.shape(h)[axis]}) for h in hulls]
+        hull_all = na.geometry.convex_hull(
+            points=np.concatenate(hulls, axis=axis),
+            axis=axis,
+        )
+
+        return optika.apertures.PolygonalAperture(
+            vertices=na.Cartesian3dVectorArray(
+                x=hull_all.x,
+                y=hull_all.y,
+                z=0 * hull_all.x,
+            ),
+        )
 
     def rayfunction(
         self,
