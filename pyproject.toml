@@ -17,7 +17,7 @@ classifiers = [
 ]
 dependencies = [
     "astropy!=6.1.5",
-    "named-arrays~=2.14",
+    "named-arrays @ git+https://github.com/sun-data/named-arrays.git@feature/convex-hull",
     "pymupdf",
     "joblib",
     "ezdxf",
