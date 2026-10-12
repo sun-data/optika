@@ -1605,16 +1605,143 @@ class AbstractSequentialSystem(
         :attr:`~optika.sensors.AbstractImagingSensor.clip_rays` instead.
         """
         surfaces = self.surfaces_all
+        indices = {i for i, surface in enumerate(surfaces) if surface.is_field_stop}
+        if self.sensor is not None:
+            indices.add(len(surfaces) - 1)
+        return self._surfaces_opened(indices)
+
+    def _surfaces_opened(
+        self,
+        indices: set[int],
+    ) -> list[optika.surfaces.AbstractSurface]:
+        """
+        :attr:`surfaces_all`, with the surfaces at the given indices left
+        open, the way :attr:`_surfaces_open` leaves them.
+
+        Parameters
+        ----------
+        indices
+            The indices in :attr:`surfaces_all` of the surfaces which no
+            longer vignette.
+        """
+        surfaces = self.surfaces_all
         index_sensor = len(surfaces) - 1 if self.sensor is not None else None
         result = []
         for i, surface in enumerate(surfaces):
-            if i == index_sensor:
-                surface = dataclasses.replace(surface, clip_rays=False)
-            elif surface.is_field_stop and surface.aperture is not None:
-                aperture = dataclasses.replace(surface.aperture, active=False)
-                surface = dataclasses.replace(surface, aperture=aperture)
+            if i in indices:
+                if i == index_sensor:
+                    surface = dataclasses.replace(surface, clip_rays=False)
+                elif surface.aperture is not None:
+                    aperture = dataclasses.replace(surface.aperture, active=False)
+                    surface = dataclasses.replace(surface, aperture=aperture)
             result.append(surface)
         return result
+
+    def beam_footprint(
+        self,
+        index: int,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        samples_field_stop: int = 401,
+        samples_pupil_stop: int = 401,
+    ) -> optika.apertures.PolygonalAperture:
+        """
+        The outline of the beam on one surface of this system: the convex hull
+        of the points where the light which reaches the end of the system
+        crosses that surface.
+
+        The hull is that of the rays which graze the edges of both stops,
+        solved for as they are for :attr:`rayfunction_stops` and traced
+        through the whole system.  Every ray which reaches the end of the
+        system passes inside both stops, and the outermost of them pass
+        through the edges of both: as long as the system carries its stops
+        onto the surface nearly linearly, a ray through the inside of either
+        stop lands between rays through its edge.  Where another aperture
+        cuts the beam, the corners it makes are where its edge crosses the
+        outline of the beam it cuts, so they are found from these rays too.
+        Rays which any aperture other than the two stops blocks are left out.
+
+        A grid of rays over the field and the pupil finds the corners of the
+        hull only to within the spacing of the grid, which shrinks as the
+        fourth root of the number of rays traced.  Along the edges of the
+        stops the spacing shrinks as the square root, so the hull of these
+        rays is much sharper for the same number.
+
+        Each of these rays lies on the edge of both stops, where rounding
+        would block about half of them, so both stops are left open for this
+        trace, the way :attr:`_surfaces_open` leaves the field stop.
+
+        The outline is convex, so where an obscuration cuts a notch into the
+        beam, the outline spans it.
+
+        Parameters
+        ----------
+        index
+            The index in :attr:`surfaces_all` of the surface to outline the
+            beam on.
+        wavelength
+            The wavelengths of the beam.
+            If :obj:`None` (the default), ``self.grid_input.wavelength``
+            is used.
+        samples_field_stop
+            The number of points along the edge of the field stop.
+            A polygonal stop with fewer corners than this is sampled at every
+            one of them.
+        samples_pupil_stop
+            The number of points along the edge of the pupil stop, sampled the
+            same way.
+
+        Returns
+        -------
+            The outline of the beam, in the local coordinates of the surface,
+            the same coordinates its own aperture is given in.  Its vertices
+            vary along an axis named ``vertex``, as
+            :func:`named_arrays.geometry.convex_hull` gives them, and every
+            other axis of the system and of `wavelength` gets an outline of its
+            own.  The vertices of an outline which no light reaches are all
+            NaN.
+        """
+        if wavelength is None:
+            wavelength = self.grid_input.wavelength
+
+        rayfunction_stops = self._without_center(
+            self._calc_rayfunction_stops(
+                wavelength_input=wavelength,
+                samples_pupil_stop=samples_pupil_stop,
+                samples_field_stop=samples_field_stop,
+            )
+        )
+        field, pupil = self._field_and_pupil(rayfunction_stops.outputs)
+
+        surfaces = self._surfaces_opened({self.index_field_stop, self.index_pupil_stop})
+
+        rays = self._raytrace(
+            surfaces=surfaces,
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=False,
+            normalized_pupil=False,
+            efficiency=False,
+        ).outputs
+
+        position = rays.position[{self.axis_surface: index}]
+        transformation = surfaces[index].transformation
+        if transformation is not None:
+            position = transformation.inverse(position)
+
+        hull = na.geometry.convex_hull(
+            points=position.xy,
+            axis=self.axis_stops,
+            where=rays.unvignetted[{self.axis_surface: ~0}],
+        )
+
+        return optika.apertures.PolygonalAperture(
+            vertices=na.Cartesian3dVectorArray(
+                x=hull.x,
+                y=hull.y,
+                z=0 * hull.x,
+            ),
+        )
 
     def rayfunction(
         self,

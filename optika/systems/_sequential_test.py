@@ -86,6 +86,35 @@ other.
 """
 
 
+def _support(
+    points: na.AbstractCartesian2dVectorArray,
+    axis: str | tuple[str, ...],
+    where: bool | na.AbstractScalar = True,
+) -> na.AbstractScalar:
+    """
+    How far a set of points reaches along each of a fan of directions.
+
+    This is the support function of the convex hull of the points, and two
+    convex polygons with the same support function are the same polygon,
+    whatever vertices each is listed with.  So it compares outlines whose
+    vertices differ by points along their edges.
+
+    Parameters
+    ----------
+    points
+        The points to reach with.
+    axis
+        The axes along which the points of a single set vary.
+    where
+        Which of the points take part.
+    """
+    angle = na.linspace(0, 360, axis="_direction", num=72, endpoint=False) * u.deg
+    direction = na.Cartesian2dVectorArray(np.cos(angle), np.sin(angle))
+    reach = points @ direction
+    reach = np.where(where, reach, -np.inf * na.unit_normalized(reach))
+    return reach.max(axis)
+
+
 class AbstractTestAbstractSequentialSystem(
     test_mixins.AbstractTestDxfWritable,
     test_mixins.AbstractTestPlottable,
@@ -670,6 +699,38 @@ class AbstractTestAbstractSequentialSystem(
             na.value(result.vertices.x).ndarray,
             na.value(chief.x).ndarray_aligned(result.vertices.x.axes),
         )
+
+    def test_beam_footprint(self, a: optika.systems.AbstractSequentialSystem) -> None:
+        rays = a.raytrace(efficiency=False).outputs
+        unvignetted = rays.unvignetted[{a.axis_surface: ~0}]
+        for index, surface in enumerate(a.surfaces_all):
+            result = a.beam_footprint(
+                index=index,
+                samples_field_stop=21,
+                samples_pupil_stop=21,
+            )
+            assert isinstance(result, optika.apertures.PolygonalAperture)
+            vertices = result.vertices
+            assert "vertex" in na.shape(vertices)
+            assert not set(a.axis_stops) & set(na.shape(vertices))
+
+            # Every ray of the default grid which reaches the end of the
+            # system crosses the surface inside the outline, to within the
+            # chords this few samples cut across a round stop.  An outline
+            # which is not a number is that of a system whose stops do not
+            # bound its beam, which one of these does not.
+            position = rays.position[{a.axis_surface: index}]
+            if surface.transformation is not None:
+                position = surface.transformation.inverse(position)
+            reach = _support(
+                points=position.xy,
+                axis=a.axis_field_ + a.axis_pupil_,
+                where=unvignetted,
+            )
+            reach_outline = _support(vertices.xy, axis="vertex")
+            size = np.maximum(vertices.x.ptp("vertex"), vertices.y.ptp("vertex"))
+            inside = reach <= reach_outline + 1e-3 * size
+            assert np.all(inside | ~np.isfinite(size))
 
     def test_linearize_field_stop(self, a: optika.systems.AbstractSequentialSystem):
         if not a.axis_wavelength_:
@@ -1621,6 +1682,120 @@ class TestSequentialSystemNewtonian(
         result = a.field_max
         assert np.abs(result.x - _radius_field_newtonian) < 1e-6 * u.deg
         assert np.abs(result.y - _radius_field_newtonian) < 1e-6 * u.deg
+
+
+def _system_rectangular() -> optika.systems.SequentialSystem:
+    """
+    A mirror whose rectangular aperture is the pupil stop, imaging onto the
+    sensor, which is the field stop, with no other aperture to vignette it.
+    """
+    return optika.systems.SequentialSystem(
+        surfaces=[
+            optika.surfaces.Surface(
+                name="mirror",
+                sag=optika.sags.SphericalSag(-200 * u.mm),
+                material=optika.materials.Mirror(),
+                aperture=optika.apertures.RectangularAperture(
+                    half_width=na.Cartesian2dVectorArray(20, 10) * u.mm,
+                ),
+                is_pupil_stop=True,
+                transformation=na.transformations.Cartesian3dTranslation(
+                    z=100 * u.mm,
+                ),
+            ),
+        ],
+        sensor=_sensor,
+        grid_input=_grid_input,
+    )
+
+
+def test_beam_footprint_on_a_stop_is_the_stop() -> None:
+    """
+    On either stop of a system which nothing else vignettes, the outline of
+    the beam is the stop itself, since the rays it is made from land on its
+    edge.
+
+    The system is moved rigidly first, so that an outline left in the frame
+    of the system, rather than in that of the surface, is caught.
+    """
+    system = _moved_rigidly(_system_rectangular(), _motion_rigid)
+    for index in [system.index_pupil_stop, system.index_field_stop]:
+        result = system.beam_footprint(index)
+        aperture = system.surfaces_all[index].aperture
+        expected = aperture.vertices
+        if aperture.transformation is not None:
+            expected = aperture.transformation(expected)
+        assert np.allclose(
+            _support(result.vertices.xy, axis="vertex"),
+            _support(expected.xy, axis="vertex"),
+            rtol=0,
+            atol=1e-6 * u.mm,
+        )
+
+
+_cut_newtonian = 6 * u.mm
+"""
+Where the obscuration of :func:`_system_newtonian_cut` cuts the beam, which is
+about 13 mm in radius where it crosses the obscuration.
+"""
+
+
+def _system_newtonian_cut() -> optika.systems.SequentialSystem:
+    """
+    :obj:`_system_newtonian` with an obscuration just in front of its primary
+    mirror, whose straight edge cuts off the side of the beam beyond
+    :obj:`_cut_newtonian`.
+    """
+    half_width = na.Cartesian2dVectorArray(20, 40) * u.mm
+    obscuration = optika.surfaces.Surface(
+        name="obscuration",
+        aperture=optika.apertures.RectangularAperture(
+            half_width=half_width,
+            inverted=True,
+            transformation=na.transformations.Cartesian3dTranslation(
+                x=_cut_newtonian + half_width.x,
+            ),
+        ),
+        transformation=na.transformations.Cartesian3dTranslation(z=490 * u.mm),
+    )
+    return dataclasses.replace(
+        _system_newtonian,
+        surfaces=[obscuration, *_system_newtonian.surfaces],
+    )
+
+
+def test_beam_footprint_is_cut_by_an_aperture_with_straight_edges() -> None:
+    """
+    Where an aperture other than the stops cuts the beam along a straight
+    edge, the outline holds every ray which reaches the end of the system,
+    reaches no farther than they do, and runs along the edge of the cut.
+    """
+    system = _system_newtonian_cut()
+    rays = system.raytrace(
+        field=_grid_vertices("field", 8),
+        pupil=_grid_vertices("pupil", 32),
+        efficiency=False,
+    ).outputs
+    unvignetted = rays.unvignetted[{system.axis_surface: ~0}]
+    axis = ("field_x", "field_y", "pupil_x", "pupil_y")
+    for index, surface in enumerate(system.surfaces_all):
+        result = system.beam_footprint(index)
+        vertices = result.vertices
+        position = rays.position[{system.axis_surface: index}]
+        if surface.transformation is not None:
+            position = surface.transformation.inverse(position)
+        reach = _support(position.xy, axis=axis, where=unvignetted)
+        reach_outline = _support(vertices.xy, axis="vertex")
+        size = np.maximum(vertices.x.ptp("vertex"), vertices.y.ptp("vertex"))
+        assert np.all(reach <= reach_outline + 1e-6 * size)
+        # the grid falls short of the corners by up to a few percent, which
+        # is why the outline is not made from one
+        assert np.all(reach_outline <= reach + 0.1 * size)
+
+    # on the obscuration, the corners of the cut are on its edge
+    index = [surface.name for surface in system.surfaces_all].index("obscuration")
+    result = system.beam_footprint(index)
+    assert np.abs(result.vertices.x.max("vertex") - _cut_newtonian) < 5 * u.um
 
 
 _radius_field_grazing = 0.25 * u.deg
