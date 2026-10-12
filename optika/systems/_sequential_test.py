@@ -1688,6 +1688,9 @@ def _system_rectangular() -> optika.systems.SequentialSystem:
     """
     A mirror whose rectangular aperture is the pupil stop, imaging onto the
     sensor, which is the field stop, with no other aperture to vignette it.
+
+    The aperture of the mirror is off its center, so that its own
+    transformation has to be carried into the outline.
     """
     return optika.systems.SequentialSystem(
         surfaces=[
@@ -1697,6 +1700,9 @@ def _system_rectangular() -> optika.systems.SequentialSystem:
                 material=optika.materials.Mirror(),
                 aperture=optika.apertures.RectangularAperture(
                     half_width=na.Cartesian2dVectorArray(20, 10) * u.mm,
+                    transformation=na.transformations.Cartesian3dTranslation(
+                        x=3 * u.mm,
+                    ),
                 ),
                 is_pupil_stop=True,
                 transformation=na.transformations.Cartesian3dTranslation(
