@@ -749,7 +749,7 @@ def test_vmr_signal_quadrature(
 def test_kernel_signal(
     diffusion: None | optika.sensors.diffusion.AbstractDiffusionModel,
     width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
-):
+) -> None:
     """
     The kernel sums to the expected number of electrons per absorbed photon,
     and with a back surface which loses no charge it is the kernel of the
@@ -842,7 +842,7 @@ def test_kernel_signal(
 )
 def test_kernel_signal_monte_carlo(
     diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
-):
+) -> None:
     """
     The kernel is the mean of the electrons the Monte Carlo simulation
     measures around each absorbed photon,
@@ -889,7 +889,7 @@ def test_kernel_signal_monte_carlo(
 )
 def test_signal_expected_diffusion(
     wrap: bool,
-):
+) -> None:
     """
     Without noise, the electrons of the photons absorbed in each pixel are
     spread over the pixels around it with the kernel,
@@ -947,7 +947,60 @@ def test_signal_expected_diffusion(
         assert np.isclose(result.sum(axis_xy).ndarray, total)
 
 
-def test_signal_expected_direction():
+@pytest.mark.parametrize(
+    argnames="direction",
+    argvalues=[
+        1,
+        np.cos(na.linspace(0, 30, axis="pixel_x", num=6) * u.deg),
+    ],
+)
+def test_signal_expected_uncertain(
+    direction: float | na.AbstractScalar,
+) -> None:
+    """
+    The expected signal of a model holding uncertain values is that of its
+    nominal values, and each sample of its distribution is that of the
+    model with that sample,
+    including where the kernel is interpolated over the pixel grid.
+    """
+    axis_xy = ("pixel_x", "pixel_y")
+    photons = na.random.uniform(0, 100, shape_random=dict(pixel_x=6, pixel_y=5))
+    photons = photons * u.photon
+    thickness_depletion = na.UncertainScalarArray(
+        nominal=7.55 * u.um,
+        distribution=na.ScalarArray([6, 9] * u.um, axes="_distribution"),
+    )
+    diffusion = optika.sensors.diffusion.SlabDiffusionModel(
+        thickness_depletion=thickness_depletion,
+    )
+
+    def signal(
+        diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
+    ) -> na.AbstractScalar:
+        """The expected signal of the photons with a model of diffusion."""
+        return optika.sensors.signal(
+            photons_expected=photons,
+            wavelength=304 * u.AA,
+            direction=direction,
+            absorbance=1,
+            thickness_substrate=14 * u.um,
+            diffusion=diffusion,
+            width_pixel=8 * u.um,
+            method="expected",
+            axis_xy=axis_xy,
+        )
+
+    result = signal(diffusion)
+    assert isinstance(result, na.UncertainScalarArray)
+    nominal = signal(diffusion.replace(thickness_depletion=7.55 * u.um))
+    assert np.allclose(result.nominal, nominal, rtol=1e-12)
+    for index, value in enumerate([6, 9] * u.um):
+        sample = signal(diffusion.replace(thickness_depletion=value))
+        distribution = result.distribution[dict(_distribution=index)]
+        assert np.allclose(distribution, sample, rtol=1e-12)
+
+
+def test_signal_expected_direction() -> None:
     """
     A direction which varies over the pixel grid gives the photons absorbed
     in each pixel the kernel of their own absorption coefficient,
@@ -1099,7 +1152,7 @@ class AbstractTestAbstractSensorMaterial(
         a: optika.sensors.materials.AbstractSensorMaterial,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar,
-    ):
+    ) -> None:
         """
         Without pixels the kernel is the noiseless signal of one photon in a
         single pixel, and with them it spreads the same signal over the
@@ -1154,7 +1207,7 @@ class AbstractTestAbstractSensorMaterial(
         direction: float | na.AbstractScalar,
         width_pixel: None | u.Quantity,
         wrap: bool,
-    ):
+    ) -> None:
         """
         The transpose is the adjoint of the noiseless signal,
         whether or not the charge diffuses,
@@ -1194,7 +1247,7 @@ class AbstractTestAbstractSensorMaterial(
         self,
         a: optika.sensors.materials.AbstractSensorMaterial,
         direction: float | na.AbstractScalar,
-    ):
+    ) -> None:
         """
         The backprojection inverts the noiseless signal (which uses unit
         absorbance) of the photons absorbed in a single pixel,
