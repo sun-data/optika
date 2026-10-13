@@ -1240,6 +1240,162 @@ class AbstractSequentialSystem(
             vertices=na.Cartesian3dVectorArray(x=x, y=y, z=0 * x),
         )
 
+    def plate_scale(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+    ) -> na.Cartesian2dVectorArray:
+        """
+        Compute the field of view divided by the pixels it spans.
+
+        The plate scale is reported along each axis of the sensor, in field
+        coordinates per pixel: in angle if the object is at infinity, and in
+        position if it is not.
+
+        It is measured along the two lines through the center of the field,
+        one along each axis of the field. The chief rays of the field
+        positions at either end of each line, at -1 and 1 in normalized field
+        coordinates, give the span of the field along each line, and the span
+        of its image on the sensor in pixels. The spans of the field, over the
+        spans of the image, give the field per pixel along each axis of the
+        sensor.
+
+        The ends of the lines are where they meet the edges of the box which
+        bounds the field of view. For a field of view which is symmetric about
+        its center and aligned with the axes of the field, such as a circle,
+        a regular polygon, or a rectangle, that is the edge of the field of
+        view itself. For one which is not, such as a rotated rectangle, the
+        lines run past the field of view, and the plate scale is measured
+        across more of the field than the system passes.
+
+        The spans are divided as matrices, one column for each axis of the
+        field, rather than component by component. This keeps the result
+        along the axes of the sensor however the sensor is rolled against the
+        field, and lets the two axes differ, as they do behind a grating,
+        which magnifies the image along its dispersion, or on a tilted sensor.
+
+        The plate scale varies across the field of view with the distortion of
+        the system, and dividing the spans averages it along each line: the
+        span of the image is the integral of its derivative with respect to
+        the field, so the result is the plate scale of the mean derivative
+        along each line. It does not average how the plate scale along one
+        axis varies along the other. The plate scale also varies with
+        wavelength behind a dispersive element, which is why it is computed at
+        a wavelength.
+
+        The image is traced whether or not it lands on the sensor, so the
+        plate scale is defined at wavelengths whose image falls partly or
+        wholly off the sensor. It is NaN where the chief rays do not reach the
+        sensor at all, such as at a wavelength whose order of diffraction does
+        not propagate.
+
+        For an object at infinity, the field is in the azimuth and elevation
+        of :func:`optika.angles`, which are angles on the sky only near the
+        axis of the object. A step in azimuth at an elevation covers the
+        cosine of that elevation times as much sky, so the plate scale of a
+        field of view centered far from the axis is not its angle on the sky
+        per pixel.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to compute the plate scale.
+            If :obj:`None` (the default), ``self.grid_input.wavelength`` is
+            used. Several wavelengths are given as a named array, along an
+            axis which the result keeps.
+
+        Examples
+        --------
+        The plate scale of a spherical mirror focusing onto a sensor at its
+        focus, which is the width of a pixel over the focal length.
+
+        .. jupyter-execute::
+
+            import astropy.units as u
+            import named_arrays as na
+            import optika
+
+            system = optika.systems.SequentialSystem(
+                surfaces=[
+                    optika.surfaces.Surface(
+                        name="mirror",
+                        sag=optika.sags.SphericalSag(-200 * u.mm),
+                        material=optika.materials.Mirror(),
+                        aperture=optika.apertures.CircularAperture(20 * u.mm),
+                        is_pupil_stop=True,
+                        transformation=na.transformations.Cartesian3dTranslation(
+                            z=100 * u.mm,
+                        ),
+                    ),
+                ],
+                sensor=optika.sensors.ImagingSensor(
+                    name="sensor",
+                    width_pixel=15 * u.um,
+                    axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+                    timedelta_exposure=1 * u.s,
+                    num_pixel=na.Cartesian2dVectorArray(128, 128),
+                    is_field_stop=True,
+                ),
+                grid_input=optika.vectors.ObjectVectorArray(
+                    wavelength=500 * u.nm,
+                    field=0,
+                    pupil=0,
+                ),
+            )
+
+            system.plate_scale().to(u.arcsec / u.pix)
+        """
+        sensor = self.sensor
+        if sensor is None:
+            raise ValueError(
+                "the plate scale is per pixel of a sensor, and this system has none"
+            )
+
+        axis_end = "_end_plate_scale"
+
+        # Either end of the line through the center of the field along x, then
+        # either end of the line along y, traced together.
+        field = na.Cartesian2dVectorArray(
+            x=na.ScalarArray(np.array([-1, 1, 0, 0]), axes=axis_end),
+            y=na.ScalarArray(np.array([0, 0, -1, 1]), axes=axis_end),
+        )
+        rayfunction = self.rayfunction(
+            wavelength=wavelength,
+            field=field,
+            pupil=na.Cartesian2dVectorArray(0, 0),
+            efficiency=False,
+        )
+
+        def span(
+            a: na.AbstractCartesian2dVectorArray,
+        ) -> na.Cartesian2dMatrixArray:
+            """
+            Take the span of an array between the ends of each line.
+
+            The result has one column for each line, which is to say for each
+            axis of the field.
+            """
+            along_x = a[{axis_end: 1}] - a[{axis_end: 0}]
+            along_y = a[{axis_end: 3}] - a[{axis_end: 2}]
+            return na.Cartesian2dMatrixArray(
+                x=na.Cartesian2dVectorArray(along_x.x, along_y.x),
+                y=na.Cartesian2dVectorArray(along_x.y, along_y.y),
+            )
+
+        # The field per pixel. Its rows are the axes of the field and its
+        # columns the axes of the sensor, so each column is the step in the
+        # field which moves the image one pixel along that axis of the sensor.
+        span_field = span(rayfunction.inputs.field)
+        span_image = span(sensor.pixels(rayfunction.outputs.position.xy))
+        inverse = span_field @ span_image.inverse
+
+        result = na.Cartesian2dVectorArray(
+            x=na.Cartesian2dVectorArray(inverse.x.x, inverse.y.x).length,
+            y=na.Cartesian2dVectorArray(inverse.x.y, inverse.y.y).length,
+        )
+
+        unit_field = na.unit_normalized(rayfunction.inputs.field.x)
+        return result.to(unit_field / u.pix)
+
     @property
     def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
         """
