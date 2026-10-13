@@ -58,7 +58,7 @@ def _width_average(
     absorption: u.Quantity | na.AbstractScalar,
     thickness_substrate: u.Quantity | na.AbstractScalar,
     thickness_depletion: u.Quantity | na.AbstractScalar,
-    width_backsurface: None | u.Quantity | na.AbstractScalar,
+    width_backsurface: u.Quantity | na.AbstractScalar,
     width_depletion: None | u.Quantity | na.AbstractScalar,
 ) -> na.AbstractScalar:
     """
@@ -75,8 +75,7 @@ def _width_average(
     thickness_depletion
         The thickness of the depletion region.
     width_backsurface
-        The width at the back surface, or :obj:`None` for the thickness of the
-        field-free region.
+        The width at the back surface.
     width_depletion
         The spread acquired crossing the depletion region, or :obj:`None` for
         none.
@@ -87,9 +86,6 @@ def _width_average(
     # The field-free region, which vanishes if the depletion region is
     # thicker than the light-sensitive region.
     f = np.maximum(s - d, 0 * s)
-
-    if width_backsurface is None:
-        width_backsurface = f
 
     absorption = _absorption_positive(absorption, s)
 

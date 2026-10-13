@@ -343,7 +343,7 @@ def test_vmr_signal(
 )
 def test_vmr_signal_diffusion(
     width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
-):
+) -> None:
     wavelength = 304 * u.AA
     diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
         thickness_depletion=2 * u.um
@@ -404,7 +404,7 @@ def test_vmr_signal_diffusion(
 )
 def test_vmr_signal_depleted(
     wavelength: u.Quantity | na.AbstractScalar,
-):
+) -> None:
     """
     On a fully depleted sensor the only spread is acquired drifting across the
     depletion region, which the analytic VMR must reproduce, for photons
@@ -449,7 +449,7 @@ def test_vmr_signal_depleted(
     assert np.abs(vmr_measured - result) < 0.05 * result
 
 
-def test_diffusion_requires_pixels():
+def test_diffusion_requires_pixels() -> None:
     """
     Diffusion spreads charge over pixels, so a model of diffusion needs the
     width of a pixel, and the Monte Carlo the axes of the pixel grid.
@@ -479,17 +479,67 @@ def test_diffusion_requires_pixels():
             diffusion=diffusion,
             width_pixel=27 * u.um,
         )
+    for method in ["expected", "monte-carlo"]:
+        with pytest.raises(ValueError, match="width_pixel"):
+            optika.sensors.signal(
+                photons_expected=photons_expected,
+                wavelength=wavelength,
+                thickness_substrate=thickness_substrate,
+                diffusion=diffusion,
+                method=method,
+                axis_xy=("detector_x", "detector_y"),
+            )
     with pytest.raises(ValueError, match="width_pixel"):
-        optika.sensors.signal(
-            photons_expected=photons_expected,
-            wavelength=wavelength,
+        optika.sensors.electrons_measured(
+            photons_expected.astype(int),
+            wavelength,
             thickness_substrate=thickness_substrate,
             diffusion=diffusion,
             axis_xy=("detector_x", "detector_y"),
         )
 
 
-def test_diffusion_requires_substrate():
+def test_diffusion_zero_pixels() -> None:
+    """
+    A pixel of zero width turns off the effect of diffusion,
+    so a model of diffusion with such pixels gives the noise without it,
+    and needs no pixel grid.
+    """
+    diffusion = optika.sensors.diffusion.JanesickDiffusionModel(
+        thickness_depletion=2 * u.um
+    )
+    wavelength = na.geomspace(10, 10000, axis="wavelength", num=11) * u.AA
+    thickness_substrate = 7 * u.um
+
+    result = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        thickness_substrate=thickness_substrate,
+        diffusion=diffusion,
+        width_pixel=0 * u.um,
+    )
+    expected = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        thickness_substrate=thickness_substrate,
+    )
+    assert np.all(result == expected)
+
+    photons_expected = na.broadcast_to(
+        100 * u.photon,
+        shape=dict(detector_x=4, detector_y=4),
+    )
+    for method in ["expected", "monte-carlo"]:
+        result = optika.sensors.signal(
+            photons_expected,
+            304 * u.AA,
+            thickness_substrate=thickness_substrate,
+            diffusion=diffusion,
+            width_pixel=0 * u.um,
+            method=method,
+        )
+        assert result.shape == photons_expected.shape
+
+
+def test_diffusion_requires_substrate() -> None:
     """
     The depletion region of a model of diffusion is only meaningful relative
     to the substrate, so a model needs the thickness of the substrate rather
@@ -536,7 +586,7 @@ def test_diffusion_requires_substrate():
 @pytest.mark.parametrize("diffusion", [False, True, 8 * u.um])
 def test_diffusion_is_a_model(
     diffusion: object,
-):
+) -> None:
     """
     The `diffusion` argument is a model of diffusion, not a flag or a
     parameter of one.
@@ -570,7 +620,7 @@ def test_diffusion_is_a_model(
         )
 
 
-def test_keyword_only():
+def test_keyword_only() -> None:
     """
     Only the leading arguments are positional, so that removing or adding a
     parameter can never silently shift the meaning of the others.
@@ -596,7 +646,7 @@ def test_keyword_only():
 def test_vmr_signal_quadrature(
     width_backsurface: None | u.Quantity | na.AbstractScalar,
     width_depletion: None | u.Quantity | na.AbstractScalar,
-):
+) -> None:
     """
     The charge-diffusion integral should be converged at the default number of
     quadrature nodes, across the full range of optical depths that silicon
@@ -963,7 +1013,7 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
     def test_diffusion(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
-    ):
+    ) -> None:
         result = a.diffusion
         if result is not None:
             assert isinstance(result, optika.sensors.diffusion.AbstractDiffusionModel)
@@ -978,7 +1028,7 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
         wavelength: u.Quantity | na.AbstractScalar,
-    ):
+    ) -> None:
         result = a.width_charge_diffusion(wavelength=wavelength)
         assert np.all(result >= 0 * u.um)
 
@@ -994,7 +1044,7 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
     def test_signal_diffusion(
         self,
         a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
-    ):
+    ) -> None:
         """
         Charge diffuses over the pixel grid whenever the width of a pixel is
         given, as in :meth:`uncertainty`, so a material with a model of
@@ -1017,6 +1067,14 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
         if a.diffusion is not None:
             with pytest.raises(ValueError, match="axis_xy"):
                 a.signal(**kwargs)
+
+        # pixels of zero width turn off the effect of diffusion,
+        # so they need no pixel grid, and do not change the noise
+        result = a.signal(**(kwargs | dict(width_pixel=0 * u.um)))
+        assert result.shape == photons.shape
+        electrons = 100 * u.electron
+        result = a.uncertainty(electrons, 304 * u.AA, width_pixel=0 * u.um)
+        assert np.all(result == a.uncertainty(electrons, 304 * u.AA))
 
     @pytest.mark.parametrize(
         argnames="wavelength",

@@ -1,10 +1,11 @@
 import abc
 from typing import Callable
+import contextvars
+import math
 import numbers
 import dataclasses
 from typing_extensions import Self
 import numpy as np
-import scipy.optimize
 import scipy.special
 import astropy.units as u
 import named_arrays as na
@@ -30,24 +31,95 @@ The largest fraction of the charge created at any depth which a kernel of the
 default size may leave out.
 """
 
+_num_kernel_max = 101
+"""
+The largest number of pixels along each axis of a kernel of the default size.
 
-def _check_model(
+A charge cloud which needs more spreads over dozens of pixels,
+which usually means that a width was given in the wrong unit,
+so the default size raises an error instead of building a kernel of
+thousands of pixels at every quadrature node.
+A kernel of any size can still be computed by giving its size explicitly.
+"""
+
+_tolerance_fit = 1e-6
+"""
+The precision of the thickness of the depletion region found by
+:meth:`AbstractDiffusionModel.fit_mean_charge_capture`,
+as a fraction of the thickness of the light-sensitive region.
+"""
+
+_level_average_depth = contextvars.ContextVar("_level_average_depth", default=0)
+"""
+The number of calls of :meth:`AbstractDiffusionModel.average_depth` whose
+function is being evaluated, so that a call made by that function places its
+quadrature nodes on an axis of its own instead of pairing them with the nodes
+of the call which encloses it.
+"""
+
+
+def _check_diffusion(
     diffusion: object,
+    thickness_substrate: None | u.Quantity | na.AbstractScalar,
+    width_pixel: (
+        None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ),
 ) -> None:
     """
     Raise a :class:`TypeError` unless `diffusion` is :obj:`None` or a model of
-    diffusion.
+    diffusion, and a :class:`ValueError` if it is a model given without the
+    thickness of the substrate or the width of a pixel.
+
+    The depletion region of a model is only meaningful relative to the
+    substrate, so a model needs its thickness rather than a default,
+    and the model spreads the charge over pixels, so it needs their width.
 
     Parameters
     ----------
     diffusion
         The value of a `diffusion` argument.
+    thickness_substrate
+        The value of the `thickness_substrate` argument given with it.
+    width_pixel
+        The value of the `width_pixel` argument given with it.
     """
-    if diffusion is not None and not isinstance(diffusion, AbstractDiffusionModel):
+    if diffusion is None:
+        return
+    if not isinstance(diffusion, AbstractDiffusionModel):
         raise TypeError(
             "`diffusion` must be None or an instance of "
             f"`optika.sensors.diffusion.AbstractDiffusionModel`, got {diffusion!r}."
         )
+    if thickness_substrate is None:
+        raise ValueError("`thickness_substrate` must be given with `diffusion`.")
+    if width_pixel is None:
+        raise ValueError("`width_pixel` must be given with `diffusion`.")
+
+
+def _spreads(
+    diffusion: "None | AbstractDiffusionModel",
+    width_pixel: (
+        None | u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ),
+) -> bool:
+    """
+    Whether a model of diffusion spreads the charge between pixels:
+    whether there is a model, and a pixel which is wider than zero along
+    either axis, since a pixel of zero width turns off the effect of
+    diffusion.
+
+    Parameters
+    ----------
+    diffusion
+        A model of diffusion, or :obj:`None`.
+    width_pixel
+        The width of a pixel, or :obj:`None` if the sensor is not resolved
+        into pixels.
+    """
+    if diffusion is None or width_pixel is None:
+        return False
+    width_pixel = _pixel_vector(width_pixel)
+    return not all(np.all(w == 0 * w) for w in (width_pixel.x, width_pixel.y))
 
 
 def _pixel_vector(
@@ -155,9 +227,8 @@ class AbstractDiffusionModel(
 
         \alpha (z - z_f) = -\log \left( e^{-\alpha z_d} + \left( 1 - e^{-\alpha z_d} \right) v^2 \right).
 
-    Gauss-Legendre quadrature with
-    :obj:`~optika.sensors.diffusion._quadrature._num_gauss_legendre` nodes is
-    then applied to each region, and the average is accurate to about
+    Gauss-Legendre quadrature with 32 nodes is then applied to each region,
+    and the average is accurate to about
     one part in :math:`10^6` for optical depths :math:`\alpha z_f` between
     :math:`0.02` and :math:`3000`,
     which covers silicon between 1 and 10000 angstroms;
@@ -293,7 +364,9 @@ class AbstractDiffusionModel(
             photon was absorbed in.
             If :obj:`None` (the default), the kernel is made just large enough
             to leave out no more than one part in a million of the charge
-            created at any depth.
+            created at any depth,
+            and a :class:`ValueError` is raised if that takes more than 101
+            pixels, which usually means that a width is in the wrong unit.
         """
 
     def width_average(
@@ -370,7 +443,9 @@ class AbstractDiffusionModel(
             photon was absorbed in.
             If :obj:`None` (the default), the kernel is made just large enough
             to leave out no more than one part in a million of the charge
-            created at any depth.
+            created at any depth,
+            and a :class:`ValueError` is raised if that takes more than 101
+            pixels, which usually means that a width is in the wrong unit.
         """
         num = self._num_kernel(num, thickness_substrate, width_pixel)
 
@@ -468,7 +543,12 @@ class AbstractDiffusionModel(
         moves more than :math:`h` pixel widths along one of the axes,
         so the default kernel is the smallest for which the widest cloud
         reaches that far with a probability of at most
-        :obj:`_tolerance_kernel`, summed over the two axes.
+        :obj:`_tolerance_kernel`, summed over the two axes,
+        for every element of the model, of the sensor, and of the samples of
+        any uncertain values.
+
+        A default kernel of more than :obj:`_num_kernel_max` pixels raises a
+        :class:`ValueError`.
 
         Parameters
         ----------
@@ -497,28 +577,42 @@ class AbstractDiffusionModel(
         if all(np.all(w == 0 * w) for w in widths):
             return 1
 
-        def outside(half: int) -> float:
-            """The fraction of the widest cloud beyond `half` pixels."""
-            result = 0
+        def outside(half: int) -> bool:
+            """
+            Whether the widest cloud reaches beyond `half` pixels with a
+            probability above :obj:`_tolerance_kernel` anywhere.
+            """
+            fraction = 0
             for w in widths:
                 position = half * w
                 inside = self.cdf(position, depth, s) - self.cdf(-position, depth, s)
-                fraction = np.where(w > 0 * w, 1 - inside, 0)
-                result = result + float(na.as_named_array(fraction).max().ndarray)
-            return result
+                fraction = fraction + np.where(w > 0 * w, 1 - inside, 0)
+            return not np.all(fraction <= _tolerance_kernel)
+
+        half_max = _num_kernel_max // 2
+        message = (
+            f"The default kernel would need more than {_num_kernel_max} pixels "
+            f"along an axis to hold all but {_tolerance_kernel} of the charge, "
+            f"which usually means that a width is in the wrong unit. "
+            f"Give `num` to compute a kernel of that size anyway."
+        )
 
         # Double the half-width until the kernel is large enough,
         # then bisect between the last two half-widths.
         high = 1
-        while outside(high) > _tolerance_kernel:
+        while outside(high):
+            if high > half_max:
+                raise ValueError(message)
             high = 2 * high
         low = high // 2
         while high - low > 1:
             middle = (low + high) // 2
-            if outside(middle) > _tolerance_kernel:
+            if outside(middle):
                 low = middle
             else:
                 high = middle
+        if high > half_max:
+            raise ValueError(message)
 
         return 2 * high + 1
 
@@ -540,6 +634,9 @@ class AbstractDiffusionModel(
         function
             A function of the distance from the back surface of the sensor at
             which the charge was created.
+            It may take averages over depth itself, such as one over the
+            depth of a second photon, since each average places its
+            quadrature nodes on an axis of its own.
         absorption
             The absorption coefficient of the light-sensitive region for the
             incident photons, per unit of perpendicular depth.
@@ -564,7 +661,19 @@ class AbstractDiffusionModel(
         fraction_f = -np.expm1(-az_f)
         fraction_d = -np.expm1(-az_d)
 
-        axis = "_diffusion_depth"
+        level = _level_average_depth.get()
+        axis = f"_diffusion_depth_{level}"
+
+        def evaluate(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            """
+            `function` at `depth`, with any average over depth which it takes
+            placing its quadrature nodes on an axis of its own.
+            """
+            token = _level_average_depth.set(level + 1)
+            try:
+                return function(depth)
+            finally:
+                _level_average_depth.reset(token)
 
         def optical_depth(
             az_region: na.AbstractScalar,
@@ -590,11 +699,11 @@ class AbstractDiffusionModel(
 
         def integrand_f(r: na.AbstractScalar) -> na.AbstractScalar:
             az = optical_depth(az_f, fraction_f, r)
-            return function(az / absorption) * 2 * r
+            return evaluate(az / absorption) * 2 * r
 
         def integrand_d(v: na.AbstractScalar) -> na.AbstractScalar:
             az = az_f + optical_depth(az_d, fraction_d, v)
-            return function(az / absorption) * 2 * v
+            return evaluate(az / absorption) * 2 * v
 
         if depth_break is None:
             r_break = v_break = 1
@@ -628,21 +737,30 @@ class AbstractDiffusionModel(
                 ),
             )
 
-        result_f = _integrate_gauss_legendre(integrand_f, 0, r_break, axis)
-        result_d = _integrate_gauss_legendre(integrand_d, 0, v_break, axis)
-        if depth_break is not None:
-            result_f = result_f + _integrate_gauss_legendre(
-                integrand_f, r_break, 1, axis
-            )
-            result_d = result_d + _integrate_gauss_legendre(
-                integrand_d, v_break, 1, axis
-            )
-
         # The fractions of the absorbed photons absorbed in each region.
         weight_f = fraction_f / fraction_absorbed
         weight_d = np.exp(-az_f) * fraction_d / fraction_absorbed
 
-        return weight_f * result_f + weight_d * result_d
+        # Each region is integrated on either side of its break,
+        # skipping a region which absorbs no photons and an interval of zero
+        # length, which add nothing.
+        regions = [
+            (weight_f, integrand_f, r_break),
+            (weight_d, integrand_d, v_break),
+        ]
+        result = []
+        for weight, integrand, middle in regions:
+            if np.all(weight == 0):
+                continue
+            integral = []
+            for lower, upper in [(0, middle), (middle, 1)]:
+                if not np.all(lower == upper):
+                    integral.append(
+                        _integrate_gauss_legendre(integrand, lower, upper, axis)
+                    )
+            result.append(weight * sum(integral[1:], integral[0]))
+
+        return sum(result[1:], result[0])
 
     def fit_mean_charge_capture(
         self,
@@ -653,10 +771,18 @@ class AbstractDiffusionModel(
         to a measured mean charge capture, holding its other parameters fixed.
 
         The fit minimizes the root-mean-square difference between the
-        measured and the modeled mean charge capture,
+        measured and the modeled mean charge capture over the wavelengths of
+        the measurement,
         with the thickness of the depletion region between zero and the
         thickness of the light-sensitive region of the sensor that was
         measured.
+
+        The minimum is found by a golden-section search, to within one part
+        in a million of the thickness of the light-sensitive region.
+        The search is carried out for every element at once, so a model or a
+        measurement which varies along other axes gets a thickness fitted to
+        each of its elements, and one which holds uncertain values gets a
+        thickness fitted to each of their samples.
 
         Parameters
         ----------
@@ -674,24 +800,64 @@ class AbstractDiffusionModel(
 
         absorption = chemical_substrate.absorption(mcc_measured.inputs)
 
-        unit = u.um
+        axis = tuple(na.shape(mcc_measured.inputs))
 
-        def objective(thickness_depletion: float) -> float:
-            model = self.replace(thickness_depletion=thickness_depletion * unit)
+        def rms(
+            thickness_depletion: u.Quantity | na.AbstractScalar,
+        ) -> na.AbstractScalar:
+            """
+            The root-mean-square difference between the measured mean charge
+            capture and that of this model with a given thickness of its
+            depletion region.
+            """
+            model = self.replace(thickness_depletion=thickness_depletion)
             mcc = model.mean_charge_capture(
                 absorption=absorption,
                 thickness_substrate=thickness_substrate,
                 width_pixel=width_pixel,
             )
             diff = mcc_measured.outputs - mcc
-            return np.sqrt(np.mean(np.square(diff))).ndarray
+            return np.sqrt(np.square(diff).mean(axis))
 
-        fit = scipy.optimize.minimize_scalar(
-            fun=objective,
-            bounds=(0, thickness_substrate.to_value(unit)),
-        )
+        # The search keeps the minimum between `lower` and `upper`, with two
+        # points between them, `inner_lower` and `inner_upper`, which divide
+        # the interval in the golden ratio, so that every step keeps one of
+        # them and needs the objective at only one new point.
+        ratio = (np.sqrt(5) - 1) / 2
+        num = math.ceil(math.log(_tolerance_fit) / math.log(ratio))
+        lower = 0 * thickness_substrate
+        upper = thickness_substrate
+        inner_lower = upper - ratio * (upper - lower)
+        inner_upper = lower + ratio * (upper - lower)
+        rms_lower = rms(inner_lower)
+        rms_upper = rms(inner_upper)
+        for _ in range(num):
+            left = rms_lower < rms_upper
+            lower = np.where(left, lower, inner_lower)
+            upper = np.where(left, inner_upper, upper)
+            new = np.where(
+                left,
+                upper - ratio * (upper - lower),
+                lower + ratio * (upper - lower),
+            )
+            rms_new = rms(new)
+            inner_lower, inner_upper = (
+                np.where(left, new, inner_upper),
+                np.where(left, inner_lower, new),
+            )
+            rms_lower, rms_upper = (
+                np.where(left, rms_new, rms_upper),
+                np.where(left, rms_lower, rms_new),
+            )
 
-        return self.replace(thickness_depletion=fit.x * unit)
+        result = (lower + upper) / 2
+
+        # A fit of a single thickness is a quantity, like the other fields of
+        # a model, rather than an array without axes.
+        if isinstance(result, na.ScalarArray) and not result.shape:
+            result = result.ndarray
+
+        return self.replace(thickness_depletion=result)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -943,6 +1109,26 @@ class JanesickDiffusionModel(
             na.shape(self.width_depletion),
         )
 
+    def _width_backsurface(
+        self,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+    ) -> u.Quantity | na.AbstractScalar:
+        """
+        The standard deviation of the charge cloud of a photon absorbed at the
+        back surface, before it crosses the depletion region:
+        :attr:`width_backsurface`, or, if it is :obj:`None`,
+        the thickness of the field-free region.
+
+        Parameters
+        ----------
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        """
+        if self.width_backsurface is None:
+            f = thickness_substrate - self.thickness_depletion
+            return np.maximum(f, 0 * f)
+        return self.width_backsurface
+
     def width(
         self,
         depth: u.Quantity | na.AbstractScalar,
@@ -953,15 +1139,11 @@ class JanesickDiffusionModel(
         f = s - d
         x = depth
 
-        width_backsurface = self.width_backsurface
-        if width_backsurface is None:
-            width_backsurface = f
-
         # The fraction of the field-free region between the charge and the edge
         # of the depletion region, zero if there is no field-free region.
         remaining = np.maximum(f - x, 0 * f) / np.where(f > 0 * f, f, 1 * u.um)
 
-        variance = np.square(width_backsurface) * remaining
+        variance = np.square(self._width_backsurface(s)) * remaining
 
         if self.width_depletion is not None:
             # The fraction of the depletion region the charge drifts across,
@@ -1006,7 +1188,7 @@ class JanesickDiffusionModel(
             absorption=absorption,
             thickness_substrate=thickness_substrate,
             thickness_depletion=self.thickness_depletion,
-            width_backsurface=self.width_backsurface,
+            width_backsurface=self._width_backsurface(thickness_substrate),
             width_depletion=self.width_depletion,
         )
 
@@ -1034,17 +1216,11 @@ class JanesickDiffusionModel(
         self,
         thickness_substrate: u.Quantity | na.AbstractScalar,
     ) -> dict[str, u.Quantity | na.AbstractScalar]:
-        width_backsurface = self.width_backsurface
-        if width_backsurface is None:
-            width_backsurface = np.maximum(
-                thickness_substrate - self.thickness_depletion,
-                0 * thickness_substrate,
-            )
         width_depletion = self.width_depletion
         if width_depletion is None:
             width_depletion = 0 * u.um
         return dict(
             thickness_depletion=self.thickness_depletion,
-            width_backsurface=width_backsurface,
+            width_backsurface=self._width_backsurface(thickness_substrate),
             width_depletion=width_depletion,
         )

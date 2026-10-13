@@ -62,8 +62,10 @@ def mcc_stern2004(
     return MeanChargeCapture(
         inputs=na.ScalarArray(wavelength, axes="wavelength"),
         outputs=na.ScalarArray(mcc, axes="wavelength"),
-        thickness_substrate=_thickness_substrate[kind],
-        width_pixel=_width_pixel,
+        # copies, so that changing the measurement in place cannot change
+        # every later one, or the models fitted to it
+        thickness_substrate=_thickness_substrate[kind].copy(),
+        width_pixel=_width_pixel.copy(),
     )
 
 

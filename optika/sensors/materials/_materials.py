@@ -25,7 +25,7 @@ from ._ramanathan_2020 import (
     electrons_measured,
 )
 from ..diffusion import AbstractDiffusionModel
-from ..diffusion._models import _check_model
+from ..diffusion._models import _check_diffusion, _spreads
 
 __all__ = [
     "energy_bandgap",
@@ -1114,15 +1114,17 @@ def signal(
     diffusion
         A model of the lateral diffusion of charge in the sensor.
         If :obj:`None` (the default), charge does not diffuse.
-        The electrons of each photon spread over the pixel grid given by
-        `axis_xy`, so both `axis_xy` and `width_pixel` must be given with it
-        for the ``"monte-carlo"`` method.
+        The electrons of each photon spread over pixels of width
+        `width_pixel`, which must be given with it, along the pixel grid
+        given by `axis_xy`, which the ``"monte-carlo"`` method needs too
+        unless the pixels have zero width.
     width_pixel
         The size of a single pixel on the sensor.
         A scalar gives square pixels; a
         :class:`named_arrays.AbstractCartesian2dVectorArray` gives
         rectangular pixels.
         Only used, and then required, if `diffusion` is given.
+        A pixel of zero width turns off the effect of diffusion.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -1140,7 +1142,8 @@ def signal(
     axis_xy
         The two logical axes corresponding to the pixel grid of the sensor
         along which electrons diffuse.
-        Only used, and then required, if `diffusion` is given.
+        Only used if `diffusion` is given, and then required unless the
+        pixels have zero width.
     wrap
         Controls how diffused charge is treated at the edges of the pixel grid.
         If :obj:`False` (the default), charge that diffuses past the edge of the
@@ -1194,11 +1197,9 @@ def signal(
         ax.set_ylabel(f"variance-to-mean ratio ({electrons.unit:latex_inline})");
     """
 
-    _check_model(diffusion)
+    _check_diffusion(diffusion, thickness_substrate, width_pixel)
 
     if thickness_substrate is None:
-        if diffusion is not None:
-            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
         thickness_substrate = _thickness_substrate
 
     if absorbance is None:
@@ -1317,6 +1318,7 @@ def vmr_signal(
         A scalar gives square pixels; a
         :class:`named_arrays.AbstractCartesian2dVectorArray`
         gives rectangular pixels.
+        A pixel of zero width turns off the effect of diffusion.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -1571,15 +1573,10 @@ def vmr_signal(
     with ``wrap=False``.
     """
 
-    _check_model(diffusion)
+    _check_diffusion(diffusion, thickness_substrate, width_pixel)
 
     if thickness_substrate is None:
-        if diffusion is not None:
-            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
         thickness_substrate = _thickness_substrate
-
-    if diffusion is not None and width_pixel is None:
-        raise ValueError("`width_pixel` must be given with `diffusion`.")
 
     if n_substrate is None:
         n_substrate = optika.chemicals.Chemical("Si").n(wavelength)
@@ -1633,7 +1630,7 @@ def vmr_signal(
 
         result = result + F_pcc
 
-    if diffusion is not None:
+    if _spreads(diffusion, width_pixel):
         n0 = cce_backsurface
         aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
 
@@ -1718,7 +1715,7 @@ class AbstractSensorMaterial(
             The two logical axes corresponding to the pixel grid of the sensor,
             along which charge diffuses.
             Required with `width_pixel` if the material has a model of charge
-            diffusion.
+            diffusion, unless the pixels have zero width.
         noise
             Whether to add noise to the result.
         wrap

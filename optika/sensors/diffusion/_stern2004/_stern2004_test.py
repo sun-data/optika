@@ -1,3 +1,4 @@
+from typing import Callable
 import pytest
 import numpy as np
 import astropy.units as u
@@ -11,7 +12,7 @@ import optika
         ("thin", 8 * u.um),
     ],
 )
-def test_mcc_stern2004(kind: str, thickness_substrate: u.Quantity):
+def test_mcc_stern2004(kind: str, thickness_substrate: u.Quantity) -> None:
     """
     The measurement carries the CCD64 it was made on, which every
     comparison of a model against it needs.
@@ -29,6 +30,13 @@ def test_mcc_stern2004(kind: str, thickness_substrate: u.Quantity):
     first = result[dict(wavelength=slice(0, 1))]
     assert first.thickness_substrate == thickness_substrate
 
+    # changing a measurement in place does not change the next one
+    result.thickness_substrate *= 2
+    result.width_pixel *= 2
+    result = optika.sensors.diffusion.mcc_stern2004(kind)
+    assert result.thickness_substrate == thickness_substrate
+    assert result.width_pixel == 16 * u.um
+
 
 @pytest.mark.parametrize(
     argnames="model,kind",
@@ -37,13 +45,19 @@ def test_mcc_stern2004(kind: str, thickness_substrate: u.Quantity):
         (optika.sensors.diffusion.e2v_ccd64_thin, "thin"),
     ],
 )
-def test_e2v_ccd64(model, kind: str):
+def test_e2v_ccd64(
+    model: Callable[[], optika.sensors.diffusion.JanesickDiffusionModel],
+    kind: str,
+) -> None:
     """
     Each model is Janesick's, with a depletion region inside the substrate
     that reproduces the measurement to a few percent.
     """
     result = model()
     assert isinstance(result, optika.sensors.diffusion.JanesickDiffusionModel)
+
+    # a single thickness is fitted, which is a quantity like the other fields
+    assert isinstance(result.thickness_depletion, u.Quantity)
 
     measured = optika.sensors.diffusion.mcc_stern2004(kind)
     thickness_substrate = measured.thickness_substrate

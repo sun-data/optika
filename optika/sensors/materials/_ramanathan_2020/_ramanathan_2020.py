@@ -12,7 +12,7 @@ from .._stern_1994 import (
     _thickness_substrate,
     _cce_backsurface,
 )
-from ...diffusion._models import _check_model, _pixel_vector
+from ...diffusion._models import _check_diffusion, _spreads, _pixel_vector
 
 __all__ = [
     "energy_bandgap",
@@ -522,6 +522,11 @@ def electrons_measured(
     This function accounts for both Fano noise and recombination noise due to
     partial-charge collection.
 
+    If any of the values are uncertain, the nominal sample is drawn with
+    their nominal values, and each sample of the distribution with that
+    sample of every value, as the random samples of :mod:`named_arrays`
+    are.
+
     Parameters
     ----------
     photons_absorbed
@@ -548,7 +553,8 @@ def electrons_measured(
         Otherwise, the electrons liberated by each photon spread over the
         pixel grid given by `axis_xy`, as a cloud whose width depends on the
         depth at which the photon was absorbed,
-        so both `axis_xy` and `width_pixel` must be given with it.
+        so `width_pixel` must be given with it, and `axis_xy` too unless
+        the pixels have zero width.
     width_pixel
         The size of a single pixel on the sensor.
         A scalar gives square pixels; a
@@ -556,6 +562,7 @@ def electrons_measured(
         components are the pixel widths along ``axis_xy[0]``/``axis_xy[1]``
         gives rectangular pixels.
         Only used, and then required, if `diffusion` is given.
+        A pixel of zero width turns off the effect of diffusion.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -565,7 +572,8 @@ def electrons_measured(
     axis_xy
         The two logical axes corresponding to the pixel grid of the sensor
         along which electrons diffuse.
-        Only used, and then required, if `diffusion` is given.
+        Only used if `diffusion` is given, and then required unless the
+        pixels have zero width.
     wrap
         Controls how diffused charge is treated at the edges of the pixel grid.
         If :obj:`False` (the default), charge that diffuses past the edge of the
@@ -637,37 +645,142 @@ def electrons_measured(
     if absorption is None:
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
-    _check_model(diffusion)
+    _check_diffusion(diffusion, thickness_substrate, width_pixel)
 
     if thickness_substrate is None:
-        if diffusion is not None:
-            raise ValueError("`thickness_substrate` must be given with `diffusion`.")
         thickness_substrate = _thickness_substrate
 
-    if diffusion is None:
-        # no field-free region and no spread in the depletion region,
-        # so the electrons stay in the pixel the photon was absorbed in
-        thickness_depletion = thickness_substrate
-        width_backsurface = width_depletion = 0 * u.um
-        width_pixel = 0 * u.um
-    else:
+    if _spreads(diffusion, width_pixel):
         if axis_xy is None:
             raise ValueError("`axis_xy` must be given with `diffusion`.")
-        if width_pixel is None:
-            raise ValueError("`width_pixel` must be given with `diffusion`.")
         parameters = diffusion._parameters_monte_carlo(thickness_substrate)
         thickness_depletion = parameters["thickness_depletion"]
         width_backsurface = parameters["width_backsurface"]
         width_depletion = parameters["width_depletion"]
+    else:
+        # no model, or pixels of zero width,
+        # so the electrons stay in the pixel the photon was absorbed in
+        thickness_depletion = thickness_substrate
+        width_backsurface = width_depletion = 0 * u.um
+        width_pixel = 0 * u.um
 
     if shape_random is None:
         shape_random = dict()
 
     width_pixel = _pixel_vector(width_pixel)
 
-    width_pixel_x = width_pixel.x
-    width_pixel_y = width_pixel.y
+    arrays = dict(
+        photons_absorbed=photons_absorbed,
+        wavelength=wavelength,
+        absorption=absorption,
+        thickness_implant=thickness_implant,
+        thickness_depletion=thickness_depletion,
+        thickness_substrate=thickness_substrate,
+        width_backsurface=width_backsurface,
+        width_depletion=width_depletion,
+        width_pixel_x=width_pixel.x,
+        width_pixel_y=width_pixel.y,
+        cce_backsurface=cce_backsurface,
+        temperature=temperature,
+    )
+    options = dict(
+        axis_xy=axis_xy,
+        wrap=wrap,
+        shape_random=shape_random,
+    )
 
+    # The simulation cannot carry uncertain values through it the way
+    # arithmetic does, so, as with the random samples of `named_arrays`,
+    # the nominal sample is drawn with the nominal values, and each sample of
+    # the distribution with that sample of every value.
+    if any(isinstance(a, na.AbstractUncertainScalarArray) for a in arrays.values()):
+        nominal = {k: na.nominal(a) for k, a in arrays.items()}
+        distribution = {k: _distribution(a) for k, a in arrays.items()}
+        return na.UncertainScalarArray(
+            nominal=_electrons_measured(**nominal, **options),
+            distribution=_electrons_measured(**distribution, **options),
+        )
+
+    return _electrons_measured(**arrays, **options)
+
+
+def _distribution(
+    a: u.Quantity | na.AbstractScalar,
+) -> u.Quantity | na.AbstractScalar:
+    """
+    The samples of the distribution of `a` if it is uncertain,
+    or `a` itself, which every sample shares, if it is not.
+
+    Parameters
+    ----------
+    a
+        A value which may be uncertain.
+    """
+    if isinstance(a, na.AbstractUncertainScalarArray):
+        return a.distribution
+    return a
+
+
+def _electrons_measured(
+    photons_absorbed: u.Quantity | na.AbstractScalar,
+    wavelength: u.Quantity | na.AbstractScalar,
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    thickness_depletion: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+    width_backsurface: u.Quantity | na.AbstractScalar,
+    width_depletion: u.Quantity | na.AbstractScalar,
+    width_pixel_x: u.Quantity | na.AbstractScalar,
+    width_pixel_y: u.Quantity | na.AbstractScalar,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.AbstractScalar,
+    axis_xy: None | tuple[str, str],
+    wrap: bool,
+    shape_random: dict[str, int],
+) -> na.ScalarArray:
+    """
+    The body of :func:`electrons_measured`, given values which are not
+    uncertain and the parameters of the charge cloud of the Monte Carlo
+    simulation.
+
+    Parameters
+    ----------
+    photons_absorbed
+        The number of photons absorbed by the light-sensitive layer of the
+        sensor.
+    wavelength
+        The vacuum wavelength of the absorbed photons.
+    absorption
+        The absorption coefficient of silicon per unit perpendicular depth.
+    thickness_implant
+        The thickness of the implant layer.
+    thickness_depletion
+        The thickness of the depletion region.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    width_backsurface
+        The standard deviation of the charge cloud of a photon absorbed at
+        the back surface, before it crosses the depletion region.
+    width_depletion
+        The standard deviation acquired by charge drifting across the full
+        thickness of the depletion region.
+    width_pixel_x
+        The width of a pixel along the first axis of `axis_xy`.
+    width_pixel_y
+        The width of a pixel along the second axis of `axis_xy`.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+    temperature
+        The temperature of the silicon detector.
+    axis_xy
+        The two logical axes of the pixel grid,
+        or :obj:`None` if the electrons do not spread over it.
+    wrap
+        Whether charge diffusing off the grid re-enters the opposite edge.
+    shape_random
+        Additional shape used to specify the number of samples to draw.
+    """
     shape = na.broadcast_shapes(
         na.shape(photons_absorbed),
         na.shape(wavelength),
