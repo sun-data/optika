@@ -1243,8 +1243,6 @@ class AbstractSequentialSystem(
     def plate_scale(
         self,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
-        samples_field: int = 11,
-        step_field: float = 0.1,
     ) -> na.Cartesian2dVectorArray:
         """
         Compute the field imaged onto one pixel, averaged over the field of view.
@@ -1253,27 +1251,29 @@ class AbstractSequentialSystem(
         coordinates per pixel: in angle if the object is at infinity, and in
         position if it is not.
 
-        The field of view is sampled on a grid, and at each field position,
-        field positions a small step either side of it along each axis are
-        traced through the center of the pupil. How far their images move on
-        the sensor gives the derivative of the position on the sensor with
-        respect to the field. Inverting it gives the step in field which
-        moves the image one pixel along each axis of the sensor, which is the
-        plate scale at that field position. The result is the mean of these
-        over the field positions which pass the field stop.
+        It is the field of view divided by the pixels it spans. The chief rays
+        of the field positions at either end of each axis of the field, at
+        -1 and 1 in normalized field coordinates, give the span of the field
+        of view along each axis, and the span of its image on the sensor.
+        The spans of the field, over the spans of the image, give the field
+        per position on the sensor, and that applied to one pixel along each
+        axis of the sensor is the plate scale.
 
-        Working from the derivative keeps the result along the axes of the
-        sensor, however the sensor is rolled against the field, and lets the
-        two axes differ, as they do behind a grating, which magnifies the
-        image along its dispersion, or on a tilted sensor. The plate scale
-        varies across the field of view with the distortion of the system,
-        which is why it is averaged, and with wavelength behind a dispersive
-        element, which is why it is computed at a wavelength.
+        The spans are divided as matrices, one column for each axis of the
+        field, rather than component by component. This keeps the result
+        along the axes of the sensor however the sensor is rolled against the
+        field, and lets the two axes differ, as they do behind a grating,
+        which magnifies the image along its dispersion, or on a tilted sensor.
 
-        The mean is over the field stop rather than over the field positions
-        which land on the sensor, so that it is defined at every wavelength,
-        including those whose image of the field stop falls partly or wholly
-        off the sensor.
+        The plate scale varies across the field of view with the distortion of
+        the system, and dividing the spans averages it: the span of the image
+        is the integral of its derivative with respect to the field, so the
+        result is the plate scale of the mean derivative along each axis of
+        the field. The plate scale also varies with wavelength behind a
+        dispersive element, which is why it is computed at a wavelength. The
+        image is traced whether or not it lands on the sensor, so the plate
+        scale is defined at every wavelength, including those whose image of
+        the field of view falls partly or wholly off the sensor.
 
         Parameters
         ----------
@@ -1282,16 +1282,6 @@ class AbstractSequentialSystem(
             If :obj:`None` (the default), ``self.grid_input.wavelength`` is
             used. Several wavelengths are given as a named array, along an
             axis which the result keeps.
-        samples_field
-            The number of field positions to sample along each axis of the
-            field of view.
-        step_field
-            The step either side of each field position to measure across,
-            in normalized field coordinates, which run from -1 to 1 across the
-            field of view. The default is about half the spacing of the
-            samples. The traced positions are not smooth at the scale of a few
-            hundredths of a pixel, so a step spanning only a few pixels
-            measures that roughness along with the plate scale.
 
         Examples
         --------
@@ -1334,65 +1324,40 @@ class AbstractSequentialSystem(
 
             system.plate_scale().to(u.arcsec / u.pix)
         """
-        axis_field = na.Cartesian2dVectorArray(
-            x="_field_x_plate_scale",
-            y="_field_y_plate_scale",
-        )
-        axis_step = "_step_plate_scale"
+        axis_end = "_end_plate_scale"
 
-        field = na.Cartesian2dVectorLinearSpace(
-            start=-1,
-            stop=1,
-            axis=axis_field,
-            num=samples_field,
-            centers=True,
-        )
-
-        # the chief ray of each field position
-        pupil = na.Cartesian2dVectorArray(0, 0)
-
-        raytrace = self.raytrace(
-            wavelength=wavelength,
-            field=field,
-            pupil=pupil,
-            efficiency=False,
-        )
-        index_field_stop = {self.axis_surface: self.index_field_stop}
-        where = raytrace.outputs[index_field_stop].unvignetted
-
-        # The four steps around each field position, traced together: either
-        # side of it along x, then either side of it along y.
-        step = na.Cartesian2dVectorArray(
-            x=na.ScalarArray(np.array([-1, 1, 0, 0]), axes=axis_step),
-            y=na.ScalarArray(np.array([0, 0, -1, 1]), axes=axis_step),
+        # Either end of the x axis of the field, then either end of its y
+        # axis, traced together.
+        field = na.Cartesian2dVectorArray(
+            x=na.ScalarArray(np.array([-1, 1, 0, 0]), axes=axis_end),
+            y=na.ScalarArray(np.array([0, 0, -1, 1]), axes=axis_end),
         )
         rayfunction = self.rayfunction(
             wavelength=wavelength,
-            field=field + step_field * step,
-            pupil=pupil,
+            field=field,
+            pupil=na.Cartesian2dVectorArray(0, 0),
             efficiency=False,
         )
 
-        def difference(
+        def span(
             a: na.AbstractCartesian2dVectorArray,
         ) -> na.Cartesian2dMatrixArray:
             """
-            Difference an array across the steps along each axis of the field.
+            Take the span of an array between the ends of each axis of the field.
 
             The result has one column for each axis of the field.
             """
-            along_x = a[{axis_step: 1}] - a[{axis_step: 0}]
-            along_y = a[{axis_step: 3}] - a[{axis_step: 2}]
+            along_x = a[{axis_end: 1}] - a[{axis_end: 0}]
+            along_y = a[{axis_end: 3}] - a[{axis_end: 2}]
             return na.Cartesian2dMatrixArray(
                 x=na.Cartesian2dVectorArray(along_x.x, along_y.x),
                 y=na.Cartesian2dVectorArray(along_x.y, along_y.y),
             )
 
-        # The change in the field, which the normalized steps map to, over the
-        # change in the position on the sensor which it causes.
-        difference_field = difference(rayfunction.inputs.field)
-        difference_position = difference(rayfunction.outputs.position.xy)
-        inverse = difference_field @ difference_position.inverse
+        # the field per position on the sensor
+        span_field = span(rayfunction.inputs.field)
+        span_image = span(rayfunction.outputs.position.xy)
+        inverse = span_field @ span_image.inverse
 
         width_pixel = self.sensor.width_pixel
         if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
@@ -1402,11 +1367,6 @@ class AbstractSequentialSystem(
         result = na.Cartesian2dVectorArray(
             x=(inverse @ na.Cartesian2dVectorArray(width_pixel.x, zero.y)).length,
             y=(inverse @ na.Cartesian2dVectorArray(zero.x, width_pixel.y)).length,
-        )
-
-        result = result.mean(
-            axis=tuple(axis_field.components.values()),
-            where=where,
         )
 
         unit_field = na.unit_normalized(rayfunction.inputs.field.x)

@@ -4191,8 +4191,8 @@ def test_plate_scale_is_along_the_axes_of_the_sensor() -> None:
 
     The sensor is tilted, so that the two axes differ and an answer which
     followed the axes of the field rather than those of the sensor would mix
-    them. The field of view is twice as wide as it is tall, so that the steps
-    across it differ along its two axes as well.
+    them. The field of view is twice as wide as it is tall, so that its spans
+    differ along its two axes as well.
     """
     system = _system_newtonian_tilted(30 * u.deg)
     radius = system.object.aperture.radius
@@ -4233,8 +4233,9 @@ def test_plate_scale_of_rectangular_pixels() -> None:
 
 def test_plate_scale_of_an_image_off_the_sensor() -> None:
     """
-    The plate scale is averaged over the field stop rather than over the
-    sensor, so it is defined at a wavelength whose image misses the sensor.
+    The image of the field of view is traced whether or not it lands on the
+    sensor, so the plate scale is defined at a wavelength whose image misses
+    the sensor.
 
     At twice the wavelength of the grazing spectrograph, its grating throws
     the image of its field stop wholly off its sensor. The plate scale along
