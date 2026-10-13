@@ -187,7 +187,7 @@ class AbstractTestAbstractImagingSensor(
         vmr = np.square(uncertainty) / electrons
         assert np.allclose(result.outputs, vmr * kernel.outputs)
 
-    def test_kernel_covariance(self, a: optika.sensors.AbstractImagingSensor):
+    def test_kernel_covariance(self, a: optika.sensors.AbstractImagingSensor) -> None:
         """
         Under uniform illumination, the variance of a pixel, the center of the
         covariance, is the sum of the variance spread by
