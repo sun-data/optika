@@ -2083,6 +2083,7 @@ def covariance_signal(
         A scalar gives square pixels; a
         :class:`named_arrays.AbstractCartesian2dVectorArray`
         gives rectangular pixels.
+        A pixel of zero width turns off the effect of diffusion.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -2095,7 +2096,9 @@ def covariance_signal(
         If :obj:`None` (the default), the kernel is made just large enough
         to leave out no more than one part in a million of the pairs of
         electrons created at any depth, or is a single pixel if charge does
-        not diffuse.
+        not diffuse,
+        and a :class:`ValueError` is raised if that takes more than 101
+        pixels, which usually means that a width is in the wrong unit.
 
     Examples
     --------
@@ -2747,7 +2750,9 @@ class AbstractSensorMaterial(
             If :obj:`None` (the default), the kernel is made just large enough
             to leave out no more than one part in a million of the pairs of
             electrons of a photon,
-            or is a single pixel if charge does not diffuse.
+            or is a single pixel if charge does not diffuse,
+            and a :class:`ValueError` is raised if that takes more than 101
+            pixels, which usually means that a width is in the wrong unit.
         """
 
     @abc.abstractmethod

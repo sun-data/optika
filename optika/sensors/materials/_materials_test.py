@@ -930,7 +930,7 @@ def test_kernel_signal_monte_carlo(
 def test_covariance_signal(
     diffusion: None | optika.sensors.diffusion.AbstractDiffusionModel,
     width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
-):
+) -> None:
     """
     The center of the covariance is the variance of :func:`vmr_signal`,
     and its sum is the variance without diffusion,
@@ -995,6 +995,66 @@ def test_covariance_signal(
     assert num > 1
 
 
+def test_covariance_signal_zero_pixels() -> None:
+    """
+    A pixel of zero width turns off the effect of diffusion,
+    so the covariance is the variance of a single pixel, as without a model.
+    """
+    kwargs = dict(
+        wavelength=na.geomspace(1, 7000, axis="wavelength", num=13) * u.AA,
+        axis_x="kernel_x",
+        axis_y="kernel_y",
+        thickness_substrate=14 * u.um,
+    )
+    result = optika.sensors.covariance_signal(
+        diffusion=optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=7.55 * u.um,
+        ),
+        width_pixel=0 * u.um,
+        **kwargs,
+    )
+    expected = optika.sensors.covariance_signal(**kwargs)
+    assert np.all(result.outputs == expected.outputs)
+
+
+def test_covariance_signal_uncertain() -> None:
+    """
+    The covariance of a model holding uncertain values is that of its
+    nominal values, and each sample of its distribution is that of the
+    model with that sample.
+    """
+    thickness_depletion = na.UncertainScalarArray(
+        nominal=7.55 * u.um,
+        distribution=na.ScalarArray([6, 9] * u.um, axes="_distribution"),
+    )
+    diffusion = optika.sensors.diffusion.SlabDiffusionModel(
+        thickness_depletion=thickness_depletion,
+    )
+
+    def covariance(
+        diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
+    ) -> na.AbstractScalar:
+        """The covariance of a 5 by 5 kernel with a model of diffusion."""
+        return optika.sensors.covariance_signal(
+            wavelength=304 * u.AA,
+            axis_x="kernel_x",
+            axis_y="kernel_y",
+            thickness_substrate=14 * u.um,
+            diffusion=diffusion,
+            width_pixel=13 * u.um,
+            num=5,
+        ).outputs
+
+    result = covariance(diffusion)
+    assert isinstance(result, na.UncertainScalarArray)
+    nominal = covariance(diffusion.replace(thickness_depletion=7.55 * u.um))
+    assert np.allclose(result.nominal, nominal, rtol=1e-12)
+    for index, value in enumerate([6, 9] * u.um):
+        sample = covariance(diffusion.replace(thickness_depletion=value))
+        distribution = result.distribution[dict(_distribution=index)]
+        assert np.allclose(distribution, sample, rtol=1e-12)
+
+
 @pytest.mark.parametrize(
     argnames="diffusion",
     argvalues=[
@@ -1009,7 +1069,7 @@ def test_covariance_signal(
 )
 def test_covariance_signal_monte_carlo(
     diffusion: optika.sensors.diffusion.AbstractDiffusionModel,
-):
+) -> None:
     """
     The covariance is that of the noise of flat fields simulated by the Monte
     Carlo on a periodic grid,
@@ -1377,7 +1437,7 @@ class AbstractTestAbstractSensorMaterial(
         a: optika.sensors.materials.AbstractSensorMaterial,
         wavelength: u.Quantity | na.AbstractScalar,
         direction: float | na.AbstractScalar,
-    ):
+    ) -> None:
         """
         Without pixels the covariance is the variance of the noise of a
         single pixel per absorbed photon, the variance of :meth:`uncertainty`,

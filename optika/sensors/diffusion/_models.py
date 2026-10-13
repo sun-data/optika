@@ -683,7 +683,9 @@ class AbstractDiffusionModel(
             to leave out no more than one part in a million of the pairs of
             electrons created at any depth,
             which takes about :math:`\sqrt{2}` times as many pixels beyond the
-            center as :meth:`kernel`.
+            center as :meth:`kernel`,
+            and a :class:`ValueError` is raised if that takes more than 101
+            pixels, which usually means that a width is in the wrong unit.
         """
         num = self._num_kernel(num, thickness_substrate, width_pixel, pair=True)
         inputs = _indices_kernel(num, axis_x, axis_y)
