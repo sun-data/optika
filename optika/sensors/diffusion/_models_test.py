@@ -733,19 +733,11 @@ class TestJanesickDiffusionModel(
             width_depletion=0.8 * u.um,
         ),
         optika.sensors.diffusion.SlabDiffusionModel(
-            thickness_depletion=na.NormalUncertainScalarArray(
-                nominal=8.7 * u.um,
-                width=0.5 * u.um,
-                num_distribution=3,
-            ),
+            thickness_depletion=_uncertain(8.7 * u.um, [8.2, 8.7, 9.2] * u.um),
         ),
         optika.sensors.diffusion.SlabDiffusionModel(
             thickness_depletion=na.linspace(6, 10, axis="depletion", num=2) * u.um,
-            width_depletion=na.NormalUncertainScalarArray(
-                nominal=0.8 * u.um,
-                width=0.1 * u.um,
-                num_distribution=3,
-            ),
+            width_depletion=_uncertain(0.8 * u.um, [0.7, 0.8, 0.9] * u.um),
         ),
     ],
 )
