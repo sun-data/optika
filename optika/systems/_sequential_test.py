@@ -4158,6 +4158,75 @@ def _plate_scale_newtonian() -> u.Quantity:
     return angle.to(u.deg) / u.pix
 
 
+def _system_newtonian_wide() -> optika.systems.SequentialSystem:
+    """
+    The Newtonian telescope with a field of view three degrees across, wide
+    enough for its distortion to change the plate scale across the field by
+    a part in two thousand, and a sensor large enough to catch all of it.
+    """
+    system = _system_newtonian
+    return dataclasses.replace(
+        system,
+        object=dataclasses.replace(
+            system.object,
+            aperture=optika.apertures.CircularAperture(radius=np.sin(1.5 * u.deg)),
+        ),
+        sensor=dataclasses.replace(
+            system.sensor,
+            num_pixel=na.Cartesian2dVectorArray(4096, 4096),
+        ),
+    )
+
+
+def _plate_scale_secant(
+    system: optika.systems.SequentialSystem,
+    wavelength: None | u.Quantity | na.AbstractScalar = None,
+    fraction: float = 1,
+) -> na.Cartesian2dVectorArray:
+    """
+    The field of a system divided by the pixels it spans, along the lines
+    through the center of the field, worked out component by component.
+
+    This takes the edges of the field of view from :attr:`field_min` and
+    :attr:`field_max` rather than from normalized field coordinates, and
+    divides the spans component by component rather than as matrices, which
+    is right for a sensor which is not rolled against the field.
+
+    Parameters
+    ----------
+    system
+        A system whose sensor is not rolled against its field.
+    wavelength
+        The wavelengths at which to compute the plate scale.
+    fraction
+        The fraction of the field of view to span. A small fraction gives the
+        plate scale at the center of the field rather than across it.
+    """
+    center = (system.field_min + system.field_max) / 2
+    half = fraction * (system.field_max - system.field_min) / 2
+
+    axis = "_end"
+    x = na.ScalarArray(np.array([-1, 1, 0, 0]), axes=axis)
+    y = na.ScalarArray(np.array([0, 0, -1, 1]), axes=axis)
+    rayfunction = system.rayfunction(
+        wavelength=wavelength,
+        field=na.Cartesian2dVectorArray(
+            x=center.x + x * half.x,
+            y=center.y + y * half.y,
+        ),
+        pupil=na.Cartesian2dVectorArray(0, 0),
+        normalized_field=False,
+    )
+    pixels = system.sensor.pixels(rayfunction.outputs.position.xy)
+    span_x = np.abs(pixels.x[{axis: 1}] - pixels.x[{axis: 0}])
+    span_y = np.abs(pixels.y[{axis: 3}] - pixels.y[{axis: 2}])
+    result = na.Cartesian2dVectorArray(
+        x=2 * half.x / span_x,
+        y=2 * half.y / span_y,
+    )
+    return result.to(u.arcsec / u.pix)
+
+
 def test_plate_scale_is_the_pixel_over_the_focal_length() -> None:
     """
     A mirror focusing onto a sensor images the width of a pixel onto the angle
@@ -4238,9 +4307,11 @@ def test_plate_scale_of_an_image_off_the_sensor() -> None:
     the sensor.
 
     At twice the wavelength of the grazing spectrograph, its grating throws
-    the image of its field stop wholly off its sensor. The plate scale along
-    the dispersion changes with wavelength, and the result keeps the axis of
-    the wavelengths rather than averaging over it.
+    the image of its field stop wholly off its sensor. There, as at the
+    wavelength it was built for, the plate scale is the field of view divided
+    by the pixels its image spans. The plate scale along the dispersion
+    changes with wavelength, and the result keeps the axis of the wavelengths
+    rather than averaging over it.
     """
     system = _system_grazing
     wavelength = system.grid_input.wavelength * na.ScalarArray(
@@ -4263,11 +4334,43 @@ def test_plate_scale_of_an_image_off_the_sensor() -> None:
     reaches = rayfunction.outputs.unvignetted.any(("field_x", "field_y"))
     assert np.all(reaches == na.ScalarArray(np.array([True, False]), axes="wavelength"))
 
-    result = system.plate_scale(wavelength)
+    result = system.plate_scale(wavelength).to(u.arcsec / u.pix)
+    expected = _plate_scale_secant(system, wavelength)
     assert na.shape(result) == {"wavelength": 2}
-    assert np.all(np.isfinite(na.value(result.x)))
-    assert np.all(np.isfinite(na.value(result.y)))
-    assert np.all(result.x[{"wavelength": 0}] != result.x[{"wavelength": 1}])
+    assert np.allclose(result.x, expected.x, rtol=1e-6)
+    assert np.allclose(result.y, expected.y, rtol=1e-6)
+
+    # a change larger than the tolerance, so that the comparison above would
+    # notice two wavelengths swapped or averaged together
+    change = result.x[{"wavelength": 1}] / result.x[{"wavelength": 0}] - 1
+    assert np.all(np.abs(change) > 1e-4)
+
+
+def test_plate_scale_of_a_wide_field_is_the_secant() -> None:
+    """
+    Across a field of view wide enough for distortion to change the plate
+    scale, the plate scale is the field of view divided by the pixels it
+    spans, rather than the plate scale at the center of the field.
+    """
+    system = _system_newtonian_wide()
+    expected = _plate_scale_secant(system)
+
+    # the premise: at the center of the field the plate scale differs from
+    # the secant by much more than the tolerance below
+    center = _plate_scale_secant(system, fraction=0.01)
+    assert np.all(np.abs(center.x / expected.x - 1) > 1e-4)
+    assert np.all(np.abs(center.y / expected.y - 1) > 1e-4)
+
+    result = system.plate_scale().to(u.arcsec / u.pix)
+    assert np.allclose(result.x, expected.x, rtol=1e-6)
+    assert np.allclose(result.y, expected.y, rtol=1e-6)
+
+
+def test_plate_scale_without_a_sensor() -> None:
+    """There is no plate scale without a sensor to count the pixels of."""
+    system = dataclasses.replace(_system_newtonian, sensor=None)
+    with pytest.raises(ValueError, match="sensor"):
+        system.plate_scale()
 
 
 # the field stop is decentered so that a mirrored field frame is observable:
