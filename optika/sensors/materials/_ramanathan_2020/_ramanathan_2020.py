@@ -716,30 +716,13 @@ def electrons_measured(
     # the distribution with that sample of every value.
     if any(isinstance(a, na.AbstractUncertainScalarArray) for a in arrays.values()):
         nominal = {k: na.nominal(a) for k, a in arrays.items()}
-        distribution = {k: _distribution(a) for k, a in arrays.items()}
+        distribution = {k: optika._util._distribution(a) for k, a in arrays.items()}
         return na.UncertainScalarArray(
             nominal=_electrons_measured(**nominal, **options),
             distribution=_electrons_measured(**distribution, **options),
         )
 
     return _electrons_measured(**arrays, **options)
-
-
-def _distribution(
-    a: u.Quantity | na.AbstractScalar,
-) -> u.Quantity | na.AbstractScalar:
-    """
-    The samples of the distribution of `a` if it is uncertain,
-    or `a` itself, which every sample shares, if it is not.
-
-    Parameters
-    ----------
-    a
-        A value which may be uncertain.
-    """
-    if isinstance(a, na.AbstractUncertainScalarArray):
-        return a.distribution
-    return a
 
 
 def _electrons_measured(

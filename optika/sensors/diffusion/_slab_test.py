@@ -18,7 +18,7 @@ def _deltas(num: int, seed: int) -> np.ndarray:
     )
 
 
-def test_series():
+def test_series() -> None:
     """
     The image series and the eigenfunction series of the distribution agree
     where one takes over from the other, and the distribution rises from
@@ -45,7 +45,7 @@ def test_series():
         assert survival < 1e-20
 
 
-def test_nodes():
+def test_nodes() -> None:
     """
     The quantiles of the nodes lie inside the distribution and pair up
     symmetrically, and the weights are positive and sum to one.
@@ -61,7 +61,7 @@ def test_nodes():
     assert math.isclose(weight.sum(), 1, rel_tol=1e-15)
 
 
-def test_table():
+def test_table() -> None:
     """
     The table interpolates the variance at each node to a few parts in a
     million, and the variance is the quantile asked for.
@@ -89,7 +89,7 @@ def test_table():
         assert np.all(np.diff(result) > 0)
 
 
-def test_variances():
+def test_variances() -> None:
     """
     Charge created in the depletion region does not cross the field-free
     one, and closer to the depletion region than the table reaches, the
@@ -109,7 +109,7 @@ def test_variances():
     assert np.allclose(nearer, near / 100, rtol=1e-12)
 
 
-def test_transit():
+def test_transit() -> None:
     """
     The weights of the mixture average the variance to its mean,
     :math:`1 - u^2`, except near the depletion region,

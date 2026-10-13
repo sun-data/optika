@@ -352,7 +352,7 @@ def _variances_array(
 def _transit(
     delta: float | na.AbstractScalar,
     axis: str,
-) -> tuple[na.ScalarArray, na.ScalarArray]:
+) -> tuple[na.AbstractScalar, na.ScalarArray]:
     """
     The variance at the nodes of the quadrature over its quantiles,
     in units of the square of the thickness of the field-free region,
@@ -369,7 +369,16 @@ def _transit(
     _, _, weights = _nodes()
     weight = na.ScalarArray(weights, axes=axis)
 
-    delta = na.as_named_array(delta).explicit
+    delta = na.as_named_array(delta)
+
+    # the variances at the nominal distance and at each sample of its
+    # distribution, since the table is looked up element by element
+    if isinstance(delta, na.AbstractUncertainScalarArray):
+        nominal, _ = _transit(delta.nominal, axis)
+        distribution, _ = _transit(delta.distribution, axis)
+        return na.UncertainScalarArray(nominal, distribution), weight
+
+    delta = delta.explicit
     delta_nd = np.asarray(delta.ndarray, dtype=float)
 
     s = _variances_array(delta_nd.reshape(-1), _table())

@@ -46,7 +46,7 @@ def test_mcc_stern2004(kind: str, thickness_substrate: u.Quantity) -> None:
     ],
 )
 def test_e2v_ccd64(
-    model: Callable[[], optika.sensors.diffusion.JanesickDiffusionModel],
+    model: Callable[[], optika.sensors.diffusion.SlabDiffusionModel],
     kind: str,
 ) -> None:
     """

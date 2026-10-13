@@ -7,6 +7,29 @@ from optika._tests._measured import interp_each
 
 
 @pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        2 * u.um,
+        na.linspace(0, 1, axis="x", num=3) * u.um,
+        na.UncertainScalarArray(
+            nominal=2 * u.um,
+            distribution=na.ScalarArray([1, 3] * u.um, axes="_distribution"),
+        ),
+    ],
+)
+def test_distribution(a: u.Quantity | na.AbstractScalar) -> None:
+    """
+    The samples of an uncertain value are its distribution, and a value
+    which is not uncertain is every sample.
+    """
+    result = optika._util._distribution(a)
+    if isinstance(a, na.AbstractUncertainScalarArray):
+        assert result is a.distribution
+    else:
+        assert result is a
+
+
+@pytest.mark.parametrize(
     argnames="angles",
     argvalues=[
         na.Cartesian2dVectorArray(1, 2) * u.deg,

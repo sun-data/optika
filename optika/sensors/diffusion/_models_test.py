@@ -86,7 +86,7 @@ class AbstractTestAbstractDiffusionModel(
     def test_mixture(
         self,
         a: optika.sensors.diffusion.AbstractDiffusionModel,
-    ):
+    ) -> None:
         """
         The weights of the Gaussians are positive and sum to one,
         and their variances are areas which are never negative.
@@ -639,7 +639,7 @@ class TestJanesickDiffusionModel(
     def test_mixture_single(
         self,
         a: optika.sensors.diffusion.JanesickDiffusionModel,
-    ):
+    ) -> None:
         """The mixture is a single Gaussian with the variance of the width."""
         s = _thickness_substrate
         depth = na.linspace(0, 14, axis="depth", num=15) * u.um
@@ -732,6 +732,21 @@ class TestJanesickDiffusionModel(
             thickness_depletion=20 * u.um,
             width_depletion=0.8 * u.um,
         ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=na.NormalUncertainScalarArray(
+                nominal=8.7 * u.um,
+                width=0.5 * u.um,
+                num_distribution=3,
+            ),
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=na.linspace(6, 10, axis="depletion", num=2) * u.um,
+            width_depletion=na.NormalUncertainScalarArray(
+                nominal=0.8 * u.um,
+                width=0.1 * u.um,
+                num_distribution=3,
+            ),
+        ),
     ],
 )
 class TestSlabDiffusionModel(
@@ -745,7 +760,7 @@ class TestSlabDiffusionModel(
     def test_width_exact(
         self,
         a: optika.sensors.diffusion.SlabDiffusionModel,
-    ):
+    ) -> None:
         """
         The variance of the charge crossing the field-free region is the
         square of its thickness less the square of the depth,
@@ -760,10 +775,10 @@ class TestSlabDiffusionModel(
 
         variance = np.square(f) - np.square(np.minimum(depth, f))
         if a.width_depletion is not None:
-            if d > 0 * u.um:
-                crossed = np.minimum(np.maximum(s - depth, 0 * d), d) / d
-            else:
-                crossed = 1
+            depleted = d > 0 * u.um
+            crossed = np.minimum(np.maximum(s - depth, 0 * d), d)
+            crossed = crossed / np.where(depleted, d, 1 * u.um)
+            crossed = np.where(depleted, crossed, 1)
             variance = variance + np.square(a.width_depletion) * crossed
         assert np.allclose(np.square(result), variance, atol=1e-12 * u.um**2)
 
@@ -776,7 +791,7 @@ class TestSlabDiffusionModel(
     def test_cdf_exact(
         self,
         a: optika.sensors.diffusion.SlabDiffusionModel,
-    ):
+    ) -> None:
         """
         Without a spread in the depletion region, the profile along one axis
         is the closed form of the reflected diffusion across the field-free
@@ -784,7 +799,7 @@ class TestSlabDiffusionModel(
         """
         s = _thickness_substrate
         f = s - a.thickness_depletion
-        if a.width_depletion is not None or f <= 0 * u.um:
+        if a.width_depletion is not None or np.any(f <= 0 * u.um):
             return
         depth = na.linspace(0, 0.999, axis="depth", num=7) * f
         position = na.geomspace(0.01, 5, axis="position", num=9) * f
@@ -798,7 +813,7 @@ class TestSlabDiffusionModel(
     def test_mixture_scaling(
         self,
         a: optika.sensors.diffusion.SlabDiffusionModel,
-    ):
+    ) -> None:
         """
         Without a spread in the depletion region, the variances of the
         Gaussians at a given fraction of the way across the field-free region
@@ -809,7 +824,7 @@ class TestSlabDiffusionModel(
         """
         s = _thickness_substrate
         f = s - a.thickness_depletion
-        if a.width_depletion is not None or f <= 0 * u.um:
+        if a.width_depletion is not None or np.any(f <= 0 * u.um):
             return
         fraction = na.linspace(0, 1, axis="depth", num=11)
         variance, weight = a.mixture(fraction * f, s, axis="g")
@@ -840,7 +855,7 @@ def test_slab_probability_same_pixel_fourier(
     thickness_field_free: u.Quantity,
     depth: u.Quantity,
     expected: float,
-):
+) -> None:
     r"""
     The probability that two electrons share a 15 micron pixel agrees,
     to the accuracy of the mixture of Gaussians at a single depth,
@@ -866,7 +881,7 @@ def test_slab_probability_same_pixel_fourier(
 @pytest.mark.parametrize("width_pixel", [15 * u.um, 4 * u.um])
 def test_slab_mixture_converged(
     width_pixel: u.Quantity,
-):
+) -> None:
     """
     Averaged over the depth at which the charge was created,
     the kernel and the probability that two electrons share a pixel of the

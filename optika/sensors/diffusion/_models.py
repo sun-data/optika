@@ -193,16 +193,14 @@ def _sum_product(
     axis
         The logical axis to sum over.
     """
-    uncertain_a = isinstance(a, na.AbstractUncertainScalarArray)
-    uncertain_b = isinstance(b, na.AbstractUncertainScalarArray)
-    if uncertain_a or uncertain_b:
-        # the sum for the nominal values, and for each sample of the
-        # distributions, which a value that is not uncertain shares
+    # the sum for the nominal values, and for each sample of the
+    # distributions, since the sum is computed by numpy
+    if any(isinstance(x, na.AbstractUncertainScalarArray) for x in (a, b)):
         return na.UncertainScalarArray(
             nominal=_sum_product(na.nominal(a), na.nominal(b), axis),
             distribution=_sum_product(
-                a.distribution if uncertain_a else a,
-                b.distribution if uncertain_b else b,
+                optika._util._distribution(a),
+                optika._util._distribution(b),
                 axis,
             ),
         )
@@ -1503,7 +1501,10 @@ class SlabDiffusionModel(
         # Define a grid of distances along one axis
         position = na.linspace(0, 40, axis="position", num=101) * u.um
 
-        def beyond(model):
+        def beyond(
+            model: optika.sensors.diffusion.AbstractDiffusionModel,
+        ) -> na.AbstractScalar:
+            # the fraction of the charge farther than each distance
             cdf = model.cdf(position, 0 * u.um, thickness_substrate)
             return 2 * (1 - cdf)
 
@@ -1534,7 +1535,9 @@ class SlabDiffusionModel(
         wavelength = na.geomspace(1, 100, axis="wavelength", num=101) * u.AA
         absorption = optika.chemicals.Chemical("Si").absorption(wavelength)
 
-        def mcc(model):
+        def mcc(
+            model: optika.sensors.diffusion.AbstractDiffusionModel,
+        ) -> na.AbstractScalar:
             # on the CCD the measurement was made on
             return model.mean_charge_capture(
                 absorption=absorption,
