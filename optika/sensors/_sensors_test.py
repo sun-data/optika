@@ -136,7 +136,7 @@ class AbstractTestAbstractImagingSensor(
             result = dict(wavelength=3) | result
         return result
 
-    def test_kernel(self, a: optika.sensors.AbstractImagingSensor):
+    def test_kernel(self, a: optika.sensors.AbstractImagingSensor) -> None:
         """
         The noiseless exposure of photons absorbed in a single pixel is the
         kernel, centered on that pixel.
@@ -170,7 +170,7 @@ class AbstractTestAbstractImagingSensor(
         assert np.isclose(electrons.sum(), expected.sum())
         assert electrons[{a.axis_pixel.x: 6, a.axis_pixel.y: 5}] == electrons.max()
 
-    def test_kernel_variance(self, a: optika.sensors.AbstractImagingSensor):
+    def test_kernel_variance(self, a: optika.sensors.AbstractImagingSensor) -> None:
         wavelength = 550 * u.nm
         kernel = a.kernel(wavelength)
         result = a.kernel_variance(wavelength)
@@ -192,7 +192,7 @@ class AbstractTestAbstractImagingSensor(
         self,
         a: optika.sensors.AbstractImagingSensor,
         integrate: bool,
-    ):
+    ) -> None:
         """The transpose is the adjoint of the noiseless exposure."""
         a = dataclasses.replace(a, timedelta_exposure=10 * u.s)
 
@@ -217,7 +217,7 @@ class AbstractTestAbstractImagingSensor(
             rtol=1e-12,
         )
 
-    def test_backproject(self, a: optika.sensors.AbstractImagingSensor):
+    def test_backproject(self, a: optika.sensors.AbstractImagingSensor) -> None:
         # use a nonzero exposure time so the default `timedelta` is invertible
         a = dataclasses.replace(a, timedelta_exposure=10 * u.s)
 
@@ -272,7 +272,7 @@ class AbstractTestAbstractImagingSensor(
         assert "wavelength" in na.shape(result.outputs)
         assert np.all(np.isfinite(result.outputs.to_value(u.photon / u.s)))
 
-    def test_uncertainty(self, a: optika.sensors.AbstractImagingSensor):
+    def test_uncertainty(self, a: optika.sensors.AbstractImagingSensor) -> None:
         electrons = na.random.uniform(0, 1000, shape_random=self._shape(a))
         image = self._image(a, electrons * u.electron)
 
@@ -292,7 +292,7 @@ class AbstractTestAbstractImagingSensor(
         assert "wavelength" in na.shape(result.outputs)
         assert np.all(result.outputs >= 0 * u.electron)
 
-    def test_expose_uncertainty(self, a: optika.sensors.AbstractImagingSensor):
+    def test_expose_uncertainty(self, a: optika.sensors.AbstractImagingSensor) -> None:
         """
         The width of the noise of an exposure is that of the noise model at the
         expected electrons, which the kernel spreads over the pixels.

@@ -299,7 +299,9 @@ class AbstractImagingSensor(
             photon was absorbed in.
             If :obj:`None` (the default), the kernel is made just large enough
             to leave out no more than one part in a million of the charge,
-            or is a single pixel if charge does not diffuse.
+            or is a single pixel if charge does not diffuse,
+            and a :class:`ValueError` is raised if that takes more than 101
+            pixels, which usually means that a width is in the wrong unit.
         """
         return self.material.kernel(
             wavelength=wavelength,

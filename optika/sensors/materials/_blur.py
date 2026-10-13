@@ -8,6 +8,7 @@ import numpy as np
 import numba
 import astropy.units as u
 import named_arrays as na
+import optika
 
 __all__ = []
 
@@ -45,7 +46,7 @@ def _blur(
     wrap: bool,
     transpose: bool,
     interpolation: None | tuple[na.AbstractScalar, na.AbstractScalar] = None,
-) -> na.ScalarArray:
+) -> na.AbstractScalar:
     r"""
     Spread the values on a pixel grid with a kernel centered on each pixel,
     or apply the transpose of that spread.
@@ -101,6 +102,38 @@ def _blur(
         as each pixel of the kernel is used,
         so that the kernels of all the pixels are never held at once.
     """
+    # the spread of the nominal values and of each sample of the
+    # distributions, since the spread is a compiled loop
+    arrays = (values, kernel) + (() if interpolation is None else interpolation)
+    if any(isinstance(a, na.AbstractUncertainScalarArray) for a in arrays):
+        options = dict(
+            axis_xy=axis_xy,
+            axis_kernel=axis_kernel,
+            wrap=wrap,
+            transpose=transpose,
+        )
+        if interpolation is None:
+            interpolation_nominal = interpolation_distribution = None
+        else:
+            interpolation_nominal = tuple(na.nominal(a) for a in interpolation)
+            interpolation_distribution = tuple(
+                optika._util._distribution(a) for a in interpolation
+            )
+        return na.UncertainScalarArray(
+            nominal=_blur(
+                values=na.nominal(values),
+                kernel=na.nominal(kernel),
+                interpolation=interpolation_nominal,
+                **options,
+            ),
+            distribution=_blur(
+                values=optika._util._distribution(values),
+                kernel=optika._util._distribution(kernel),
+                interpolation=interpolation_distribution,
+                **options,
+            ),
+        )
+
     shape_values = na.shape(values)
     for axis in axis_xy:
         if axis not in shape_values:
