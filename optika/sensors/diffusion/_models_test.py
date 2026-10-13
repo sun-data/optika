@@ -23,6 +23,20 @@ def _depth(
     return depth
 
 
+def _uncertain(
+    nominal: u.Quantity,
+    distribution: u.Quantity,
+) -> na.UncertainScalarArray:
+    """
+    An uncertain value with fixed samples, so that the tests do not depend
+    on the random samples a normal distribution would draw.
+    """
+    return na.UncertainScalarArray(
+        nominal=nominal,
+        distribution=na.ScalarArray(distribution, axes="_distribution"),
+    )
+
+
 class AbstractTestAbstractDiffusionModel(
     test_mixins.AbstractTestPrintable,
     test_mixins.AbstractTestReplaceable,
@@ -556,20 +570,12 @@ class AbstractTestAbstractDiffusionModel(
             width_depletion=0.8 * u.um,
         ),
         optika.sensors.diffusion.JanesickDiffusionModel(
-            thickness_depletion=na.NormalUncertainScalarArray(
-                nominal=8.7 * u.um,
-                width=0.5 * u.um,
-                num_distribution=3,
-            ),
+            thickness_depletion=_uncertain(8.7 * u.um, [8.2, 8.7, 9.2] * u.um),
             width_depletion=0.8 * u.um,
         ),
         optika.sensors.diffusion.JanesickDiffusionModel(
             thickness_depletion=na.linspace(6, 10, axis="depletion", num=2) * u.um,
-            width_backsurface=na.NormalUncertainScalarArray(
-                nominal=4 * u.um,
-                width=0.2 * u.um,
-                num_distribution=3,
-            ),
+            width_backsurface=_uncertain(4 * u.um, [3.8, 4, 4.2] * u.um),
             width_depletion=na.linspace(0.5, 1, axis="spread", num=2) * u.um,
         ),
     ],
