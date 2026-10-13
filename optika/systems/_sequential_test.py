@@ -721,6 +721,23 @@ class AbstractTestAbstractSequentialSystem(
             na.value(chief.x).ndarray_aligned(result.vertices.x.axes),
         )
 
+    def test_plate_scale(self, a: optika.systems.AbstractSequentialSystem) -> None:
+        result = a.plate_scale()
+        assert isinstance(result, na.Cartesian2dVectorArray)
+
+        # in field coordinates per pixel
+        unit = na.unit_normalized(a.field_boundary.x) / u.pix
+        assert na.unit_normalized(result.x).is_equivalent(unit)
+        assert na.unit_normalized(result.y).is_equivalent(unit)
+
+        # Only the field is averaged over, so the result has the axes of the
+        # wavelengths and of the system, and none of its own.
+        shape = na.broadcast_shapes(na.shape(a.grid_input.wavelength), a.shape)
+        assert na.shape(result) == shape
+
+        assert np.all(na.value(result.x) > 0)
+        assert np.all(na.value(result.y) > 0)
+
     def test_beam_footprint(self, a: optika.systems.AbstractSequentialSystem) -> None:
         rays = a.raytrace(efficiency=False).outputs
         unvignetted = rays.unvignetted[{a.axis_surface: ~0}]
@@ -4111,6 +4128,145 @@ def test_stops_solve_when_the_launch_surface_is_nearly_edge_on():
 
     # unreachable until the solve above stops raising, which is the point
     assert np.all(np.isfinite(result.outputs.position.length))  # pragma: nocover
+
+
+def _system_newtonian_tilted(
+    tilt: u.Quantity,
+) -> optika.systems.SequentialSystem:
+    """The Newtonian telescope, with its sensor tilted about its own y axis."""
+    sensor = _system_newtonian.sensor
+    return dataclasses.replace(
+        _system_newtonian,
+        sensor=dataclasses.replace(
+            sensor,
+            transformation=na.transformations.compose(
+                sensor.transformation,
+                na.transformations.Cartesian3dRotationY(tilt),
+            ),
+        ),
+    )
+
+
+def _plate_scale_newtonian() -> u.Quantity:
+    """
+    The angle the width of a pixel subtends from the primary mirror of the
+    Newtonian telescope, which focuses onto its sensor.
+    """
+    system = _system_newtonian
+    focal_length = np.abs(system.surfaces[0].sag.radius) / 2
+    angle = system.sensor.width_pixel / focal_length * u.rad
+    return angle.to(u.deg) / u.pix
+
+
+def test_plate_scale_is_the_pixel_over_the_focal_length() -> None:
+    """
+    A mirror focusing onto a sensor images the width of a pixel onto the angle
+    it subtends from the mirror, along both axes, across a field small enough
+    to be free of distortion.
+    """
+    result = _system_newtonian.plate_scale()
+    expected = _plate_scale_newtonian()
+    assert np.allclose(result.x, expected, rtol=1e-5)
+    assert np.allclose(result.y, expected, rtol=1e-5)
+
+
+def test_plate_scale_of_a_tilted_sensor() -> None:
+    """
+    A sensor tilted about its y axis stretches the image along its x axis by
+    the secant of the tilt, so a pixel along x subtends the cosine of the tilt
+    times the angle it would subtend untilted, and a pixel along y is the same.
+    """
+    tilt = 30 * u.deg
+    result = _system_newtonian_tilted(tilt).plate_scale()
+    expected = _plate_scale_newtonian()
+    assert np.allclose(result.x, np.cos(tilt) * expected, rtol=1e-5)
+    assert np.allclose(result.y, expected, rtol=1e-5)
+
+
+def test_plate_scale_is_along_the_axes_of_the_sensor() -> None:
+    """
+    Rolling the optics and the sensor together about the optical axis turns
+    the field against the axes of the sensor, and leaves the plate scale along
+    each axis of the sensor where it was.
+
+    The sensor is tilted, so that the two axes differ and an answer which
+    followed the axes of the field rather than those of the sensor would mix
+    them. The field of view is twice as wide as it is tall, so that the steps
+    across it differ along its two axes as well.
+    """
+    system = _system_newtonian_tilted(30 * u.deg)
+    radius = system.object.aperture.radius
+    system = dataclasses.replace(
+        system,
+        object=dataclasses.replace(
+            system.object,
+            aperture=optika.apertures.RectangularAperture(
+                half_width=na.Cartesian2dVectorArray(radius, radius / 2),
+            ),
+        ),
+    )
+    rolled = dataclasses.replace(
+        system,
+        transformation=na.transformations.Cartesian3dRotationZ(37 * u.deg),
+    )
+    result = rolled.plate_scale()
+    expected = system.plate_scale()
+    assert np.allclose(result.x, expected.x, rtol=1e-6)
+    assert np.allclose(result.y, expected.y, rtol=1e-6)
+
+
+def test_plate_scale_of_rectangular_pixels() -> None:
+    """A pixel twice as tall as it is wide subtends twice the angle along y."""
+    sensor = _system_newtonian.sensor
+    system = dataclasses.replace(
+        _system_newtonian,
+        sensor=dataclasses.replace(
+            sensor,
+            width_pixel=na.Cartesian2dVectorArray(1, 2) * sensor.width_pixel,
+        ),
+    )
+    result = system.plate_scale()
+    expected = _plate_scale_newtonian()
+    assert np.allclose(result.x, expected, rtol=1e-5)
+    assert np.allclose(result.y, 2 * expected, rtol=1e-5)
+
+
+def test_plate_scale_of_an_image_off_the_sensor() -> None:
+    """
+    The plate scale is averaged over the field stop rather than over the
+    sensor, so it is defined at a wavelength whose image misses the sensor.
+
+    At twice the wavelength of the grazing spectrograph, its grating throws
+    the image of its field stop wholly off its sensor. The plate scale along
+    the dispersion changes with wavelength, and the result keeps the axis of
+    the wavelengths rather than averaging over it.
+    """
+    system = _system_grazing
+    wavelength = system.grid_input.wavelength * na.ScalarArray(
+        ndarray=np.array([1, 2]),
+        axes="wavelength",
+    )
+
+    # the premise: no field position reaches the sensor at twice the wavelength
+    rayfunction = system.rayfunction(
+        wavelength=wavelength,
+        field=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+            num=11,
+            centers=True,
+        ),
+        pupil=na.Cartesian2dVectorArray(0, 0),
+    )
+    reaches = rayfunction.outputs.unvignetted.any(("field_x", "field_y"))
+    assert np.all(reaches == na.ScalarArray(np.array([True, False]), axes="wavelength"))
+
+    result = system.plate_scale(wavelength)
+    assert na.shape(result) == {"wavelength": 2}
+    assert np.all(np.isfinite(na.value(result.x)))
+    assert np.all(np.isfinite(na.value(result.y)))
+    assert np.all(result.x[{"wavelength": 0}] != result.x[{"wavelength": 1}])
 
 
 # the field stop is decentered so that a mirrored field frame is observable:
