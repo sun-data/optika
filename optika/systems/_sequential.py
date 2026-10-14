@@ -347,7 +347,7 @@ class AbstractSequentialSystem(
     def _normalize_axis_pupil(
         self,
         axis_pupil: None | tuple[str, str],
-        axis_field: tuple[str, str],
+        axis_field: tuple[str, ...],
         axis_wavelength: tuple[str, ...],
         pupil: na.AbstractCartesian2dVectorArray,
     ) -> tuple[str, str]:
@@ -377,7 +377,7 @@ class AbstractSequentialSystem(
                 and ax not in axis_wavelength
                 and ax not in axis_field
             )
-            if len(axis_pupil) != 2:  # pragma: nocover
+            if len(axis_pupil) != 2:
                 raise ValueError(
                     "if `axis_pupil` is `None`, "
                     "the two pupil axes must be unambiguous, "
@@ -1396,12 +1396,12 @@ class AbstractSequentialSystem(
         unit_field = na.unit_normalized(rayfunction.inputs.field.x)
         return result.to(unit_field / u.pix)
 
-    def spot_size(
+    def radius_spot(
         self,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
         field: None | na.AbstractCartesian2dVectorArray = None,
         pupil: None | na.AbstractCartesian2dVectorArray = None,
-        axis_pupil: None | tuple[str, ...] = None,
+        axis_pupil: None | tuple[str, str] = None,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
     ) -> na.AbstractScalar:
@@ -1415,13 +1415,16 @@ class AbstractSequentialSystem(
         intensity, so each position on the pupil counts the same, and the
         result is the geometric size of the spot, without diffraction.
 
-        Only the rays which reach the sensor count. A spot which is partly
-        vignetted is measured over the rays which pass, and a spot which is
-        wholly vignetted, such as one from a field position outside the field
-        of view, is NaN.
+        The rays are traced with the sensor left open, so that a spot which
+        straddles the edge of the sensor is measured whole rather than by the
+        part of it which lands on the pixels. A spot whose centroid misses the
+        pixels is NaN. So is a spot which the rest of the system vignettes
+        wholly, such as one from a field position outside the field of view,
+        and a spot which it vignettes in part is measured over the rays which
+        pass.
 
-        The radius is in the units of position on the sensor. Divide it by the
-        width of a pixel to have it in pixels.
+        The radius is in the units of position on the sensor. Divide it by
+        ``sensor.width_pixel / u.pix`` to have it in pixels.
 
         Parameters
         ----------
@@ -1438,11 +1441,13 @@ class AbstractSequentialSystem(
             normalized or physical units.
             If :obj:`None` (the default), ``self.grid_input.pupil`` is used.
         axis_pupil
-            The logical axes of the pupil positions to measure each spot over.
-            If :obj:`None` (the default), :attr:`axis_pupil` is used if
-            `pupil` is :obj:`None` and that is set. Otherwise these are the
-            axes along which the pupil positions vary and the wavelengths, the
-            field positions, and :attr:`shape` do not.
+            The two logical axes of the pupil positions to measure each spot
+            over.
+            If :obj:`None` (the default) and `pupil` is :obj:`None`,
+            :attr:`axis_pupil` is used.
+            If that is :obj:`None` too, or if `pupil` is given, the pupil
+            positions should vary along only two axes other than those of
+            :attr:`shape`, the wavelengths, and the field positions.
         normalized_field
             A boolean flag indicating whether the `field` parameter is given
             in normalized or physical units.
@@ -1494,47 +1499,59 @@ class AbstractSequentialSystem(
                 ),
             )
 
-            system.spot_size().to(u.um)
+            system.radius_spot().to(u.um)
         """
-        if (axis_pupil is None) and (pupil is None):
-            axis_pupil = self.axis_pupil
-        if axis_pupil is None:
-            grid = self.grid_input
-            others = set(self.shape)
-            others |= set(
-                na.shape(grid.wavelength if wavelength is None else wavelength)
-            )
-            others |= set(na.shape(grid.field if field is None else field))
-            axis_pupil = tuple(
-                ax
-                for ax in na.shape(grid.pupil if pupil is None else pupil)
-                if ax not in others
+        if self.sensor is None:
+            raise ValueError(
+                "the spot radius is measured on a sensor, and this system has none"
             )
 
-        rays = self.rayfunction(
+        grid = self.grid_input
+
+        if (axis_pupil is None) and (pupil is None):
+            axis_pupil = self.axis_pupil
+
+        # The field and the wavelengths are often a single point or a line,
+        # which :meth:`_normalize_axis_field` would reject for not varying
+        # along two axes, so all of their axes are passed, which are only
+        # needed to tell which axes of the pupil positions are not their own.
+        axis_pupil = self._normalize_axis_pupil(
+            axis_pupil=axis_pupil,
+            axis_field=tuple(na.shape(grid.field if field is None else field)),
+            axis_wavelength=tuple(
+                na.shape(grid.wavelength if wavelength is None else wavelength)
+            ),
+            pupil=grid.pupil if pupil is None else pupil,
+        )
+
+        surfaces = self.surfaces_all
+        rayfunction = self._rayfunction(
+            surfaces=self._surfaces_with_open(surfaces, {len(surfaces) - 1}),
             wavelength=wavelength,
             field=field,
             pupil=pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
             efficiency=False,
-        ).outputs
+        )
+        rays = rayfunction.outputs
 
         position = rays.position.xy
         where = rays.unvignetted
 
-        # The sums are over the rays which reach the sensor, and divided by a
-        # count of at least one, so that a spot with none is NaN without the
-        # warning that the mean of nothing raises.
+        # The sums are over the rays which pass the rest of the system, and
+        # divided by their count, which is NaN where there are none, so that
+        # such a spot is NaN without the warning that the mean of nothing
+        # raises.
         count = where.sum(axis_pupil)
-        lit = count > 0
-        count = np.maximum(count, 1)
+        count = np.where(count > 0, count, np.nan)
 
         centroid = position.sum(axis_pupil, where=where) / count
-        square = np.square((position - centroid).length)
+        offset = position - centroid
+        square = np.square(offset.x) + np.square(offset.y)
         result = np.sqrt(square.sum(axis_pupil, where=where) / count)
 
-        return np.where(lit, result, np.nan)
+        return np.where(self._on_sensor(rayfunction, axis_pupil), result, np.nan)
 
     @property
     def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
@@ -2846,7 +2863,8 @@ class AbstractSequentialSystem(
         The field positions whose light lands on the sensor.
 
         :meth:`_rayfunction_stratified` leaves the field stop and the sensor
-        open, so neither cuts the rays here.  A field position is on the
+        open, so neither cuts the rays here, and :meth:`radius_spot` leaves
+        the sensor open.  A field position is on the
         sensor if any of its rays gets through the rest of the system and the
         point its light lands on, averaged over those rays, falls on the
         pixels.  That is a test of one point, so a field position whose beam
