@@ -1,5 +1,6 @@
 from typing import Any
 import dataclasses
+import warnings
 import matplotlib.lines
 import matplotlib.pyplot as plt
 import mpl_toolkits.mplot3d.art3d
@@ -4547,15 +4548,17 @@ def test_spot_size_rms_is_measured_from_the_centroid() -> None:
 def test_spot_size_rms_of_a_spot_outside_the_field_of_view() -> None:
     """
     The corner of the box bounding a round field of view is outside it, so
-    each of its rays is vignetted, and its spot has no size. The spot at the
-    center of the field still has one.
+    each of its rays is vignetted, and its spot has no size, which is NaN
+    without a warning. The spot at the center of the field still has one.
     """
     system = _system_paraboloid(1 * u.mm)
     field = na.Cartesian2dVectorArray(
         x=na.ScalarArray(np.array([0, 1]), axes="field"),
         y=na.ScalarArray(np.array([0, 1]), axes="field"),
     )
-    result = system.spot_size_rms(field=field)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = system.spot_size_rms(field=field)
     assert np.isfinite(result[{"field": 0}])
     assert np.isnan(result[{"field": 1}])
 
