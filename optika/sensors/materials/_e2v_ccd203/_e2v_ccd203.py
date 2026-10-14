@@ -3,7 +3,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
-from ..depletion import e2v_ccd64_thick
+from ...diffusion import e2v_ccd64_thick
 from .._materials import BackIlluminatedSiliconSensorMaterial
 
 __all__ = [
@@ -44,7 +44,7 @@ def _e2v_ccd203() -> BackIlluminatedSiliconSensorMaterial:
 
     return BackIlluminatedSiliconSensorMaterial.fit_eqe(
         thickness_substrate=16 * u.um,
-        depletion=e2v_ccd64_thick(),
+        diffusion=e2v_ccd64_thick(),
         eqe_measured=qe,
     )
 
@@ -57,8 +57,8 @@ def e2v_ccd203(
     on board the Atmospheric Imaging Assembly :cite:p:`Lemen2012` from
     :cite:t:`Boerner2012`
 
-    This model uses :func:`~optika.sensors.materials.depletion.e2v_ccd64_thick`
-    to represent the depletion region.
+    This model uses :func:`~optika.sensors.diffusion.e2v_ccd64_thick`
+    as its model of charge diffusion.
 
     Examples
     --------
