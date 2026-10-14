@@ -1,3 +1,4 @@
+from typing import Sequence
 import abc
 import dataclasses
 import functools
@@ -26,6 +27,7 @@ __all__ = [
     "OctagonalAperture",
     "AbstractIsoscelesTrapezoidalAperture",
     "IsoscelesTrapezoidalAperture",
+    "CompoundAperture",
 ]
 
 
@@ -1527,3 +1529,216 @@ class IsoscelesTrapezoidalAperture(
             optika.shape(self.inverted),
             optika.shape(self.transformation),
         )
+
+
+@dataclasses.dataclass(eq=False, repr=False)
+class CompoundAperture(
+    AbstractAperture,
+):
+    """
+    Several apertures acting together as one.
+
+    A ray passes a compound aperture if it is inside at least one of its
+    active openings (or there are none) and outside every one of its active
+    obscurations.  Each member applies its own
+    :attr:`~AbstractAperture.inverted` and :attr:`~AbstractAperture.active`,
+    so openings and obscurations can be mixed: an opening with an obscuration
+    in it, a mask with many holes, or a set of blockages that a ray has to
+    clear all of.
+
+    The members are either one aperture which is an array along :attr:`axis`,
+    each element along it a member, or a sequence of apertures of any kind,
+    which are stacked along :attr:`axis`.  Either way the compound aperture
+    collapses :attr:`axis` when it is evaluated, so :attr:`axis` is not part of
+    its :attr:`shape`, and a surface which uses it gives each ray a single
+    verdict.  The :meth:`wire` keeps :attr:`axis`, so that every member is
+    drawn.
+
+    A compound aperture cannot yet be the field stop or pupil stop of a
+    system, since the stops are solved from a single outline.
+
+    Examples
+    --------
+
+    Combine a circle and a square into one opening.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        aperture = optika.apertures.CompoundAperture([
+            optika.apertures.CircularAperture(50 * u.mm),
+            optika.apertures.RectangularAperture(
+                half_width=40 * u.mm,
+                transformation=na.transformations.Cartesian3dTranslation(
+                    x=50 * u.mm,
+                ),
+            ),
+        ])
+
+        position = na.Cartesian3dVectorArray(
+            x=na.linspace(-80, 120, axis="x", num=201) * u.mm,
+            y=na.linspace(-80, 80, axis="y", num=161) * u.mm,
+            z=0 * u.mm,
+        )
+
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(constrained_layout=True)
+            ax.set_aspect("equal")
+            na.plt.pcolormesh(
+                position.x,
+                position.y,
+                C=aperture(position).astype(float),
+                ax=ax,
+                cmap="gray",
+            )
+            aperture.plot(ax=ax, components=("x", "y"), color="tab:red")
+
+    |
+
+    A row of square obscurations along one axis acts as a single aperture,
+    which a ray has to clear all of.
+
+    .. jupyter-execute::
+
+        blockages = optika.apertures.RectangularAperture(
+            half_width=5 * u.mm,
+            inverted=True,
+            transformation=na.transformations.Cartesian3dTranslation(
+                x=na.linspace(-40, 40, axis="blockage", num=5) * u.mm,
+            ),
+        )
+
+        aperture = optika.apertures.CompoundAperture(blockages, axis="blockage")
+
+        print(aperture.shape)
+        print(aperture(na.Cartesian3dVectorArray(0, 0, 0) * u.mm).ndarray)
+        print(aperture(na.Cartesian3dVectorArray(10, 0, 0) * u.mm).ndarray)
+    """
+
+    apertures: None | AbstractAperture | Sequence[AbstractAperture] = None
+    """
+    The members: one aperture which is an array along :attr:`axis`, or a
+    sequence of apertures to stack along :attr:`axis`.
+    """
+
+    axis: str = "compound"
+    """The logical axis along which the members vary, and which is collapsed."""
+
+    @property
+    def _apertures(self) -> list[AbstractAperture]:
+        """The members, as given."""
+        apertures = self.apertures
+        if isinstance(apertures, AbstractAperture):
+            return [apertures]
+        apertures = list(apertures)
+        if len(apertures) > 1:
+            for aperture in apertures:
+                if self.axis in optika.shape(aperture):
+                    raise ValueError(
+                        f"a sequence of apertures is stacked along {self.axis!r}, "
+                        f"so none of them may already vary along it"
+                    )
+        return apertures
+
+    @property
+    def _members(self) -> list[AbstractAperture]:
+        """
+        The members, placed by this aperture's own :attr:`transformation`, so
+        that their exact bounds and wires carry over unchanged.
+        """
+        transformation = self.transformation
+        result = []
+        for aperture in self._apertures:
+            if transformation is not None:
+                if aperture.transformation is None:
+                    t = transformation
+                else:
+                    t = na.transformations.TransformationList(
+                        [aperture.transformation, transformation]
+                    )
+                aperture = dataclasses.replace(aperture, transformation=t)
+            result.append(aperture)
+        return result
+
+    @property
+    def shape(self) -> dict[str, int]:
+        shape = na.broadcast_shapes(
+            *[optika.shape(a) for a in self._apertures],
+            optika.shape(self.active),
+            optika.shape(self.inverted),
+            optika.shape(self.transformation),
+        )
+        shape.pop(self.axis, None)
+        return shape
+
+    def _collapse(self, a: na.AbstractArray, reduction: str) -> na.AbstractArray:
+        """Reduce `a` over :attr:`axis` with `reduction`, if `a` varies along it."""
+        if self.axis in na.shape(a):
+            a = getattr(a, reduction)(axis=self.axis)
+        return a
+
+    def __call__(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        inside_opening = na.ScalarArray(False)
+        has_opening = na.ScalarArray(False)
+        clear = na.ScalarArray(True)
+
+        for aperture in self._members:
+            mask = aperture(position)
+            active = na.as_named_array(aperture.active)
+            inverted = na.as_named_array(aperture.inverted)
+            opening = active & ~inverted
+            obscuration = active & inverted
+            inside_opening = inside_opening | self._collapse(mask & opening, "any")
+            has_opening = has_opening | self._collapse(opening, "any")
+            clear = clear & self._collapse(mask | ~obscuration, "all")
+
+        result = (inside_opening | ~has_opening) & clear
+
+        active = self.active
+        inverted = self.inverted
+
+        shape = na.shape_broadcasted(result, active, inverted)
+
+        result = na.broadcast_to(result, shape).copy()
+        active = na.broadcast_to(active, shape)
+        inverted = na.broadcast_to(inverted, shape)
+
+        result[inverted] = ~result[inverted]
+        result[~active] = True
+
+        return result
+
+    def _bound(self, name: str, reduction: str) -> na.AbstractCartesian3dVectorArray:
+        """Combine the bound `name` of every member with `reduction`."""
+        ufunc = np.minimum if reduction == "min" else np.maximum
+        result = None
+        for aperture in self._members:
+            bound = self._collapse(getattr(aperture, name), reduction)
+            result = bound if result is None else ufunc(result, bound)
+        return result
+
+    @property
+    def bound_lower(self) -> na.AbstractCartesian3dVectorArray:
+        return self._bound("bound_lower", "min")
+
+    @property
+    def bound_upper(self) -> na.AbstractCartesian3dVectorArray:
+        return self._bound("bound_upper", "max")
+
+    def wire(self, num: None | int = None) -> na.AbstractCartesian3dVectorArray:
+        if num is None:
+            num = self.samples_wire
+        wires = [aperture.wire(num=num) for aperture in self._members]
+        if len(wires) == 1:
+            return wires[0]
+        shape = na.shape_broadcasted(*wires)
+        wires = [na.broadcast_to(w, shape) for w in wires]
+        return na.stack(wires, axis=self.axis)

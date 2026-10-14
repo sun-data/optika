@@ -723,3 +723,180 @@ def test_polygon_wire_has_every_corner_with_more_samples_than_sides(
     wire = aperture.wire(num=num_vertices + extra)
     distance = (wire - aperture.vertices).length.min("wire")
     assert np.all(distance < 1e-12 * u.mm)
+
+
+_blockages = optika.apertures.RectangularAperture(
+    half_width=5 * u.mm,
+    inverted=True,
+    transformation=na.transformations.Cartesian3dTranslation(
+        x=na.linspace(-40, 40, axis="blockage", num=5) * u.mm,
+    ),
+)
+
+_circle_and_square = [
+    optika.apertures.CircularAperture(50 * u.mm),
+    optika.apertures.RectangularAperture(
+        half_width=40 * u.mm,
+        transformation=na.transformations.Cartesian3dTranslation(x=50 * u.mm),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.CompoundAperture(
+            apertures=_blockages,
+            axis="blockage",
+            samples_wire=21,
+        ),
+        optika.apertures.CompoundAperture(
+            apertures=_circle_and_square,
+            samples_wire=21,
+            kwargs_plot=dict(color="black"),
+        ),
+        optika.apertures.CompoundAperture(
+            apertures=_circle_and_square,
+            samples_wire=21,
+            active=na.linspace(-1, 1, "active", 3) >= 0,
+            inverted=na.linspace(-1, 1, "inverted", 4) >= 0,
+            transformation=na.transformations.Cartesian3dRotationZ(30 * u.deg),
+        ),
+        optika.apertures.CompoundAperture(
+            apertures=[
+                optika.apertures.CircularAperture(
+                    radius=na.linspace(50, 60, axis="radius", num=3) * u.mm,
+                ),
+                optika.apertures.CircularAperture(10 * u.mm, inverted=True),
+            ],
+            samples_wire=21,
+        ),
+    ],
+)
+class TestCompoundAperture(
+    AbstractTestAbstractAperture,
+):
+    # the centroid of the members' wires need not be inside any of them
+    star_shaped = False
+
+    def test_apertures(self, a: optika.apertures.CompoundAperture):
+        apertures = a.apertures
+        if not isinstance(apertures, optika.apertures.AbstractAperture):
+            for aperture in apertures:
+                assert isinstance(aperture, optika.apertures.AbstractAperture)
+
+    def test_axis(self, a: optika.apertures.CompoundAperture):
+        assert isinstance(a.axis, str)
+        assert a.axis not in a.shape
+
+    # the members are drawn apart along `axis`, so the bounds of the whole are
+    # met by the wire of one member or another
+    def test_bound_lower(self, a: optika.apertures.CompoundAperture):
+        result = a.bound_lower
+        wire = a.wire(num=10001)
+        wire = wire.broadcast_to(wire.shape)
+        for component in ("x", "y"):
+            bound = getattr(result, component)
+            edge = getattr(wire, component).min(("wire", a.axis))
+            scale = np.abs(getattr(a.bound_upper, component) - bound)
+            assert np.all(bound <= edge + 1e-9 * scale)
+            assert np.all(np.abs(bound - edge) < 1e-6 * scale)
+
+    def test_bound_upper(self, a: optika.apertures.CompoundAperture):
+        result = a.bound_upper
+        wire = a.wire(num=10001)
+        wire = wire.broadcast_to(wire.shape)
+        for component in ("x", "y"):
+            bound = getattr(result, component)
+            edge = getattr(wire, component).max(("wire", a.axis))
+            scale = np.abs(bound - getattr(a.bound_lower, component))
+            assert np.all(bound >= edge - 1e-9 * scale)
+            assert np.all(np.abs(bound - edge) < 1e-6 * scale)
+
+
+def _points(x: list[float], y: list[float]) -> na.Cartesian3dVectorArray:
+    return na.Cartesian3dVectorArray(
+        x=na.ScalarArray(np.array(x) * u.mm, axes="point"),
+        y=na.ScalarArray(np.array(y) * u.mm, axes="point"),
+        z=0 * u.mm,
+    )
+
+
+def test_compound_aperture_obscurations_must_all_be_cleared():
+    """A ray passes a set of obscurations only if it clears every one."""
+    aperture = optika.apertures.CompoundAperture(_blockages, axis="blockage")
+    position = _points(x=[-40, -30, -20, 0, 20, 27, 40, 60], y=[0] * 8)
+    result = aperture(position)
+    assert "blockage" not in result.shape
+    expected = [False, True, False, False, False, True, False, True]
+    assert np.all(result.ndarray == expected)
+
+
+def test_compound_aperture_openings_are_a_union():
+    """A ray passes a set of openings if it is inside any one of them."""
+    aperture = optika.apertures.CompoundAperture(_circle_and_square)
+    position = _points(x=[0, 85, 95, -49, 0], y=[0, 35, 0, 0, 49])
+    expected = [True, True, False, True, True]
+    assert np.all(aperture(position).ndarray == expected)
+
+
+def test_compound_aperture_opening_with_obscuration():
+    """
+    An opening with an obscuration in it passes what is inside the opening
+    and outside the obscuration, like an annulus.
+    """
+    aperture = optika.apertures.CompoundAperture(
+        [
+            optika.apertures.CircularAperture(50 * u.mm),
+            optika.apertures.CircularAperture(10 * u.mm, inverted=True),
+        ]
+    )
+    annulus = optika.apertures.AnnularAperture(
+        radius_inner=10 * u.mm,
+        radius_outer=50 * u.mm,
+    )
+    position = na.Cartesian3dVectorLinearSpace(
+        start=-60 * u.mm,
+        stop=60 * u.mm,
+        axis=na.Cartesian3dVectorArray("x", "y", "z"),
+        num=na.Cartesian3dVectorArray(41, 41, 1),
+    )
+    assert np.all(aperture(position) == annulus(position))
+
+
+def test_compound_aperture_inactive_members_are_ignored():
+    """An inactive member neither opens nor blocks anything."""
+    aperture = optika.apertures.CompoundAperture(
+        [
+            optika.apertures.CircularAperture(10 * u.mm),
+            optika.apertures.CircularAperture(50 * u.mm, active=False),
+            optika.apertures.CircularAperture(5 * u.mm, inverted=True, active=False),
+        ]
+    )
+    position = _points(x=[0, 20], y=[0, 0])
+    assert np.all(aperture(position).ndarray == [True, False])
+
+
+def test_compound_aperture_transformation_places_every_member():
+    """The aperture's own transformation moves its members together."""
+    shift = 100 * u.mm
+    aperture = optika.apertures.CompoundAperture(
+        _circle_and_square,
+        transformation=na.transformations.Cartesian3dTranslation(x=shift),
+    )
+    unshifted = optika.apertures.CompoundAperture(_circle_and_square)
+    position = _points(x=[0, 85, 95, -49, 0], y=[0, 35, 0, 0, 49])
+    shifted = position + na.Cartesian3dVectorArray(shift, 0 * u.mm, 0 * u.mm)
+    assert np.all(aperture(shifted) == unshifted(position))
+    assert np.allclose(aperture.bound_lower.x, unshifted.bound_lower.x + shift)
+    assert np.allclose(aperture.bound_upper.x, unshifted.bound_upper.x + shift)
+
+
+def test_compound_aperture_sequence_cannot_vary_along_axis():
+    """Members given as a sequence are stacked along `axis`, so none may vary along it."""
+    aperture = optika.apertures.CompoundAperture(
+        [_blockages, optika.apertures.CircularAperture(50 * u.mm)],
+        axis="blockage",
+    )
+    with pytest.raises(ValueError, match="stacked along"):
+        aperture.shape
