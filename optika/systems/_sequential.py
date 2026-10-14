@@ -1396,7 +1396,7 @@ class AbstractSequentialSystem(
         unit_field = na.unit_normalized(rayfunction.inputs.field.x)
         return result.to(unit_field / u.pix)
 
-    def spot_size_rms(
+    def spot_size(
         self,
         wavelength: None | u.Quantity | na.AbstractScalar = None,
         field: None | na.AbstractCartesian2dVectorArray = None,
@@ -1494,7 +1494,7 @@ class AbstractSequentialSystem(
                 ),
             )
 
-            system.spot_size_rms().to(u.um)
+            system.spot_size().to(u.um)
         """
         if (axis_pupil is None) and (pupil is None):
             axis_pupil = self.axis_pupil

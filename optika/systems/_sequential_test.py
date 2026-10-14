@@ -739,8 +739,8 @@ class AbstractTestAbstractSequentialSystem(
         assert np.all(na.value(result.x) > 0)
         assert np.all(na.value(result.y) > 0)
 
-    def test_spot_size_rms(self, a: optika.systems.AbstractSequentialSystem) -> None:
-        result = a.spot_size_rms()
+    def test_spot_size(self, a: optika.systems.AbstractSequentialSystem) -> None:
+        result = a.spot_size()
         assert isinstance(result, na.AbstractScalar)
 
         # in the units of position on the sensor
@@ -4475,7 +4475,7 @@ def _pupil_paraboloid() -> na.Cartesian2dVectorArray:
     ).explicit
 
 
-def _spot_size_rms_paraboloid(defocus: u.Quantity) -> na.AbstractScalar:
+def _spot_size_paraboloid(defocus: u.Quantity) -> na.AbstractScalar:
     r"""
     The RMS radius of the spot :func:`_system_paraboloid` makes on axis, from
     the rays of :func:`_pupil_paraboloid` which land on the mirror.
@@ -4496,14 +4496,14 @@ def _spot_size_rms_paraboloid(defocus: u.Quantity) -> na.AbstractScalar:
     return np.abs(defocus) * np.sqrt(mean)
 
 
-def test_spot_size_rms_at_a_perfect_focus() -> None:
+def test_spot_size_at_a_perfect_focus() -> None:
     """A paraboloid focuses an object on its axis to a point."""
-    result = _system_paraboloid().spot_size_rms()
+    result = _system_paraboloid().spot_size()
     assert np.all(result < 1e-9 * u.mm)
 
 
 @pytest.mark.parametrize("defocus", [1 * u.mm, -2 * u.mm])
-def test_spot_size_rms_of_a_defocused_paraboloid(defocus: u.Quantity) -> None:
+def test_spot_size_of_a_defocused_paraboloid(defocus: u.Quantity) -> None:
     """
     Past or short of the focus of a paraboloid, the spot is the shape of the
     rays which reach the sensor, scaled by the distance from the focus.
@@ -4520,12 +4520,12 @@ def test_spot_size_rms_of_a_defocused_paraboloid(defocus: u.Quantity) -> None:
     count = rays.unvignetted.sum(_axis_pupil_paraboloid)
     assert np.all((0 < count) & (count < pupil.length.size))
 
-    result = system.spot_size_rms(pupil=pupil, normalized_pupil=False)
-    expected = _spot_size_rms_paraboloid(defocus)
+    result = system.spot_size(pupil=pupil, normalized_pupil=False)
+    expected = _spot_size_paraboloid(defocus)
     assert np.allclose(result, expected, rtol=1e-9)
 
 
-def test_spot_size_rms_is_measured_from_the_centroid() -> None:
+def test_spot_size_is_measured_from_the_centroid() -> None:
     """
     Moving the sensor sideways moves the spot across it without changing its
     size, since the size is measured from the centroid of the spot rather
@@ -4533,11 +4533,11 @@ def test_spot_size_rms_is_measured_from_the_centroid() -> None:
     """
     shift = 3 * u.mm
     defocus = 1 * u.mm
-    result = _system_paraboloid(defocus, shift=shift).spot_size_rms(
+    result = _system_paraboloid(defocus, shift=shift).spot_size(
         pupil=_pupil_paraboloid(),
         normalized_pupil=False,
     )
-    expected = _spot_size_rms_paraboloid(defocus)
+    expected = _spot_size_paraboloid(defocus)
 
     # the premise: the spot is much smaller than the distance it moved
     assert np.all(expected < shift / 10)
@@ -4545,7 +4545,7 @@ def test_spot_size_rms_is_measured_from_the_centroid() -> None:
     assert np.allclose(result, expected, rtol=1e-9)
 
 
-def test_spot_size_rms_of_a_spot_outside_the_field_of_view() -> None:
+def test_spot_size_of_a_spot_outside_the_field_of_view() -> None:
     """
     The corner of the box bounding a round field of view is outside it, so
     each of its rays is vignetted, and its spot has no size, which is NaN
@@ -4558,12 +4558,12 @@ def test_spot_size_rms_of_a_spot_outside_the_field_of_view() -> None:
     )
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        result = system.spot_size_rms(field=field)
+        result = system.spot_size(field=field)
     assert np.isfinite(result[{"field": 0}])
     assert np.isnan(result[{"field": 1}])
 
 
-def test_spot_size_rms_keeps_the_axes_it_does_not_measure_over() -> None:
+def test_spot_size_keeps_the_axes_it_does_not_measure_over() -> None:
     """
     The spot is measured over the axes of the pupil only. Given the axes of
     the pupil explicitly, an extra axis of the pupil positions, along which
@@ -4578,7 +4578,7 @@ def test_spot_size_rms_keeps_the_axes_it_does_not_measure_over() -> None:
         x=sign * np.abs(pupil.x),
         y=pupil.y,
     )
-    result = system.spot_size_rms(
+    result = system.spot_size(
         pupil=halves,
         axis_pupil=_axis_pupil_paraboloid,
         normalized_pupil=False,
@@ -4591,10 +4591,10 @@ def test_spot_size_rms_keeps_the_axes_it_does_not_measure_over() -> None:
 
     # A half of the mirror makes a spot centered off the axis, so it is
     # smaller than the spot of the whole mirror, measured from the axis.
-    assert np.all(result < _spot_size_rms_paraboloid(defocus))
+    assert np.all(result < _spot_size_paraboloid(defocus))
 
 
-def test_spot_size_rms_of_an_uncertain_system() -> None:
+def test_spot_size_of_an_uncertain_system() -> None:
     """
     The spot size of a system whose sensor is at an uncertain distance from
     the focus is uncertain, and each sample of it is the spot size of the
@@ -4607,12 +4607,12 @@ def test_spot_size_rms_of_an_uncertain_system() -> None:
         seed=1,
     )
     pupil = _pupil_paraboloid()
-    result = _system_paraboloid(defocus).spot_size_rms(
+    result = _system_paraboloid(defocus).spot_size(
         pupil=pupil,
         normalized_pupil=False,
     )
     assert isinstance(result, na.UncertainScalarArray)
-    expected = _spot_size_rms_paraboloid(1 * u.mm) * np.abs(defocus / u.mm)
+    expected = _spot_size_paraboloid(1 * u.mm) * np.abs(defocus / u.mm)
     assert np.allclose(result.nominal, expected.nominal, rtol=1e-9)
     assert np.allclose(result.distribution, expected.distribution, rtol=1e-9)
 
