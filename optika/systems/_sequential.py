@@ -1396,6 +1396,146 @@ class AbstractSequentialSystem(
         unit_field = na.unit_normalized(rayfunction.inputs.field.x)
         return result.to(unit_field / u.pix)
 
+    def spot_size_rms(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        axis_pupil: None | tuple[str, ...] = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+    ) -> na.AbstractScalar:
+        """
+        Compute the RMS radius of the spot which each field position makes on
+        the sensor.
+
+        Each spot is traced through a grid of positions on the pupil, and its
+        radius is measured from its centroid, so that the result is the size
+        of the spot and not where it lands. The rays are not weighted by their
+        intensity, so each position on the pupil counts the same, and the
+        result is the geometric size of the spot, without diffraction.
+
+        Only the rays which reach the sensor count. A spot which is partly
+        vignetted is measured over the rays which pass, and a spot which is
+        wholly vignetted, such as one from a field position outside the field
+        of view, is NaN.
+
+        The radius is in the units of position on the sensor. Divide it by the
+        width of a pixel to have it in pixels.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths of the spots.
+            If :obj:`None` (the default), ``self.grid_input.wavelength`` is
+            used.
+        field
+            The field positions of the spots, in either normalized or physical
+            units.
+            If :obj:`None` (the default), ``self.grid_input.field`` is used.
+        pupil
+            The positions on the pupil to trace for each spot, in either
+            normalized or physical units.
+            If :obj:`None` (the default), ``self.grid_input.pupil`` is used.
+        axis_pupil
+            The logical axes of the pupil positions to measure each spot over.
+            If :obj:`None` (the default), :attr:`axis_pupil` is used if
+            `pupil` is :obj:`None` and that is set. Otherwise these are the
+            axes along which the pupil positions vary and the wavelengths, the
+            field positions, and :attr:`shape` do not.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
+
+        Examples
+        --------
+        The RMS spot size of a spherical mirror focusing onto a sensor at its
+        paraxial focus, which is the spherical aberration of the mirror.
+
+        .. jupyter-execute::
+
+            import astropy.units as u
+            import named_arrays as na
+            import optika
+
+            system = optika.systems.SequentialSystem(
+                surfaces=[
+                    optika.surfaces.Surface(
+                        name="mirror",
+                        sag=optika.sags.SphericalSag(-200 * u.mm),
+                        material=optika.materials.Mirror(),
+                        aperture=optika.apertures.CircularAperture(20 * u.mm),
+                        is_pupil_stop=True,
+                        transformation=na.transformations.Cartesian3dTranslation(
+                            z=100 * u.mm,
+                        ),
+                    ),
+                ],
+                sensor=optika.sensors.ImagingSensor(
+                    name="sensor",
+                    width_pixel=15 * u.um,
+                    axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+                    timedelta_exposure=1 * u.s,
+                    num_pixel=na.Cartesian2dVectorArray(128, 128),
+                    is_field_stop=True,
+                ),
+                grid_input=optika.vectors.ObjectVectorArray(
+                    wavelength=500 * u.nm,
+                    field=0,
+                    pupil=na.Cartesian2dVectorLinearSpace(
+                        start=-1,
+                        stop=1,
+                        axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                        num=21,
+                    ),
+                ),
+            )
+
+            system.spot_size_rms().to(u.um)
+        """
+        if (axis_pupil is None) and (pupil is None):
+            axis_pupil = self.axis_pupil
+        if axis_pupil is None:
+            grid = self.grid_input
+            others = set(self.shape)
+            others |= set(
+                na.shape(grid.wavelength if wavelength is None else wavelength)
+            )
+            others |= set(na.shape(grid.field if field is None else field))
+            axis_pupil = tuple(
+                ax
+                for ax in na.shape(grid.pupil if pupil is None else pupil)
+                if ax not in others
+            )
+
+        rays = self.rayfunction(
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+            efficiency=False,
+        ).outputs
+
+        position = rays.position.xy
+        where = rays.unvignetted
+
+        # The sums are over the rays which reach the sensor, and divided by a
+        # count of at least one, so that a spot with none is NaN without the
+        # warning that the mean of nothing raises.
+        count = where.sum(axis_pupil)
+        lit = count > 0
+        count = np.maximum(count, 1)
+
+        centroid = position.sum(axis_pupil, where=where) / count
+        square = np.square((position - centroid).length)
+        result = np.sqrt(square.sum(axis_pupil, where=where) / count)
+
+        return np.where(lit, result, np.nan)
+
     @property
     def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
         """
