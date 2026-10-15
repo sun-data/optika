@@ -1411,17 +1411,19 @@ class AbstractSequentialSystem(
 
         Each spot is traced through a grid of positions on the pupil, and its
         radius is measured from its centroid, so that the result is the size
-        of the spot and not where it lands. The rays are not weighted by their
-        intensity, so each position on the pupil counts the same, and the
-        result is the geometric size of the spot, without diffraction.
+        of the spot and not where it lands. The rays are weighted by their
+        intensity on the sensor, the throughput of the system along each ray,
+        so that a part of the pupil which passes less light counts for less,
+        in the centroid as well as in the radius. The result is the geometric
+        size of the spot, without diffraction.
 
         The rays are traced with the sensor left open, so that a spot which
         straddles the edge of the sensor is measured whole rather than by the
         part of it which lands on the pixels. A spot whose centroid misses the
         pixels is NaN. So is a spot which the rest of the system vignettes
         wholly, such as one from a field position outside the field of view,
-        and a spot which it vignettes in part is measured over the rays which
-        pass.
+        or none of whose light reaches the sensor, and a spot which it
+        vignettes in part is measured over the rays which pass.
 
         The radius is in the units of position on the sensor. Divide it by
         ``sensor.width_pixel / u.pix`` to have it in pixels.
@@ -1525,33 +1527,32 @@ class AbstractSequentialSystem(
         )
 
         surfaces = self.surfaces_all
-        rayfunction = self._rayfunction(
+        rays = self._rayfunction(
             surfaces=self._surfaces_with_open(surfaces, {len(surfaces) - 1}),
             wavelength=wavelength,
             field=field,
             pupil=pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
-            efficiency=False,
-        )
-        rays = rayfunction.outputs
+        ).outputs
 
         position = rays.position.xy
         where = rays.unvignetted
+        weight = np.where(where, rays.intensity, 0)
 
         # The sums are over the rays which pass the rest of the system, and
-        # divided by their count, which is NaN where there are none, so that
-        # such a spot is NaN without the warning that the mean of nothing
-        # raises.
-        count = where.sum(axis_pupil)
-        count = np.where(count > 0, count, np.nan)
+        # divided by their total intensity, which is NaN where there is none,
+        # so that such a spot is NaN without the warning that the mean of
+        # nothing raises.
+        total = weight.sum(axis_pupil)
+        total = np.where(total > 0, total, np.nan)
 
-        centroid = position.sum(axis_pupil, where=where) / count
+        centroid = (weight * position).sum(axis_pupil, where=where) / total
         offset = position - centroid
         square = np.square(offset.x) + np.square(offset.y)
-        result = np.sqrt(square.sum(axis_pupil, where=where) / count)
+        result = np.sqrt((weight * square).sum(axis_pupil, where=where) / total)
 
-        return np.where(self._on_sensor(rayfunction, axis_pupil), result, np.nan)
+        return np.where(self._on_pixels(centroid), result, np.nan)
 
     @property
     def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
@@ -2863,8 +2864,7 @@ class AbstractSequentialSystem(
         The field positions whose light lands on the sensor.
 
         :meth:`_rayfunction_stratified` leaves the field stop and the sensor
-        open, so neither cuts the rays here, and :meth:`radius_spot` leaves
-        the sensor open.  A field position is on the
+        open, so neither cuts the rays here.  A field position is on the
         sensor if any of its rays gets through the rest of the system and the
         point its light lands on, averaged over those rays, falls on the
         pixels.  That is a test of one point, so a field position whose beam
@@ -2899,11 +2899,29 @@ class AbstractSequentialSystem(
             axis=axis_pupil,
             where=unvignetted | ~lit,
         )
-        pixel = self.sensor.pixels(position.xy)
+        return lit & self._on_pixels(position.xy)
+
+    def _on_pixels(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Whether the given points fall on the pixels of the sensor.
+
+        This is the test :meth:`_on_sensor` makes of the point a field
+        position's light lands on, and :meth:`radius_spot` of the centroid of
+        a spot. A point which is NaN is on no pixel.
+
+        Parameters
+        ----------
+        position
+            The points, in the coordinates of the sensor.
+        """
+        pixel = self.sensor.pixels(position)
         num = self.sensor.num_pixel * u.pix
         inside_x = (0 * u.pix <= pixel.x) & (pixel.x <= num.x)
         inside_y = (0 * u.pix <= pixel.y) & (pixel.y <= num.y)
-        return lit & inside_x & inside_y
+        return inside_x & inside_y
 
     @staticmethod
     def _where_fit(

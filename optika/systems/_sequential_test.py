@@ -4406,9 +4406,39 @@ _axis_pupil_paraboloid = ("pupil_x", "pupil_y")
 """The axes of :func:`_pupil_paraboloid`."""
 
 
+@dataclasses.dataclass(eq=False, repr=False)
+class _RampMirror(optika.materials.Mirror):
+    """
+    A mirror whose reflectivity rises linearly along its x axis, across the
+    mirror of :func:`_system_paraboloid`, from none of the light at one edge
+    to all of it at the other.
+    """
+
+    def efficiency(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.ScalarLike:
+        return _reflectivity_ramp(rays.position.x)
+
+
+def _reflectivity_ramp(x: u.Quantity | na.AbstractScalar) -> na.ScalarLike:
+    """
+    The reflectivity of :class:`_RampMirror` at a distance `x` from its
+    center along its x axis.
+
+    Parameters
+    ----------
+    x
+        The distance from the center of the mirror along its x axis.
+    """
+    return (1 + x / _radius_paraboloid) / 2
+
+
 def _system_paraboloid(
     defocus: u.Quantity | na.AbstractScalar = 0 * u.mm,
     shift: u.Quantity | na.AbstractScalar = 0 * u.mm,
+    material: None | optika.materials.AbstractMaterial = None,
 ) -> optika.systems.SequentialSystem:
     """
     A paraboloidal mirror, whose aperture is the pupil stop, focusing an
@@ -4420,7 +4450,12 @@ def _system_paraboloid(
         How far past the focus the sensor is, along the axis.
     shift
         How far the sensor is moved along its own x axis.
+    material
+        The material of the mirror.
+        If :obj:`None` (the default), a perfect mirror.
     """
+    if material is None:
+        material = optika.materials.Mirror()
     return optika.systems.SequentialSystem(
         object=optika.surfaces.Surface(
             name="source",
@@ -4431,7 +4466,7 @@ def _system_paraboloid(
             optika.surfaces.Surface(
                 name="mirror",
                 sag=optika.sags.ParabolicSag(focal_length=-_focal_length_paraboloid),
-                material=optika.materials.Mirror(),
+                material=material,
                 aperture=optika.apertures.CircularAperture(radius=_radius_paraboloid),
                 is_pupil_stop=True,
                 transformation=na.transformations.Cartesian3dTranslation(
@@ -4477,25 +4512,40 @@ def _pupil_paraboloid() -> na.Cartesian2dVectorArray:
     ).explicit
 
 
-def _radius_spot_paraboloid(defocus: u.Quantity) -> na.AbstractScalar:
+def _radius_spot_paraboloid(
+    defocus: u.Quantity,
+    weight: na.ScalarLike = 1,
+) -> na.AbstractScalar:
     r"""
     The RMS radius of the spot :func:`_system_paraboloid` makes on axis, from
-    the rays of :func:`_pupil_paraboloid` which land on the mirror.
+    the rays of :func:`_pupil_paraboloid` which land on the mirror, measured
+    from its centroid.
 
     A paraboloid focuses an object on its axis to a point. The ray which
     strikes it at a height :math:`h` does so a sag :math:`h^2 / 4 f` in front
     of its vertex, and leaves for the focus at an angle whose tangent is
     :math:`h / (f - h^2 / 4 f)`. Past the focus by :math:`\delta`, it lands
-    :math:`\delta` times that tangent from the axis, about which the spot is
-    symmetric.
+    :math:`\delta` times that tangent from the axis, on the far side of the
+    axis from where it struck the mirror.
+
+    Parameters
+    ----------
+    defocus
+        How far past the focus the sensor is, along the axis.
+    weight
+        The weight of each ray, as a function of where it strikes the mirror.
+        Equal weights give a spot symmetric about the axis.
     """
     f = _focal_length_paraboloid
     pupil = _pupil_paraboloid()
     height = pupil.length
-    tangent = height / (f - np.square(height) / (4 * f))
-    inside = height <= _radius_paraboloid
-    mean = np.square(tangent).mean(_axis_pupil_paraboloid, where=inside)
-    return np.abs(defocus) * np.sqrt(mean)
+    spot = -defocus * pupil / (f - np.square(height) / (4 * f))
+    weight = np.where(height <= _radius_paraboloid, weight, 0)
+    total = weight.sum(_axis_pupil_paraboloid)
+    centroid = (weight * spot).sum(_axis_pupil_paraboloid) / total
+    offset = spot - centroid
+    square = np.square(offset.x) + np.square(offset.y)
+    return np.sqrt((weight * square).sum(_axis_pupil_paraboloid) / total)
 
 
 def test_radius_spot_at_a_perfect_focus() -> None:
@@ -4543,6 +4593,25 @@ def test_radius_spot_is_measured_from_the_centroid() -> None:
 
     # the premise: the spot is much smaller than the distance it moved
     assert np.all(expected < shift / 10)
+
+    assert np.allclose(result, expected, rtol=1e-9)
+
+
+def test_radius_spot_is_weighted_by_intensity() -> None:
+    """
+    Each ray counts in proportion to the light it carries to the sensor. A
+    mirror which reflects more of the light on one side than on the other
+    moves the centroid of the spot toward the brighter side, and the
+    brighter side counts for more of its size.
+    """
+    defocus = 1 * u.mm
+    pupil = _pupil_paraboloid()
+    system = _system_paraboloid(defocus, material=_RampMirror())
+    result = system.radius_spot(pupil=pupil, normalized_pupil=False)
+    expected = _radius_spot_paraboloid(defocus, weight=_reflectivity_ramp(pupil.x))
+
+    # the premise: weighting the rays changes the size of the spot
+    assert np.all(np.abs(expected / _radius_spot_paraboloid(defocus) - 1) > 0.01)
 
     assert np.allclose(result, expected, rtol=1e-9)
 
