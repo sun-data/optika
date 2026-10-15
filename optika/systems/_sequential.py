@@ -347,7 +347,7 @@ class AbstractSequentialSystem(
     def _normalize_axis_pupil(
         self,
         axis_pupil: None | tuple[str, str],
-        axis_field: tuple[str, str],
+        axis_field: tuple[str, ...],
         axis_wavelength: tuple[str, ...],
         pupil: na.AbstractCartesian2dVectorArray,
     ) -> tuple[str, str]:
@@ -377,7 +377,7 @@ class AbstractSequentialSystem(
                 and ax not in axis_wavelength
                 and ax not in axis_field
             )
-            if len(axis_pupil) != 2:  # pragma: nocover
+            if len(axis_pupil) != 2:
                 raise ValueError(
                     "if `axis_pupil` is `None`, "
                     "the two pupil axes must be unambiguous, "
@@ -1395,6 +1395,164 @@ class AbstractSequentialSystem(
 
         unit_field = na.unit_normalized(rayfunction.inputs.field.x)
         return result.to(unit_field / u.pix)
+
+    def radius_spot(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        pupil: None | na.AbstractCartesian2dVectorArray = None,
+        axis_pupil: None | tuple[str, str] = None,
+        normalized_field: bool = True,
+        normalized_pupil: bool = True,
+    ) -> na.AbstractScalar:
+        """
+        Compute the RMS radius of the spot which each field position makes on
+        the sensor.
+
+        Each spot is traced through a grid of positions on the pupil, and its
+        radius is measured from its centroid, so that the result is the size
+        of the spot and not where it lands. The rays are weighted by their
+        intensity on the sensor, the throughput of the system along each ray,
+        so that a part of the pupil which passes less light counts for less,
+        in the centroid as well as in the radius. The result is the geometric
+        size of the spot, without diffraction.
+
+        The rays are traced with the sensor left open, so that a spot which
+        straddles the edge of the sensor is measured whole rather than by the
+        part of it which lands on the pixels. A spot whose centroid misses the
+        pixels is NaN. So is a spot which the rest of the system vignettes
+        wholly, such as one from a field position outside the field of view,
+        or none of whose light reaches the sensor, and a spot which it
+        vignettes in part is measured over the rays which pass.
+
+        The radius is in the units of position on the sensor. Divide it by
+        ``sensor.width_pixel / u.pix`` to have it in pixels.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths of the spots.
+            If :obj:`None` (the default), ``self.grid_input.wavelength`` is
+            used.
+        field
+            The field positions of the spots, in either normalized or physical
+            units.
+            If :obj:`None` (the default), ``self.grid_input.field`` is used.
+        pupil
+            The positions on the pupil to trace for each spot, in either
+            normalized or physical units.
+            If :obj:`None` (the default), ``self.grid_input.pupil`` is used.
+        axis_pupil
+            The two logical axes of the pupil positions to measure each spot
+            over.
+            If :obj:`None` (the default) and `pupil` is :obj:`None`,
+            :attr:`axis_pupil` is used.
+            If that is :obj:`None` too, or if `pupil` is given, the pupil
+            positions should vary along only two axes other than those of
+            :attr:`shape`, the wavelengths, and the field positions.
+        normalized_field
+            A boolean flag indicating whether the `field` parameter is given
+            in normalized or physical units.
+        normalized_pupil
+            A boolean flag indicating whether the `pupil` parameter is given
+            in normalized or physical units.
+
+        Examples
+        --------
+        The RMS spot size of a spherical mirror focusing onto a sensor at its
+        paraxial focus, which is the spherical aberration of the mirror.
+
+        .. jupyter-execute::
+
+            import astropy.units as u
+            import named_arrays as na
+            import optika
+
+            system = optika.systems.SequentialSystem(
+                surfaces=[
+                    optika.surfaces.Surface(
+                        name="mirror",
+                        sag=optika.sags.SphericalSag(-200 * u.mm),
+                        material=optika.materials.Mirror(),
+                        aperture=optika.apertures.CircularAperture(20 * u.mm),
+                        is_pupil_stop=True,
+                        transformation=na.transformations.Cartesian3dTranslation(
+                            z=100 * u.mm,
+                        ),
+                    ),
+                ],
+                sensor=optika.sensors.ImagingSensor(
+                    name="sensor",
+                    width_pixel=15 * u.um,
+                    axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+                    timedelta_exposure=1 * u.s,
+                    num_pixel=na.Cartesian2dVectorArray(128, 128),
+                    is_field_stop=True,
+                ),
+                grid_input=optika.vectors.ObjectVectorArray(
+                    wavelength=500 * u.nm,
+                    field=0,
+                    pupil=na.Cartesian2dVectorLinearSpace(
+                        start=-1,
+                        stop=1,
+                        axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+                        num=21,
+                    ),
+                ),
+            )
+
+            system.radius_spot().to(u.um)
+        """
+        if self.sensor is None:
+            raise ValueError(
+                "the spot radius is measured on a sensor, and this system has none"
+            )
+
+        grid = self.grid_input
+
+        if (axis_pupil is None) and (pupil is None):
+            axis_pupil = self.axis_pupil
+
+        # The field and the wavelengths are often a single point or a line,
+        # which :meth:`_normalize_axis_field` would reject for not varying
+        # along two axes, so all of their axes are passed, which are only
+        # needed to tell which axes of the pupil positions are not their own.
+        axis_pupil = self._normalize_axis_pupil(
+            axis_pupil=axis_pupil,
+            axis_field=tuple(na.shape(grid.field if field is None else field)),
+            axis_wavelength=tuple(
+                na.shape(grid.wavelength if wavelength is None else wavelength)
+            ),
+            pupil=grid.pupil if pupil is None else pupil,
+        )
+
+        surfaces = self.surfaces_all
+        rays = self._rayfunction(
+            surfaces=self._surfaces_with_open(surfaces, {len(surfaces) - 1}),
+            wavelength=wavelength,
+            field=field,
+            pupil=pupil,
+            normalized_field=normalized_field,
+            normalized_pupil=normalized_pupil,
+        ).outputs
+
+        position = rays.position.xy
+        where = rays.unvignetted
+        weight = np.where(where, rays.intensity, 0)
+
+        # The sums are over the rays which pass the rest of the system, and
+        # divided by their total intensity, which is NaN where there is none,
+        # so that such a spot is NaN without the warning that the mean of
+        # nothing raises.
+        total = weight.sum(axis_pupil)
+        total = np.where(total > 0, total, np.nan)
+
+        centroid = (weight * position).sum(axis_pupil, where=where) / total
+        offset = position - centroid
+        square = np.square(offset.x) + np.square(offset.y)
+        result = np.sqrt((weight * square).sum(axis_pupil, where=where) / total)
+
+        return np.where(self._on_pixels(centroid), result, np.nan)
 
     @property
     def pupil_boundary(self) -> na.AbstractCartesian2dVectorArray:
@@ -2741,11 +2899,29 @@ class AbstractSequentialSystem(
             axis=axis_pupil,
             where=unvignetted | ~lit,
         )
-        pixel = self.sensor.pixels(position.xy)
+        return lit & self._on_pixels(position.xy)
+
+    def _on_pixels(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Whether the given points fall on the pixels of the sensor.
+
+        This is the test :meth:`_on_sensor` makes of the point a field
+        position's light lands on, and :meth:`radius_spot` of the centroid of
+        a spot. A point which is NaN is on no pixel.
+
+        Parameters
+        ----------
+        position
+            The points, in the coordinates of the sensor.
+        """
+        pixel = self.sensor.pixels(position)
         num = self.sensor.num_pixel * u.pix
         inside_x = (0 * u.pix <= pixel.x) & (pixel.x <= num.x)
         inside_y = (0 * u.pix <= pixel.y) & (pixel.y <= num.y)
-        return lit & inside_x & inside_y
+        return inside_x & inside_y
 
     @staticmethod
     def _where_fit(
