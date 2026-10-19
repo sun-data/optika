@@ -30,8 +30,15 @@ def snells_law_scalar(
     index_refraction_new
         The index of refraction in the new medium.
     """
+    # Astropy does not implement the functions of numpy.emath for quantities,
+    # and warns before falling back to their values, so the arguments, which
+    # are all dimensionless, are given to them as plain numbers.
     if na.unit(cos_incidence) is not None:
         cos_incidence = cos_incidence.to(u.dimensionless_unscaled).value
+    if na.unit(index_refraction) is not None:
+        index_refraction = index_refraction.to(u.dimensionless_unscaled).value
+    if na.unit(index_refraction_new) is not None:
+        index_refraction_new = index_refraction_new.to(u.dimensionless_unscaled).value
     sin_incidence = np.emath.sqrt(1 - np.square(cos_incidence))
     sin_transmitted = index_refraction * sin_incidence / index_refraction_new
     cos_transmitted = np.emath.sqrt(1 - np.square(sin_transmitted))
