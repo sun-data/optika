@@ -1,3 +1,5 @@
+from typing import Callable
+import warnings
 import pytest
 import numpy as np
 import astropy.units as u
@@ -84,6 +86,30 @@ def test_fano_factor(
 
     assert np.all(result >= 0 * u.electron / u.photon)
     assert result.shape == na.shape_broadcasted(wavelength, temperature)
+
+
+@pytest.mark.parametrize(
+    argnames="function",
+    argvalues=[
+        _ramanathan_2020.energy_pair,
+        _ramanathan_2020.fano_factor,
+    ],
+)
+@pytest.mark.parametrize("wavelength", _wavelength)
+@pytest.mark.parametrize("temperature", _temperture)
+def test_below_bandgap_quiet(
+    function: Callable[..., na.AbstractScalar],
+    wavelength: u.Quantity | na.AbstractScalar,
+    temperature: u.Quantity | na.AbstractScalar,
+):
+    """
+    The table these are computed from includes energies below the band gap,
+    where no pairs are made, and dividing by that mean of zero must not warn,
+    whatever the wavelength asked for.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        function(wavelength=wavelength, temperature=temperature)
 
 
 @pytest.mark.parametrize("temperature", _temperture)

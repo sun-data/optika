@@ -1,6 +1,5 @@
 import pathlib
 import matplotlib.pyplot as plt
-import pymupdf
 import named_arrays as na
 
 __all__ = [
@@ -47,6 +46,11 @@ def airforce(
         fig, ax = plt.subplots(constrained_layout=True)
         na.plt.pcolormesh(C=target);
     """
+    # Imported here rather than with the module, since PyMuPDF imports
+    # ONNX Runtime, which is slow to load and logs to stderr as it does, and
+    # only this function needs it.
+    import pymupdf
+
     path = pathlib.Path(__file__).parent / "USAF-1951.svg"
 
     doc = pymupdf.open(path)
