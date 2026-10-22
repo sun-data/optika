@@ -21,6 +21,7 @@ from .materials._materials import (
     signal,
     vmr_signal,
     kernel_signal,
+    covariance_signal,
 )
 from . import diffusion
 from . import materials
@@ -47,6 +48,7 @@ __all__ = [
     "signal",
     "vmr_signal",
     "kernel_signal",
+    "covariance_signal",
     "diffusion",
     "materials",
     "AbstractImagingSensor",
