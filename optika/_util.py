@@ -38,6 +38,25 @@ def shape(a: Any) -> dict[str, int]:
         return dict()
 
 
+def _distribution(a: Any) -> Any:
+    """
+    The samples of the distribution of an uncertain value,
+    or the value itself, which every sample shares, if it is not uncertain.
+
+    Code which cannot carry uncertain values through it, such as a compiled
+    loop or a table lookup, evaluates the nominal values given by
+    :func:`named_arrays.nominal` and these samples separately.
+
+    Parameters
+    ----------
+    a
+        A value which may be uncertain.
+    """
+    if isinstance(a, na.AbstractUncertainScalarArray):
+        return a.distribution
+    return a
+
+
 def direction(
     angles: na.AbstractCartesian2dVectorArray,
 ) -> na.Cartesian3dVectorArray:

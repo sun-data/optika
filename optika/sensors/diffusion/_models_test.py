@@ -42,6 +42,12 @@ class AbstractTestAbstractDiffusionModel(
     test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
 ):
+    rtol_average_depth = 1e-5
+    """
+    The relative accuracy of the averages over depth at the default number of
+    quadrature nodes, see :meth:`test_average_depth_converged`.
+    """
+
     def test_thickness_depletion(
         self,
         a: optika.sensors.diffusion.AbstractDiffusionModel,
@@ -77,6 +83,26 @@ class AbstractTestAbstractDiffusionModel(
         gates = np.where(depleted, a.width(s, s), 0 * u.um)
         assert np.allclose(gates, 0 * u.um)
 
+    def test_mixture(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+    ) -> None:
+        """
+        The weights of the Gaussians are positive and sum to one,
+        and their variances are areas which are never negative.
+        """
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=15) * u.um
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            variance, weight = a.mixture(depth, s, axis="g")
+        assert "g" in na.shape(variance)
+        assert na.shape(weight)["g"] == na.shape(variance)["g"]
+        assert np.all(weight > 0)
+        assert np.allclose(weight.sum("g"), 1, rtol=1e-12)
+        assert np.all(np.isfinite(variance))
+        assert np.all(variance >= 0 * u.um**2)
+
     def test_cdf(
         self,
         a: optika.sensors.diffusion.AbstractDiffusionModel,
@@ -87,7 +113,12 @@ class AbstractTestAbstractDiffusionModel(
         """
         s = _thickness_substrate
         depth = na.linspace(0, 14, axis="depth", num=8) * u.um
-        edges = na.linspace(-80, 80, axis="edge", num=16001) * u.um
+
+        # far enough out that even an exponential tail has died away
+        extent = np.maximum(30 * a.width(0 * u.um, s), 1 * u.um)
+        num = 16001
+        edges = na.linspace(-extent, extent, axis="edge", num=num)
+        spacing = 2 * extent / (num - 1)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             result = a.cdf(edges, depth, s)
@@ -105,7 +136,11 @@ class AbstractTestAbstractDiffusionModel(
         upper = edges[dict(edge=slice(1, None))]
         center = (lower + upper) / 2
         variance = (fraction * np.square(center)).sum("edge")
-        assert np.allclose(np.sqrt(variance), a.width(depth, s), atol=0.02 * u.um)
+
+        # binning a cloud of no width puts it half a bin from its center,
+        # and the bins are as wide as each element of the model needs
+        atol = 0.02 * u.um + spacing / 2
+        assert np.all(np.abs(np.sqrt(variance) - a.width(depth, s)) <= atol)
 
     @pytest.mark.parametrize("width_pixel", _width_pixel + [0 * u.um])
     def test_probability_same_pixel(
@@ -329,7 +364,7 @@ class AbstractTestAbstractDiffusionModel(
         finally:
             quadrature._num_gauss_legendre = num
 
-        assert np.allclose(mcc, mcc_expected, rtol=1e-5)
+        assert np.allclose(mcc, mcc_expected, rtol=self.rtol_average_depth)
         assert np.allclose(kernel, kernel_expected, atol=1e-6)
 
     @pytest.mark.parametrize(
@@ -601,6 +636,19 @@ class TestJanesickDiffusionModel(
         assert np.allclose(a.width(0 * u.um, s), back)
         assert np.allclose(a.width(f, s), width_depletion)
 
+    def test_mixture_single(
+        self,
+        a: optika.sensors.diffusion.JanesickDiffusionModel,
+    ) -> None:
+        """The mixture is a single Gaussian with the variance of the width."""
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=15) * u.um
+        variance, weight = a.mixture(depth, s, axis="g")
+        assert na.shape(weight) == dict(g=1)
+        assert np.all(weight == 1)
+        expected = np.square(a.width(depth, s))
+        assert np.allclose(variance.sum("g"), expected, atol=1e-12 * u.um**2)
+
     def test_width_average_janesick(
         self,
         a: optika.sensors.diffusion.JanesickDiffusionModel,
@@ -657,6 +705,236 @@ class TestJanesickDiffusionModel(
         expected = (capture(x) * capture(y) * weight).sum(axis) / weight.sum(axis)
 
         assert np.allclose(result, expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=8.7 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=8.7 * u.um,
+            width_depletion=0.8 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=14 * u.um,
+            width_depletion=0.8 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=0 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=0 * u.um,
+            width_depletion=0.8 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=20 * u.um,
+            width_depletion=0.8 * u.um,
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=_uncertain(8.7 * u.um, [8.2, 8.7, 9.2] * u.um),
+        ),
+        optika.sensors.diffusion.SlabDiffusionModel(
+            thickness_depletion=na.linspace(6, 10, axis="depletion", num=2) * u.um,
+            width_depletion=_uncertain(0.8 * u.um, [0.7, 0.8, 0.9] * u.um),
+        ),
+    ],
+)
+class TestSlabDiffusionModel(
+    AbstractTestAbstractDiffusionModel,
+):
+    # the tail of the cloud near the depletion region slows the convergence
+    # of the averages over depth when the pixels are narrow compared to the
+    # field-free region, as the notes of the model describe
+    rtol_average_depth = 3e-5
+
+    def test_width_exact(
+        self,
+        a: optika.sensors.diffusion.SlabDiffusionModel,
+    ) -> None:
+        """
+        The variance of the charge crossing the field-free region is the
+        square of its thickness less the square of the depth,
+        never less than that of the model of Janesick (2001),
+        plus the spread of the depletion region.
+        """
+        s = _thickness_substrate
+        d = a.thickness_depletion
+        depth = na.linspace(0, 14, axis="depth", num=29) * u.um
+        f = np.maximum(s - d, 0 * s)
+        result = a.width(depth, s)
+
+        variance = np.square(f) - np.square(np.minimum(depth, f))
+        if a.width_depletion is not None:
+            depleted = d > 0 * u.um
+            crossed = np.minimum(np.maximum(s - depth, 0 * d), d)
+            crossed = crossed / np.where(depleted, d, 1 * u.um)
+            crossed = np.where(depleted, crossed, 1)
+            variance = variance + np.square(a.width_depletion) * crossed
+        assert np.allclose(np.square(result), variance, atol=1e-12 * u.um**2)
+
+        janesick = optika.sensors.diffusion.JanesickDiffusionModel(
+            thickness_depletion=d,
+            width_depletion=a.width_depletion,
+        )
+        assert np.all(result >= janesick.width(depth, s) * (1 - 1e-12))
+
+    def test_cdf_exact(
+        self,
+        a: optika.sensors.diffusion.SlabDiffusionModel,
+    ) -> None:
+        """
+        Without a spread in the depletion region, the profile along one axis
+        is the closed form of the reflected diffusion across the field-free
+        region, to the accuracy of the mixture of Gaussians at a single depth.
+        """
+        s = _thickness_substrate
+        f = s - a.thickness_depletion
+        if a.width_depletion is not None or np.any(f <= 0 * u.um):
+            return
+        depth = na.linspace(0, 0.999, axis="depth", num=7) * f
+        position = na.geomspace(0.01, 5, axis="position", num=9) * f
+        result = a.cdf(position, depth, s)
+        ratio = (position / f).to(u.dimensionless_unscaled).value
+        u_depth = (depth / f).to(u.dimensionless_unscaled).value
+        expected = np.arctan(np.sinh(np.pi * ratio / 2) / np.cos(np.pi * u_depth / 2))
+        expected = 1 / 2 + expected / np.pi
+        assert np.allclose(result, expected, atol=3e-3)
+
+    def test_mixture_scaling(
+        self,
+        a: optika.sensors.diffusion.SlabDiffusionModel,
+    ) -> None:
+        """
+        Without a spread in the depletion region, the variances of the
+        Gaussians at a given fraction of the way across the field-free region
+        are proportional to the square of its thickness, their weights do not
+        depend on it, and their weighted sum is the square of the width,
+        to a few parts in ten thousand a tenth of the field-free region from
+        the depletion region, and to a percent a hundredth of the field-free
+        region from it.
+        """
+        s = _thickness_substrate
+        f = s - a.thickness_depletion
+        if a.width_depletion is not None or np.any(f <= 0 * u.um):
+            return
+        fraction = na.ScalarArray(
+            ndarray=np.array([0, 0.25, 0.5, 0.75, 0.9, 0.99, 1]),
+            axes="depth",
+        )
+        variance, weight = a.mixture(fraction * f, s, axis="g")
+
+        s_double = a.thickness_depletion + 2 * f
+        variance_double, weight_double = a.mixture(fraction * 2 * f, s_double, "g")
+        assert np.allclose(weight_double, weight, rtol=1e-14)
+        assert np.allclose(variance_double, 4 * variance, rtol=1e-12)
+
+        result = (weight * variance).sum("g")
+        expected = np.square(a.width(fraction * f, s))
+        for index, rtol in [(slice(None, 5), 3e-4), (slice(5, None), 1e-2)]:
+            i = dict(depth=index)
+            assert np.allclose(result[i], expected[i], rtol=rtol)
+
+    def test_mixture_pairs(
+        self,
+        a: optika.sensors.diffusion.SlabDiffusionModel,
+    ) -> None:
+        """
+        The pairs of Gaussians formed by the compiled lookup of the model are
+        those the base class forms from :meth:`mixture`.
+        """
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=15) * u.um
+        variance, weight = a._mixture_pairs(depth, s, axis="pair")
+        base = optika.sensors.diffusion.AbstractDiffusionModel
+        variance_expected, weight_expected = base._mixture_pairs(a, depth, s, "pair")
+        assert np.allclose(variance, variance_expected, atol=1e-12 * u.um**2)
+        assert np.allclose(weight, weight_expected, rtol=1e-14, atol=1e-16)
+
+
+@pytest.mark.parametrize(
+    argnames="thickness_field_free,depth,expected",
+    argvalues=[
+        (9 * u.um, 0 * u.um, 0.2145358),
+        (9 * u.um, 4.5 * u.um, 0.2892722),
+        (9 * u.um, 7.2 * u.um, 0.4959171),
+        (5 * u.um, 0 * u.um, 0.4284261),
+        (5 * u.um, 2.5 * u.um, 0.5034380),
+        (5 * u.um, 4 * u.um, 0.6716009),
+    ],
+)
+def test_slab_probability_same_pixel_fourier(
+    thickness_field_free: u.Quantity,
+    depth: u.Quantity,
+    expected: float,
+) -> None:
+    r"""
+    The probability that two electrons share a 15 micron pixel agrees,
+    to the accuracy of the mixture of Gaussians at a single depth,
+    with the integral over the Fourier transform of the separation of the two
+    electrons,
+
+    .. math::
+
+        \int \frac{d^2 k}{(2 \pi)^2}
+            \left( \frac{\cosh k x}{\cosh k x_{ff}} \right)^2
+            \prod_{i} p \, \text{sinc}^2 \frac{k_i p}{2},
+
+    evaluated on a fine grid, independently of the tables of the model.
+    """
+    s = 14 * u.um
+    model = optika.sensors.diffusion.SlabDiffusionModel(
+        thickness_depletion=s - thickness_field_free,
+    )
+    result = model.probability_same_pixel(depth, s, 15 * u.um)
+    assert np.allclose(result, expected, atol=3e-4)
+
+
+@pytest.mark.parametrize("width_pixel", [15 * u.um, 4 * u.um])
+def test_slab_mixture_converged(
+    width_pixel: u.Quantity,
+) -> None:
+    """
+    Averaged over the depth at which the charge was created,
+    the kernel and the probability that two electrons share a pixel of the
+    mixture of Gaussians agree with those of a mixture of many more,
+    which converges to the exact charge cloud.
+    """
+    s = _thickness_substrate
+    model = optika.sensors.diffusion.SlabDiffusionModel(
+        thickness_depletion=8.7 * u.um,
+    )
+    absorption = na.geomspace(1e-3, 1e3, axis="absorption", num=7) / u.um
+
+    def probability(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+        """The probability that two electrons share a pixel."""
+        return model.probability_same_pixel(depth, s, width_pixel)
+
+    def averages() -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        """The kernel and the probability averaged over depth."""
+        kernel = model.kernel_average(absorption, s, width_pixel, "x", "y", num=5)
+        same = model.average_depth(
+            function=probability,
+            absorption=absorption,
+            thickness_substrate=s,
+        )
+        return kernel.outputs, same
+
+    kernel, same = averages()
+
+    slab = optika.sensors.diffusion._slab
+    num = slab._num_nodes
+    try:
+        slab._num_nodes = 24
+        slab._table.cache_clear()
+        kernel_expected, same_expected = averages()
+    finally:
+        slab._num_nodes = num
+        slab._table.cache_clear()
+
+    assert np.allclose(kernel, kernel_expected, atol=2e-5)
+    assert np.allclose(same, same_expected, atol=2e-5)
 
 
 def test_kernel_sharp() -> None:
