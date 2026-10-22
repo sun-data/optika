@@ -4840,7 +4840,14 @@ def test_axis_compound_on_a_surface():
     assert np.all(result.unvignetted == expected.unvignetted)
 
 
-def test_axis_compound_cannot_be_a_stop():
+@pytest.mark.parametrize(
+    argnames="name,described",
+    argvalues=[
+        ("aperture", "'aperture'"),
+        (None, "an unnamed Surface"),
+    ],
+)
+def test_axis_compound_cannot_be_a_stop(name: None | str, described: str):
     """A stop is solved from one outline, which a compound aperture lacks."""
     system = _system_newtonian_with_aperture(
         name="aperture",
@@ -4850,7 +4857,12 @@ def test_axis_compound_cannot_be_a_stop():
             axis_compound="piece",
         ),
     )
-    with pytest.raises(ValueError, match="compound axis"):
+    surfaces = [
+        dataclasses.replace(s, name=name) if s.is_pupil_stop else s
+        for s in system.surfaces
+    ]
+    system = dataclasses.replace(system, surfaces=surfaces)
+    with pytest.raises(ValueError, match=f"surface {described} is a stop"):
         system.rayfunction_stops
 
 

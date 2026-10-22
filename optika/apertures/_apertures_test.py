@@ -99,7 +99,12 @@ class AbstractTestAbstractAperture(
         result = a(position)
         assert np.issubdtype(na.get_dtype(result), bool)
 
-        assert np.all(result[~na.as_named_array(a.active)])
+        # every point passes where nothing is active, which for the pieces
+        # along a compound axis is where none of them is
+        active = na.as_named_array(a.active)
+        if a.axis_compound in na.shape(active):
+            active = active.any(a.axis_compound)
+        assert np.all(result[~active])
 
         # the centroid of the wire must be inside an active, non-inverted
         # aperture, provided the aperture is star-shaped about its centroid
@@ -781,6 +786,15 @@ _annulus = optika.apertures.CircularAperture(
     argvalues=[
         dataclasses.replace(_blockages, samples_wire=21),
         dataclasses.replace(
+            _blockages,
+            samples_wire=21,
+            active=na.ScalarArray(
+                np.array([True, False, True, False, True]),
+                axes="blockage",
+            ),
+        ),
+        dataclasses.replace(_circles, samples_wire=21, active=False),
+        dataclasses.replace(
             _circles,
             samples_wire=21,
             kwargs_plot=dict(color="black"),
@@ -815,8 +829,8 @@ class TestAxisCompound(
 ):
     """The suite every aperture passes, run on apertures with a compound axis."""
 
-    # The centroid of each piece's wire varies along the compound axis, so it
-    # would be paired with its own piece rather than tested against them all.
+    # The centroid of each piece's wire varies along the compound axis, which
+    # the points an aperture is called on may not.
     star_shaped = False
 
 
@@ -829,20 +843,25 @@ def _points(x: list[float], y: list[float]) -> na.Cartesian3dVectorArray:
     )
 
 
+def _passes(passes: list[bool]) -> na.ScalarArray:
+    """Whether each point given by :func:`_points` passes, along ``point``."""
+    return na.ScalarArray(np.array(passes), axes="point")
+
+
 def test_axis_compound_obscurations_must_all_be_cleared():
     """A ray passes a row of obscurations only if it clears every one."""
     position = _points(x=[-40, -30, -20, 0, 20, 27, 40, 60], y=[0] * 8)
     result = _blockages(position)
     assert result.shape == dict(point=8)
-    expected = [False, True, False, False, False, True, False, True]
-    assert np.all(result.ndarray == expected)
+    expected = _passes([False, True, False, False, False, True, False, True])
+    assert np.all(result == expected)
 
 
 def test_axis_compound_openings_are_a_union():
     """A ray passes a set of openings if it is inside any one of them."""
     position = _points(x=[0, 85, 95, -49, 0, 60], y=[0, 0, 0, 0, 49, 35])
-    expected = [True, True, False, True, True, True]
-    assert np.all(_circles(position).ndarray == expected)
+    expected = _passes([True, True, False, True, True, True])
+    assert np.all(_circles(position) == expected)
 
 
 def test_axis_compound_opening_with_obscuration():
@@ -872,7 +891,7 @@ def test_axis_compound_inactive_pieces_are_ignored():
         axis_compound="piece",
     )
     position = _points(x=[0, 20], y=[0, 0])
-    assert np.all(aperture(position).ndarray == [True, False])
+    assert np.all(aperture(position) == _passes([True, False]))
 
 
 def test_axis_compound_none_is_an_array_of_apertures():
@@ -895,3 +914,32 @@ def test_axis_compound_bounds():
     assert np.allclose(_blockages.bound_upper.x, +45 * u.mm)
     assert np.allclose(_blockages.bound_lower.y, -5 * u.mm)
     assert np.allclose(_blockages.bound_upper.y, +5 * u.mm)
+
+
+def test_axis_compound_must_be_an_axis_of_the_parameters():
+    """
+    A compound axis which none of the parameters vary along is refused,
+    rather than reducing over an axis of the points with the same name.
+    """
+    aperture = optika.apertures.CircularAperture(
+        radius=20 * u.mm,
+        axis_compound="point",
+    )
+    with pytest.raises(ValueError, match="not one of the axes"):
+        aperture.shape
+    with pytest.raises(ValueError, match="not one of the axes"):
+        aperture(_points(x=[0, 30], y=[0, 0]))
+
+
+def test_axis_compound_points_may_not_vary_along_it():
+    """
+    Points which vary along the compound axis are refused, since each would
+    be tested against only the piece with the same index.
+    """
+    position = na.Cartesian3dVectorArray(
+        x=na.ScalarArray([30, 60] * u.mm, axes="piece"),
+        y=0 * u.mm,
+        z=0 * u.mm,
+    )
+    with pytest.raises(ValueError, match="vary along the compound axis"):
+        _annulus(position)

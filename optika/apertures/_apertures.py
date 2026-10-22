@@ -100,9 +100,9 @@ class AbstractAperture(
     inverted: bool | na.AbstractScalar = dataclasses.field(default=False, kw_only=True)
     """
     Whether this object is being used as an aperture or obscuration.
-    
-    If :obj:`True`, the interior of the aperture allows light to passthrough.
-    If :obj:`False`, the exterior of the aperture allows light to pass through.
+
+    If :obj:`False`, the interior of the aperture allows light to pass through.
+    If :obj:`True`, the exterior of the aperture allows light to pass through.
     """
 
     transformation: None | na.transformations.AbstractTransformation = (
@@ -128,9 +128,12 @@ class AbstractAperture(
     This axis is left out of :attr:`shape` and reduced over by
     :attr:`bound_lower` and :attr:`bound_upper`, so it never reaches the rays
     of a surface which uses this aperture, but :meth:`wire` keeps it, so that
-    every piece is drawn.  An aperture with a compound axis cannot yet be the
-    field stop or pupil stop of a system, since a stop is solved from a
-    single outline.
+    every piece is drawn.  It has to be an axis the parameters of this
+    aperture vary along, and not one the points it is called on vary along,
+    since each point would then be tested against only the piece with the
+    same index.  An aperture with a compound axis cannot yet be the field
+    stop or pupil stop of a system, since a stop is solved from a single
+    outline.
 
     If :obj:`None` (the default), every axis of this aperture is an array of
     separate apertures.
@@ -145,8 +148,10 @@ class AbstractAperture(
     @property
     def shape(self) -> dict[str, int]:
         shape = self._shape_parameters
-        if self.axis_compound is not None:
-            shape.pop(self.axis_compound, None)
+        axis = self.axis_compound
+        if axis is not None:
+            self._check_axis_compound(shape)
+            del shape[axis]
         return shape
 
     @property
@@ -156,6 +161,23 @@ class AbstractAperture(
         The broadcasted shape of the parameters of this aperture, which
         includes :attr:`axis_compound`, unlike :attr:`shape`.
         """
+
+    def _check_axis_compound(self, shape: dict[str, int]) -> None:
+        """
+        Raise if :attr:`axis_compound` is not one of the axes in `shape`.
+
+        Parameters
+        ----------
+        shape
+            The shape of the parameters of this aperture, as
+            :attr:`_shape_parameters` gives it.
+        """
+        axis = self.axis_compound
+        if axis not in shape:
+            raise ValueError(
+                f"the compound axis {axis!r} is not one of the axes the "
+                f"parameters of this aperture vary along, {tuple(shape)}"
+            )
 
     def _reduce_compound(
         self,
@@ -195,20 +217,43 @@ class AbstractAperture(
         ----------
         position
             Points in surface coordinates.
+            They may not vary along :attr:`axis_compound`.
         """
-        if self.transformation is not None:
-            position = self.transformation.inverse(position)
-
-        inside = self._inside(position)
+        axis = self.axis_compound
+        if axis is not None:
+            self._check_axis_compound(self._shape_parameters)
+            if axis in na.shape(position):
+                raise ValueError(
+                    f"the points vary along the compound axis {axis!r}, so "
+                    f"each would be tested against only the piece with the "
+                    f"same index"
+                )
 
         active = na.as_named_array(self.active)
         inverted = na.as_named_array(self.inverted)
+
+        # an inactive aperture passes every point, so they are not tested
+        if np.any(active):
+            if self.transformation is not None:
+                position = self.transformation.inverse(position)
+            inside = self._inside(position)
+        else:
+            inside = na.ScalarArray(True)
+
+        # an opening passes the points inside it, an obscuration those outside
+        # it, and an inactive piece every point, and the plain defaults of the
+        # flags leave the points as they are, so they skip a pass over them
+        if axis is None:
+            result = inside
+            if self.inverted is not False:
+                result = result ^ inverted
+            if self.active is not True:
+                result = result | ~active
+            return result
+
         opening = active & ~inverted
         obscuration = active & inverted
 
-        # Without a compound axis these reduce to the one piece passing a
-        # point inside it if it is an opening and outside it if it is an
-        # obscuration, and passing every point if it is inactive.
         through = self._reduce_compound(inside & opening, "any")
         through = through | ~self._reduce_compound(opening, "any")
         clear = self._reduce_compound(~inside | ~obscuration, "all")
@@ -1136,12 +1181,6 @@ class AbstractPolygonalAperture(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-
-        # an inactive aperture passes every point whatever is inside it, so
-        # the test of every point against every edge is skipped
-        if not np.any(self.active):
-            return na.ScalarArray(True)
-
         vertices = self.vertices
 
         return na.geometry.point_in_polygon(

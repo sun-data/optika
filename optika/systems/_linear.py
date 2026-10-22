@@ -133,7 +133,9 @@ class AbstractLinearSystem(
         each wavelength illuminates.  The field stop
         :meth:`~optika.systems.SequentialSystem.linearize` carries is the
         half-light outline of the field of view, so this is where an edge
-        measured in an image sits.
+        measured in an image sits.  A field stop made of several pieces, along
+        the :attr:`~optika.apertures.AbstractAperture.axis_compound` of its
+        aperture, has an outline for each piece, along that axis.
 
         Parameters
         ----------
