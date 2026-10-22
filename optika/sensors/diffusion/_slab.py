@@ -182,7 +182,9 @@ def _density(
             sign = 1.0 if n % 2 == 0 else -1.0
             a = 2 * n + delta
             b = 2 * n + 2 - delta
-            total += sign * (a * math.exp(-a * a / (2 * s)) + b * math.exp(-b * b / (2 * s)))
+            total += sign * (
+                a * math.exp(-a * a / (2 * s)) + b * math.exp(-b * b / (2 * s))
+            )
         return total / math.sqrt(2 * math.pi * s**3)
 
     total = 0.0

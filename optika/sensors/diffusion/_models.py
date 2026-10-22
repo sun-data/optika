@@ -1795,7 +1795,9 @@ class SlabDiffusionModel(
 
         variance = s * np.square(f)
         if self.width_depletion is not None:
-            variance = variance + 2 * self._variance_depletion(depth, thickness_substrate)
+            variance = variance + 2 * self._variance_depletion(
+                depth, thickness_substrate
+            )
 
         return variance, weight
 
