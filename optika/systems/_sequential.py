@@ -2340,6 +2340,9 @@ class AbstractSequentialSystem(
         normalized_pupil
             A boolean flag indicating if the `pupil` parameter is in normalized
             units.
+        seed
+            The seed of the draw which places a ray at a random position inside
+            each cell, or :obj:`None` to draw different positions every time.
         """
 
         grid = optika.vectors.ObjectVectorArray(
@@ -2388,6 +2391,7 @@ class AbstractSequentialSystem(
         noise: bool = True,
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         axis_pupil: None | tuple[str, str] = None,
+        seed: None | int = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Forward model of the optical system.
@@ -2426,6 +2430,11 @@ class AbstractSequentialSystem(
             ``set(pupil.shape) - set(self.shape) - {axis_wavelength,} - set(axis_field)``,
             should have exactly two elements.
             If `pupil` is :obj:`None`, this parameter is ignored.
+        seed
+            The seed of the draw which places a ray at a random position inside
+            each cell of the wavelength, field, and pupil grids, or :obj:`None`
+            to draw different positions every time.
+            The noise is not seeded.
         """
 
         scene = scene.explicit
@@ -2480,6 +2489,7 @@ class AbstractSequentialSystem(
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
+            seed=seed,
         )
 
         return self.sensor.measure(

@@ -150,6 +150,27 @@ class AbstractTestAbstractSequentialSystem(
         result = a.object_is_at_infinity
         assert isinstance(result, bool)
 
+    def test_image_seed(self, a: optika.systems.AbstractSequentialSystem) -> None:
+        scene = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.linspace(
+                    530 * u.nm, 531 * u.nm, axis="wavelength", num=3
+                ),
+                position=na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=+1,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=11,
+                ),
+            ),
+            outputs=100 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm,
+        )
+        # the seed places every ray inside its cell, so the same seed gives
+        # the same image and another seed moves the rays
+        expected = a.image(scene, noise=False, seed=0).outputs
+        assert np.all(a.image(scene, noise=False, seed=0).outputs == expected)
+        assert np.any(a.image(scene, noise=False, seed=1).outputs != expected)
+
     def test_surfaces(self, a: optika.systems.AbstractSequentialSystem):
         for surface in a.surfaces:
             assert isinstance(surface, optika.surfaces.AbstractSurface)
