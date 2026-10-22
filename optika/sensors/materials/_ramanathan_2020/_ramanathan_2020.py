@@ -673,14 +673,13 @@ def electrons_measured(
         width_pixel = 0 * u.um
         kind_diffusion = _monte_carlo_gaussian
 
-    # the variances and the weights of the mixture of Gaussians the charge
-    # created in the field-free region spreads with, if the model has one
+    # the table of the widths, the weights and the reaches of the mixture of
+    # Gaussians the charge created in the field-free region spreads with,
+    # if the model has one
     if kind_diffusion == _monte_carlo_slab:
         table_transit = _slab._table()
-        _, _, weight_transit = _slab._nodes()
     else:
-        table_transit = np.zeros((2, 1))
-        weight_transit = np.ones(1)
+        table_transit = np.zeros((2, 3, 1))
 
     if shape_random is None:
         shape_random = dict()
@@ -707,7 +706,6 @@ def electrons_measured(
         shape_random=shape_random,
         kind_diffusion=kind_diffusion,
         table_transit=table_transit,
-        weight_transit=weight_transit,
     )
 
     # The simulation cannot carry uncertain values through it the way
@@ -743,7 +741,6 @@ def _electrons_measured(
     shape_random: dict[str, int],
     kind_diffusion: int,
     table_transit: np.ndarray,
-    weight_transit: np.ndarray,
 ) -> na.ScalarArray:
     """
     The body of :func:`electrons_measured`, given values which are not
@@ -792,12 +789,10 @@ def _electrons_measured(
         :obj:`~optika.sensors.diffusion._models._monte_carlo_gaussian` or
         :obj:`~optika.sensors.diffusion._models._monte_carlo_slab`.
     table_transit
-        The table of the variances of the mixture of Gaussians which the
-        charge created in the field-free region spreads with,
-        used only if `kind_diffusion` is
+        The table of the widths, the weights and the reaches of the mixture
+        of Gaussians which the charge created in the field-free region
+        spreads with, used only if `kind_diffusion` is
         :obj:`~optika.sensors.diffusion._models._monte_carlo_slab`.
-    weight_transit
-        The weights of the Gaussians of that mixture.
     """
     shape = na.broadcast_shapes(
         na.shape(photons_absorbed),
@@ -875,7 +870,6 @@ def _electrons_measured(
         wrap=wrap,
         kind_diffusion=kind_diffusion,
         table_transit=table_transit,
-        weight_transit=weight_transit,
     )
 
     result = na.ScalarArray(
@@ -908,7 +902,6 @@ def _electrons_measured_quantity(
     wrap: bool,
     kind_diffusion: int,
     table_transit: np.ndarray,
-    weight_transit: np.ndarray,
 ) -> u.Quantity:
 
     shape = np.broadcast_shapes(
@@ -963,7 +956,6 @@ def _electrons_measured_quantity(
         factor_multinomial=_factor_multinomial,
         kind_diffusion=kind_diffusion,
         table_transit=table_transit,
-        weight_transit=weight_transit,
     )
 
     result = result.reshape(shape)
@@ -980,14 +972,6 @@ count exceeds this factor times the number of cells in the offset window.
 Both paths sample the same distribution; this only selects whichever is
 faster. Larger values favor the per-electron path, :obj:`math.inf` forces it,
 and ``0`` forces the multinomial path.
-"""
-
-_num_sigma_window = 6.0
-"""
-Half-width, in standard deviations of the widest Gaussian, of the bounded
-offset window used by the multinomial path of :func:`_diffuse_electrons`.
-Probability mass beyond the window (~1e-9) is folded into the edge bins, so
-the total is still conserved exactly.
 """
 
 _num_window_max = 255
@@ -1105,6 +1089,7 @@ def _diffuse_electrons(  # pragma: nocover
     sigma_x: np.ndarray,
     sigma_y: np.ndarray,
     weight: np.ndarray,
+    reach: np.ndarray,
     num_x: int,
     num_y: int,
     wrap: bool,
@@ -1130,6 +1115,10 @@ def _diffuse_electrons(  # pragma: nocover
     of :func:`math.erf` differences). The two paths sample the same
     distribution, but for photons that liberate many electrons the partition
     costs ``O(window)`` rather than ``O(m)``.
+    The window reaches as far as the farthest of the Gaussians reaches,
+    so the charge beyond it, which is folded into its edge bins so that the
+    total is still conserved exactly, is at most the fraction
+    :obj:`~optika.sensors.diffusion._slab._mass_beyond_reach` of the cloud.
     Clouds too wide for the window to fit in `scratch` are sampled per
     electron.
 
@@ -1152,6 +1141,9 @@ def _diffuse_electrons(  # pragma: nocover
         pixels they originate from.
     weight
         The probability of each Gaussian, summing to one.
+    reach
+        The number of its own standard deviations each Gaussian reaches,
+        as in :func:`optika.sensors.diffusion._slab._reach`.
     num_x, num_y
         The shape of the image.
     wrap
@@ -1169,18 +1161,15 @@ def _diffuse_electrons(  # pragma: nocover
 
     num = weight.size
 
-    sigma_max_x = 0.0
-    sigma_max_y = 0.0
+    # The window reaches as far as the farthest Gaussian, which from any
+    # origin within the pixel is at least as far as the edges of the window.
+    reach_x = 0.0
+    reach_y = 0.0
     for k in range(num):
-        sigma_max_x = max(sigma_max_x, sigma_x[k])
-        sigma_max_y = max(sigma_max_y, sigma_y[k])
-
-    half_x = 0
-    half_y = 0
-    if sigma_max_x > 0:
-        half_x = int(math.ceil(_num_sigma_window * sigma_max_x)) + 1
-    if sigma_max_y > 0:
-        half_y = int(math.ceil(_num_sigma_window * sigma_max_y)) + 1
+        reach_x = max(reach_x, reach[k] * sigma_x[k])
+        reach_y = max(reach_y, reach[k] * sigma_y[k])
+    half_x = int(math.ceil(reach_x))
+    half_y = int(math.ceil(reach_y))
     num_window_x = 2 * half_x + 1
     num_window_y = 2 * half_y + 1
 
@@ -1299,20 +1288,23 @@ def _electrons_measured_numba(  # pragma: nocover
     factor_multinomial: float,
     kind_diffusion: int,
     table_transit: np.ndarray,
-    weight_transit: np.ndarray,
 ) -> np.ndarray:
 
     num_i, num_x, num_y, num_n = p_n.shape
 
     result = np.zeros((num_i, num_x, num_y))
 
-    num_gaussian = weight_transit.size
+    num_gaussian = table_transit.shape[2]
     weight_one = np.ones(1)
+    reach_one = np.full(1, _slab._reach(1.0, 1))
 
     for i in numba.prange(num_i):
-        # the variance each Gaussian of the mixture acquires crossing the
-        # field-free region, and their widths in pixels along each axis
-        variance_transit = np.empty(num_gaussian)
+        # the width each Gaussian of the mixture acquires crossing the
+        # field-free region, its weight, its reach, and its total width in
+        # pixels along each axis
+        width_transit = np.empty(num_gaussian)
+        weight_transit = np.empty(num_gaussian)
+        reach_transit = np.empty(num_gaussian)
         sigma_x = np.empty(num_gaussian)
         sigma_y = np.empty(num_gaussian)
         # the width of a single Gaussian along each axis
@@ -1395,15 +1387,21 @@ def _electrons_measured_numba(  # pragma: nocover
                             if z_d > 0:
                                 g = min(max((z_substrate - z_ij) / z_d, 0.0), 1.0)
                             variance_d = w_depletion**2 * g
-                        _slab._variances(
+                        _slab._mixture(
                             delta=1 - z_ij / z_ff,
                             table=table_transit,
-                            out=variance_transit,
+                            width=width_transit,
+                            weight=weight_transit,
+                            reach=reach_transit,
                         )
+                        scale_x = z_ff / wp_x if wp_x > 0 else 0.0
+                        scale_y = z_ff / wp_y if wp_y > 0 else 0.0
                         for k in range(num_gaussian):
-                            w_k = math.sqrt(variance_transit[k] * z_ff**2 + variance_d)
-                            sigma_x[k] = w_k / wp_x if wp_x > 0 else 0.0
-                            sigma_y[k] = w_k / wp_y if wp_y > 0 else 0.0
+                            w_k = width_transit[k]
+                            if variance_d > 0:
+                                w_k = math.sqrt(w_k * w_k + variance_d / z_ff**2)
+                            sigma_x[k] = w_k * scale_x
+                            sigma_y[k] = w_k * scale_y
                         _diffuse_electrons(
                             result=result,
                             i=i,
@@ -1415,6 +1413,7 @@ def _electrons_measured_numba(  # pragma: nocover
                             sigma_x=sigma_x,
                             sigma_y=sigma_y,
                             weight=weight_transit,
+                            reach=reach_transit,
                             num_x=num_x,
                             num_y=num_y,
                             wrap=wrap,
@@ -1454,6 +1453,7 @@ def _electrons_measured_numba(  # pragma: nocover
                             sigma_x=sigma_x_one,
                             sigma_y=sigma_y_one,
                             weight=weight_one,
+                            reach=reach_one,
                             num_x=num_x,
                             num_y=num_y,
                             wrap=wrap,

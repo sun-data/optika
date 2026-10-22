@@ -1576,6 +1576,9 @@ class SlabDiffusionModel(
     where :math:`x_s` is the thickness of the light-sensitive region and
     :math:`x_d` the thickness of the depletion region.
     The back surface reflects it.
+    This is the model of :cite:t:`Hopkinson1987`,
+    and that of :cite:t:`Pavlov1999` with a back surface that reflects all
+    the charge and no recombination.
     Its motion across the sensor is independent of its motion along it,
     so given the time :math:`T` it takes to reach the depletion region,
     its offset along each axis is Gaussian with variance :math:`2 D T`,
@@ -1608,6 +1611,8 @@ class SlabDiffusionModel(
                  {\cos \left( \pi x / 2 x_{ff} \right)}
         \right),
 
+    which at the back surface is the hyperbolic secant profile of
+    :cite:t:`Holland2003`,
     so it falls off exponentially, as :math:`e^{-\pi |y| / 2 x_{ff}}`,
     rather than as a Gaussian.
     The cloud is not the product of its profiles along the two axes,
@@ -1623,33 +1628,44 @@ class SlabDiffusionModel(
     same pixel depends on the sum of their variances.
 
     The average over :math:`T` has no closed form,
-    so it is taken by quadrature over the quantiles of :math:`T`
-    with eight nodes,
-    which makes the charge cloud at each depth a mixture of eight Gaussians
-    whose variances are tabulated once against depth.
+    so it is taken by Gauss quadrature in :math:`\ln T` with five nodes,
+    which makes the charge cloud at each depth a mixture of five Gaussians,
+    Equation 66 of :cite:t:`Pavlov1999` with a different quadrature,
+    whose variances and weights are tabulated once against depth.
     Each electron is drawn from the mixture independently,
     so two electrons of the same photon may be drawn from different
     Gaussians.
     The mixture is given by :meth:`mixture`.
-    Its weights are the same at every depth,
-    and the variance each Gaussian acquires crossing the field-free region is
+    The variance each Gaussian acquires crossing the field-free region is
     the square of the thickness of that region times a function of the
     fraction of the way across it the charge was created,
+    and its weight is a function of that fraction alone,
     so the mixture for one thickness of the field-free region follows from
     that for another by scaling the variances,
     before the spread of the depletion region is added.
     Averaged over the depth at which the charge was created,
     the kernel and the probability that two electrons share a pixel agree
-    with the exact cloud to about one part in :math:`10^5`;
-    at a single depth they agree to about one part in :math:`10^3`.
+    with the exact cloud to about one part in :math:`10^5`.
+    At a single depth they agree to about one part in :math:`10^4` where a
+    pixel is wider than the field-free region is thick,
+    and to about one part in :math:`10^3` where it is narrower.
+    The profile along one axis given by :meth:`cdf` agrees with the closed
+    form above to about one part in :math:`10^4` halfway across the
+    field-free region, and to a few parts in :math:`10^3` close to the
+    depletion region, where the core of the cloud is much narrower than a
+    pixel.
     The variance of the mixture is that of the exact cloud, which
-    :meth:`width` gives, to about a percent farther than a tenth of
-    :math:`x_{ff}` from the depletion region.
+    :meth:`width` gives, to a few parts in :math:`10^4` farther than a tenth
+    of :math:`x_{ff}` from the depletion region,
+    and to about a percent a hundredth of :math:`x_{ff}` from it.
     Closer than that, the rare electrons which wander back toward the back
     surface set the variance, and only the widest Gaussian holds them.
-    Likewise, the tail of the mixture follows the exponential tail of the
-    exact cloud to within ten percent until less than about :math:`10^{-5}`
-    of the charge lies beyond it, and then falls off as the widest Gaussian.
+    Likewise, for charge created at the back surface, the tail of the
+    mixture follows the exponential tail of the exact cloud to within ten
+    percent until about :math:`10^{-5}` of the charge lies beyond it,
+    and then falls off as the widest Gaussian;
+    for charge created a tenth of :math:`x_{ff}` from the depletion region,
+    it does so until about :math:`3 \times 10^{-3}` lies beyond it.
     The Monte Carlo simulation of :func:`optika.sensors.electrons_measured`
     samples the same mixture, so it agrees with the averages of this model,
     and its cost does not grow with the number of electrons per photon.
@@ -1724,6 +1740,29 @@ class SlabDiffusionModel(
         )
         return np.square(self.width_depletion) * crossed
 
+    def _distance(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The distance from the depletion region in units of the thickness of
+        the field-free region, zero in the depletion region.
+
+        Parameters
+        ----------
+        depth
+            The distance from the back surface of the sensor at which the
+            charge was created.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        """
+        f = self._thickness_field_free(thickness_substrate)
+        where = f > 0 * f
+        f_safe = np.where(where, f, 1 * u.um)
+        delta = ((f - depth) / f_safe).to(u.dimensionless_unscaled).value
+        return np.where(where, np.clip(delta, 0, 1), 0)
+
     def mixture(
         self,
         depth: u.Quantity | na.AbstractScalar,
@@ -1731,18 +1770,32 @@ class SlabDiffusionModel(
         axis: str,
     ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
         f = self._thickness_field_free(thickness_substrate)
-        where = f > 0 * f
-        f_safe = np.where(where, f, 1 * u.um)
-
-        # The distance from the depletion region in units of the thickness of
-        # the field-free region, zero in the depletion region.
-        delta = ((f - depth) / f_safe).to(u.dimensionless_unscaled).value
-        delta = np.where(where, np.clip(delta, 0, 1), 0)
+        delta = self._distance(depth, thickness_substrate)
 
         s, weight = _slab._transit(delta, axis)
 
         variance = s * np.square(f)
         variance = variance + self._variance_depletion(depth, thickness_substrate)
+
+        return variance, weight
+
+    def _mixture_pairs(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        axis: str,
+    ) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        # the pairs are formed by the compiled lookup of the mixture,
+        # since forming them from the weights of `mixture`, which vary with
+        # depth, takes several passes over arrays of every depth
+        f = self._thickness_field_free(thickness_substrate)
+        delta = self._distance(depth, thickness_substrate)
+
+        s, weight = _slab._transit_pairs(delta, axis)
+
+        variance = s * np.square(f)
+        if self.width_depletion is not None:
+            variance = variance + 2 * self._variance_depletion(depth, thickness_substrate)
 
         return variance, weight
 

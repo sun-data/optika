@@ -800,7 +800,7 @@ class TestSlabDiffusionModel(
         u_depth = (depth / f).to(u.dimensionless_unscaled).value
         expected = np.arctan(np.sinh(np.pi * ratio / 2) / np.cos(np.pi * u_depth / 2))
         expected = 1 / 2 + expected / np.pi
-        assert np.allclose(result, expected, atol=2e-3)
+        assert np.allclose(result, expected, atol=3e-3)
 
     def test_mixture_scaling(
         self,
@@ -809,16 +809,20 @@ class TestSlabDiffusionModel(
         """
         Without a spread in the depletion region, the variances of the
         Gaussians at a given fraction of the way across the field-free region
-        are proportional to the square of its thickness,
-        and their weighted sum is the square of the width,
-        to a percent farther than a tenth of the field-free region from the
-        depletion region.
+        are proportional to the square of its thickness, their weights do not
+        depend on it, and their weighted sum is the square of the width,
+        to a few parts in ten thousand a tenth of the field-free region from
+        the depletion region, and to a percent a hundredth of the field-free
+        region from it.
         """
         s = _thickness_substrate
         f = s - a.thickness_depletion
         if a.width_depletion is not None or np.any(f <= 0 * u.um):
             return
-        fraction = na.linspace(0, 1, axis="depth", num=11)
+        fraction = na.ScalarArray(
+            ndarray=np.array([0, 0.25, 0.5, 0.75, 0.9, 0.99, 1]),
+            axes="depth",
+        )
         variance, weight = a.mixture(fraction * f, s, axis="g")
 
         s_double = a.thickness_depletion + 2 * f
@@ -826,10 +830,27 @@ class TestSlabDiffusionModel(
         assert np.allclose(weight_double, weight, rtol=1e-14)
         assert np.allclose(variance_double, 4 * variance, rtol=1e-12)
 
-        near = fraction[dict(depth=slice(None, 10))]
-        variance_near = (weight * a.mixture(near * f, s, "g")[0]).sum("g")
-        expected = np.square(a.width(near * f, s))
-        assert np.allclose(variance_near, expected, rtol=0.01)
+        result = (weight * variance).sum("g")
+        expected = np.square(a.width(fraction * f, s))
+        for index, rtol in [(slice(None, 5), 3e-4), (slice(5, None), 1e-2)]:
+            i = dict(depth=index)
+            assert np.allclose(result[i], expected[i], rtol=rtol)
+
+    def test_mixture_pairs(
+        self,
+        a: optika.sensors.diffusion.SlabDiffusionModel,
+    ) -> None:
+        """
+        The pairs of Gaussians formed by the compiled lookup of the model are
+        those the base class forms from :meth:`mixture`.
+        """
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=15) * u.um
+        variance, weight = a._mixture_pairs(depth, s, axis="pair")
+        base = optika.sensors.diffusion.AbstractDiffusionModel
+        variance_expected, weight_expected = base._mixture_pairs(a, depth, s, "pair")
+        assert np.allclose(variance, variance_expected, atol=1e-12 * u.um**2)
+        assert np.allclose(weight, weight_expected, rtol=1e-14, atol=1e-16)
 
 
 @pytest.mark.parametrize(
@@ -867,7 +888,7 @@ def test_slab_probability_same_pixel_fourier(
         thickness_depletion=s - thickness_field_free,
     )
     result = model.probability_same_pixel(depth, s, 15 * u.um)
-    assert np.allclose(result, expected, atol=2e-3)
+    assert np.allclose(result, expected, atol=3e-4)
 
 
 @pytest.mark.parametrize("width_pixel", [15 * u.um, 4 * u.um])
@@ -905,17 +926,15 @@ def test_slab_mixture_converged(
     slab = optika.sensors.diffusion._slab
     num = slab._num_nodes
     try:
-        slab._num_nodes = 64
-        slab._nodes.cache_clear()
+        slab._num_nodes = 24
         slab._table.cache_clear()
         kernel_expected, same_expected = averages()
     finally:
         slab._num_nodes = num
-        slab._nodes.cache_clear()
         slab._table.cache_clear()
 
-    assert np.allclose(kernel, kernel_expected, atol=3e-5)
-    assert np.allclose(same, same_expected, atol=3e-5)
+    assert np.allclose(kernel, kernel_expected, atol=2e-5)
+    assert np.allclose(same, same_expected, atol=2e-5)
 
 
 def test_kernel_sharp() -> None:
