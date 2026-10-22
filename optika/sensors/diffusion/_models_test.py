@@ -1017,7 +1017,8 @@ def test_kernel_pair_brute_force(
     variance, weight = model.mixture(depth, s, "g")
     sigma = np.sqrt(variance / np.square(p)).to(u.dimensionless_unscaled)
     sigma = na.as_named_array(sigma).ndarray_aligned(("depth", "g")).value
-    weight = na.broadcast_to(weight, dict(g=sigma.shape[1])).ndarray
+    shape = dict(depth=sigma.shape[0], g=sigma.shape[1])
+    weight = na.broadcast_to(weight, shape).ndarray_aligned(("depth", "g"))
 
     # the fraction of each Gaussian collected in each pixel, for each
     # position of the photon within its pixel, by the midpoint rule
@@ -1037,7 +1038,7 @@ def test_kernel_pair_brute_force(
         else:
             shifted[:, :, -offset:] = q[:, :, :offset]
         pair = np.einsum("dgkp,dhkp->dgh", q, shifted) / position.size
-        expected[:, i] = np.einsum("g,h,dgh->d", weight, weight, pair)
+        expected[:, i] = np.einsum("dg,dh,dgh->d", weight, weight, pair)
 
     assert np.allclose(result, expected, atol=1e-7)
 
