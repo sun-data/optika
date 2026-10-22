@@ -4785,5 +4785,86 @@ def test_radius_spot_of_an_uncertain_system() -> None:
     assert np.allclose(result.distribution, expected.distribution, rtol=1e-9)
 
 
+def _system_newtonian_with_aperture(
+    name: str,
+    aperture: optika.apertures.AbstractAperture,
+) -> optika.systems.SequentialSystem:
+    """:data:`_system_newtonian` with the aperture of the surface `name` replaced."""
+    surfaces = [
+        dataclasses.replace(s, aperture=aperture) if s.name == name else s
+        for s in _system_newtonian.surfaces
+    ]
+    return dataclasses.replace(_system_newtonian, surfaces=surfaces)
+
+
+def test_axis_compound_on_a_surface():
+    """
+    An aperture made of an opening with an obscuration in it vignettes a
+    raytrace exactly like the annulus it is equivalent to, and its compound
+    axis never reaches the rays.
+    """
+    compound = _system_newtonian_with_aperture(
+        name="primary",
+        aperture=optika.apertures.CircularAperture(
+            radius=na.ScalarArray([50, 6] * u.mm, axes="piece"),
+            inverted=na.ScalarArray(np.array([False, True]), axes="piece"),
+            axis_compound="piece",
+        ),
+    )
+    annulus = _system_newtonian_with_aperture(
+        name="primary",
+        aperture=optika.apertures.AnnularAperture(
+            radius_inner=6 * u.mm,
+            radius_outer=50 * u.mm,
+        ),
+    )
+
+    kwargs = dict(
+        wavelength=500 * u.nm,
+        field=na.Cartesian2dVectorArray(0, 0),
+        pupil=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+            num=11,
+        ),
+    )
+
+    result = compound.rayfunction(**kwargs).outputs
+    expected = annulus.rayfunction(**kwargs).outputs
+
+    assert "piece" not in compound.shape
+    assert "piece" not in result.shape
+    # the obscuration takes a real share of the beam, but not all of it
+    assert 0 < np.mean(result.unvignetted) < 1
+    assert np.all(result.unvignetted == expected.unvignetted)
+
+
+@pytest.mark.parametrize(
+    argnames="name,described",
+    argvalues=[
+        ("aperture", "'aperture'"),
+        (None, "an unnamed Surface"),
+    ],
+)
+def test_axis_compound_cannot_be_a_stop(name: None | str, described: str):
+    """A stop is solved from one outline, which a compound aperture lacks."""
+    system = _system_newtonian_with_aperture(
+        name="aperture",
+        aperture=optika.apertures.CircularAperture(
+            radius=na.ScalarArray([10, 2] * u.mm, axes="piece"),
+            inverted=na.ScalarArray(np.array([False, True]), axes="piece"),
+            axis_compound="piece",
+        ),
+    )
+    surfaces = [
+        dataclasses.replace(s, name=name) if s.is_pupil_stop else s
+        for s in system.surfaces
+    ]
+    system = dataclasses.replace(system, surfaces=surfaces)
+    with pytest.raises(ValueError, match=f"surface {described} is a stop"):
+        system.rayfunction_stops
+
+
 # the field stop is decentered so that a mirrored field frame is observable:
 # rays aimed using global-frame field bounds miss the aperture entirely

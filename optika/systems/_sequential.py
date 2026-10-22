@@ -32,6 +32,20 @@ class StopSolveError(ValueError):
     """
 
 
+def _described(surface: optika.surfaces.AbstractSurface) -> str:
+    """
+    The name of `surface` for an error message, or its kind if it has none.
+
+    Parameters
+    ----------
+    surface
+        The surface to describe.
+    """
+    if surface.name is not None:
+        return repr(surface.name)
+    return f"an unnamed {type(surface).__name__}"
+
+
 class _Sampling(NamedTuple):
     """
     One stratified trace of a system, and which of its field positions the
@@ -721,15 +735,9 @@ class AbstractSequentialSystem(
                 max_abs_error=max_abs_error,
             )
         except ValueError as e:  # pragma: nocover
-
-            def described(surface: optika.surfaces.AbstractSurface) -> str:
-                if surface.name is not None:
-                    return repr(surface.name)
-                return f"an unnamed {type(surface).__name__}"
-
             raise StopSolveError(
                 f"Could not solve for the rays connecting the surfaces "
-                f"{described(surface_first)} and {described(surface_last)}. "
+                f"{_described(surface_first)} and {_described(surface_last)}. "
                 "If the field stop is only partially reachable at a single "
                 "wavelength (e.g. a spectrograph sensor), consider marking the "
                 "object surface, with an angular (dimensionless, sine of the "
@@ -830,6 +838,17 @@ class AbstractSequentialSystem(
         for index_pupil_stop, index_field_stop in pairs:
             pupil_stop = surfaces[index_pupil_stop]
             field_stop = surfaces[index_field_stop]
+
+            # a stop is solved from the one outline of its aperture, which an
+            # aperture made of several pieces does not have
+            for stop in (pupil_stop, field_stop):
+                if stop.aperture.axis_compound is not None:
+                    raise ValueError(
+                        f"surface {_described(stop)} is a stop, but its "
+                        f"aperture has a compound axis, "
+                        f"{stop.aperture.axis_compound!r}, which a stop cannot "
+                        f"have yet"
+                    )
 
             grid_pupil = np.moveaxis(
                 a=pupil_stop.aperture.wire(num=samples_pupil_stop),

@@ -100,9 +100,9 @@ class AbstractAperture(
     inverted: bool | na.AbstractScalar = dataclasses.field(default=False, kw_only=True)
     """
     Whether this object is being used as an aperture or obscuration.
-    
-    If :obj:`True`, the interior of the aperture allows light to passthrough.
-    If :obj:`False`, the exterior of the aperture allows light to pass through.
+
+    If :obj:`False`, the interior of the aperture allows light to pass through.
+    If :obj:`True`, the exterior of the aperture allows light to pass through.
     """
 
     transformation: None | na.transformations.AbstractTransformation = (
@@ -110,13 +110,97 @@ class AbstractAperture(
     )
     """The transformation between the local surface coordinates and the aperture."""
 
+    axis_compound: None | str = dataclasses.field(default=None, kw_only=True)
+    """
+    The logical axis along which this aperture is made of several pieces
+    acting together as one.
+
+    An aperture whose parameters vary along an axis is an array of apertures,
+    each of which clips only the rays it is broadcast against, as each slit
+    of a slit array does.  Naming that axis here makes the pieces along it
+    act together instead: a ray passes if it is inside at least one active,
+    non-inverted piece (or there are none) and outside every active, inverted
+    one.  So an array of openings is their union, as the segments of a
+    segmented mirror are, an array of obscurations has to be cleared all at
+    once, and the two can be mixed through an :attr:`inverted` which varies
+    along this axis, for an opening with an obscuration in it.
+
+    This axis is left out of :attr:`shape` and reduced over by
+    :attr:`bound_lower` and :attr:`bound_upper`, so it never reaches the rays
+    of a surface which uses this aperture, but :meth:`wire` keeps it, so that
+    every piece is drawn.  It has to be an axis the parameters of this
+    aperture vary along, and not one the points it is called on vary along,
+    since each point would then be tested against only the piece with the
+    same index.  An aperture with a compound axis cannot yet be the field
+    stop or pupil stop of a system, since a stop is solved from a single
+    outline.
+
+    If :obj:`None` (the default), every axis of this aperture is an array of
+    separate apertures.
+    """
+
     kwargs_plot: None | dict = dataclasses.field(default=None, kw_only=True)
     """
     Extra keyword arguments that will be used in the call to
     :func:`named_arrays.plt.plot` within the :meth:`plot` method.
     """
 
+    @property
+    def shape(self) -> dict[str, int]:
+        shape = self._shape_parameters
+        axis = self.axis_compound
+        if axis is not None:
+            self._check_axis_compound(shape)
+            del shape[axis]
+        return shape
+
+    @property
     @abc.abstractmethod
+    def _shape_parameters(self) -> dict[str, int]:
+        """
+        The broadcasted shape of the parameters of this aperture, which
+        includes :attr:`axis_compound`, unlike :attr:`shape`.
+        """
+
+    def _check_axis_compound(self, shape: dict[str, int]) -> None:
+        """
+        Raise if :attr:`axis_compound` is not one of the axes in `shape`.
+
+        Parameters
+        ----------
+        shape
+            The shape of the parameters of this aperture, as
+            :attr:`_shape_parameters` gives it.
+        """
+        axis = self.axis_compound
+        if axis not in shape:
+            raise ValueError(
+                f"the compound axis {axis!r} is not one of the axes the "
+                f"parameters of this aperture vary along, {tuple(shape)}"
+            )
+
+    def _reduce_compound(
+        self,
+        a: na.AbstractArray,
+        reduction: str,
+    ) -> na.AbstractArray:
+        """
+        Reduce `a` over :attr:`axis_compound` with the method named
+        `reduction`, if `a` varies along it.
+
+        Parameters
+        ----------
+        a
+            The array to reduce.
+        reduction
+            The name of the reducing method of `a`, such as ``"any"`` or
+            ``"min"``.
+        """
+        axis = self.axis_compound
+        if axis in na.shape(a):
+            a = getattr(a, reduction)(axis=axis)
+        return a
+
     def __call__(
         self,
         position: na.AbstractCartesian3dVectorArray,
@@ -124,10 +208,72 @@ class AbstractAperture(
         """
         Check if a given point is inside the aperture.
 
+        A point passes if it is inside the aperture, or outside it if the
+        aperture is :attr:`inverted`, or anywhere if the aperture is not
+        :attr:`active`.  The pieces along :attr:`axis_compound`, if there is
+        one, act together as described there.
+
         Parameters
         ----------
         position
             Points in surface coordinates.
+            They may not vary along :attr:`axis_compound`.
+        """
+        axis = self.axis_compound
+        if axis is not None:
+            self._check_axis_compound(self._shape_parameters)
+            if axis in na.shape(position):
+                raise ValueError(
+                    f"the points vary along the compound axis {axis!r}, so "
+                    f"each would be tested against only the piece with the "
+                    f"same index"
+                )
+
+        active = na.as_named_array(self.active)
+        inverted = na.as_named_array(self.inverted)
+
+        # an inactive aperture passes every point, so they are not tested
+        if np.any(active):
+            if self.transformation is not None:
+                position = self.transformation.inverse(position)
+            inside = self._inside(position)
+        else:
+            inside = na.ScalarArray(True)
+
+        # an opening passes the points inside it, an obscuration those outside
+        # it, and an inactive piece every point, and the plain defaults of the
+        # flags leave the points as they are, so they skip a pass over them
+        if axis is None:
+            result = inside
+            if self.inverted is not False:
+                result = result ^ inverted
+            if self.active is not True:
+                result = result | ~active
+            return result
+
+        opening = active & ~inverted
+        obscuration = active & inverted
+
+        through = self._reduce_compound(inside & opening, "any")
+        through = through | ~self._reduce_compound(opening, "any")
+        clear = self._reduce_compound(~inside | ~obscuration, "all")
+
+        return through & clear
+
+    @abc.abstractmethod
+    def _inside(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        Check if a given point is inside the outline of the aperture,
+        regardless of :attr:`active` and :attr:`inverted`.
+
+        Parameters
+        ----------
+        position
+            Points in the local coordinates of the aperture, before
+            :attr:`transformation`.
         """
 
     def clip_rays(self, rays: optika.rays.RayVectorArray):
@@ -153,25 +299,41 @@ class AbstractAperture(
         return rays
 
     @property
-    @abc.abstractmethod
     def bound_lower(self) -> na.AbstractCartesian3dVectorArray:
         """
         The lower-left corner of the aperture's rectangular footprint
         in surface coordinates.
         """
+        return self._reduce_compound(self._bound_lower, "min")
 
     @property
     @abc.abstractmethod
+    def _bound_lower(self) -> na.AbstractCartesian3dVectorArray:
+        """
+        :attr:`bound_lower` of each piece along :attr:`axis_compound`.
+        """
+
+    @property
     def bound_upper(self) -> na.AbstractCartesian3dVectorArray:
         """
         The upper-right corner of the aperture's rectangular footprint
         in surface coordinates.
+        """
+        return self._reduce_compound(self._bound_upper, "max")
+
+    @property
+    @abc.abstractmethod
+    def _bound_upper(self) -> na.AbstractCartesian3dVectorArray:
+        """
+        :attr:`bound_upper` of each piece along :attr:`axis_compound`.
         """
 
     @abc.abstractmethod
     def wire(self, num: None | int = None) -> na.AbstractCartesian3dVectorArray:
         """
         A sequence of points representing this aperture in surface coordinates.
+
+        Each piece along :attr:`axis_compound` has a wire of its own.
 
         Parameters
         ----------
@@ -357,6 +519,8 @@ class CircularAperture(
 
     Plot an array of circular apertures, similar to the configuration of the
     `Giant Magellan Telescope <https://en.wikipedia.org/wiki/Giant_Magellan_Telescope>`_.
+    The segments act together as one mirror, so ``"segment"`` is a compound
+    axis, and a point passes if it is inside any of them.
 
     .. jupyter-execute::
 
@@ -377,19 +541,33 @@ class CircularAperture(
         aperture = optika.apertures.CircularAperture(
             radius=radius,
             transformation=na.transformations.Translation(displacement),
+            axis_compound="segment",
+        )
+
+        position = na.Cartesian3dVectorLinearSpace(
+            start=aperture.bound_lower,
+            stop=aperture.bound_upper,
+            axis=na.Cartesian3dVectorArray("x", "y", "z"),
+            num=na.Cartesian3dVectorArray(201, 201, 1),
         )
 
         with astropy.visualization.quantity_support():
             plt.figure()
             plt.gca().set_aspect("equal")
-            aperture.plot(components=("x", "y"), color="black")
+            na.plt.pcolormesh(
+                position.x,
+                position.y,
+                C=aperture(position).astype(float),
+                cmap="gray",
+            )
+            aperture.plot(components=("x", "y"), color="tab:red")
     """
 
     radius: u.Quantity | na.AbstractScalar = 0 * u.mm
     """The radius of the aperture."""
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         return na.broadcast_shapes(
             optika.shape(self.radius),
             optika.shape(self.active),
@@ -397,32 +575,14 @@ class CircularAperture(
             optika.shape(self.transformation),
         )
 
-    def __call__(
+    def _inside(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        radius = self.radius
-        active = self.active
-        inverted = self.inverted
-        if self.transformation is not None:
-            position = self.transformation.inverse(position)
-
-        shape = na.shape_broadcasted(radius, active, inverted, position)
-
-        radius = na.broadcast_to(radius, shape)
-        active = na.broadcast_to(active, shape)
-        inverted = na.broadcast_to(inverted, shape)
-        position = na.broadcast_to(position, shape)
-
-        mask = position.xy.length <= radius
-
-        mask[inverted] = ~mask[inverted]
-        mask[~active] = True
-
-        return mask
+        return position.xy.length <= self.radius
 
     @property
-    def bound_lower(self) -> na.Cartesian3dVectorArray:
+    def _bound_lower(self) -> na.Cartesian3dVectorArray:
         unit = na.unit(self.radius)
         result = na.Cartesian3dVectorArray()
         if unit is not None:
@@ -433,7 +593,7 @@ class CircularAperture(
         return result
 
     @property
-    def bound_upper(self) -> na.Cartesian3dVectorArray:
+    def _bound_upper(self) -> na.Cartesian3dVectorArray:
         unit = na.unit(self.radius)
         result = na.Cartesian3dVectorArray()
         if unit is not None:
@@ -533,7 +693,7 @@ class CircularSectorAperture(
     """
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         return na.broadcast_shapes(
             optika.shape(self.radius),
             optika.shape(self.angle_start),
@@ -543,35 +703,14 @@ class CircularSectorAperture(
             optika.shape(self.transformation),
         )
 
-    def __call__(
+    def _inside(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        radius = self.radius
         angle_start = self.angle_start
         angle_stop = self.angle_stop
-        active = self.active
-        inverted = self.inverted
-        if self.transformation is not None:
-            position = self.transformation.inverse(position)
 
-        shape = na.shape_broadcasted(
-            radius,
-            angle_start,
-            angle_stop,
-            active,
-            inverted,
-            position,
-        )
-
-        radius = na.broadcast_to(radius, shape)
-        angle_start = na.broadcast_to(angle_start, shape)
-        angle_stop = na.broadcast_to(angle_stop, shape)
-        active = na.broadcast_to(active, shape)
-        inverted = na.broadcast_to(inverted, shape)
-        position = na.broadcast_to(position, shape)
-
-        mask_radius = position.xy.length <= radius
+        mask_radius = position.xy.length <= self.radius
 
         angle = np.arctan2(position.y, position.x)
         angle_positive = angle % (+2 * np.pi * u.rad)
@@ -580,12 +719,7 @@ class CircularSectorAperture(
         mask_negative = (angle_start < angle_negative) & (angle_negative < angle_stop)
         mask_angle = mask_positive | mask_negative
 
-        mask = mask_radius & mask_angle
-
-        mask[inverted] = ~mask[inverted]
-        mask[~active] = True
-
-        return mask
+        return mask_radius & mask_angle
 
     def _bound_extrema(
         self,
@@ -644,12 +778,12 @@ class CircularSectorAperture(
         return result_lower, result_upper
 
     @property
-    def bound_lower(self) -> na.Cartesian3dVectorArray:
+    def _bound_lower(self) -> na.Cartesian3dVectorArray:
         lower, upper = self._bound_extrema()
         return lower
 
     @property
-    def bound_upper(self) -> na.Cartesian3dVectorArray:
+    def _bound_upper(self) -> na.Cartesian3dVectorArray:
         lower, upper = self._bound_extrema()
         return upper
 
@@ -764,7 +898,7 @@ class AnnularAperture(
     """
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         return na.broadcast_shapes(
             optika.shape(self.radius_inner),
             optika.shape(self.radius_outer),
@@ -775,50 +909,21 @@ class AnnularAperture(
             optika.shape(self.transformation),
         )
 
-    def __call__(
+    def _inside(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-        radius_inner = self.radius_inner
-        radius_outer = self.radius_outer
         angle_start = self.angle_start
         angle_stop = self.angle_stop
-        active = self.active
-        inverted = self.inverted
-        if self.transformation is not None:
-            position = self.transformation.inverse(position)
-
-        shape = na.shape_broadcasted(
-            radius_inner,
-            radius_outer,
-            angle_start,
-            angle_stop,
-            active,
-            inverted,
-            position,
-        )
-
-        radius_inner = na.broadcast_to(radius_inner, shape)
-        radius_outer = na.broadcast_to(radius_outer, shape)
-        angle_start = na.broadcast_to(angle_start, shape)
-        angle_stop = na.broadcast_to(angle_stop, shape)
-        active = na.broadcast_to(active, shape)
-        inverted = na.broadcast_to(inverted, shape)
-        position = na.broadcast_to(position, shape)
 
         radius = position.xy.length
-        mask_radius = (radius_inner <= radius) & (radius <= radius_outer)
+        mask_radius = (self.radius_inner <= radius) & (radius <= self.radius_outer)
 
         angle = np.arctan2(position.y, position.x)
         angle_relative = (angle - angle_start) % (360 * u.deg)
         mask_angle = angle_relative <= (angle_stop - angle_start)
 
-        mask = mask_radius & mask_angle
-
-        mask[inverted] = ~mask[inverted]
-        mask[~active] = True
-
-        return mask
+        return mask_radius & mask_angle
 
     def _bound_extrema(
         self,
@@ -892,12 +997,12 @@ class AnnularAperture(
         return result_lower, result_upper
 
     @property
-    def bound_lower(self) -> na.Cartesian3dVectorArray:
+    def _bound_lower(self) -> na.Cartesian3dVectorArray:
         lower, upper = self._bound_extrema()
         return lower
 
     @property
-    def bound_upper(self) -> na.Cartesian3dVectorArray:
+    def _bound_upper(self) -> na.Cartesian3dVectorArray:
         lower, upper = self._bound_extrema()
         return upper
 
@@ -983,7 +1088,7 @@ class EllipticalAperture(
     """The semi major/minor axes of the elliptical aperture."""
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         return na.broadcast_shapes(
             optika.shape(self.radius),
             optika.shape(self.active),
@@ -991,30 +1096,12 @@ class EllipticalAperture(
             optika.shape(self.transformation),
         )
 
-    def __call__(
+    def _inside(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-
         radius = self.radius
-        active = self.active
-        inverted = self.inverted
-        if self.transformation is not None:
-            position = self.transformation.inverse(position)
-
-        shape = na.shape_broadcasted(radius, active, inverted, position)
-
-        radius = na.broadcast_to(radius, shape)
-        active = na.broadcast_to(active, shape)
-        inverted = na.broadcast_to(inverted, shape)
-        position = na.broadcast_to(position, shape)
-
-        mask = np.square(position.x / radius.x) + np.square(position.y / radius.y) <= 1
-
-        mask[inverted] = ~mask[inverted]
-        mask[~active] = True
-
-        return mask
+        return np.square(position.x / radius.x) + np.square(position.y / radius.y) <= 1
 
     def _bound_center_half(
         self,
@@ -1046,12 +1133,12 @@ class EllipticalAperture(
         return center, half
 
     @property
-    def bound_lower(self) -> na.Cartesian3dVectorArray:
+    def _bound_lower(self) -> na.Cartesian3dVectorArray:
         center, half = self._bound_center_half()
         return center - half
 
     @property
-    def bound_upper(self) -> na.Cartesian3dVectorArray:
+    def _bound_upper(self) -> na.Cartesian3dVectorArray:
         center, half = self._bound_center_half()
         return center + half
 
@@ -1090,56 +1177,29 @@ class AbstractPolygonalAperture(
         The vertices of the polygon in local coordinates.
         """
 
-    def __call__(
+    def _inside(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
-
         vertices = self.vertices
-        active = self.active
-        inverted = self.inverted
 
-        if self.transformation is not None:
-            position = self.transformation.inverse(position)
-
-        if np.any(active):
-            result = na.geometry.point_in_polygon(
-                x=position.x,
-                y=position.y,
-                vertices_x=vertices.x,
-                vertices_y=vertices.y,
-                axis="vertex",
-            )
-
-            if np.any(inverted):
-                if np.all(inverted):
-                    result = ~result
-                else:
-                    shape_inverted = na.shape_broadcasted(result, inverted)
-                    if shape_inverted != result.shape:
-                        result = na.broadcast_to(result, shape_inverted).copy()
-                    result[inverted] = ~result[inverted]
-
-            if not np.all(active):
-                shape_active = na.shape_broadcasted(result, active)
-                if shape_active != result.shape:
-                    result = na.broadcast_to(result, shape_active).copy()
-                result[~active] = True
-
-        else:
-            result = na.ScalarArray(True)
-
-        return result
+        return na.geometry.point_in_polygon(
+            x=position.x,
+            y=position.y,
+            vertices_x=vertices.x,
+            vertices_y=vertices.y,
+            axis="vertex",
+        )
 
     @property
-    def bound_lower(self) -> na.AbstractCartesian3dVectorArray:
+    def _bound_lower(self) -> na.AbstractCartesian3dVectorArray:
         vertices = self.vertices
         if self.transformation is not None:
             vertices = self.transformation(vertices)
         return vertices.min(axis="vertex")
 
     @property
-    def bound_upper(self) -> na.AbstractCartesian3dVectorArray:
+    def _bound_upper(self) -> na.AbstractCartesian3dVectorArray:
         vertices = self.vertices
         if self.transformation is not None:
             vertices = self.transformation(vertices)
@@ -1181,7 +1241,7 @@ class PolygonalAperture(
     """The vertices of the polygon in local coordinates."""
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         shape = optika.shape(self.vertices)
         shape.pop("vertex")
         return na.broadcast_shapes(
@@ -1266,7 +1326,7 @@ class RectangularAperture(
     """The distance from the origin to a perpendicular edge."""
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         return na.broadcast_shapes(
             optika.shape(self.half_width),
             optika.shape(self.active),
@@ -1274,7 +1334,7 @@ class RectangularAperture(
             optika.shape(self.transformation),
         )
 
-    def __call__(
+    def _inside(
         self,
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
@@ -1282,26 +1342,11 @@ class RectangularAperture(
             self.half_width,
             like=na.Cartesian2dVectorArray(),
         )
-        active = self.active
-        inverted = self.inverted
-        if self.transformation is not None:
-            position = self.transformation.inverse(position)
         position = position.xy
 
-        shape = na.shape_broadcasted(half_width, active, inverted, position)
-
-        half_width = na.broadcast_to(half_width, shape)
-        active = na.broadcast_to(active, shape)
-        inverted = na.broadcast_to(inverted, shape)
-        position = na.broadcast_to(position, shape)
-
         mask = (-half_width <= position) & (position <= half_width)
-        mask = mask.x & mask.y
 
-        mask[inverted] = ~mask[inverted]
-        mask[~active] = True
-
-        return mask
+        return mask.x & mask.y
 
     @property
     def vertices(self):
@@ -1376,7 +1421,7 @@ class RegularPolygonalAperture(
     """The number of vertices in this polygon."""
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         return na.broadcast_shapes(
             optika.shape(self.radius),
             optika.shape(self.active),
@@ -1406,7 +1451,7 @@ class OctagonalAperture(
     """The radial distance from the origin to each vertex."""
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         return na.broadcast_shapes(
             optika.shape(self.radius),
             optika.shape(self.active),
@@ -1518,7 +1563,7 @@ class IsoscelesTrapezoidalAperture(
     """The angle between the two legs of the trapezoid."""
 
     @property
-    def shape(self) -> dict[str, int]:
+    def _shape_parameters(self) -> dict[str, int]:
         return na.broadcast_shapes(
             optika.shape(self.x_left),
             optika.shape(self.x_right),
