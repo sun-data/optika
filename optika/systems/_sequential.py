@@ -831,6 +831,16 @@ class AbstractSequentialSystem(
             pupil_stop = surfaces[index_pupil_stop]
             field_stop = surfaces[index_field_stop]
 
+            # a stop is solved from the one outline of its aperture, which an
+            # aperture made of several pieces does not have
+            for stop in (pupil_stop, field_stop):
+                if stop.aperture.axis_compound is not None:
+                    raise ValueError(
+                        f"surface {stop.name!r} is a stop, but its aperture has "
+                        f"a compound axis, {stop.aperture.axis_compound!r}, "
+                        f"which a stop cannot have yet"
+                    )
+
             grid_pupil = np.moveaxis(
                 a=pupil_stop.aperture.wire(num=samples_pupil_stop),
                 source="wire",
