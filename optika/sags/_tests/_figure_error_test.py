@@ -56,6 +56,16 @@ _sag_channel = optika.sags.FigureErrorSag(
 )
 """A separate map for each channel, on a transformed sag profile."""
 
+_grid_channel = _grid + na.Cartesian2dVectorArray(_channel * u.mm, 0 * u.mm)
+"""A separate grid for each channel."""
+
+_sag_grids = optika.sags.FigureErrorSag(
+    base=optika.sags.ParabolicSag(focal_length=1000 * u.mm),
+    figure_error=na.FunctionArray(_grid_channel, _height(_grid_channel)),
+    axis=("map_x", "map_y"),
+)
+"""A map sampled on a separate grid for each channel."""
+
 _sag_uncertain = optika.sags.FigureErrorSag(
     base=optika.sags.ZernikeSag(
         base=optika.sags.ParabolicSag(focal_length=1000 * u.mm),
@@ -96,6 +106,7 @@ def _base(
         _sag_flat,
         _sag_parabolic,
         _sag_channel,
+        _sag_grids,
         _sag_uncertain,
         _sag_none,
     ],
@@ -154,6 +165,7 @@ class TestFigureErrorSag(
         (_sag_flat, 1, 0 * u.nm),
         (_sag_parabolic, 1, 0 * u.nm),
         (_sag_channel, _channel, 0 * u.nm),
+        (_sag_grids, na.ScalarArray(np.ones(3), axes="channel"), 0 * u.nm),
         (_sag_uncertain, 1, _offset),
         (_sag_none, 0, 0 * u.nm),
     ],
@@ -187,6 +199,7 @@ def test__call__figure_error(
     argvalues=[
         (_sag_flat, ("map_x", "map_y")),
         (_sag_parabolic, ("map_x", "map_y")),
+        (_sag_grids, ("map_x", "map_y")),
         (_sag_none, ()),
     ],
 )
@@ -207,6 +220,7 @@ def test_axis_(
         (_sag_flat, dict()),
         (_sag_parabolic, dict()),
         (_sag_channel, dict(channel=3)),
+        (_sag_grids, dict(channel=3)),
         (_sag_none, dict()),
     ],
 )
