@@ -133,3 +133,29 @@ def test_zr_lynch(
     wavelength = energy.to(u.AA, equivalencies=u.spectral())
     n = optika.chemicals.Chemical("Zr", table="lynch").n(wavelength)
     assert np.isclose(n.ndarray**2, epsilon, atol=1e-3)
+
+
+@pytest.mark.parametrize(
+    argnames="formula,table,wavelength",
+    argvalues=[
+        ("Zr", "llnl_cxro", 100 * u.AA),
+        ("Zr", "windt", 1000 * u.AA),
+        ("Zr", "lynch", 1500 * u.AA),
+        ("Zr", "querry", 500 * u.nm),
+        ("Zr", "querry", 50 * u.um),
+        ("ZrO2", "llnl_cxro", 100 * u.AA),
+        ("ZrO2", "synowicki", 500 * u.nm),
+    ],
+)
+def test_zr_default(
+    formula: str,
+    table: str,
+    wavelength: u.Quantity,
+):
+    """
+    The default tables of Zr and ZrO2 follow each of the tables they are
+    concatenated from, over its range.
+    """
+    result = optika.chemicals.Chemical(formula).n(wavelength)
+    expected = optika.chemicals.Chemical(formula, table=table).n(wavelength)
+    assert np.isclose(result.ndarray, expected.ndarray)
