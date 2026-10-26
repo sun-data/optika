@@ -139,6 +139,7 @@ def test_zr_lynch(
     argnames="formula,table,wavelength",
     argvalues=[
         ("Zr", "llnl_cxro", 100 * u.AA),
+        ("Zr", "windt", 470 * u.AA),
         ("Zr", "windt", 1000 * u.AA),
         ("Zr", "lynch", 1500 * u.AA),
         ("Zr", "querry", 500 * u.nm),
