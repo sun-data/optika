@@ -92,9 +92,44 @@ class AbstractTestAbstractChemical(
             True,
         ]
         for table in [None, "palik"]
+    ]
+    + [
+        optika.chemicals.Chemical(
+            formula=formula,
+            table=table,
+        )
+        for formula, table in [
+            ("Zr", "lynch"),
+            ("Zr", "palm"),
+            ("Zr", "querry"),
+            ("ZrO2", "synowicki"),
+        ]
     ],
 )
 class TestChemical(
     AbstractTestAbstractChemical,
 ):
     pass
+
+
+@pytest.mark.parametrize(
+    argnames="energy,epsilon",
+    argvalues=[
+        (0.10 * u.eV, -812.14 + 360.46j),
+        (2.50 * u.eV, -5.24 + 9.12j),
+        (10.50 * u.eV, 0.63 + 2.77j),
+        (30.00 * u.eV, 0.55 + 0.59j),
+    ],
+)
+def test_zr_lynch(
+    energy: u.Quantity,
+    epsilon: complex,
+):
+    """
+    The table of polycrystalline Zr from Lynch et al. (1975) gives the
+    dielectric function tabulated by Weaver et al. (1981), whose printed
+    column of k does not agree with it.
+    """
+    wavelength = energy.to(u.AA, equivalencies=u.spectral())
+    n = optika.chemicals.Chemical("Zr", table="lynch").n(wavelength)
+    assert np.isclose(n.ndarray**2, epsilon, atol=1e-3)

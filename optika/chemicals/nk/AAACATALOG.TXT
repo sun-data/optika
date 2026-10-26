@@ -686,8 +686,10 @@ ZnTe_palik      Palik (1991) cubic ZnTe [6.2-3999350]
 --------------  ----------------------------------------------------------------
 Zr              =Zr_llnl_cxro [.12398425-649.17298]+Zr_windt [671.39-1216]
 Zr_llnl_cxro    LLNL + CXRO (2013) 6.49 g/cm3 [.12398425-649.17298]
-Zr_lynch        Lynch et al (DESY) (1981) polycrystalline [413-1378]
+Zr_lynch        Lynch et al (1975) polycrystalline, from epsilon [413-123984]
 Zr-te_lynch     Lynch et al (DESY) (1981) single xtal w/ E perp c [500-1319]
+Zr_palm         Palm et al (2018) 200 nm e-beam film [2261-16845]
+Zr_querry       Querry (1987) [2200-555556]
 Zr_windt        Windt et al (1988) [24-1216]
 --------------  ----------------------------------------------------------------
 ZrN             =ZrN_llnl_cxro [.12398425-423.15444]
@@ -695,4 +697,5 @@ ZrN_llnl_cxro   LLNL + CXRO (2013) 7.349 g/cm3 [.12398425-423.15444]
 --------------  ----------------------------------------------------------------
 ZrO2            =ZrO2_llnl_cxro [.12398425-423.15444]
 ZrO2_llnl_cxro  LLNL + CXRO (2013) 5.89 g/cm3 [.12398425-423.15444]
+ZrO2_synowicki  Synowicki & Tiwald (2004) cubic ZrO2 [1301-330000]
 --------------  ----------------------------------------------------------------
