@@ -183,6 +183,25 @@ def test__call__figure_error(
 
 
 @pytest.mark.parametrize(
+    argnames="sag,axis",
+    argvalues=[
+        (_sag_flat, ("map_x", "map_y")),
+        (_sag_parabolic, ("map_x", "map_y")),
+        (_sag_none, ()),
+    ],
+)
+def test_axis_(
+    sag: optika.sags.FigureErrorSag,
+    axis: tuple[str, ...],
+) -> None:
+    """
+    The axes along which the map is sampled default to every axis of its
+    inputs, and there are none without a map.
+    """
+    assert sag.axis_ == axis
+
+
+@pytest.mark.parametrize(
     argnames="sag,shape",
     argvalues=[
         (_sag_flat, dict()),

@@ -102,9 +102,9 @@ class FigureErrorSag(
     If :obj:`None` (the default), there is no figure error.
     """
 
-    axis: None | str | Sequence[str] = None
+    axis: None | Sequence[str] = None
     """
-    The logical axes along which :attr:`figure_error` is sampled.
+    The two logical axes along which :attr:`figure_error` is sampled.
 
     Any other axis of :attr:`figure_error`, such as one along which there is
     a separate map for each channel, is broadcast against the positions at
@@ -131,8 +131,6 @@ class FigureErrorSag(
             if self.figure_error is None:
                 return ()
             return tuple(na.shape(self.figure_error.inputs))
-        if isinstance(axis, str):
-            return (axis,)
         return tuple(axis)
 
     @property
