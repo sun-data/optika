@@ -71,7 +71,7 @@ class FigureErrorSag(
 
         position = na.Cartesian3dVectorArray(
             x=na.linspace(-50, 50, axis="x", num=1001) * u.mm,
-            y=10 * u.mm,
+            y=0 * u.mm,
             z=0 * u.mm,
         )
 
