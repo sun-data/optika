@@ -49,4 +49,4 @@ Documentation = "https://optika.readthedocs.io/en/latest"
 [tool.setuptools_scm]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "W605"]
