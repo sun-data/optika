@@ -119,7 +119,7 @@ class TestFigureErrorSag(
         self,
         a: optika.sags.FigureErrorSag,
         position: na.AbstractCartesian3dVectorArray,
-    ):
+    ) -> None:
         """
         The figure error does not tilt the surface, so the normal vector is
         the one of the base profile.
@@ -139,7 +139,7 @@ class TestFigureErrorSag(
         self,
         a: optika.sags.FigureErrorSag,
         rays: optika.rays.RayVectorArray,
-    ):
+    ) -> None:
         """
         The figure error does not deflect rays, so they intercept the base
         profile exactly where they would without it.
