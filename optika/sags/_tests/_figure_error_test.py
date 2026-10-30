@@ -1,3 +1,4 @@
+import dataclasses
 import pytest
 import numpy as np
 import astropy.units as u
@@ -45,8 +46,9 @@ _sag_flat = optika.sags.FigureErrorSag(
 _sag_parabolic = optika.sags.FigureErrorSag(
     base=optika.sags.ParabolicSag(focal_length=1000 * u.mm),
     figure_error=na.FunctionArray(_grid, _height(_grid)),
+    axis=["map_x", "map_y"],
 )
-"""A map whose axes are left to default to every axis of its inputs."""
+"""A map whose axes are given as a list."""
 
 _sag_channel = optika.sags.FigureErrorSag(
     base=optika.sags.SphericalSag(radius=500 * u.mm),
@@ -199,8 +201,11 @@ def test__call__figure_error(
     argvalues=[
         (_sag_flat, ("map_x", "map_y")),
         (_sag_parabolic, ("map_x", "map_y")),
+        (_sag_channel, ("map_x", "map_y")),
         (_sag_grids, ("map_x", "map_y")),
+        (_sag_uncertain, ("map_x", "map_y")),
         (_sag_none, ()),
+        (dataclasses.replace(_sag_none, axis=("map_x", "map_y")), ()),
     ],
 )
 def test_axis_(
@@ -208,10 +213,40 @@ def test_axis_(
     axis: tuple[str, ...],
 ) -> None:
     """
-    The axes along which the map is sampled default to every axis of its
-    inputs, and there are none without a map.
+    The axes along which the map is sampled are a tuple, and there are none
+    without a map, even if they are named.
     """
     assert sag.axis_ == axis
+
+
+@pytest.mark.parametrize(
+    argnames="sag,error",
+    argvalues=[
+        (dataclasses.replace(_sag_flat, axis=None), ValueError),
+        (dataclasses.replace(_sag_flat, axis="map_x"), TypeError),
+        (dataclasses.replace(_sag_flat, axis=("map_X", "map_Y")), ValueError),
+        (dataclasses.replace(_sag_flat, axis=("map_x",)), ValueError),
+        (dataclasses.replace(_sag_flat, axis=("map_x", "map_x")), ValueError),
+        (
+            dataclasses.replace(_sag_grids, axis=("map_x", "map_y", "channel")),
+            ValueError,
+        ),
+    ],
+)
+def test_axis_invalid(
+    sag: optika.sags.FigureErrorSag,
+    error: type[Exception],
+) -> None:
+    """
+    The axes along which a map is sampled must be named, as two distinct
+    axes of its inputs, and a mistake fails as soon as the shape of the sag
+    profile is needed, instead of an axis of the map being reported as if it
+    were a batch axis.
+    """
+    with pytest.raises(error, match="`axis`"):
+        sag.shape
+    with pytest.raises(error, match="`axis`"):
+        sag(na.Cartesian3dVectorArray() * u.mm)
 
 
 @pytest.mark.parametrize(
@@ -221,6 +256,7 @@ def test_axis_(
         (_sag_parabolic, dict()),
         (_sag_channel, dict(channel=3)),
         (_sag_grids, dict(channel=3)),
+        (_sag_uncertain, dict()),
         (_sag_none, dict()),
     ],
 )

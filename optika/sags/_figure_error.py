@@ -117,8 +117,7 @@ class FigureErrorSag(
     Any other axis of :attr:`figure_error`, such as one along which there is
     a separate map for each channel, is broadcast against the positions at
     which this sag profile is evaluated.
-    If :obj:`None` (the default), every axis of the inputs of
-    :attr:`figure_error`.
+    Required if there is a map, and ignored if there is not.
     """
 
     @property
@@ -131,15 +130,37 @@ class FigureErrorSag(
     @property
     def axis_(self) -> tuple[str, ...]:
         """
-        The logical axes along which :attr:`figure_error` is sampled, with
-        :obj:`None` resolved to every axis of its inputs.
+        The logical axes along which :attr:`figure_error` is sampled, checked
+        against its inputs, or none if there is no map.
+
+        A misnamed axis is rejected here, so that :attr:`shape` fails fast
+        instead of reporting an axis of the map as if it were a batch axis.
         """
+        figure_error = self.figure_error
+        if figure_error is None:
+            return ()
+
         axis = self.axis
         if axis is None:
-            if self.figure_error is None:
-                return ()
-            return tuple(na.shape(self.figure_error.inputs))
-        return tuple(axis)
+            raise ValueError(
+                "`axis` must name the two axes along which `figure_error` is "
+                "sampled."
+            )
+        if isinstance(axis, str):
+            raise TypeError(
+                f"`axis` must be a sequence of two axis names, not a str, {axis!r}."
+            )
+        axis = tuple(axis)
+
+        shape_inputs = na.shape(figure_error.inputs)
+        distinct = len(set(axis)) == len(axis) == 2
+        if not distinct or any(a not in shape_inputs for a in axis):
+            raise ValueError(
+                f"`axis`, {axis}, must name two axes along which the inputs of "
+                f"`figure_error` vary, {tuple(shape_inputs)}."
+            )
+
+        return axis
 
     @property
     def shape(self) -> dict[str, int]:
