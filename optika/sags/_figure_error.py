@@ -24,6 +24,11 @@ class FigureErrorSag(
     The normal vector of this sag profile, and the intercepts of rays with
     it, are those of the base profile, so the figure error does not deflect
     rays.
+    A raytrace is then the same as through the base profile, unless this
+    sag profile is on a stop surface.
+    A system launches the rays of its stop solve from the stop surface
+    itself, including the figure error, so there the figure error moves the
+    rays of a raytrace slightly, by about its height.
     The slope of a measured map between its pixels is mostly noise, and where
     the map shifts the phase of the wavefront by less than about a radian, it
     scatters a little of the light instead of deflecting all of it, which
@@ -36,6 +41,9 @@ class FigureErrorSag(
     :meth:`named_arrays.FunctionArray.__call__`, so its inputs should be the
     positions at which it was sampled, such as the centers of the pixels of
     an interferogram.
+    Outside the map, the figure error is extrapolated linearly from the
+    cells at its edge, so the map should cover the surface wherever it is
+    evaluated.
     A pixel which was not measured should be filled, since the map is NaN
     next to a pixel which is NaN.
 
@@ -179,7 +187,8 @@ class FigureErrorSag(
         interception point with :attr:`base`.
 
         The figure error is left out, since it does not deflect rays, and it
-        moves the interception points by no more than its height.
+        would move each interception point along its ray by its height
+        divided by the cosine of the angle of incidence.
 
         Parameters
         ----------
