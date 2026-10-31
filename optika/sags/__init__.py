@@ -8,6 +8,7 @@ from ._conic import AbstractConicSag, ConicSag
 from ._parabolic import ParabolicSag
 from ._toroidal import ToroidalSag
 from ._zernike import ZernikeSag
+from ._figure_error import FigureErrorSag
 
 __all__ = [
     "AbstractSag",
@@ -20,4 +21,5 @@ __all__ = [
     "ParabolicSag",
     "ToroidalSag",
     "ZernikeSag",
+    "FigureErrorSag",
 ]
