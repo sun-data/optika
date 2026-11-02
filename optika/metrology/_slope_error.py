@@ -50,17 +50,24 @@ def slope_error(
 
     The boxcar spans the whole number of pixels nearest to the kernel size,
     plus one if that number is even, so that it is centered on a pixel.
-    The step spans the whole number of pixels nearest to the step size, which
-    is what each difference is divided by.
+    The step spans the even number of pixels nearest to the step size, or the
+    larger one if the step size is an odd number of pixels, so that each
+    slope is centered on a pixel too.
+    Each difference is divided by the step it was taken across.
+
     The boxcar averages only the pixels inside it which were measured, so it
-    also fills in the pixels within half its width of a measured pixel, and a
-    slope is taken wherever both ends of its step have a height.
+    also fills in the pixels within half its width of a measured pixel.
+    A slope is taken only where the smoothed map has a height at every pixel
+    along its step, so a step across a gap which the boxcar does not fill is
+    not a slope.
 
     Nothing is removed from the map, so a term which is not counted as an
     error, like a tilt, should be removed from it first.
 
-    If the map has units, the slope error is an angle, so that it can be
-    compared with a specification in any unit of angle.
+    The heights and the positions of the pixels must have units of the same
+    kind, such as lengths, or no units at all.
+    With units, the slope error is an angle, so that it can be compared with
+    a specification in any unit of angle.
 
     Parameters
     ----------
@@ -70,6 +77,8 @@ def slope_error(
         Its inputs are the positions of the centers of the pixels, as a
         :class:`named_arrays.Cartesian2dVectorArray`, and its outputs are the
         heights there, which are NaN wherever a pixel was not measured.
+        The heights are broadcast against the positions, so a map which does
+        not vary along one of its axes may leave that axis out.
         The heights may be uncertain, but the positions may not.
     parameters
         The step size and the kernel size of the slope error.
@@ -150,8 +159,17 @@ def slope_error(
         )
     axis = tuple(axis)
 
-    shape_inputs = na.shape(figure_error.inputs)
-    shape_outputs = na.shape(figure_error.outputs)
+    position = figure_error.inputs
+    height = figure_error.outputs
+    if not isinstance(position, na.AbstractCartesian2dVectorArray):
+        raise TypeError(
+            "The inputs of `figure_error` must be the positions of the centers "
+            "of its pixels, as a `named_arrays.AbstractCartesian2dVectorArray`, "
+            f"not a {type(position).__name__}."
+        )
+
+    shape_inputs = na.shape(position)
+    shape_outputs = na.shape(height)
     distinct = len(set(axis)) == len(axis) == 2
     if not distinct or any(a not in shape_inputs for a in axis):
         raise ValueError(
@@ -159,16 +177,26 @@ def slope_error(
             f"`figure_error` vary, {tuple(shape_inputs)}."
         )
     for a in axis:
-        if shape_outputs.get(a) != shape_inputs[a]:
+        num = shape_outputs.get(a, shape_inputs[a])
+        if num != shape_inputs[a]:
             raise ValueError(
                 f"The inputs of `figure_error` must be the centers of its "
                 f"pixels, so along {a!r} there must be as many of them, "
-                f"{shape_inputs[a]}, as there are outputs, {shape_outputs.get(a)}."
+                f"{shape_inputs[a]}, as there are outputs, {num}."
             )
         if shape_inputs[a] < 2:
             raise ValueError(
                 f"`figure_error` must have at least two pixels along {a!r}."
             )
+
+    unit_height = na.unit_normalized(height)
+    unit_position = na.unit_normalized(position.x)
+    if not unit_height.is_equivalent(unit_position):
+        raise ValueError(
+            f"The heights of `figure_error`, in {unit_height!r}, and the "
+            f"positions of its pixels, in {unit_position!r}, must have units "
+            f"of the same kind, or no units at all."
+        )
 
     shape_parameters = optika.shape(parameters)
     if any(a in shape_parameters for a in axis):
@@ -176,32 +204,45 @@ def slope_error(
             f"`parameters` may not vary along the axes of the map, {axis}, "
             f"but its shape is {shape_parameters}."
         )
+    step_size = _certain(parameters.step_size, "`step_size`")
+    kernel_size = _certain(parameters.kernel_size, "`kernel_size`")
 
-    shape_batch = na.broadcast_shapes(
-        {a: num for a, num in na.shape(figure_error).items() if a not in axis},
-        shape_parameters,
-    )
+    shape = na.broadcast_shapes(shape_inputs, shape_outputs, shape_parameters)
+    shape_batch = {
+        a: num
+        for a, num in shape.items()
+        if a not in axis and (a in shape_inputs or a in shape_parameters)
+    }
+    shape_map = {a: shape_inputs[a] for a in axis}
 
     return _slope_error(
-        figure_error=figure_error,
-        step_size=parameters.step_size,
-        kernel_size=parameters.kernel_size,
+        position=position.broadcast_to(
+            na.broadcast_shapes(shape_inputs, shape_batch),
+        ),
+        height=height.broadcast_to(
+            na.broadcast_shapes(shape_outputs, shape_batch, shape_map),
+        ),
+        step_size=step_size.broadcast_to(shape_batch),
+        kernel_size=kernel_size.broadcast_to(shape_batch),
         axis=axis,
         shape_batch=shape_batch,
     )
 
 
 def _slope_error(
-    figure_error: na.AbstractFunctionArray,
-    step_size: na.ScalarLike,
-    kernel_size: na.ScalarLike,
+    position: na.AbstractCartesian2dVectorArray,
+    height: na.AbstractScalar,
+    step_size: na.ScalarArray,
+    kernel_size: na.ScalarArray,
     axis: tuple[str, ...],
     shape_batch: dict[str, int],
 ) -> na.AbstractScalar:
     """
     The slope error of each map along the batch axes, one map at a time,
     since the size of the boxcar and of the step in pixels depends on the
-    grid of each map.
+    grid and the parameters of each map.
+    The maps along any other axis of the heights share a grid and parameters,
+    so they are worked out together.
     """
     if shape_batch:
         a, *rest = shape_batch
@@ -209,9 +250,10 @@ def _slope_error(
         return na.stack(
             arrays=[
                 _slope_error(
-                    figure_error=figure_error[{a: i}],
-                    step_size=na.as_named_array(step_size)[{a: i}],
-                    kernel_size=na.as_named_array(kernel_size)[{a: i}],
+                    position=position[{a: i}],
+                    height=height[{a: i}],
+                    step_size=step_size[{a: i}],
+                    kernel_size=kernel_size[{a: i}],
                     axis=axis,
                     shape_batch=shape_rest,
                 )
@@ -220,24 +262,28 @@ def _slope_error(
             axis=a,
         )
 
-    position = figure_error.inputs
-    height = figure_error.outputs
     shape = na.shape(position)
-
-    step_size = _certain(step_size, "`step_size`")
-    kernel_size = _certain(kernel_size, "`kernel_size`")
 
     spacing = dict()
     size = dict()
     step = dict()
     for a in axis:
         spacing[a] = _spacing(position, a)
-        size[a] = _odd(_ratio(kernel_size, spacing[a]))
-        step[a] = int(np.rint(_ratio(step_size, spacing[a])))
-        if not 1 <= step[a] < shape[a]:
+        ratio_kernel = _ratio(kernel_size.ndarray, spacing[a])
+        ratio_step = _ratio(step_size.ndarray, spacing[a])
+        if not (np.isfinite(ratio_kernel) and ratio_kernel >= 0):
             raise ValueError(
-                f"`step_size`, {step_size}, must span at least one pixel and "
-                f"less than the whole map along {a!r}, which has "
+                f"`kernel_size`, {kernel_size.ndarray}, must be finite and at "
+                f"least zero."
+            )
+        if not np.isfinite(ratio_step):
+            raise ValueError(f"`step_size`, {step_size.ndarray}, must be finite.")
+        size[a] = _odd(ratio_kernel)
+        step[a] = _even(ratio_step)
+        if not 2 <= step[a] < shape[a]:
+            raise ValueError(
+                f"`step_size`, {step_size.ndarray}, must span at least two "
+                f"pixels and fewer than the whole map along {a!r}, which has "
                 f"{shape[a]} pixels {spacing[a]} apart."
             )
 
@@ -247,18 +293,26 @@ def _slope_error(
         where=np.isfinite(height),
         mode="truncate",
     )
+    unmeasured = np.where(np.isfinite(smoothed), 0.0, 1.0)
 
-    result = 0
+    mean_square = []
     for a in axis:
         num = step[a]
         upper = smoothed[{a: slice(num, None)}]
         lower = smoothed[{a: slice(None, -num)}]
         slope = (upper - lower) / (num * spacing[a])
-        result = result + np.nanmean(np.square(slope))
-    result = np.sqrt(result)
+        gap = na.ndfilters.mean_filter(
+            array=unmeasured,
+            size={a: num + 1},
+            mode="truncate",
+        )
+        gap = gap[{a: slice(num // 2, shape[a] - num // 2)}]
+        slope = np.where(gap > 0, np.nan, slope)
+        mean_square.append(np.nanmean(np.square(slope), axis=axis))
+    result = np.sqrt(mean_square[0] + mean_square[1])
 
     if na.unit(result) is not None:
-        result = result * u.rad
+        result = result.to(u.dimensionless_unscaled) * u.rad
 
     return result
 
@@ -266,21 +320,25 @@ def _slope_error(
 def _certain(
     value: na.ScalarLike,
     name: str,
-) -> float | u.Quantity:
-    """A certain scalar, as a number or a quantity."""
-    value = na.as_named_array(value)
+) -> na.ScalarArray:
+    """A scalar which is not uncertain."""
+    value = na.as_named_array(value).explicit
     if not isinstance(value, na.ScalarArray):
         raise TypeError(f"{name} may not be uncertain.")
-    return value.ndarray
+    return value
 
 
 def _spacing(
     position: na.AbstractCartesian2dVectorArray,
     axis: str,
 ) -> float | u.Quantity:
-    """The mean distance between the centers of neighboring pixels along an axis."""
+    """
+    The mean distance between the centers of neighboring pixels along an
+    axis, in the plane of the map.
+    """
+    position = na.Cartesian2dVectorArray(position.x, position.y)
     difference = position[{axis: slice(1, None)}] - position[{axis: slice(None, -1)}]
-    return _certain(np.mean(difference.length), "The positions of the pixels")
+    return _certain(np.mean(difference.length), "The positions of the pixels").ndarray
 
 
 def _ratio(
@@ -296,14 +354,22 @@ def _ratio(
 
 def _odd(x: float) -> int:
     """
-    The whole number nearest to ``x``, plus one if it is even, and at least
-    one.
+    The whole number nearest to ``x``, plus one if it is even.
 
-    A ratio of round lengths, like 4, is a whole number which rounding errors
-    can put on either side, but it gives the same odd number from either
-    side.
+    ``x`` is rounded to nine decimal places first, so that a rounding error
+    in a ratio of round lengths, like 3.5, cannot decide which way it goes.
     """
-    result = int(np.rint(x))
+    result = int(np.rint(round(x, 9)))
     if result % 2 == 0:
         result = result + 1
-    return max(1, result)
+    return result
+
+
+def _even(x: float) -> int:
+    """
+    The even number nearest to ``x``, or the larger one if ``x`` is odd.
+
+    ``x`` is rounded to nine decimal places first, so that a rounding error
+    in a ratio of round lengths, like 3, cannot decide which way it goes.
+    """
+    return 2 * int(np.floor((1 + round(x, 9)) / 2))

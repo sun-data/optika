@@ -80,6 +80,26 @@ def _height(
     return np.where(measured, height, np.nan)
 
 
+def _half_reference(ratio: u.Quantity) -> int:
+    """
+    The number of pixels on either side of the center of a boxcar whose
+    width is ``ratio`` pixels.
+    """
+    return int(np.rint(round(ratio.to(u.one).value, 9))) // 2
+
+
+def _step_reference(ratio: u.Quantity) -> int:
+    """
+    The number of pixels in a step which is ``ratio`` pixels long, the even
+    number nearest to it, or the larger one if it is odd.
+    """
+    ratio = round(ratio.to(u.one).value, 9)
+    lower = 2 * int(np.floor(ratio / 2))
+    if ratio - lower >= 1:
+        return lower + 2
+    return lower
+
+
 def _slope_error_reference(
     position: na.AbstractCartesian2dVectorArray,
     height: na.AbstractScalar,
@@ -97,8 +117,8 @@ def _slope_error_reference(
     spacing_x = np.mean(np.sqrt(np.diff(x, axis=0) ** 2 + np.diff(y, axis=0) ** 2))
     spacing_y = np.mean(np.sqrt(np.diff(x, axis=1) ** 2 + np.diff(y, axis=1) ** 2))
 
-    half_x = int(np.rint((kernel_size / spacing_x).to(u.one).value)) // 2
-    half_y = int(np.rint((kernel_size / spacing_y).to(u.one).value)) // 2
+    half_x = _half_reference(kernel_size / spacing_x)
+    half_y = _half_reference(kernel_size / spacing_y)
     smoothed = np.full(z.shape, np.nan) * z.unit
     for i in range(num_x):
         for j in range(num_y):
@@ -109,11 +129,23 @@ def _slope_error_reference(
             if np.isfinite(box).any():
                 smoothed[i, j] = np.nanmean(box)
 
-    step_x = int(np.rint((step_size / spacing_x).to(u.one).value))
-    step_y = int(np.rint((step_size / spacing_y).to(u.one).value))
-    slope_x = (smoothed[step_x:, :] - smoothed[:-step_x, :]) / (step_x * spacing_x)
-    slope_y = (smoothed[:, step_y:] - smoothed[:, :-step_y]) / (step_y * spacing_y)
-    result = np.sqrt(np.nanmean(slope_x**2) + np.nanmean(slope_y**2))
+    step_x = _step_reference(step_size / spacing_x)
+    step_y = _step_reference(step_size / spacing_y)
+    slope_x = [
+        (smoothed[i + step_x, j] - smoothed[i, j]) / (step_x * spacing_x)
+        for i in range(num_x - step_x)
+        for j in range(num_y)
+        if np.isfinite(smoothed[i : i + step_x + 1, j]).all()
+    ]
+    slope_y = [
+        (smoothed[i, j + step_y] - smoothed[i, j]) / (step_y * spacing_y)
+        for i in range(num_x)
+        for j in range(num_y - step_y)
+        if np.isfinite(smoothed[i, j : j + step_y + 1]).all()
+    ]
+    slope_x = u.Quantity(slope_x)
+    slope_y = u.Quantity(slope_y)
+    result = np.sqrt(np.mean(slope_x**2) + np.mean(slope_y**2))
     return result.to(u.rad, equivalencies=u.dimensionless_angles())
 
 
@@ -144,6 +176,7 @@ _pixels_rectangular = na.Cartesian2dVectorArray(
         optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm),
         optika.metrology.SlopeErrorParameters(1.2 * u.mm, 0 * u.mm),
         optika.metrology.SlopeErrorParameters(3 * u.mm, 1.6 * u.mm),
+        optika.metrology.SlopeErrorParameters(5.6 * u.mm, 1 * u.mm),
     ],
 )
 def test_slope_error(
@@ -192,6 +225,149 @@ def test_slope_error_tilt(angle: u.Quantity) -> None:
     assert np.isclose(result.ndarray, 5 * u.urad, rtol=1e-12, atol=0)
 
 
+@pytest.mark.parametrize(
+    argnames="step_size,num",
+    argvalues=[
+        (5.0 * u.mm, 10),
+        (5.4 * u.mm, 10),
+        (5.5 * u.mm, 12),
+        (5.6 * u.mm, 12),
+    ],
+)
+def test_slope_error_step(step_size: u.Quantity, num: int) -> None:
+    """
+    The step spans the even number of pixels nearest to the step size, or the
+    larger one if the step size is an odd number of pixels.
+
+    Along each row of 40 pixels, ``num`` of the ``40 - num`` steps straddle a
+    jump in the height, so the slope error of the jump depends on the number
+    of pixels in the step.
+    """
+    spacing = 0.5 * u.mm
+    position = _pixels(num_x=40, num_y=15, spacing=spacing)
+    jump = 1 * u.nm
+    height = np.where(position.x > 0 * u.mm, jump, 0 * u.nm)
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=optika.metrology.SlopeErrorParameters(step_size, 0 * u.mm),
+        axis=_axis,
+    )
+    expected = jump / (spacing * np.sqrt(num * (40 - num))) * u.rad
+    assert np.isclose(result.ndarray, expected.to(u.rad), rtol=1e-12, atol=0)
+
+
+@pytest.mark.parametrize(
+    argnames="parameters,parameters_equivalent",
+    argvalues=[
+        (
+            optika.metrology.SlopeErrorParameters(0.3 * u.mm, 0 * u.mm),
+            optika.metrology.SlopeErrorParameters(0.4 * u.mm, 0 * u.mm),
+        ),
+        (
+            optika.metrology.SlopeErrorParameters(0.8 * u.mm, 0.35 * u.mm),
+            optika.metrology.SlopeErrorParameters(0.8 * u.mm, 0.5 * u.mm),
+        ),
+    ],
+)
+def test_slope_error_round_lengths(
+    parameters: optika.metrology.SlopeErrorParameters,
+    parameters_equivalent: optika.metrology.SlopeErrorParameters,
+) -> None:
+    """
+    A step of 3 pixels spans 4 of them, and a kernel of 3.5 pixels spans 5 of
+    them, although the ratios of these lengths to the distance between the
+    pixels are not quite 3 and 3.5 in floating point.
+    """
+    position = _pixels(spacing=0.1 * u.mm)
+    height = _height(position)
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=parameters,
+        axis=_axis,
+    )
+    expected = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=parameters_equivalent,
+        axis=_axis,
+    )
+    assert np.all(result == expected)
+
+
+def test_slope_error_implicit() -> None:
+    """
+    Implicit positions and parameters give the slope error of the explicit
+    ones.
+    """
+    position = na.Cartesian2dVectorLinearSpace(
+        start=-10 * u.mm,
+        stop=10 * u.mm,
+        axis=na.Cartesian2dVectorArray(*_axis),
+        num=41,
+    )
+    height = _height(position)
+    step_size = na.ScalarLinearSpace(2 * u.mm, 4 * u.mm, axis="case", num=2)
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=optika.metrology.SlopeErrorParameters(step_size, 2 * u.mm),
+        axis=_axis,
+    )
+    expected = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position.explicit, height),
+        parameters=optika.metrology.SlopeErrorParameters(
+            step_size=step_size.explicit,
+            kernel_size=2 * u.mm,
+        ),
+        axis=_axis,
+    )
+    assert result.shape == dict(case=2)
+    assert np.all(result == expected)
+
+
+def test_slope_error_gap() -> None:
+    """
+    A step across a gap in the map which the boxcar does not fill is not a
+    slope, so two flat halves of a map at different heights have no slope
+    error.
+    """
+    position = _pixels()
+    height = np.where(position.x > 0 * u.mm, 5 * u.nm, -5 * u.nm)
+    height = np.where(np.abs(position.x) > 1 * u.mm, height, np.nan)
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=optika.metrology.SlopeErrorParameters(4 * u.mm, 1 * u.mm),
+        axis=_axis,
+    )
+    assert np.all(result == 0 * u.rad)
+
+
+def test_slope_error_plane() -> None:
+    """
+    The pixels are spaced in the plane of the map, so positions which also
+    have a height give the same slope error.
+    """
+    position = _pixels_rotated
+    height = _height(position)
+    parameters = optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm)
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(
+            inputs=na.Cartesian3dVectorArray(
+                x=position.x,
+                y=position.y,
+                z=np.square(position.length) / (100 * u.mm),
+            ),
+            outputs=height,
+        ),
+        parameters=parameters,
+        axis=_axis,
+    )
+    expected = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=parameters,
+        axis=_axis,
+    )
+    assert np.all(result == expected)
+
+
 def test_slope_error_units() -> None:
     """
     The units of the positions and the heights may differ, and without units
@@ -231,7 +407,8 @@ def test_slope_error_units() -> None:
 def test_slope_error_broadcast() -> None:
     """
     The slope error of a separate map for each channel, each on its own grid,
-    for each of several steps, is that of each map with each step.
+    for each of several steps and kernels, is that of each map with each step
+    and kernel.
     """
     pixels = [_pixels_default, _pixels(spacing=0.3 * u.mm, angle=30 * u.deg)]
     position = na.stack(pixels, axis="channel")
@@ -239,17 +416,70 @@ def test_slope_error_broadcast() -> None:
         [_height(p, seed=seed) for seed, p in enumerate(pixels)],
         axis="channel",
     )
-    step_size = na.ScalarArray([2, 4] * u.mm, axes="step")
-    parameters = optika.metrology.SlopeErrorParameters(step_size, 1 * u.mm)
+    step_size = na.ScalarArray([2, 4] * u.mm, axes="case")
+    kernel_size = na.ScalarArray([1, 2] * u.mm, axes="case")
+    parameters = optika.metrology.SlopeErrorParameters(step_size, kernel_size)
     result = optika.metrology.slope_error(
         figure_error=na.FunctionArray(position, height),
         parameters=parameters,
         axis=_axis,
     )
-    assert result.shape == dict(channel=2, step=2)
+    assert result.shape == dict(channel=2, case=2)
     for index in na.ndindex(result.shape):
         expected = optika.metrology.slope_error(
             figure_error=na.FunctionArray(position[index], height[index]),
+            parameters=optika.metrology.SlopeErrorParameters(
+                step_size=step_size[index].ndarray,
+                kernel_size=kernel_size[index].ndarray,
+            ),
+            axis=_axis,
+        )
+        assert np.all(result[index] == expected)
+
+
+def test_slope_error_broadcast_heights() -> None:
+    """
+    The slope error of several maps on one grid, which are worked out
+    together, is that of each map.
+    """
+    position = _pixels_default
+    height = na.stack(
+        [_height(position, seed=seed) for seed in range(3)],
+        axis="sample",
+    )
+    parameters = optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm)
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=parameters,
+        axis=_axis,
+    )
+    assert result.shape == dict(sample=3)
+    for index in na.ndindex(result.shape):
+        expected = optika.metrology.slope_error(
+            figure_error=na.FunctionArray(position, height[index]),
+            parameters=parameters,
+            axis=_axis,
+        )
+        assert np.all(result[index] == expected)
+
+
+def test_slope_error_broadcast_size_one() -> None:
+    """
+    An axis of the map with a single map along it is broadcast against the
+    same axis of the parameters.
+    """
+    position = _pixels_default
+    height = _height(position).add_axes("channel")
+    step_size = na.ScalarArray([2, 4] * u.mm, axes="channel")
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=optika.metrology.SlopeErrorParameters(step_size, 1 * u.mm),
+        axis=_axis,
+    )
+    assert result.shape == dict(channel=2)
+    for index in na.ndindex(result.shape):
+        expected = optika.metrology.slope_error(
+            figure_error=na.FunctionArray(position, height[dict(channel=0)]),
             parameters=optika.metrology.SlopeErrorParameters(
                 step_size=step_size[index].ndarray,
                 kernel_size=1 * u.mm,
@@ -257,6 +487,31 @@ def test_slope_error_broadcast() -> None:
             axis=_axis,
         )
         assert np.all(result[index] == expected)
+
+
+def test_slope_error_constant_along_axis() -> None:
+    """
+    A map which does not vary along one of its axes may leave that axis out
+    of its heights.
+    """
+    position = _pixels_rectangular
+    height = 2 * u.nm * np.sin(2 * np.pi * u.rad * position.x / (7 * u.mm))
+    assert _axis[1] not in height.shape
+    parameters = optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm)
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(position, height),
+        parameters=parameters,
+        axis=_axis,
+    )
+    expected = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(
+            inputs=position,
+            outputs=height.broadcast_to(na.shape(position)),
+        ),
+        parameters=parameters,
+        axis=_axis,
+    )
+    assert np.all(result == expected)
 
 
 def test_slope_error_uncertain() -> None:
@@ -322,6 +577,16 @@ _parameters = optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm)
         ),
         (
             na.FunctionArray(
+                inputs=_pixels_default.x,
+                outputs=_figure_error.outputs,
+            ),
+            _parameters,
+            _axis,
+            TypeError,
+            "Cartesian2dVectorArray",
+        ),
+        (
+            na.FunctionArray(
                 inputs=_pixels(num_x=42, num_y=38),
                 outputs=_figure_error.outputs,
             ),
@@ -329,6 +594,26 @@ _parameters = optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm)
             _axis,
             ValueError,
             "centers",
+        ),
+        (
+            na.FunctionArray(
+                inputs=_pixels_default,
+                outputs=_figure_error.outputs.value,
+            ),
+            _parameters,
+            _axis,
+            ValueError,
+            "units",
+        ),
+        (
+            na.FunctionArray(
+                inputs=_pixels_default.value,
+                outputs=_figure_error.outputs,
+            ),
+            optika.metrology.SlopeErrorParameters(4, 2),
+            _axis,
+            ValueError,
+            "units",
         ),
         (
             na.FunctionArray(
@@ -353,6 +638,27 @@ _parameters = optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm)
             _axis,
             ValueError,
             "`step_size`",
+        ),
+        (
+            _figure_error,
+            optika.metrology.SlopeErrorParameters(np.nan * u.mm, 2 * u.mm),
+            _axis,
+            ValueError,
+            "`step_size`",
+        ),
+        (
+            _figure_error,
+            optika.metrology.SlopeErrorParameters(4 * u.mm, np.nan * u.mm),
+            _axis,
+            ValueError,
+            "`kernel_size`",
+        ),
+        (
+            _figure_error,
+            optika.metrology.SlopeErrorParameters(4 * u.mm, -2 * u.mm),
+            _axis,
+            ValueError,
+            "`kernel_size`",
         ),
         (
             _figure_error,
@@ -398,9 +704,11 @@ def test_slope_error_invalid(
 ) -> None:
     """
     A str, a misnamed, single, repeated or third axis, inputs which are not
-    the centers of the pixels, a single pixel, a step shorter than half a
-    pixel or as long as the map, parameters which vary along the map, and
-    uncertain parameters or positions are each rejected.
+    vectors or not the centers of the pixels, heights and positions in units
+    of different kinds, a single pixel, a step shorter than a pixel, as long
+    as the map, or not finite, a kernel which is not finite or is negative,
+    parameters which vary along the map, and uncertain parameters or
+    positions are each rejected.
     """
     with pytest.raises(error, match=match):
         optika.metrology.slope_error(
