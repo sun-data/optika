@@ -564,6 +564,45 @@ class AbstractTestAbstractMultilayerMaterial(
 
         assert np.all(result == a.efficiency(rays, normal))
 
+    @pytest.mark.parametrize("angle_diffraction", [20 * u.deg, 55 * u.deg])
+    def test_efficiency_grating(
+        self,
+        a: optika.materials.AbstractMultilayerMaterial,
+        angle_diffraction: u.Quantity,
+    ):
+        """
+        The effective rays of a grating, whose component along the normal is
+        that of the incident rays and whose component along the surface is
+        that of the diffracted rays, see the stack at the angle whose cosine
+        is the mean of the cosines of the angles of incidence and
+        diffraction.
+        """
+        angle_incidence = 40 * u.deg
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+        rays = optika.rays.RayVectorArray(
+            wavelength=_wavelength,
+            direction=na.Cartesian3dVectorArray(
+                x=np.sin(angle_diffraction),
+                y=0,
+                z=np.cos(angle_incidence),
+            ),
+        )
+
+        cos_effective = (np.cos(angle_incidence) + np.cos(angle_diffraction)) / 2
+        rays_effective = dataclasses.replace(
+            rays,
+            direction=na.Cartesian3dVectorArray(
+                x=np.sqrt(1 - np.square(cos_effective)),
+                y=0,
+                z=cos_effective,
+            ),
+        )
+
+        result = a.efficiency(rays, normal)
+        expected = a.efficiency(rays_effective, normal)
+
+        assert np.allclose(result, expected)
+
     def test_layers(self, a: optika.materials.AbstractMultilayerMaterial):
         result = a.layers
         if not isinstance(result, optika.materials.AbstractLayer):
