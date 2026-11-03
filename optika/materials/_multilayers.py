@@ -983,7 +983,7 @@ class AbstractMultilayerMaterial(
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> tuple[na.ScalarLike, na.ScalarLike]:
-        """
+        r"""
         The reflectivity and transmissivity of this stack for the given rays,
         averaged over polarization state.
 
@@ -994,10 +994,34 @@ class AbstractMultilayerMaterial(
         though it has already discarded the phase, which a coherent treatment
         needs.
 
+        The stack is evaluated at the effective angle :math:`\theta` of the
+        rays, for which
+
+        .. math::
+
+            \cos \theta = \frac{\cos \alpha + \cos \beta}{2},
+
+        where :math:`\alpha` is the angle of incidence and :math:`\beta` is
+        the angle the rays leave the surface at.
+        A stack on a diffraction grating reflects the diffracted light most
+        efficiently when the change in the component of its wavevector
+        normal to the layers, :math:`k (\cos \alpha + \cos \beta)`,
+        matches the period of the stack, so it then behaves like a mirror at
+        the angle :math:`\theta`.
+        This is the usual approximation for a multilayer-coated grating,
+        and a rigorous treatment would need coupled-wave theory.
+        Without rulings, :math:`\beta = \alpha` and :math:`\theta` is the
+        angle of incidence.
+
         Parameters
         ----------
         rays
             The rays striking this stack.
+            On a grating, these are the effective rays of
+            :meth:`~optika.rulings.AbstractRulings.incident_effective`,
+            whose component along `normal` is that of the incident rays,
+            and whose component along the surface is that of the
+            diffracted rays.
         normal
             The vector normal to the interface between successive layers.
         """
@@ -1005,9 +1029,22 @@ class AbstractMultilayerMaterial(
         k = rays.attenuation * wavelength / (4 * np.pi)
         n = rays.index_refraction + k * 1j
 
+        # The rulings of a grating add only a component along the surface to
+        # the direction of the rays, so the cosine of the angle the
+        # diffracted rays leave at follows from the length of the effective
+        # direction.
+        # It takes the sign of the cosine of the angle of incidence, so that
+        # without rulings the effective angle is the angle of incidence,
+        # even for rays that strike the back of the stack.
+        direction = rays.direction
+        cos_input = -direction @ normal
+        cos_output = np.sign(cos_input) * np.sqrt(
+            1 - np.square(direction.length) + np.square(cos_input)
+        )
+
         reflectivity, transmissivity = multilayer_efficiency(
             wavelength=wavelength,
-            direction=-rays.direction @ normal,
+            direction=(cos_input + cos_output) / 2,
             n=n,
             layers=self.layers,
             substrate=self._substrate,

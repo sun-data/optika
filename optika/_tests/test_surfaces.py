@@ -323,3 +323,70 @@ def test_plot_substrate_without_vertices():
 
     assert "wall" in result
     assert na.shape(result["wall"])["vertex"] > 2
+
+
+def test_propagate_rays_multilayer_grating():
+    """
+    A multilayer on a grating reflects the diffracted rays with its
+    reflectivity at the effective angle, whose cosine is the mean of the
+    cosines of the angles of incidence and diffraction, not with its
+    reflectivity at the angle of incidence.
+
+    The grating deviates the rays through about 15 degrees, and the period
+    of the stack puts its peak at the effective angle, where it reflects
+    about 40 times more than at the angle of incidence.
+    """
+    wavelength = 13.5 * u.nm
+    period = 10.9 * u.nm
+    coating = optika.materials.MultilayerMirror(
+        layers=optika.materials.PeriodicLayerSequence(
+            [
+                optika.materials.Layer("Si", thickness=0.6 * period),
+                optika.materials.Layer("Mo", thickness=0.4 * period),
+            ],
+            num_periods=40,
+        ),
+        substrate=optika.materials.Layer("SiO2", thickness=1 * u.mm),
+    )
+
+    # ideal rulings, so the throughput of the surface is that of the coating
+    surface = optika.surfaces.Surface(
+        material=coating,
+        rulings=optika.rulings.Rulings(
+            spacing=76.5 * u.nm,
+            diffraction_order=-1,
+        ),
+    )
+
+    angle = 40 * u.deg
+    rays = optika.rays.RayVectorArray(
+        wavelength=wavelength,
+        position=na.Cartesian3dVectorArray(0, 0, -1) * u.mm,
+        direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+    )
+    result = surface.propagate_rays(rays)
+
+    normal = na.Cartesian3dVectorArray(0, 0, -1)
+    cos_incidence = -rays.direction @ normal
+    cos_diffraction = result.direction @ normal
+    cos_effective = (cos_incidence + cos_diffraction) / 2
+
+    def reflectivity(cos: na.AbstractScalar) -> na.AbstractScalar:
+        """
+        The reflectivity of the coating as a mirror.
+
+        Parameters
+        ----------
+        cos
+            The cosine of the angle of incidence.
+        """
+        r, _ = optika.materials.multilayer_efficiency(
+            wavelength=wavelength,
+            direction=cos,
+            layers=coating.layers,
+            substrate=coating.substrate,
+        )
+        return r.average
+
+    assert np.allclose(result.intensity, reflectivity(cos_effective))
+    assert result.intensity > 10 * reflectivity(cos_incidence)
