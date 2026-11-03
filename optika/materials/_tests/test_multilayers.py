@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Callable, Sequence
 import dataclasses
 import pytest
 import pathlib
@@ -174,6 +174,103 @@ def test_layer_absorbance(
     result_expected = 1 - reflectivity - transmissivity
 
     assert np.allclose(result, result_expected)
+
+
+def _layer_absorbance_first(
+    **kwargs,
+) -> optika.vectors.PolarizationVectorArray:
+    """
+    The absorbance of the first layer of a stack.
+
+    Parameters
+    ----------
+    kwargs
+        The other arguments of :func:`optika.materials.layer_absorbance`.
+    """
+    return optika.materials.layer_absorbance(index=0, **kwargs)
+
+
+_functions_direction = [
+    optika.materials.multilayer_coefficients,
+    optika.materials.multilayer_efficiency,
+    _layer_absorbance_first,
+]
+"""The functions of a multilayer stack which take the angle of incidence."""
+
+
+@pytest.mark.parametrize("function", _functions_direction)
+@pytest.mark.parametrize(
+    argnames="direction",
+    argvalues=[
+        -0.5,
+        -np.cos(45 * u.deg),
+        np.cos(na.linspace(0, 100, axis="angle", num=5) * u.deg),
+        na.NormalUncertainScalarArray(
+            nominal=np.cos(na.linspace(0, 80, axis="angle", num=5) * u.deg),
+            width=0.3,
+            num_distribution=10,
+            seed=42,
+        ),
+    ],
+)
+@pytest.mark.parametrize("num_interpolation", [None, 8])
+def test_direction_behind(
+    function: Callable[..., object],
+    direction: float | na.AbstractScalar,
+    num_interpolation: None | int,
+):
+    """
+    Light which strikes a stack from behind, even only in some of the
+    samples of an uncertain angle of incidence, raises an error instead of
+    giving an efficiency greater than one.
+
+    Parameters
+    ----------
+    function
+        The function of the stack to evaluate.
+    direction
+        The cosine of the angle of incidence, negative somewhere.
+    num_interpolation
+        The number of nodes to interpolate the stack over, ignored by
+        :func:`optika.materials.multilayer_coefficients`.
+    """
+    kwargs = dict(
+        wavelength=_wavelength,
+        direction=direction,
+        layers=Layer(chemical="SiC", thickness=10 * u.nm),
+        substrate=Layer("SiO2"),
+    )
+    if function is not optika.materials.multilayer_coefficients:
+        kwargs["num_interpolation"] = num_interpolation
+    with pytest.raises(ValueError, match="from behind"):
+        function(**kwargs)
+
+
+@pytest.mark.filterwarnings("ignore:invalid value encountered:RuntimeWarning")
+@pytest.mark.parametrize("function", _functions_direction)
+def test_direction_nan(
+    function: Callable[..., object],
+):
+    """
+    A ray which misses its surface carries a :obj:`~numpy.nan` direction,
+    which passes through the check for light striking the stack from behind.
+
+    Parameters
+    ----------
+    function
+        The function of the stack to evaluate.
+    """
+    direction = na.ScalarArray(np.array([np.nan, 1]), axes="ray")
+    result = function(
+        wavelength=_wavelength,
+        direction=direction,
+        layers=Layer(chemical="SiC", thickness=10 * u.nm),
+        substrate=Layer("SiO2"),
+    )
+    if not isinstance(result, tuple):
+        result = (result,)
+    for item in result:
+        assert np.all(np.isfinite(item[dict(ray=1)]))
 
 
 @pytest.mark.parametrize(
@@ -466,6 +563,23 @@ class AbstractTestAbstractMultilayerMaterial(
         )
 
         assert np.all(result == a.efficiency(rays, normal))
+
+    def test_efficiency_behind(
+        self,
+        a: optika.materials.AbstractMultilayerMaterial,
+    ):
+        """
+        Light striking the stack from the side its normal points away from
+        raises an error instead of giving an efficiency greater than one.
+        """
+        angle = 45 * u.deg
+        rays = optika.rays.RayVectorArray(
+            wavelength=_wavelength,
+            direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, +1)
+        with pytest.raises(ValueError, match="from behind"):
+            a.efficiency(rays, normal)
 
     def test_layers(self, a: optika.materials.AbstractMultilayerMaterial):
         result = a.layers
