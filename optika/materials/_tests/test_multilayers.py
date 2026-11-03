@@ -564,23 +564,6 @@ class AbstractTestAbstractMultilayerMaterial(
 
         assert np.all(result == a.efficiency(rays, normal))
 
-    def test_efficiency_behind(
-        self,
-        a: optika.materials.AbstractMultilayerMaterial,
-    ):
-        """
-        Light striking the stack from the side its normal points away from
-        raises an error instead of giving an efficiency greater than one.
-        """
-        angle = 45 * u.deg
-        rays = optika.rays.RayVectorArray(
-            wavelength=_wavelength,
-            direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
-        )
-        normal = na.Cartesian3dVectorArray(0, 0, +1)
-        with pytest.raises(ValueError, match="from behind"):
-            a.efficiency(rays, normal)
-
     def test_layers(self, a: optika.materials.AbstractMultilayerMaterial):
         result = a.layers
         if not isinstance(result, optika.materials.AbstractLayer):
@@ -601,6 +584,23 @@ class AbstractTestAbstractMultilayerMaterial(
         assert isinstance(result, list)
         for item in result:
             assert isinstance(item, matplotlib.patches.Rectangle)
+
+    def test_efficiency_behind(
+        self,
+        a: optika.materials.AbstractMultilayerMaterial,
+    ):
+        """
+        Light striking the stack from the side its normal points away from
+        raises an error instead of giving an efficiency greater than one.
+        """
+        angle = 45 * u.deg
+        rays = optika.rays.RayVectorArray(
+            wavelength=_wavelength,
+            direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, +1)
+        with pytest.raises(ValueError, match="from behind"):
+            a.efficiency(rays, normal)
 
 
 class AbstractTestAbstractMultilayerFilm(
