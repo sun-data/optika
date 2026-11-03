@@ -30,6 +30,37 @@ __all__ = [
 ]
 
 
+def _check_direction(
+    direction: float | complex | na.AbstractScalar,
+) -> None:
+    """
+    Raise an error if any of the light strikes the stack from behind.
+
+    The transfer matrices of a stack describe light arriving from the ambient
+    medium, travelling against the surface normal. Given a negative cosine of
+    the angle of incidence they grow through every absorbing layer instead of
+    decaying, and give efficiencies greater than one.
+
+    A :obj:`~numpy.nan`, which a ray that misses its surface carries, passes.
+
+    Parameters
+    ----------
+    direction
+        The component of the incident light's propagation direction in the
+        ambient medium antiparallel to the surface normal.
+    """
+    if not np.all(np.logical_not(np.real(direction) < 0)):
+        raise ValueError(
+            "Some of the light strikes the multilayer stack from behind: the "
+            "component of its propagation direction antiparallel to the "
+            "surface normal, `direction`, is negative. In a raytrace, the "
+            "light must strike the side of the surface its normal points "
+            "toward, which is the -z side of the surface's own coordinates, "
+            "so it must travel toward +z there. Check the orientation of the "
+            "surface."
+        )
+
+
 def multilayer_coefficients(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
@@ -52,6 +83,8 @@ def multilayer_coefficients(
         The component of the incident light's propagation direction in the
         ambient medium antiparallel to the surface normal.
         Default is to assume normal incidence.
+        Must not be negative, since light with a negative component strikes
+        the stack from behind, which the transfer matrices do not describe.
     n
         The complex index of refraction of the ambient medium.
     layers
@@ -184,6 +217,8 @@ def multilayer_coefficients(
     then the :class:`tuple` :math:`(\vec{r}, \vec{t})` is the quantity returned
     by this function.
     """
+    _check_direction(direction)
+
     direction_ambient = direction
     n_ambient = n
 
@@ -260,6 +295,8 @@ def multilayer_efficiency(
         The component of the incident light's propagation direction in the
         ambient medium antiparallel to the surface normal.
         Default is to assume normal incidence.
+        Must not be negative, since light with a negative component strikes
+        the stack from behind, which the transfer matrices do not describe.
     n
         The complex index of refraction of the ambient medium.
     layers
@@ -502,6 +539,8 @@ def multilayer_efficiency(
     then the :class:`tuple` :math:`(\vec{R}, \vec{T})` is the quantity returned
     by this function.
     """
+    _check_direction(direction)
+
     # the table is built along the axes over which only the direction
     # varies, so the wavelength, the ambient medium and the stack are kept
     shape = na.broadcast_shapes(
@@ -611,6 +650,8 @@ def layer_absorbance(
         The component of the incident light's propagation direction in the
         ambient medium antiparallel to the surface normal.
         Default is to assume normal incidence.
+        Must not be negative, since light with a negative component strikes
+        the stack from behind, which the transfer matrices do not describe.
     n
         The complex index of refraction of the ambient medium.
     layers
@@ -704,6 +745,8 @@ def layer_absorbance(
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("incident energy fraction");
     """
+    _check_direction(direction)
+
     # the table is built along the axes over which only the direction
     # varies, so the wavelength, the ambient medium and the stack are kept
     shape = na.broadcast_shapes(
@@ -920,7 +963,15 @@ def _interpolate_incidence(
 class AbstractMultilayerMaterial(
     AbstractMaterial,
 ):
-    """A generalized multilayer material."""
+    """
+    A generalized multilayer material.
+
+    The light must strike the stack from the side its surface normal points
+    toward. The normal of a sag points along :math:`-z` of the surface's own
+    coordinates at its vertex, so in a raytrace the light must travel toward
+    :math:`+z` of a surface made of a multilayer, or computing its
+    efficiency raises a :class:`ValueError`.
+    """
 
     @property
     @abc.abstractmethod
