@@ -22,7 +22,12 @@ class ToroidalSag(
     """The minor radius of this toroidal surface."""
 
     radius_of_rotation: u.Quantity | na.AbstractScalar = 0 * u.mm
-    """The major radius of this toroidal surface."""
+    """
+    The major radius of this toroidal surface.
+
+    As with :attr:`radius`, a negative value gives a surface that is concave
+    along the :math:`x` axis.
+    """
 
     @property
     def shape(self) -> dict[str, int]:
@@ -53,7 +58,7 @@ class ToroidalSag(
         x2 = np.square(position.x)
         y2 = np.square(position.y)
         zy = c * y2 / (1 + np.sqrt(1 - np.square(c) * y2))
-        z = r - np.sqrt(np.square(r - zy) - x2)
+        z = r - np.sign(r) * np.sqrt(np.square(r - zy) - x2)
         return z
 
     def normal(
@@ -76,7 +81,7 @@ class ToroidalSag(
         c2 = np.square(c)
         g = np.sqrt(1 - c2 * y2)
         zy = c * y2 / (1 + g)
-        f = np.sqrt(np.square(r - zy) - x2)
+        f = np.sign(r) * np.sqrt(np.square(r - zy) - x2)
         dzdx = position.x / f
         dzydy = c * position.y / g
         dzdy = (r - zy) * dzydy / f
