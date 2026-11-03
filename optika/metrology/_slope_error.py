@@ -88,6 +88,11 @@ def slope_error(
         Any other axis of the map, or of the parameters, is broadcast, and
         each map along it may be sampled on its own grid.
 
+    See Also
+    --------
+    :meth:`optika.sags.FigureErrorSag.slope_error` : The slope error of the
+        map of a sag profile.
+
     Examples
     --------
 

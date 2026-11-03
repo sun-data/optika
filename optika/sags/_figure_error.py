@@ -1,5 +1,6 @@
 from typing import Sequence
 import dataclasses
+import numpy as np
 import named_arrays as na
 import optika
 from ._abc import AbstractSag
@@ -44,8 +45,9 @@ class FigureErrorSag(
     Outside the map, the figure error is extrapolated linearly from the
     cells at its edge, so the map should cover the surface wherever it is
     evaluated.
-    A pixel which was not measured should be filled, since the map is NaN
-    next to a pixel which is NaN.
+    A pixel which was not measured may be NaN.
+    The figure error is taken to be zero there when the surface is
+    evaluated, and :meth:`slope_error` leaves the pixel out.
 
     Examples
     --------
@@ -106,7 +108,7 @@ class FigureErrorSag(
     Its inputs are the :math:`x` and :math:`y` coordinates at which the map
     is sampled, in the coordinate system of this sag profile, as a
     :class:`named_arrays.Cartesian2dVectorArray`, and its outputs are the
-    heights there.
+    heights there, which are NaN wherever a pixel was not measured.
     If :obj:`None` (the default), there is no figure error.
     """
 
@@ -193,6 +195,11 @@ class FigureErrorSag(
 
         figure_error = self.figure_error
         if figure_error is not None:
+            height = figure_error.outputs
+            figure_error = dataclasses.replace(
+                figure_error,
+                outputs=np.where(np.isfinite(height), height, 0),
+            )
             figure_error = figure_error(position.xy, axis=self.axis_)
             result = result + figure_error.outputs
 
@@ -248,3 +255,97 @@ class FigureErrorSag(
             position = self.transformation.inverse(position)
 
         return self.base_.normal(position)
+
+    def slope_error(
+        self,
+        aperture: "None | optika.apertures.AbstractAperture" = None,
+    ) -> na.AbstractScalar:
+        """
+        The RMS slope error of :attr:`figure_error`, with the step and the
+        kernel of :attr:`parameters_slope_error`.
+
+        It is worked out by :func:`optika.metrology.slope_error`, along
+        :attr:`axis`, and the pixels which were not measured are left out.
+
+        Parameters
+        ----------
+        aperture
+            The part of the surface whose slope error is wanted, such as its
+            clear aperture, in surface coordinates.
+            The pixels outside it are left out.
+            Each pixel is carried into surface coordinates by
+            :attr:`transformation` from :math:`z = 0` in the coordinates of
+            this sag profile, which is exact unless the transformation tilts
+            the sag profile.
+            If :obj:`None` (the default), the whole map counts.
+
+        Examples
+        --------
+
+        Work out the slope error of a map over a circular clear aperture,
+        leaving out a hole in the middle of the map which was not measured.
+
+        .. jupyter-execute::
+
+            import numpy as np
+            import astropy.units as u
+            import named_arrays as na
+            import optika
+
+            # a map of the figure error, sampled on a grid of pixels
+            pixel = na.Cartesian2dVectorLinearSpace(
+                start=-50 * u.mm,
+                stop=50 * u.mm,
+                axis=na.Cartesian2dVectorArray("pixel_x", "pixel_y"),
+                num=201,
+            ).explicit
+            height = 10 * u.nm * np.sin(pixel.x / (4 * u.mm) * u.rad)
+            height = np.where(pixel.length > 5 * u.mm, height, np.nan)
+
+            sag = optika.sags.FigureErrorSag(
+                base=optika.sags.ParabolicSag(focal_length=1000 * u.mm),
+                figure_error=na.FunctionArray(pixel, height),
+                axis=("pixel_x", "pixel_y"),
+                parameters_slope_error=optika.metrology.SlopeErrorParameters(
+                    step_size=4 * u.mm,
+                    kernel_size=2 * u.mm,
+                ),
+            )
+
+            aperture = optika.apertures.CircularAperture(radius=45 * u.mm)
+
+            sag.slope_error(aperture).to(u.urad)
+        """
+        figure_error = self.figure_error
+        if figure_error is None:
+            raise ValueError(
+                "There is no map of the figure error, `figure_error`, to work "
+                "out the slope error of."
+            )
+
+        parameters = self.parameters_slope_error
+        if parameters is None:
+            raise ValueError(
+                "`parameters_slope_error` must give the step and the kernel of "
+                "the slope error."
+            )
+
+        if aperture is not None:
+            position = figure_error.inputs
+            position = na.Cartesian3dVectorArray(
+                x=position.x,
+                y=position.y,
+                z=0 * position.x,
+            )
+            if self.transformation is not None:
+                position = self.transformation(position)
+            figure_error = na.FunctionArray(
+                inputs=figure_error.inputs,
+                outputs=np.where(aperture(position), figure_error.outputs, np.nan),
+            )
+
+        return optika.metrology.slope_error(
+            figure_error=figure_error,
+            parameters=parameters,
+            axis=self.axis_,
+        )
