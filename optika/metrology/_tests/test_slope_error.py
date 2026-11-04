@@ -626,6 +626,85 @@ _parameters = optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm)
             "two pixels",
         ),
         (
+            na.FunctionArray(
+                inputs=na.Cartesian2dVectorArray(
+                    x=np.where(
+                        np.isfinite(_figure_error.outputs),
+                        _pixels_default.x,
+                        np.nan * u.mm,
+                    ),
+                    y=_pixels_default.y,
+                ),
+                outputs=_figure_error.outputs,
+            ),
+            _parameters,
+            _axis,
+            ValueError,
+            "finite and distinct",
+        ),
+        (
+            na.FunctionArray(
+                inputs=na.Cartesian2dVectorArray(
+                    x=np.where(
+                        (na.indices(_pixels_default.shape)["pixel_x"] == 0)
+                        & (na.indices(_pixels_default.shape)["pixel_y"] == 0),
+                        np.inf * u.mm,
+                        _pixels_default.x,
+                    ),
+                    y=_pixels_default.y,
+                ),
+                outputs=_figure_error.outputs,
+            ),
+            _parameters,
+            _axis,
+            ValueError,
+            "finite and distinct",
+        ),
+        (
+            na.FunctionArray(
+                inputs=_pixels(spacing=0 * u.mm),
+                outputs=_figure_error.outputs,
+            ),
+            _parameters,
+            _axis,
+            ValueError,
+            "finite and distinct",
+        ),
+        (
+            na.FunctionArray(
+                inputs=_pixels_default,
+                outputs=np.where(
+                    np.abs(_pixels_default.x) < 0.25 * u.mm,
+                    _figure_error.outputs,
+                    np.nan,
+                ),
+            ),
+            _parameters,
+            _axis,
+            ValueError,
+            "no slope along 'pixel_x'",
+        ),
+        (
+            na.FunctionArray(
+                inputs=_pixels_default,
+                outputs=na.stack(
+                    arrays=[
+                        _figure_error.outputs,
+                        np.where(
+                            np.abs(_pixels_default.x) < 0.25 * u.mm,
+                            _figure_error.outputs,
+                            np.nan,
+                        ),
+                    ],
+                    axis="channel",
+                ),
+            ),
+            _parameters,
+            _axis,
+            ValueError,
+            "no slope along 'pixel_x'",
+        ),
+        (
             _figure_error,
             optika.metrology.SlopeErrorParameters(0.2 * u.mm, 2 * u.mm),
             _axis,
@@ -659,6 +738,13 @@ _parameters = optika.metrology.SlopeErrorParameters(4 * u.mm, 2 * u.mm)
             _axis,
             ValueError,
             "`kernel_size`",
+        ),
+        (
+            _figure_error,
+            optika.metrology.SlopeErrorParameters(4 * u.mm, 18.5 * u.mm),
+            _axis,
+            ValueError,
+            "`kernel_size`.* fewer pixels than the whole map along 'pixel_y'",
         ),
         (
             _figure_error,
@@ -705,9 +791,11 @@ def test_slope_error_invalid(
     """
     A str, a misnamed, single, repeated or third axis, inputs which are not
     vectors or not the centers of the pixels, heights and positions in units
-    of different kinds, a single pixel, a step shorter than a pixel, as long
-    as the map, or not finite, a kernel which is not finite or is negative,
-    parameters which vary along the map, and uncertain parameters or
+    of different kinds, a single pixel, positions which are not finite or all
+    in one place, a map with no slope along an axis, alone or next to one
+    which has slopes, a step shorter than a pixel, as long as the map, or not
+    finite, a kernel which is not finite, is negative, or is as long as the
+    map, parameters which vary along the map, and uncertain parameters or
     positions are each rejected.
     """
     with pytest.raises(error, match=match):
@@ -716,3 +804,28 @@ def test_slope_error_invalid(
             parameters=parameters,
             axis=axis,
         )
+
+
+def test_slope_error_infinite() -> None:
+    """
+    An infinite height is treated as a pixel which was not measured.
+    """
+    height = _figure_error.outputs
+
+    result = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(
+            inputs=_pixels_default,
+            outputs=np.where(np.isfinite(height), height, np.inf * u.nm),
+        ),
+        parameters=_parameters,
+        axis=_axis,
+    )
+
+    expected = optika.metrology.slope_error(
+        figure_error=_figure_error,
+        parameters=_parameters,
+        axis=_axis,
+    )
+
+    assert np.isfinite(result)
+    assert np.all(result == expected)

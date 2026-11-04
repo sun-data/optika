@@ -45,9 +45,10 @@ class FigureErrorSag(
     Outside the map, the figure error is extrapolated linearly from the
     cells at its edge, so the map should cover the surface wherever it is
     evaluated.
-    A pixel which was not measured may be NaN.
+    The height of a pixel which was not measured may be NaN, and an infinite
+    height is treated the same way.
     The figure error is taken to be zero there when the surface is
-    evaluated, and :meth:`slope_error` leaves the pixel out.
+    evaluated, and :meth:`slope_error` leaves out its height.
 
     Examples
     --------
@@ -136,7 +137,8 @@ class FigureErrorSag(
         against its inputs, or none if there is no map.
 
         A misnamed axis is rejected here, so that :attr:`shape` fails fast
-        instead of reporting an axis of the map as if it were a batch axis.
+        instead of reporting an axis of the map as if it were a batch axis,
+        and so are inputs which are not vectors.
         """
         figure_error = self.figure_error
         if figure_error is None:
@@ -148,21 +150,8 @@ class FigureErrorSag(
                 "`axis` must name the two axes along which `figure_error` is "
                 "sampled."
             )
-        if isinstance(axis, str):
-            raise TypeError(
-                f"`axis` must be a sequence of two axis names, not a str, {axis!r}."
-            )
-        axis = tuple(axis)
 
-        shape_inputs = na.shape(figure_error.inputs)
-        distinct = len(set(axis)) == len(axis) == 2
-        if not distinct or any(a not in shape_inputs for a in axis):
-            raise ValueError(
-                f"`axis`, {axis}, must name two axes along which the inputs of "
-                f"`figure_error` vary, {tuple(shape_inputs)}."
-            )
-
-        return axis
+        return optika.metrology._slope_error._axis(figure_error, axis)
 
     @property
     def shape(self) -> dict[str, int]:
@@ -272,11 +261,13 @@ class FigureErrorSag(
         aperture
             The part of the surface whose slope error is wanted, such as its
             clear aperture, in surface coordinates.
-            The pixels outside it are left out.
-            Each pixel is carried into surface coordinates by
-            :attr:`transformation` from :math:`z = 0` in the coordinates of
-            this sag profile, which is exact unless the transformation tilts
-            the sag profile.
+            Each pixel is placed on :attr:`base` and carried into surface
+            coordinates by :attr:`transformation`, as a ray which strikes it
+            would be, and the pixels outside the aperture are treated as if
+            they were not measured.
+            The boxcar then fills in the smoothed map up to half its width
+            beyond the edge of the aperture, from the heights inside it, as
+            it does next to any pixel which was not measured.
             If :obj:`None` (the default), the whole map counts.
 
         Examples
@@ -323,6 +314,8 @@ class FigureErrorSag(
                 "out the slope error of."
             )
 
+        axis = self.axis_
+
         parameters = self.parameters_slope_error
         if parameters is None:
             raise ValueError(
@@ -337,15 +330,16 @@ class FigureErrorSag(
                 y=position.y,
                 z=0 * position.x,
             )
+            position = position.replace(z=self.base_(position))
             if self.transformation is not None:
                 position = self.transformation(position)
-            figure_error = na.FunctionArray(
-                inputs=figure_error.inputs,
+            figure_error = dataclasses.replace(
+                figure_error,
                 outputs=np.where(aperture(position), figure_error.outputs, np.nan),
             )
 
         return optika.metrology.slope_error(
             figure_error=figure_error,
             parameters=parameters,
-            axis=self.axis_,
+            axis=axis,
         )

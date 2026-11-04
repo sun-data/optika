@@ -59,7 +59,7 @@ def slope_error(
     also fills in the pixels within half its width of a measured pixel.
     A slope is taken only where the smoothed map has a height at every pixel
     along its step, so a step across a gap which the boxcar does not fill is
-    not a slope.
+    not a slope, and there must be at least one slope along each axis.
 
     Nothing is removed from the map, so a term which is not counted as an
     error, like a tilt, should be removed from it first.
@@ -77,12 +77,15 @@ def slope_error(
         Its inputs are the positions of the centers of the pixels, as a
         :class:`named_arrays.Cartesian2dVectorArray`, and its outputs are the
         heights there, which are NaN wherever a pixel was not measured.
+        An infinite height is treated the same way.
         The heights are broadcast against the positions, so a map which does
         not vary along one of its axes may leave that axis out.
         The heights may be uncertain, but the positions may not.
     parameters
         The step size and the kernel size of the slope error.
         They may not be uncertain.
+        The step must span at least two pixels, and each must span fewer
+        pixels than the map along each of its axes.
     axis
         The two logical axes along which the map is sampled.
         Any other axis of the map, or of the parameters, is broadcast, and
@@ -158,29 +161,13 @@ def slope_error(
             ax.set_ylabel(f"RMS slope ({ax.get_ylabel()})")
             ax.legend()
     """
-    if isinstance(axis, str):
-        raise TypeError(
-            f"`axis` must be a sequence of two axis names, not a str, {axis!r}."
-        )
-    axis = tuple(axis)
+    axis = _axis(figure_error, axis)
 
     position = figure_error.inputs
     height = figure_error.outputs
-    if not isinstance(position, na.AbstractCartesian2dVectorArray):
-        raise TypeError(
-            "The inputs of `figure_error` must be the positions of the centers "
-            "of its pixels, as a `named_arrays.AbstractCartesian2dVectorArray`, "
-            f"not a {type(position).__name__}."
-        )
 
     shape_inputs = na.shape(position)
     shape_outputs = na.shape(height)
-    distinct = len(set(axis)) == len(axis) == 2
-    if not distinct or any(a not in shape_inputs for a in axis):
-        raise ValueError(
-            f"`axis`, {axis}, must name two axes along which the inputs of "
-            f"`figure_error` vary, {tuple(shape_inputs)}."
-        )
     for a in axis:
         num = shape_outputs.get(a, shape_inputs[a])
         if num != shape_inputs[a]:
@@ -285,6 +272,12 @@ def _slope_error(
             raise ValueError(f"`step_size`, {step_size.ndarray}, must be finite.")
         size[a] = _odd(ratio_kernel)
         step[a] = _even(ratio_step)
+        if not size[a] < shape[a]:
+            raise ValueError(
+                f"`kernel_size`, {kernel_size.ndarray}, must span fewer pixels "
+                f"than the whole map along {a!r}, which has {shape[a]} pixels "
+                f"{spacing[a]} apart."
+            )
         if not 2 <= step[a] < shape[a]:
             raise ValueError(
                 f"`step_size`, {step_size.ndarray}, must span at least two "
@@ -313,6 +306,12 @@ def _slope_error(
         )
         gap = gap[{a: slice(num // 2, shape[a] - num // 2)}]
         slope = np.where(gap > 0, np.nan, slope)
+        if not np.all(np.any(np.isfinite(slope), axis=axis)):
+            raise ValueError(
+                f"There is no slope along {a!r}, since there is no step, "
+                f"{step_size.ndarray}, along which the smoothed map has a "
+                f"height at every pixel."
+            )
         mean_square.append(np.nanmean(np.square(slope), axis=axis))
     result = np.sqrt(mean_square[0] + mean_square[1])
 
@@ -320,6 +319,39 @@ def _slope_error(
         result = result.to(u.dimensionless_unscaled) * u.rad
 
     return result
+
+
+def _axis(
+    figure_error: na.AbstractFunctionArray,
+    axis: Sequence[str],
+) -> tuple[str, ...]:
+    """
+    The two axes along which a map of the figure error is sampled, checked
+    against the positions of its pixels.
+    """
+    if isinstance(axis, str):
+        raise TypeError(
+            f"`axis` must be a sequence of two axis names, not a str, {axis!r}."
+        )
+    axis = tuple(axis)
+
+    position = figure_error.inputs
+    if not isinstance(position, na.AbstractCartesian2dVectorArray):
+        raise TypeError(
+            "The inputs of `figure_error` must be the positions of the centers "
+            "of its pixels, as a `named_arrays.AbstractCartesian2dVectorArray`, "
+            f"not a {type(position).__name__}."
+        )
+
+    shape_inputs = na.shape(position)
+    distinct = len(set(axis)) == len(axis) == 2
+    if not distinct or any(a not in shape_inputs for a in axis):
+        raise ValueError(
+            f"`axis`, {axis}, must name two axes along which the inputs of "
+            f"`figure_error` vary, {tuple(shape_inputs)}."
+        )
+
+    return axis
 
 
 def _certain(
@@ -343,7 +375,14 @@ def _spacing(
     """
     position = na.Cartesian2dVectorArray(position.x, position.y)
     difference = position[{axis: slice(1, None)}] - position[{axis: slice(None, -1)}]
-    return _certain(np.mean(difference.length), "The positions of the pixels").ndarray
+    result = _certain(np.mean(difference.length), "The positions of the pixels")
+    result = result.ndarray
+    if not (np.isfinite(result) and result > 0):
+        raise ValueError(
+            f"The positions of the pixels of `figure_error` must be finite and "
+            f"distinct, but along {axis!r} they are {result} apart on average."
+        )
+    return result
 
 
 def _ratio(

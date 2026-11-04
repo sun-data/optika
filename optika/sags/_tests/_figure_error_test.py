@@ -285,12 +285,34 @@ def test_shape_figure_error(
     assert sag.shape == shape
 
 
-def test__call__unmeasured() -> None:
+def test_axis_inputs_invalid() -> None:
+    """
+    The inputs of a map must be the positions of its pixels, as vectors, and a
+    map whose inputs are not fails as soon as the shape of the sag profile is
+    needed, like a mistake in its axes.
+    """
+    sag = dataclasses.replace(
+        _sag_flat,
+        figure_error=na.FunctionArray(_grid.x, _height(_grid)),
+    )
+    with pytest.raises(TypeError, match="Cartesian2dVectorArray"):
+        sag.shape
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test__call__unmeasured(value: float) -> None:
     """
     The figure error is taken to be zero at the pixels which were not
-    measured, so the surface is the one whose map is zero there.
+    measured, which are NaN or infinite, so the surface is the one whose map
+    is zero there.
     """
-    sag = _sag_unmeasured
+    sag = dataclasses.replace(
+        _sag_unmeasured,
+        figure_error=na.FunctionArray(
+            inputs=_grid,
+            outputs=np.where(_unmeasured, value * u.nm, _height(_grid)),
+        ),
+    )
     sag_zero = dataclasses.replace(
         sag,
         figure_error=na.FunctionArray(
@@ -342,7 +364,17 @@ _aperture = optika.apertures.CircularAperture(radius=40.5 * u.mm)
 """A clear aperture which leaves out the pixels near the edges of the maps."""
 
 _tilt = 20 * u.deg
-"""The angle by which a sag profile is tilted about the :math:`y` axis."""
+"""The angle by which a sag profile, or an aperture, is tilted about the :math:`y` axis."""
+
+_sphere = optika.sags.SphericalSag(radius=200 * u.mm)
+"""
+A base profile curved enough that, on a tilted sag profile or behind a tilted
+aperture, its height moves some of the pixels of the maps across the edge of
+the aperture.
+"""
+
+_height_sphere = _sphere(na.Cartesian3dVectorArray(_grid.x, _grid.y, 0 * u.mm))
+"""The height of :obj:`_sphere` at each pixel of the maps."""
 
 
 def _inside(
@@ -355,7 +387,8 @@ def _inside(
     Parameters
     ----------
     x
-        The :math:`x` coordinate of each pixel in surface coordinates.
+        The :math:`x` coordinate of each pixel in the coordinates of the
+        aperture.
         Its :math:`y` coordinate is the same as in the coordinates of the
         sag profile.
     """
@@ -381,12 +414,33 @@ def _inside(
         ),
         (
             optika.sags.FigureErrorSag(
+                base=_sphere,
                 axis=("map_x", "map_y"),
                 transformation=na.transformations.Cartesian3dRotationY(_tilt),
             ),
             _ripple(_grid),
             _aperture,
-            np.where(_inside(_grid.x * np.cos(_tilt)), _ripple(_grid), np.nan),
+            np.where(
+                _inside(_grid.x * np.cos(_tilt) + _height_sphere * np.sin(_tilt)),
+                _ripple(_grid),
+                np.nan,
+            ),
+        ),
+        (
+            optika.sags.FigureErrorSag(
+                base=_sphere,
+                axis=("map_x", "map_y"),
+            ),
+            _ripple(_grid),
+            optika.apertures.CircularAperture(
+                radius=40.5 * u.mm,
+                transformation=na.transformations.Cartesian3dRotationY(_tilt),
+            ),
+            np.where(
+                _inside(_grid.x * np.cos(_tilt) - _height_sphere * np.sin(_tilt)),
+                _ripple(_grid),
+                np.nan,
+            ),
         ),
         (
             _sag_flat,
@@ -407,8 +461,9 @@ def test_slope_error(
     :func:`optika.metrology.slope_error`, without the pixels which were not
     measured or are outside the aperture, if one is given.
     The aperture is in surface coordinates, so the transformation of a sag
-    profile moves it across the map, and a tilt carries each pixel there from
-    :math:`z = 0` in the coordinates of the sag profile.
+    profile moves it across the map, and each pixel is placed on the base
+    profile, so that a tilt of the sag profile or of the aperture also moves
+    the pixel by the height of the base profile there.
     """
     sag = dataclasses.replace(
         sag,
@@ -434,28 +489,53 @@ def test_slope_error(
 
 
 @pytest.mark.parametrize(
-    argnames="sag,message",
+    argnames="sag,aperture,error,match",
     argvalues=[
         (
             dataclasses.replace(_sag_none, parameters_slope_error=_parameters),
+            None,
+            ValueError,
             "`figure_error`",
         ),
-        (_sag_flat, "`parameters_slope_error`"),
+        (_sag_flat, None, ValueError, "`parameters_slope_error`"),
         (
             dataclasses.replace(
                 _sag_flat, axis=None, parameters_slope_error=_parameters
             ),
+            None,
+            ValueError,
             "`axis`",
+        ),
+        (
+            dataclasses.replace(
+                _sag_flat,
+                figure_error=na.FunctionArray(_grid.x, _height(_grid)),
+                parameters_slope_error=_parameters,
+            ),
+            _aperture,
+            TypeError,
+            "Cartesian2dVectorArray",
+        ),
+        (
+            dataclasses.replace(_sag_flat, parameters_slope_error=_parameters),
+            optika.apertures.CircularAperture(radius=1 * u.mm),
+            ValueError,
+            "no slope",
         ),
     ],
 )
 def test_slope_error_invalid(
     sag: optika.sags.FigureErrorSag,
-    message: str,
+    aperture: None | optika.apertures.AbstractAperture,
+    error: type[Exception],
+    match: str,
 ) -> None:
     """
-    The slope error needs a map, the step and the kernel, and the axes along
-    which the map is sampled.
+    The slope error needs a map, whose inputs are the positions of its pixels
+    as vectors, the step and the kernel, and the axes along which the map is
+    sampled, and a mistake in the map is caught before it is cut to the
+    aperture.
+    An aperture which leaves no slope to take is an error too.
     """
-    with pytest.raises(ValueError, match=message):
-        sag.slope_error()
+    with pytest.raises(error, match=match):
+        sag.slope_error(aperture)
