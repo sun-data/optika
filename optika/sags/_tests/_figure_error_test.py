@@ -79,6 +79,19 @@ _sag_uncertain = optika.sags.FigureErrorSag(
 )
 """An uncertain map on top of a fit of its low-order terms."""
 
+_unmeasured = (np.abs(_grid.x) < 10 * u.mm) & (np.abs(_grid.y) < 7 * u.mm)
+"""A block of pixels in the middle of the maps which were not measured."""
+
+_sag_unmeasured = optika.sags.FigureErrorSag(
+    base=optika.sags.ParabolicSag(focal_length=1000 * u.mm),
+    figure_error=na.FunctionArray(
+        inputs=_grid,
+        outputs=np.where(_unmeasured, np.nan, _height(_grid)),
+    ),
+    axis=("map_x", "map_y"),
+)
+"""A map with pixels which were not measured."""
+
 _sag_none = optika.sags.FigureErrorSag(
     base=optika.sags.SphericalSag(radius=500 * u.mm),
 )
@@ -110,6 +123,7 @@ def _base(
         _sag_channel,
         _sag_grids,
         _sag_uncertain,
+        _sag_unmeasured,
         _sag_none,
     ],
 )
@@ -269,3 +283,259 @@ def test_shape_figure_error(
     axes of the sag profile, but its other axes are.
     """
     assert sag.shape == shape
+
+
+def test_axis_inputs_invalid() -> None:
+    """
+    The inputs of a map must be the positions of its pixels, as vectors, and a
+    map whose inputs are not fails as soon as the shape of the sag profile is
+    needed, like a mistake in its axes.
+    """
+    sag = dataclasses.replace(
+        _sag_flat,
+        figure_error=na.FunctionArray(_grid.x, _height(_grid)),
+    )
+    with pytest.raises(TypeError, match="Cartesian2dVectorArray"):
+        sag.shape
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test__call__unmeasured(value: float) -> None:
+    """
+    The figure error is taken to be zero at the pixels which were not
+    measured, which are NaN or infinite, so the surface is the one whose map
+    is zero there.
+    """
+    sag = dataclasses.replace(
+        _sag_unmeasured,
+        figure_error=na.FunctionArray(
+            inputs=_grid,
+            outputs=np.where(_unmeasured, value * u.nm, _height(_grid)),
+        ),
+    )
+    sag_zero = dataclasses.replace(
+        sag,
+        figure_error=na.FunctionArray(
+            inputs=_grid,
+            outputs=np.where(_unmeasured, 0 * u.nm, _height(_grid)),
+        ),
+    )
+
+    position = na.Cartesian3dVectorArray(
+        x=na.random.uniform(-20, 20, shape_random=dict(point=101), seed=0) * u.mm,
+        y=na.random.uniform(-20, 20, shape_random=dict(point=101), seed=1) * u.mm,
+        z=0 * u.mm,
+    )
+
+    result = sag(position)
+
+    assert np.all(np.isfinite(result))
+    assert np.all(result == sag_zero(position))
+
+
+def _ripple(
+    position: na.AbstractCartesian2dVectorArray,
+) -> na.AbstractScalar:
+    """
+    A figure error whose slope varies across the map, and is not symmetric
+    about either axis, so that its slope error depends on which pixels are
+    counted.
+
+    Parameters
+    ----------
+    position
+        The position at which to evaluate the figure error.
+    """
+    x = position.x / (7 * u.mm) * u.rad + 1 * u.rad
+    y = position.y / (11 * u.mm) * u.rad + 2 * u.rad
+    return 10 * u.nm * np.sin(x) * np.cos(y)
+
+
+_ripple_unmeasured = np.where(_unmeasured, np.nan, _ripple(_grid))
+"""The ripple, with pixels which were not measured."""
+
+_parameters = optika.metrology.SlopeErrorParameters(
+    step_size=8 * u.mm,
+    kernel_size=4 * u.mm,
+)
+"""The step and the kernel of the slope error of the maps."""
+
+_aperture = optika.apertures.CircularAperture(radius=40.5 * u.mm)
+"""A clear aperture which leaves out the pixels near the edges of the maps."""
+
+_tilt = 20 * u.deg
+"""The angle by which a sag profile, or an aperture, is tilted about the :math:`y` axis."""
+
+_sphere = optika.sags.SphericalSag(radius=200 * u.mm)
+"""
+A base profile curved enough that, on a tilted sag profile or behind a tilted
+aperture, its height moves some of the pixels of the maps across the edge of
+the aperture.
+"""
+
+_height_sphere = _sphere(na.Cartesian3dVectorArray(_grid.x, _grid.y, 0 * u.mm))
+"""The height of :obj:`_sphere` at each pixel of the maps."""
+
+
+def _inside(
+    x: na.AbstractScalar,
+) -> na.AbstractScalar:
+    """
+    Whether each pixel of the maps is inside :obj:`_aperture`, worked out
+    directly instead of with the aperture.
+
+    Parameters
+    ----------
+    x
+        The :math:`x` coordinate of each pixel in the coordinates of the
+        aperture.
+        Its :math:`y` coordinate is the same as in the coordinates of the
+        sag profile.
+    """
+    return np.sqrt(np.square(x) + np.square(_grid.y)) <= 40.5 * u.mm
+
+
+@pytest.mark.parametrize(
+    argnames="sag,height,aperture,height_expected",
+    argvalues=[
+        (_sag_flat, _ripple(_grid), None, _ripple(_grid)),
+        (_sag_parabolic, _ripple_unmeasured, None, _ripple_unmeasured),
+        (
+            _sag_parabolic,
+            _ripple_unmeasured,
+            _aperture,
+            np.where(_inside(_grid.x), _ripple_unmeasured, np.nan),
+        ),
+        (
+            _sag_channel,
+            _channel * _ripple(_grid),
+            _aperture,
+            np.where(_inside(_grid.x + 5 * u.mm), _channel * _ripple(_grid), np.nan),
+        ),
+        (
+            optika.sags.FigureErrorSag(
+                base=_sphere,
+                axis=("map_x", "map_y"),
+                transformation=na.transformations.Cartesian3dRotationY(_tilt),
+            ),
+            _ripple(_grid),
+            _aperture,
+            np.where(
+                _inside(_grid.x * np.cos(_tilt) + _height_sphere * np.sin(_tilt)),
+                _ripple(_grid),
+                np.nan,
+            ),
+        ),
+        (
+            optika.sags.FigureErrorSag(
+                base=_sphere,
+                axis=("map_x", "map_y"),
+            ),
+            _ripple(_grid),
+            optika.apertures.CircularAperture(
+                radius=40.5 * u.mm,
+                transformation=na.transformations.Cartesian3dRotationY(_tilt),
+            ),
+            np.where(
+                _inside(_grid.x * np.cos(_tilt) - _height_sphere * np.sin(_tilt)),
+                _ripple(_grid),
+                np.nan,
+            ),
+        ),
+        (
+            _sag_flat,
+            _ripple(_grid) + _offset,
+            _aperture,
+            np.where(_inside(_grid.x), _ripple(_grid) + _offset, np.nan),
+        ),
+    ],
+)
+def test_slope_error(
+    sag: optika.sags.FigureErrorSag,
+    height: na.AbstractScalar,
+    aperture: None | optika.apertures.AbstractAperture,
+    height_expected: na.AbstractScalar,
+) -> None:
+    """
+    The slope error of a sag profile is the one of its map, worked out by
+    :func:`optika.metrology.slope_error`, without the pixels which were not
+    measured or are outside the aperture, if one is given.
+    The aperture is in surface coordinates, so the transformation of a sag
+    profile moves it across the map, and each pixel is placed on the base
+    profile, so that a tilt of the sag profile or of the aperture also moves
+    the pixel by the height of the base profile there.
+    """
+    sag = dataclasses.replace(
+        sag,
+        figure_error=na.FunctionArray(_grid, height),
+        parameters_slope_error=_parameters,
+    )
+
+    result = sag.slope_error(aperture)
+
+    expected = optika.metrology.slope_error(
+        figure_error=na.FunctionArray(_grid, height_expected),
+        parameters=_parameters,
+        axis=("map_x", "map_y"),
+    )
+
+    assert result.shape == expected.shape
+    if isinstance(expected, na.UncertainScalarArray):
+        assert isinstance(result, na.UncertainScalarArray)
+        assert np.all(result.nominal == expected.nominal)
+        assert np.all(result.distribution == expected.distribution)
+    else:
+        assert np.all(result == expected)
+
+
+@pytest.mark.parametrize(
+    argnames="sag,aperture,error,match",
+    argvalues=[
+        (
+            dataclasses.replace(_sag_none, parameters_slope_error=_parameters),
+            None,
+            ValueError,
+            "`figure_error`",
+        ),
+        (_sag_flat, None, ValueError, "`parameters_slope_error`"),
+        (
+            dataclasses.replace(
+                _sag_flat, axis=None, parameters_slope_error=_parameters
+            ),
+            None,
+            ValueError,
+            "`axis`",
+        ),
+        (
+            dataclasses.replace(
+                _sag_flat,
+                figure_error=na.FunctionArray(_grid.x, _height(_grid)),
+                parameters_slope_error=_parameters,
+            ),
+            _aperture,
+            TypeError,
+            "Cartesian2dVectorArray",
+        ),
+        (
+            dataclasses.replace(_sag_flat, parameters_slope_error=_parameters),
+            optika.apertures.CircularAperture(radius=1 * u.mm),
+            ValueError,
+            "no slope",
+        ),
+    ],
+)
+def test_slope_error_invalid(
+    sag: optika.sags.FigureErrorSag,
+    aperture: None | optika.apertures.AbstractAperture,
+    error: type[Exception],
+    match: str,
+) -> None:
+    """
+    The slope error needs a map, whose inputs are the positions of its pixels
+    as vectors, the step and the kernel, and the axes along which the map is
+    sampled, and a mistake in the map is caught before it is cut to the
+    aperture.
+    An aperture which leaves no slope to take is an error too.
+    """
+    with pytest.raises(error, match=match):
+        sag.slope_error(aperture)
