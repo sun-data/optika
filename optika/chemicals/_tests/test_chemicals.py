@@ -99,6 +99,7 @@ class AbstractTestAbstractChemical(
             table=table,
         )
         for formula, table in [
+            ("Sc", "larruquert"),
             ("Zr", "lynch"),
             ("Zr", "palm"),
             ("Zr", "querry"),
@@ -133,6 +134,29 @@ def test_zr_lynch(
     wavelength = energy.to(u.AA, equivalencies=u.spectral())
     n = optika.chemicals.Chemical("Zr", table="lynch").n(wavelength)
     assert np.isclose(n.ndarray**2, epsilon, atol=1e-3)
+
+
+@pytest.mark.parametrize(
+    argnames="wavelength,index",
+    argvalues=[
+        (12.39842 * u.AA, 0.99947778 + 0.0001487j),
+        (486.2125 * u.AA, 1.0165236 + 0.02671593j),
+        (495.93675 * u.AA, 1.0052265 + 0.02799917j),
+        (1897.81921 * u.AA, 1.1198012 + 1.154793j),
+    ],
+)
+def test_sc_larruquert(
+    wavelength: u.Quantity,
+    index: complex,
+):
+    """
+    The table of Sc from Larruquert et al. (2004) and Fernandez-Perea et al.
+    (2006) gives the rows of the refractiveindex.info database, including
+    those between 477 and 521 angstroms, where the table of
+    Uspenskii et al. (2003) has no data.
+    """
+    n = optika.chemicals.Chemical("Sc", table="larruquert").n(wavelength)
+    assert np.isclose(n.ndarray, index)
 
 
 @pytest.mark.parametrize(
