@@ -609,15 +609,6 @@ def _multilayer_efficiency(
         p=1 / n_substrate,
     )
 
-    direction_ambient = optika.vectors.PolarizationVectorArray(
-        s=direction_ambient,
-        p=np.conj(direction_ambient),
-    )
-    direction_substrate = optika.vectors.PolarizationVectorArray(
-        s=direction_substrate,
-        p=np.conj(direction_substrate),
-    )
-
     q_ambient = direction_ambient * impedance_ambient
     q_substrate = direction_substrate * impedance_substrate
 
@@ -848,27 +839,16 @@ def _layer_absorbance(
     antirotation_right = na.Cartesian3dYRotationMatrixArray(-angle_right)
     antirotation_left = na.Cartesian3dYRotationMatrixArray(-angle_left)
 
-    a_right = a_right * np.where(
-        polarized_s,
-        na.Cartesian3dVectorArray(0, 1, 0),
-        rotation_right @ na.Cartesian3dVectorArray(1, 0, 0),
-    )
-    a_left = a_left * np.where(
-        polarized_s,
-        na.Cartesian3dVectorArray(0, 1, 0),
-        rotation_left @ na.Cartesian3dVectorArray(1, 0, 0),
-    )
+    # The amplitudes are those of the field tangent to the interfaces and
+    # perpendicular to the plane of incidence: the electric field for
+    # s-polarized light and the magnetic field for p-polarized light,
+    # since the transfer matrices use q = n cos(theta) and q = cos(theta) / n.
+    # Either way that field points along y.
+    a_right = a_right * na.Cartesian3dVectorArray(0, 1, 0)
+    a_left = a_left * na.Cartesian3dVectorArray(0, 1, 0)
 
-    b_right = b_right * np.where(
-        polarized_s,
-        na.Cartesian3dVectorArray(0, 1, 0),
-        antirotation_right @ na.Cartesian3dVectorArray(1, 0, 0),
-    )
-    b_left = b_left * np.where(
-        polarized_s,
-        na.Cartesian3dVectorArray(0, 1, 0),
-        antirotation_left @ na.Cartesian3dVectorArray(1, 0, 0),
-    )
+    b_right = b_right * na.Cartesian3dVectorArray(0, 1, 0)
+    b_left = b_left * na.Cartesian3dVectorArray(0, 1, 0)
 
     impedance_ambient = np.where(
         polarized_s,

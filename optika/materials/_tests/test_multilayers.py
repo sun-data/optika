@@ -176,6 +176,151 @@ def test_layer_absorbance(
     assert np.allclose(result, result_expected)
 
 
+@pytest.mark.parametrize("formula", ["Si", "Au", "SiO2"])
+@pytest.mark.parametrize("angle", [0, 20, 45, 70, 85] * u.deg)
+def test_multilayer_efficiency_fresnel(
+    formula: str,
+    angle: u.Quantity,
+):
+    """
+    The reflectivity and transmissivity of a bare, absorbing substrate
+    follow the Fresnel equations for both polarizations, at any angle
+    of incidence.
+    """
+    wavelength = na.linspace(100, 500, axis="wavelength", num=5) * u.AA
+    substrate = Layer(formula)
+
+    reflectivity, transmissivity = optika.materials.multilayer_efficiency(
+        wavelength=wavelength,
+        direction=np.cos(angle),
+        substrate=substrate,
+    )
+
+    n = substrate.n(wavelength).ndarray
+    cos_i = np.cos(angle).value
+    n_cos_t = np.sqrt(np.square(n) - np.square(np.sin(angle).value))
+
+    r_s = (cos_i - n_cos_t) / (cos_i + n_cos_t)
+    t_s = 2 * cos_i / (cos_i + n_cos_t)
+    r_p = (np.square(n) * cos_i - n_cos_t) / (np.square(n) * cos_i + n_cos_t)
+    t_p = 2 * n * cos_i / (np.square(n) * cos_i + n_cos_t)
+
+    flux_s = np.real(n_cos_t) / cos_i
+    flux_p = np.real(np.conj(n) * n_cos_t / n) / cos_i
+
+    assert np.allclose(reflectivity.s.ndarray, np.square(np.abs(r_s)))
+    assert np.allclose(reflectivity.p.ndarray, np.square(np.abs(r_p)))
+    assert np.allclose(transmissivity.s.ndarray, np.square(np.abs(t_s)) * flux_s)
+    assert np.allclose(transmissivity.p.ndarray, np.square(np.abs(t_p)) * flux_p)
+
+
+def _absorbance_field_integral(
+    wavelength: float,
+    angle: float,
+    n: list[complex],
+    thickness: list[float],
+    n_substrate: complex,
+    polarized_s: bool,
+) -> np.ndarray:
+    r"""
+    The fraction of the incident power absorbed in each layer of a stack in
+    vacuum, :math:`k_0 \int \text{Im}(\epsilon) |E|^2 dz / \cos \theta`,
+    with the electric field found by matching the tangential fields at each
+    interface, independently of :mod:`optika.materials`.
+
+    Parameters
+    ----------
+    wavelength
+        The vacuum wavelength of the incident light.
+    angle
+        The angle of incidence in radians.
+    n
+        The complex index of refraction of each layer, from the top down.
+    thickness
+        The thickness of each layer, in the same units as `wavelength`.
+    n_substrate
+        The complex index of refraction of the substrate.
+    polarized_s
+        If :obj:`True`, the light is :math:`s`-polarized,
+        otherwise it is :math:`p`-polarized.
+    """
+    k0 = 2 * np.pi / wavelength
+    media = np.array([1, *n, n_substrate], dtype=complex)
+    d = np.array([0, *thickness, 0], dtype=float)
+    kz = k0 * np.sqrt(np.square(media) - np.square(np.sin(angle)))
+    cos = kz / (k0 * media)
+    sin = np.sin(angle) / media
+
+    def tangential(j: int) -> np.ndarray:
+        """Map forward and backward amplitudes of E to the tangential E and H."""
+        if polarized_s:
+            return np.array([[1, 1], [kz[j], -kz[j]]])
+        return np.array([[cos[j], cos[j]], [media[j], -media[j]]])
+
+    amplitude = [np.array([1, 0], dtype=complex)]
+    for j in reversed(range(len(media) - 1)):
+        phase = np.diag(np.exp([1j * kz[j] * d[j], -1j * kz[j] * d[j]]))
+        a = np.linalg.solve(tangential(j) @ phase, tangential(j + 1) @ amplitude[0])
+        amplitude.insert(0, a)
+    amplitude = [a / amplitude[0][0] for a in amplitude]
+
+    result = []
+    for j in range(1, len(media) - 1):
+        z = np.linspace(0, d[j], num=4001)
+        forward = amplitude[j][0] * np.exp(1j * kz[j] * z)
+        backward = amplitude[j][1] * np.exp(-1j * kz[j] * z)
+        if polarized_s:
+            e2 = np.square(np.abs(forward + backward))
+        else:
+            e2 = np.square(np.abs(cos[j] * (forward + backward)))
+            e2 = e2 + np.square(np.abs(sin[j] * (backward - forward)))
+        absorbed = k0 * np.imag(np.square(media[j])) * np.trapezoid(e2, z)
+        result.append(absorbed / np.cos(angle))
+    return np.array(result)
+
+
+@pytest.mark.parametrize("angle", [0, 45, 70] * u.deg)
+def test_layer_absorbance_field_integral(
+    angle: u.Quantity,
+):
+    """
+    The absorbance of each layer of a stack of absorbing layers matches the
+    power absorbed by the electric field inside it, for both polarizations.
+    """
+    wavelength = 300 * u.AA
+    layers = [
+        Layer("SiC", thickness=10 * u.nm),
+        Layer("Cr", thickness=5 * u.nm),
+        Layer("Sc", thickness=20 * u.nm),
+    ]
+    substrate = Layer("SiO2")
+
+    for polarized_s, component in [(True, "s"), (False, "p")]:
+        result = [
+            getattr(
+                optika.materials.layer_absorbance(
+                    index=index,
+                    wavelength=wavelength,
+                    direction=np.cos(angle),
+                    layers=layers,
+                    substrate=substrate,
+                ),
+                component,
+            )
+            for index in range(len(layers))
+        ]
+        result = [na.as_named_array(r).ndarray for r in result]
+        expected = _absorbance_field_integral(
+            wavelength=wavelength.to_value(u.AA),
+            angle=angle.to_value(u.rad),
+            n=[complex(layer.n(wavelength).ndarray) for layer in layers],
+            thickness=[layer.thickness.to_value(u.AA) for layer in layers],
+            n_substrate=complex(substrate.n(wavelength).ndarray),
+            polarized_s=polarized_s,
+        )
+        assert np.allclose(np.real(result), expected, atol=1e-6)
+
+
 def _layer_absorbance_first(
     **kwargs,
 ) -> optika.vectors.PolarizationVectorArray:
