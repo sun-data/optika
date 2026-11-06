@@ -9,7 +9,10 @@
 ;  scattering factors, are scaled by 2.28 / 2.19 to the density that
 ;  Rodriguez-de Marcos et al. (2016) measured for their films and used
 ;  below 30 nm in their Kramers-Kronig analysis. Their k equals it to four
-;  digits up to 355 A, so the two join without a step.
+;  digits up to 355 A, so k joins their table without a step.
+;  n has a step instead: at 300 A, 1 - n of their
+;  Kramers-Kronig analysis is about 4% larger than that of the atomic
+;  scattering factors, so n falls by 0.004 across the join.
 ;
 ;    Lambda (A)            n            k
 ;-----------------------------------------

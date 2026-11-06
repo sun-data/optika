@@ -104,6 +104,7 @@ class AbstractTestAbstractChemical(
             ("Zr", "palm"),
             ("Zr", "querry"),
             ("ZrO2", "synowicki"),
+            ("SiO2", "llnl_cxro_rodriguez"),
         ]
     ]
     + [
@@ -203,7 +204,7 @@ def test_zr_default(
         ("Sc", False, dict(table="larruquert"), 1500 * u.AA),
         ("Si", True, dict(is_amorphous=True, table="llnl_cxro"), 100 * u.AA),
         ("Si", True, dict(is_amorphous=True, table="palik"), 500 * u.nm),
-        ("SiO2", True, dict(is_amorphous=True, table="llnl_cxro"), 100 * u.AA),
+        ("SiO2", True, dict(table="llnl_cxro_rodriguez"), 100 * u.AA),
         ("SiO2", True, dict(table="rodriguez"), 465.2 * u.AA),
         ("SiO2", True, dict(is_amorphous=True, table="palik"), 1216 * u.AA),
         ("SiO2", True, dict(is_amorphous=True, table="palik"), 500 * u.nm),
@@ -243,9 +244,55 @@ def test_a_si_scaled(
 
 
 @pytest.mark.parametrize(
+    argnames="kwargs",
+    argvalues=[
+        dict(is_amorphous=True),
+        dict(table="llnl_cxro_rodriguez"),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[100 * u.AA, 250 * u.AA, 297.3 * u.AA],
+)
+def test_sio2_scaled(
+    kwargs: dict,
+    wavelength: u.Quantity,
+):
+    """
+    Below 300 angstroms the default table of amorphous SiO2 and the table of
+    the oxide of silicon sensors are the CXRO table of amorphous SiO2 with
+    1 - n and k scaled from 2.19 to 2.28 g/cm3, the density of the films of
+    Rodriguez-de Marcos et al. (2016) whose table follows. Until this was so,
+    the table of the oxide of silicon sensors held the CXRO table of
+    crystalline SiO2, at 2.65 g/cm3.
+    """
+    cxro = optika.chemicals.Chemical("SiO2", is_amorphous=True, table="llnl_cxro")
+    expected = 1 - (1 - cxro.n(wavelength).ndarray) * 2.28 / 2.19
+    result = optika.chemicals.Chemical("SiO2", **kwargs).n(wavelength)
+    assert np.isclose(result.ndarray, expected, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[299.714 * u.AA, 304 * u.AA, 1216 * u.AA, 1 * u.um],
+)
+def test_sio2_llnl_cxro_rodriguez(
+    wavelength: u.Quantity,
+):
+    """
+    From 300 angstroms up, the table of the oxide of silicon sensors is the
+    table of Rodriguez-de Marcos et al. (2016).
+    """
+    result = optika.chemicals.Chemical("SiO2", table="llnl_cxro_rodriguez")
+    expected = optika.chemicals.Chemical("SiO2", table="rodriguez")
+    assert result.n(wavelength).ndarray == expected.n(wavelength).ndarray
+
+
+@pytest.mark.parametrize(
     argnames="formula,wavelength_below,wavelength_above",
     argvalues=[
         ("Si", 423.15444 * u.AA, 430.038 * u.AA),
+        ("SiO2", 297.30366 * u.AA, 299.714 * u.AA),
         ("SiO2", 549.902 * u.AA, 550.044 * u.AA),
     ],
 )
@@ -255,9 +302,11 @@ def test_amorphous_default_joins(
     wavelength_above: u.Quantity,
 ):
     """
-    The default tables of amorphous Si and amorphous SiO2 have no step where
-    their sources meet in the EUV. Until the tables were rebuilt, k of
-    amorphous Si rose by a factor of 3.9 from 423 to 428 angstroms.
+    The default tables of amorphous Si and amorphous SiO2 have no step in k
+    where their sources meet in the EUV. Until the tables were rebuilt, k of
+    amorphous Si rose by a factor of 3.9 from 423 to 428 angstroms, and k of
+    amorphous SiO2 rose by 6% from 297 to 300 angstroms, where its density
+    changed from 2.19 to 2.28 g/cm3.
     """
     chemical = optika.chemicals.Chemical(formula, is_amorphous=True)
     below = chemical.n(wavelength_below).ndarray

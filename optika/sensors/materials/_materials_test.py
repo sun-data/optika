@@ -1013,4 +1013,7 @@ def test_fit_eqe_recovers_parameters():
     )
     assert np.isclose(result.thickness_oxide, expected.thickness_oxide, rtol=0.05)
     assert np.isclose(result.thickness_implant, expected.thickness_implant, rtol=0.05)
+    assert np.isclose(
+        result.roughness_substrate, expected.roughness_substrate, rtol=0.05
+    )
     assert np.isclose(result.cce_backsurface, expected.cce_backsurface, rtol=0.05)
