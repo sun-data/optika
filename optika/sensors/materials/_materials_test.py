@@ -985,3 +985,32 @@ class TestBackIlluminatedSiliconSensorMaterial(
         assert np.all(result.outputs >= 0)
         assert np.all(result.outputs <= 1.1)
         assert np.all(result.inputs >= 0 * u.nm)
+
+
+def test_fit_eqe_recovers_parameters():
+    """
+    :meth:`~optika.sensors.materials.BackIlluminatedSiliconSensorMaterial.fit_eqe`
+    fits the same model that the fitted sensor evaluates, so it recovers the
+    parameters of a sensor from that sensor's own effective quantum
+    efficiency.
+    """
+    expected = optika.sensors.materials.BackIlluminatedSiliconSensorMaterial(
+        thickness_oxide=30 * u.AA,
+        thickness_implant=1500 * u.AA,
+        thickness_substrate=14 * u.um,
+        roughness_substrate=3 * u.nm,
+        cce_backsurface=0.4,
+    )
+    wavelength = na.geomspace(10, 4000, axis="wavelength", num=61) * u.AA
+    eqe = na.FunctionArray(
+        inputs=wavelength,
+        outputs=expected.quantum_efficiency_effective(wavelength),
+    )
+    result = optika.sensors.materials.BackIlluminatedSiliconSensorMaterial.fit_eqe(
+        thickness_substrate=expected.thickness_substrate,
+        depletion=optika.sensors.materials.depletion.e2v_ccd64_thick(),
+        eqe_measured=eqe,
+    )
+    assert np.isclose(result.thickness_oxide, expected.thickness_oxide, rtol=0.05)
+    assert np.isclose(result.thickness_implant, expected.thickness_implant, rtol=0.05)
+    assert np.isclose(result.cce_backsurface, expected.cce_backsurface, rtol=0.05)

@@ -2686,6 +2686,9 @@ class BackIlluminatedSiliconSensorMaterial(
         """
         Fit the parameters of this sensor to a given effective quantum efficiency.
 
+        The fit evaluates :meth:`quantum_efficiency_effective` of the sensor
+        itself, so it uses the same oxide and substrate as the fitted sensor.
+
         Parameters
         ---------
         temperature
@@ -2695,33 +2698,47 @@ class BackIlluminatedSiliconSensorMaterial(
         depletion
             A model of this sensor's depletion region.
         eqe_measured
-            The measured quantum efficiency that will be fit by the function
-            :func:`optika.sensors.quantum_efficiency_effective`.
+            The measured quantum efficiency that will be fit by
+            :meth:`quantum_efficiency_effective` at normal incidence.
         """
         unit_thickness_oxide = u.AA
         unit_thickness_implant = u.AA
         unit_roughness = u.nm
         unit_cce_backsurface = u.dimensionless_unscaled
 
-        roughness_oxide = 0 * unit_roughness
+        material = cls(
+            temperature=temperature,
+            thickness_substrate=thickness_substrate,
+            roughness_oxide=0 * unit_roughness,
+            depletion=depletion,
+            eqe_measured=eqe_measured,
+        )
 
-        def eqe_rms_difference(x: tuple[float, float, float, float]):
+        def eqe_rms_difference(x: tuple[float, float, float, float]) -> float:
+            """
+            The RMS difference between the measured effective quantum
+            efficiency and that of the sensor with the given parameters.
+
+            Parameters
+            ----------
+            x
+                The thickness of the oxide and of the implant layer, the
+                roughness of the substrate, and the charge-collection
+                efficiency of the back surface.
+            """
             (
                 thickness_oxide,
                 thickness_implant,
                 roughness_substrate,
                 cce_backsurface,
             ) = x
-            qe_fit = quantum_efficiency_effective(
-                wavelength=eqe_measured.inputs,
-                direction=1,
+            qe_fit = dataclasses.replace(
+                material,
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
-                thickness_substrate=thickness_substrate,
-                roughness_oxide=0 * unit_roughness,
                 roughness_substrate=roughness_substrate << unit_roughness,
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
-            )
+            ).quantum_efficiency_effective(eqe_measured.inputs)
 
             return np.sqrt(np.mean(np.square(eqe_measured.outputs - qe_fit))).ndarray
 
@@ -2759,14 +2776,10 @@ class BackIlluminatedSiliconSensorMaterial(
         roughness_substrate = roughness_substrate << unit_roughness
         cce_backsurface = cce_backsurface << unit_cce_backsurface
 
-        return cls(
-            temperature=temperature,
+        return dataclasses.replace(
+            material,
             thickness_oxide=thickness_oxide,
             thickness_implant=thickness_implant,
-            thickness_substrate=thickness_substrate,
-            roughness_oxide=roughness_oxide,
             roughness_substrate=roughness_substrate,
             cce_backsurface=cce_backsurface,
-            depletion=depletion,
-            eqe_measured=eqe_measured,
         )
