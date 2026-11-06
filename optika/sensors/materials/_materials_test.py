@@ -1,5 +1,6 @@
 import dataclasses
 import pytest
+import scipy.optimize
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -1017,3 +1018,36 @@ def test_fit_eqe_recovers_parameters():
         result.roughness_substrate, expected.roughness_substrate, rtol=0.05
     )
     assert np.isclose(result.cce_backsurface, expected.cce_backsurface, rtol=0.05)
+
+
+def test_fit_eqe_not_converged(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    :meth:`~optika.sensors.materials.BackIlluminatedSiliconSensorMaterial.fit_eqe`
+    raises an error, rather than returning parameters that were not fit, when
+    the fit does not converge.
+    """
+    minimize = scipy.optimize.minimize
+
+    def minimize_one_iteration(
+        *args: object,
+        **kwargs: object,
+    ) -> scipy.optimize.OptimizeResult:
+        """Stop the fit after one iteration."""
+        return minimize(*args, **kwargs, options=dict(maxiter=1))
+
+    monkeypatch.setattr(scipy.optimize, "minimize", minimize_one_iteration)
+
+    sensor = optika.sensors.materials.BackIlluminatedSiliconSensorMaterial()
+    wavelength = na.geomspace(10, 4000, axis="wavelength", num=11) * u.AA
+    eqe = na.FunctionArray(
+        inputs=wavelength,
+        outputs=sensor.quantum_efficiency_effective(wavelength),
+    )
+    with pytest.raises(RuntimeError, match="did not converge"):
+        optika.sensors.materials.BackIlluminatedSiliconSensorMaterial.fit_eqe(
+            thickness_substrate=sensor.thickness_substrate,
+            depletion=optika.sensors.materials.depletion.e2v_ccd64_thick(),
+            eqe_measured=eqe,
+        )
