@@ -105,6 +105,14 @@ class AbstractTestAbstractChemical(
             ("Zr", "querry"),
             ("ZrO2", "synowicki"),
         ]
+    ]
+    + [
+        optika.chemicals.Chemical(
+            formula="SiO2",
+            is_amorphous=True,
+            table=table,
+        )
+        for table in ["franta", "franta300"]
     ],
 )
 class TestChemical(
@@ -184,3 +192,75 @@ def test_zr_default(
     result = optika.chemicals.Chemical(formula).n(wavelength)
     expected = optika.chemicals.Chemical(formula, table=table).n(wavelength)
     assert np.isclose(result.ndarray, expected.ndarray)
+
+
+@pytest.mark.parametrize(
+    argnames="formula,is_amorphous,expected,wavelength",
+    argvalues=[
+        ("Sc", False, dict(table="llnl_cxro"), 10 * u.AA),
+        ("Sc", False, dict(table="larruquert"), 100 * u.AA),
+        ("Sc", False, dict(table="larruquert"), 499.4 * u.AA),
+        ("Sc", False, dict(table="larruquert"), 1500 * u.AA),
+        ("Si", True, dict(is_amorphous=True, table="llnl_cxro"), 100 * u.AA),
+        ("Si", True, dict(is_amorphous=True, table="palik"), 500 * u.nm),
+        ("SiO2", True, dict(is_amorphous=True, table="llnl_cxro"), 100 * u.AA),
+        ("SiO2", True, dict(table="rodriguez"), 465.2 * u.AA),
+        ("SiO2", True, dict(is_amorphous=True, table="palik"), 1216 * u.AA),
+        ("SiO2", True, dict(is_amorphous=True, table="palik"), 500 * u.nm),
+    ],
+)
+def test_default(
+    formula: str,
+    is_amorphous: bool,
+    expected: dict,
+    wavelength: u.Quantity,
+):
+    """
+    The default tables of Sc, amorphous Si and amorphous SiO2 follow each of
+    the tables they are concatenated from, over its range.
+    """
+    result = optika.chemicals.Chemical(formula, is_amorphous=is_amorphous)
+    expected = optika.chemicals.Chemical(formula, **expected)
+    assert np.isclose(result.n(wavelength).ndarray, expected.n(wavelength).ndarray)
+
+
+@pytest.mark.parametrize(
+    argnames="wavelength",
+    argvalues=[469.977 * u.AA, 600.097 * u.AA, 729.294 * u.AA],
+)
+def test_a_si_scaled(
+    wavelength: u.Quantity,
+):
+    """
+    From 430 to 729 angstroms the default table of amorphous Si is crystalline
+    Si with epsilon - 1 scaled to the density of the CXRO table of amorphous
+    Si, 2.189 g/cm3.
+    """
+    n = optika.chemicals.Chemical("Si").n(wavelength).ndarray
+    expected = np.sqrt(1 + 2.189 / 2.33 * (np.square(n) - 1))
+    result = optika.chemicals.Chemical("Si", is_amorphous=True).n(wavelength)
+    assert np.isclose(result.ndarray, expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    argnames="formula,wavelength_below,wavelength_above",
+    argvalues=[
+        ("Si", 423.15444 * u.AA, 430.038 * u.AA),
+        ("SiO2", 549.902 * u.AA, 550.044 * u.AA),
+    ],
+)
+def test_amorphous_default_joins(
+    formula: str,
+    wavelength_below: u.Quantity,
+    wavelength_above: u.Quantity,
+):
+    """
+    The default tables of amorphous Si and amorphous SiO2 have no step where
+    their sources meet in the EUV. Until the tables were rebuilt, k of
+    amorphous Si rose by a factor of 3.9 from 423 to 428 angstroms.
+    """
+    chemical = optika.chemicals.Chemical(formula, is_amorphous=True)
+    below = chemical.n(wavelength_below).ndarray
+    above = chemical.n(wavelength_above).ndarray
+    assert np.isclose(above.real, below.real, rtol=0.02)
+    assert np.isclose(above.imag, below.imag, rtol=0.05)
