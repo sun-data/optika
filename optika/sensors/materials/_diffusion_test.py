@@ -90,3 +90,24 @@ def test_kernel_diffusion(
     assert isinstance(result.outputs, na.AbstractScalar)
     assert isinstance(result.inputs, na.Cartesian2dVectorArray)
     assert np.all(result.outputs.sum(("x", "y")) == 1)
+
+
+@pytest.mark.parametrize(
+    argnames="vmr_flat",
+    argvalues=[1],
+)
+@pytest.mark.parametrize(
+    argnames="mcc",
+    argvalues=[0.5],
+)
+def test_vmr_diffusion(
+    vmr_flat: u.Quantity | na.AbstractScalar,
+    mcc: u.Quantity | na.AbstractScalar,
+):
+    result = optika.sensors.vmr_diffusion(
+        vmr_flat=vmr_flat,
+        mcc=mcc,
+    )
+
+    assert isinstance(na.as_named_array(result), na.AbstractScalar)
+    assert np.all(result < vmr_flat)
