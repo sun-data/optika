@@ -167,6 +167,7 @@ Jupyter notebook examples on how to use :mod:`optika`.
     :maxdepth: 1
 
     tutorials/prime_focus
+    tutorials/fzp_focus
 
 
 Topic Guides
