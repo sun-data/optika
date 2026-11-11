@@ -82,10 +82,34 @@ class AbstractLinearSystem(
 
     @property
     @abc.abstractmethod
-    def field_stop(self) -> optika.apertures.AbstractAperture:
+    def field_stop(
+        self,
+    ) -> (
+        None
+        | optika.apertures.AbstractAperture
+        | optika.radiometry.AbstractFieldStopModel
+    ):
         """
         A model of the field stop which blocks light on the object plane.
+
+        An aperture bounds the same field of view at every wavelength.  A
+        field-stop model can move it with wavelength, as the field of view of
+        a system whose field stop sits behind a dispersive element moves.
         """
+
+    @property
+    def field_stop_(self) -> None | optika.radiometry.AbstractFieldStopModel:
+        """
+        :attr:`field_stop` as a field-stop model, so that an aperture and a
+        model can be evaluated alike.
+
+        An aperture is taken to bound the same field of view at every
+        wavelength.
+        """
+        field_stop = self.field_stop
+        if isinstance(field_stop, optika.apertures.AbstractAperture):
+            return optika.radiometry.ApertureFieldStopModel(aperture=field_stop)
+        return field_stop
 
     @property
     @abc.abstractmethod
@@ -94,6 +118,46 @@ class AbstractLinearSystem(
         A model of the sensor which converts incident light intensity to an
         electrical signal.
         """
+
+    def footprint(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        num: None | int = None,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        The outline of the field stop on the sensor at the given wavelengths.
+
+        The wire of :attr:`field_stop` at each of the given wavelengths,
+        mapped through :attr:`distortion` at that same wavelength: where the
+        edge of the field of view lands, which is the outline of the window
+        each wavelength illuminates.  The field stop
+        :meth:`~optika.systems.SequentialSystem.linearize` carries is the
+        half-light outline of the field of view, so this is where an edge
+        measured in an image sits.  A field stop made of several pieces, along
+        the :attr:`~optika.apertures.AbstractAperture.axis_compound` of its
+        aperture, has an outline for each piece, along that axis.
+
+        Parameters
+        ----------
+        wavelength
+            The wavelengths at which to map the outline.
+        num
+            The total number of points along the outline of the field stop,
+            see :meth:`optika.apertures.AbstractAperture.wire`.
+
+        Raises
+        ------
+        ValueError
+            If this system carries no field stop.
+        """
+        field_stop = self.field_stop_
+        if field_stop is None:
+            raise ValueError("this system carries no field stop to outline")
+        coordinates = na.SpectralPositionalVectorArray(
+            wavelength=wavelength,
+            position=field_stop.wire(wavelength, num=num),
+        )
+        return self.distortion.distort(coordinates).position
 
     @property
     @abc.abstractmethod
@@ -146,6 +210,7 @@ class AbstractLinearSystem(
         coordinates: na.SpectralPositionalVectorArray,
         axis_wavelength: str,
         axis_field: tuple[str, str],
+        device: None | str = None,
     ) -> tuple[na.AbstractScalar, dict[str, int], dict[str, int]]:
         """
         Compute the weights which map the overlap of each pixel on the object
@@ -159,6 +224,10 @@ class AbstractLinearSystem(
             The logical axis corresponding to changing wavelength coordinate.
         axis_field
             The logical axes corresponding to changing field coordinate.
+        device
+            The device on which to build the weights, passed through to
+            :func:`named_arrays.regridding.weights`.
+            If :obj:`None` (the default), the weights are built on the host.
         """
 
         coordinates = coordinates.spectral_positional
@@ -178,14 +247,11 @@ class AbstractLinearSystem(
         else:
             weights_vignetting = 1
 
-        field_stop = self.field_stop
+        # evaluated at each cell's own wavelength, so that a field of view
+        # which moves with wavelength is followed across the scene
+        field_stop = self.field_stop_
         if field_stop is not None:
-            weights_stop = field_stop(
-                position=na.Cartesian3dVectorArray(
-                    x=coordinates_cell.position.x,
-                    y=coordinates_cell.position.y,
-                ),
-            )
+            weights_stop = field_stop(coordinates_cell)
         else:
             weights_stop = 1
 
@@ -204,6 +270,7 @@ class AbstractLinearSystem(
             axis_output=(axis_pixel.x, axis_pixel.y),
             weights_input=weights_input,
             method="conservative",
+            device=device,
         )
 
         return result
@@ -528,6 +595,7 @@ class AbstractLinearSystem(
         integrate: bool = True,
         noise: bool = True,
         uncertainty: bool = False,
+        device: None | str = None,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -567,6 +635,9 @@ class AbstractLinearSystem(
             to the result, as a
             :class:`~named_arrays.NormalUncertainScalarArray`, using the
             sensor's :meth:`~optika.sensors.AbstractImagingSensor.uncertainty`.
+        device
+            The device on which to build and apply the weights, see
+            :meth:`weights`. If :obj:`None` (the default), the host is used.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -597,6 +668,7 @@ class AbstractLinearSystem(
             coordinates=coordinates,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
+            device=device,
         )
 
         return self.image_from_weights(
@@ -850,8 +922,15 @@ class LinearSystem(
     If :obj:`None` (the default), the system will have no vignetting.
     """
 
-    field_stop: None | optika.apertures.AbstractAperture = None
+    field_stop: (
+        None
+        | optika.apertures.AbstractAperture
+        | optika.radiometry.AbstractFieldStopModel
+    ) = None
     """
     A model of the field stop which blocks light on the object plane.
+
+    An aperture bounds the same field of view at every wavelength, and a
+    field-stop model can move it with wavelength.
     If :obj:`None` (the default), the sensor will be the field stop.
     """

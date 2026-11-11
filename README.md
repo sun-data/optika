@@ -6,6 +6,7 @@
 [![Ruff](https://github.com/sun-data/optika/actions/workflows/ruff.yml/badge.svg)](https://github.com/sun-data/optika/actions/workflows/ruff.yml)
 [![Documentation Status](https://readthedocs.org/projects/optika/badge/?version=latest)](https://optika.readthedocs.io/en/latest/?badge=latest)
 [![PyPI version](https://badge.fury.io/py/optika.svg)](https://badge.fury.io/py/optika)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23074621.svg)](https://doi.org/10.5281/zenodo.23074621)
 
 A Python library for simulating optical systems, similar to Zemax.
 
@@ -66,7 +67,7 @@ using `optika`
 Compute the [reflectivity of a multilayer mirror](https://optika.readthedocs.io/en/latest/_autosummary/optika.materials.multilayer_efficiency.html#optika.materials.multilayer_efficiency)
 by specifying the materials and thicknesses of the layers.
 
-![multilayer example](https://optika.readthedocs.io/en/latest/_images/optika.materials.multilayer_efficiency_1_1.png)
+![multilayer example](https://optika.readthedocs.io/en/latest/_images/optika.materials.multilayer_efficiency_1_0.png)
 
 Model the [quantum efficiency of a backilluminated CCD](https://optika.readthedocs.io/en/latest/_autosummary/optika.sensors.quantum_efficiency_effective.html#optika.sensors.quantum_efficiency_effective)
 
@@ -101,6 +102,32 @@ ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
 ax.set_ylabel("transmissivity");
 ```
 ![aluminum filter example](https://optika.readthedocs.io/en/latest/_images/index_0_0.png)
+
+## Citation
+
+If you use optika in your research, please cite it.
+The citation metadata is kept in [`CITATION.cff`](https://github.com/sun-data/optika/blob/main/CITATION.cff),
+which the "Cite this repository" button on GitHub can export as BibTeX or APA.
+
+Every release of optika is archived on Zenodo with its own DOI.
+The concept DOI, [10.5281/zenodo.23074621](https://doi.org/10.5281/zenodo.23074621),
+always resolves to the latest version,
+and the Zenodo page lists the DOI of every version.
+Please include the version of optika that you used,
+which is given by `importlib.metadata.version("optika")`.
+The BibTeX entry below uses the concept DOI.
+To cite a specific version instead,
+replace `doi` with the DOI of that version.
+
+```bibtex
+@software{optika,
+  author = {Smart, Roy T. and Parker, Jacob D. and Kankelborg, Charles C.},
+  title = {optika},
+  version = {X.Y.Z},
+  doi = {10.5281/zenodo.23074621},
+  url = {https://github.com/sun-data/optika},
+}
+```
 
 ## Development
 

@@ -30,6 +30,37 @@ __all__ = [
 ]
 
 
+def _check_direction(
+    direction: float | complex | na.AbstractScalar,
+) -> None:
+    """
+    Raise an error if any of the light strikes the stack from behind.
+
+    The transfer matrices of a stack describe light arriving from the ambient
+    medium, travelling against the surface normal. Given a negative cosine of
+    the angle of incidence they grow through every absorbing layer instead of
+    decaying, and give efficiencies greater than one.
+
+    A :obj:`~numpy.nan`, which a ray that misses its surface carries, passes.
+
+    Parameters
+    ----------
+    direction
+        The component of the incident light's propagation direction in the
+        ambient medium antiparallel to the surface normal.
+    """
+    if not np.all(np.logical_not(np.real(direction) < 0)):
+        raise ValueError(
+            "Some of the light strikes the multilayer stack from behind: the "
+            "component of its propagation direction antiparallel to the "
+            "surface normal, `direction`, is negative. In a raytrace, the "
+            "light must strike the side of the surface its normal points "
+            "toward, which is the -z side of the surface's own coordinates, "
+            "so it must travel toward +z there. Check the orientation of the "
+            "surface."
+        )
+
+
 def multilayer_coefficients(
     wavelength: u.Quantity | na.AbstractScalar,
     direction: float | na.AbstractScalar = 1,
@@ -52,6 +83,8 @@ def multilayer_coefficients(
         The component of the incident light's propagation direction in the
         ambient medium antiparallel to the surface normal.
         Default is to assume normal incidence.
+        Must not be negative, since light with a negative component strikes
+        the stack from behind, which the transfer matrices do not describe.
     n
         The complex index of refraction of the ambient medium.
     layers
@@ -184,6 +217,8 @@ def multilayer_coefficients(
     then the :class:`tuple` :math:`(\vec{r}, \vec{t})` is the quantity returned
     by this function.
     """
+    _check_direction(direction)
+
     direction_ambient = direction
     n_ambient = n
 
@@ -260,6 +295,8 @@ def multilayer_efficiency(
         The component of the incident light's propagation direction in the
         ambient medium antiparallel to the surface normal.
         Default is to assume normal incidence.
+        Must not be negative, since light with a negative component strikes
+        the stack from behind, which the transfer matrices do not describe.
     n
         The complex index of refraction of the ambient medium.
     layers
@@ -502,6 +539,8 @@ def multilayer_efficiency(
     then the :class:`tuple` :math:`(\vec{R}, \vec{T})` is the quantity returned
     by this function.
     """
+    _check_direction(direction)
+
     # the table is built along the axes over which only the direction
     # varies, so the wavelength, the ambient medium and the stack are kept
     shape = na.broadcast_shapes(
@@ -570,15 +609,6 @@ def _multilayer_efficiency(
         p=1 / n_substrate,
     )
 
-    direction_ambient = optika.vectors.PolarizationVectorArray(
-        s=direction_ambient,
-        p=np.conj(direction_ambient),
-    )
-    direction_substrate = optika.vectors.PolarizationVectorArray(
-        s=direction_substrate,
-        p=np.conj(direction_substrate),
-    )
-
     q_ambient = direction_ambient * impedance_ambient
     q_substrate = direction_substrate * impedance_substrate
 
@@ -611,6 +641,8 @@ def layer_absorbance(
         The component of the incident light's propagation direction in the
         ambient medium antiparallel to the surface normal.
         Default is to assume normal incidence.
+        Must not be negative, since light with a negative component strikes
+        the stack from behind, which the transfer matrices do not describe.
     n
         The complex index of refraction of the ambient medium.
     layers
@@ -704,6 +736,8 @@ def layer_absorbance(
         ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
         ax.set_ylabel("incident energy fraction");
     """
+    _check_direction(direction)
+
     # the table is built along the axes over which only the direction
     # varies, so the wavelength, the ambient medium and the stack are kept
     shape = na.broadcast_shapes(
@@ -805,27 +839,16 @@ def _layer_absorbance(
     antirotation_right = na.Cartesian3dYRotationMatrixArray(-angle_right)
     antirotation_left = na.Cartesian3dYRotationMatrixArray(-angle_left)
 
-    a_right = a_right * np.where(
-        polarized_s,
-        na.Cartesian3dVectorArray(0, 1, 0),
-        rotation_right @ na.Cartesian3dVectorArray(1, 0, 0),
-    )
-    a_left = a_left * np.where(
-        polarized_s,
-        na.Cartesian3dVectorArray(0, 1, 0),
-        rotation_left @ na.Cartesian3dVectorArray(1, 0, 0),
-    )
+    # The amplitudes are those of the field tangent to the interfaces and
+    # perpendicular to the plane of incidence: the electric field for
+    # s-polarized light and the magnetic field for p-polarized light,
+    # since the transfer matrices use q = n cos(theta) and q = cos(theta) / n.
+    # Either way that field points along y.
+    a_right = a_right * na.Cartesian3dVectorArray(0, 1, 0)
+    a_left = a_left * na.Cartesian3dVectorArray(0, 1, 0)
 
-    b_right = b_right * np.where(
-        polarized_s,
-        na.Cartesian3dVectorArray(0, 1, 0),
-        antirotation_right @ na.Cartesian3dVectorArray(1, 0, 0),
-    )
-    b_left = b_left * np.where(
-        polarized_s,
-        na.Cartesian3dVectorArray(0, 1, 0),
-        antirotation_left @ na.Cartesian3dVectorArray(1, 0, 0),
-    )
+    b_right = b_right * na.Cartesian3dVectorArray(0, 1, 0)
+    b_left = b_left * na.Cartesian3dVectorArray(0, 1, 0)
 
     impedance_ambient = np.where(
         polarized_s,
@@ -920,7 +943,15 @@ def _interpolate_incidence(
 class AbstractMultilayerMaterial(
     AbstractMaterial,
 ):
-    """A generalized multilayer material."""
+    """
+    A generalized multilayer material.
+
+    The light must strike the stack from the side its surface normal points
+    toward. The normal of a sag points along :math:`-z` of the surface's own
+    coordinates at its vertex, so in a raytrace the light must travel toward
+    :math:`+z` of a surface made of a multilayer, or computing its
+    efficiency raises a :class:`ValueError`.
+    """
 
     @property
     @abc.abstractmethod
@@ -983,7 +1014,7 @@ class AbstractMultilayerMaterial(
         rays: optika.rays.RayVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> tuple[na.ScalarLike, na.ScalarLike]:
-        """
+        r"""
         The reflectivity and transmissivity of this stack for the given rays,
         averaged over polarization state.
 
@@ -994,10 +1025,34 @@ class AbstractMultilayerMaterial(
         though it has already discarded the phase, which a coherent treatment
         needs.
 
+        The stack is evaluated at the effective angle :math:`\theta` of the
+        rays, for which
+
+        .. math::
+
+            \cos \theta = \frac{\cos \alpha + \cos \beta}{2},
+
+        where :math:`\alpha` is the angle of incidence and :math:`\beta` is
+        the angle the rays leave the surface at.
+        A stack on a diffraction grating reflects the diffracted light most
+        efficiently when the change in the component of its wavevector
+        normal to the layers, :math:`k (\cos \alpha + \cos \beta)`,
+        matches the period of the stack, so it then behaves like a mirror at
+        the angle :math:`\theta`.
+        This is the usual approximation for a multilayer-coated grating,
+        and a rigorous treatment would need coupled-wave theory.
+        Without rulings, :math:`\beta = \alpha` and :math:`\theta` is the
+        angle of incidence.
+
         Parameters
         ----------
         rays
             The rays striking this stack.
+            On a grating, these are the effective rays of
+            :meth:`~optika.rulings.AbstractRulings.incident_effective`,
+            whose component along `normal` is that of the incident rays,
+            and whose component along the surface is that of the
+            diffracted rays.
         normal
             The vector normal to the interface between successive layers.
         """
@@ -1005,9 +1060,22 @@ class AbstractMultilayerMaterial(
         k = rays.attenuation * wavelength / (4 * np.pi)
         n = rays.index_refraction + k * 1j
 
+        # The rulings of a grating add only a component along the surface to
+        # the direction of the rays, so the cosine of the angle the
+        # diffracted rays leave at follows from the length of the effective
+        # direction.
+        # It takes the sign of the cosine of the angle of incidence, so that
+        # without rulings the effective angle is the angle of incidence,
+        # even for rays that strike the back of the stack.
+        direction = rays.direction
+        cos_input = -direction @ normal
+        cos_output = np.sign(cos_input) * np.sqrt(
+            1 - np.square(direction.length) + np.square(cos_input)
+        )
+
         reflectivity, transmissivity = multilayer_efficiency(
             wavelength=wavelength,
-            direction=-rays.direction @ normal,
+            direction=(cos_input + cos_output) / 2,
             n=n,
             layers=self.layers,
             substrate=self._substrate,

@@ -24,6 +24,12 @@ class AbstractTestAbstractImagingSensor(
         result = a.read_noise
         assert result >= 0 * u.electron
 
+    def test_clip_rays(self, a: optika.sensors.AbstractImagingSensor):
+        assert isinstance(a.clip_rays, bool)
+        # the light-sensitive area is the same either way, and only whether
+        # it vignettes follows the flag
+        assert a.aperture.active == a.clip_rays
+
     def test_pixels(self, a: optika.sensors.AbstractImagingSensor):
         # the corners of the light-sensitive area map to pixel 0 and
         # `num_pixel`
@@ -200,20 +206,76 @@ class AbstractTestAbstractImagingSensor(
         assert np.all(result.outputs >= 0 * u.electron)
 
 
+def _sensor(clip_rays: bool = True) -> optika.sensors.ImagingSensor:
+    """A small sensor, 2048 by 1024 pixels of 15 microns."""
+    return optika.sensors.ImagingSensor(
+        name="test sensor",
+        width_pixel=15 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        num_pixel=na.Cartesian2dVectorArray(2048, 1024),
+        read_noise=4 * u.electron,
+        clip_rays=clip_rays,
+        transformation=na.transformations.Cartesian3dTranslation(x=1 * u.mm),
+    )
+
+
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
-        optika.sensors.ImagingSensor(
-            name="test sensor",
-            width_pixel=15 * u.um,
-            axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
-            num_pixel=na.Cartesian2dVectorArray(2048, 1024),
-            read_noise=4 * u.electron,
-            transformation=na.transformations.Cartesian3dTranslation(x=1 * u.mm),
-        ),
+        _sensor(),
+        _sensor(clip_rays=False),
     ],
 )
 class TestImagingSensor(
     AbstractTestAbstractImagingSensor,
 ):
     pass
+
+
+def test_clip_rays_is_keyword_only():
+    """
+    `clip_rays` came after the other fields, so it takes no place among the
+    positional arguments of an imaging sensor.
+    """
+    positional = [
+        field.name
+        for field in dataclasses.fields(optika.sensors.ImagingSensor)
+        if not field.kw_only
+    ]
+    assert "clip_rays" not in positional
+
+
+def test_clip_rays_off_passes_the_rays_which_miss_the_sensor():
+    """
+    A sensor which does not clip lets the rays which miss its pixels through
+    unvignetted, lands every ray where it would have, and keeps the same
+    pixels.
+    """
+    rays = optika.rays.RayVectorArray(
+        wavelength=500 * u.nm,
+        position=na.Cartesian3dVectorArray(
+            # the sensor is 30.72 mm wide, so the outer two miss it
+            x=na.linspace(-20, 20, axis="x", num=5) * u.mm,
+            y=0 * u.mm,
+            z=-10 * u.mm,
+        ),
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+    )
+
+    clipped = _sensor().propagate_rays(rays)
+    unclipped = _sensor(clip_rays=False).propagate_rays(rays)
+
+    assert not np.all(clipped.unvignetted)
+    assert np.all(unclipped.unvignetted)
+    assert np.allclose(unclipped.position, clipped.position)
+
+    # the aperture keeps its shape, which the pixels are measured from
+    assert np.allclose(
+        _sensor(clip_rays=False).aperture.wire(),
+        _sensor().aperture.wire(),
+    )
+    position = na.Cartesian2dVectorArray(3, -2) * u.mm
+    assert np.allclose(
+        _sensor(clip_rays=False).pixels(position),
+        _sensor().pixels(position),
+    )

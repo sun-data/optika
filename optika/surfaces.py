@@ -158,6 +158,7 @@ class AbstractSurface(
 
         normal = sag.normal(position_1)
 
+        rays_incident = rays_1
         if rulings is not None:
             rays_1 = rulings.incident_effective(
                 rays=rays_1,
@@ -186,7 +187,12 @@ class AbstractSurface(
         if efficiency:
             throughput = material.efficiency(rays_1, normal)
             if rulings is not None:
-                throughput = throughput * rulings.efficiency(rays_1, normal)
+                throughput = throughput * rulings.efficiency(
+                    rays=rays_incident,
+                    normal=normal,
+                    index_refraction_new=n2,
+                    is_mirror=material.is_mirror,
+                )
             intensity_2 = intensity_1 * throughput
         else:
             intensity_2 = intensity_1

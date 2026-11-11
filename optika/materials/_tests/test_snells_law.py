@@ -1,3 +1,4 @@
+import warnings
 import pytest
 import numpy as np
 import astropy.units as u
@@ -44,6 +45,31 @@ def test_snells_law_scalar(
     )
 
     assert np.allclose(result, result_expected)
+
+
+def test_snells_law_scalar_quantity():
+    """
+    Dimensionless quantities give the same answer as plain numbers, without
+    astropy warning that it does not implement :func:`numpy.emath.sqrt`.
+    """
+    cos_incidence = na.linspace(-1, 1, axis="angle", num=7)
+    index_refraction_new = na.linspace(1, 2, axis="index", num=4) + 0.2j
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = optika.materials.snells_law_scalar(
+            cos_incidence=cos_incidence << u.dimensionless_unscaled,
+            index_refraction=1 * u.dimensionless_unscaled,
+            index_refraction_new=index_refraction_new << u.dimensionless_unscaled,
+        )
+
+    result_expected = optika.materials.snells_law_scalar(
+        cos_incidence=cos_incidence,
+        index_refraction=1,
+        index_refraction_new=index_refraction_new,
+    )
+
+    assert np.all(result == result_expected)
 
 
 @pytest.mark.parametrize(

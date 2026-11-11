@@ -52,6 +52,13 @@ __all__ = [
     "BackIlluminatedSiliconSensorMaterial",
 ]
 
+_chemical_oxide = "SiO2_llnl_cxro_rodriguez"
+"""
+The default oxide on the illuminated surface of a silicon sensor, for both the
+functions in this module and the sensor models: amorphous silicon dioxide from
+the e-beam films of Rodríguez-de Marcos et al. (2016).
+"""
+
 
 def absorption_effective(
     wavelength: u.Quantity | na.AbstractScalar,
@@ -100,7 +107,7 @@ def transmittance(
     n: complex | na.AbstractScalar = 1,
     thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
-    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_oxide: str | optika.chemicals.AbstractChemical = _chemical_oxide,
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -127,7 +134,8 @@ def transmittance(
         Default is the value given in :cite:t:`Stern1994`.
     chemical_oxide
         The chemical formula of the oxide layer on the illuminated surface of the sensor.
-        Default is silicon dioxide.
+        Default is ``"SiO2_llnl_cxro_rodriguez"``, the amorphous silicon
+        dioxide that the sensor models use.
     chemical_substrate
         The chemical formula of the light-sensitive portion of the sensor.
         Default is silicon.
@@ -211,7 +219,7 @@ def absorbance(
     n: complex | na.AbstractScalar = 1,
     thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
-    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_oxide: str | optika.chemicals.AbstractChemical = _chemical_oxide,
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -239,7 +247,8 @@ def absorbance(
         Default is the value given in :cite:t:`Stern1994`.
     chemical_oxide
         The chemical formula of the oxide layer on the illuminated surface of the sensor.
-        Default is silicon dioxide.
+        Default is ``"SiO2_llnl_cxro_rodriguez"``, the amorphous silicon
+        dioxide that the sensor models use.
     chemical_substrate
         The chemical formula of the light-sensitive portion of the sensor.
         Default is silicon.
@@ -521,7 +530,7 @@ def quantum_efficiency_effective(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
-    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_oxide: str | optika.chemicals.AbstractChemical = _chemical_oxide,
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -553,7 +562,8 @@ def quantum_efficiency_effective(
         Default is the value given in :cite:t:`Stern1994`.
     chemical_oxide
         The chemical composition of the oxide layer.
-        The default is to assume the oxide layer is silicon dioxide.
+        Default is ``"SiO2_llnl_cxro_rodriguez"``, the amorphous silicon
+        dioxide that the sensor models use.
     chemical_substrate
         Optional complex refractive index of the implant region and substrate.
         The default is to assume the substrate is made from silicon.
@@ -2031,7 +2041,7 @@ class AbstractSiliconSensorMaterial(
 
     @functools.cached_property
     def _chemical_oxide(self) -> optika.chemicals.Chemical:
-        return optika.chemicals.Chemical("SiO2_llnl_cxro_rodriguez")
+        return optika.chemicals.Chemical(_chemical_oxide)
 
     def quantum_yield_ideal(
         self,
@@ -2686,6 +2696,9 @@ class BackIlluminatedSiliconSensorMaterial(
         """
         Fit the parameters of this sensor to a given effective quantum efficiency.
 
+        The fit evaluates :meth:`quantum_efficiency_effective` of the sensor
+        itself, so it uses the same oxide and substrate as the fitted sensor.
+
         Parameters
         ---------
         temperature
@@ -2695,33 +2708,57 @@ class BackIlluminatedSiliconSensorMaterial(
         depletion
             A model of this sensor's depletion region.
         eqe_measured
-            The measured quantum efficiency that will be fit by the function
-            :func:`optika.sensors.quantum_efficiency_effective`.
+            The measured quantum efficiency that will be fit by
+            :meth:`quantum_efficiency_effective` at normal incidence.
         """
         unit_thickness_oxide = u.AA
         unit_thickness_implant = u.AA
         unit_roughness = u.nm
         unit_cce_backsurface = u.dimensionless_unscaled
 
-        roughness_oxide = 0 * unit_roughness
+        material = cls(
+            temperature=temperature,
+            thickness_substrate=thickness_substrate,
+            roughness_oxide=0 * unit_roughness,
+            depletion=depletion,
+            eqe_measured=eqe_measured,
+        )
 
-        def eqe_rms_difference(x: tuple[float, float, float, float]):
+        def trial(x: tuple[float, float, float, float]) -> Self:
+            """
+            The sensor with the given parameters.
+
+            Parameters
+            ----------
+            x
+                The thickness of the oxide and of the implant layer, the
+                roughness of the substrate, and the charge-collection
+                efficiency of the back surface.
+            """
             (
                 thickness_oxide,
                 thickness_implant,
                 roughness_substrate,
                 cce_backsurface,
             ) = x
-            qe_fit = quantum_efficiency_effective(
-                wavelength=eqe_measured.inputs,
-                direction=1,
+            return material.replace(
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
-                thickness_substrate=thickness_substrate,
-                roughness_oxide=0 * unit_roughness,
                 roughness_substrate=roughness_substrate << unit_roughness,
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
             )
+
+        def eqe_rms_difference(x: tuple[float, float, float, float]) -> float:
+            """
+            The RMS difference between the measured effective quantum
+            efficiency and that of the sensor with the given parameters.
+
+            Parameters
+            ----------
+            x
+                The parameters of :func:`trial`.
+            """
+            qe_fit = trial(x).quantum_efficiency_effective(eqe_measured.inputs)
 
             return np.sqrt(np.mean(np.square(eqe_measured.outputs - qe_fit))).ndarray
 
@@ -2747,26 +2784,9 @@ class BackIlluminatedSiliconSensorMaterial(
             method="nelder-mead",
         )
 
-        (
-            thickness_oxide,
-            thickness_implant,
-            roughness_substrate,
-            cce_backsurface,
-        ) = fit.x
+        if not fit.success:
+            raise RuntimeError(
+                f"The fit of the effective quantum efficiency did not converge: {fit.message}"
+            )
 
-        thickness_oxide = thickness_oxide << unit_thickness_oxide
-        thickness_implant = thickness_implant << unit_thickness_implant
-        roughness_substrate = roughness_substrate << unit_roughness
-        cce_backsurface = cce_backsurface << unit_cce_backsurface
-
-        return cls(
-            temperature=temperature,
-            thickness_oxide=thickness_oxide,
-            thickness_implant=thickness_implant,
-            thickness_substrate=thickness_substrate,
-            roughness_oxide=roughness_oxide,
-            roughness_substrate=roughness_substrate,
-            cce_backsurface=cce_backsurface,
-            depletion=depletion,
-            eqe_measured=eqe_measured,
-        )
+        return trial(fit.x)

@@ -35,15 +35,36 @@ def _vignetting() -> optika.radiometry.PolynomialVignettingModel:
             start=-10 * u.arcsec,
             stop=+10 * u.arcsec,
             axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-            num=5,
+            num=6,
         ),
     )
+    centers = scene.cell_centers(("field_x", "field_y"))
     return optika.radiometry.PolynomialVignettingModel(
         coordinates_scene=scene,
-        illumination=1 - 0.001 * (scene.position.length / u.arcsec) ** 2,
+        illumination=1 - 0.001 * (centers.position.length / u.arcsec) ** 2,
         axis_wavelength="wavelength",
         axis_field=("field_x", "field_y"),
         degree=2,
+    )
+
+
+def _field_stop() -> optika.radiometry.PolynomialFieldStopModel:
+    """
+    A square field of view 30 arcseconds across which drifts along :math:`x`
+    with wavelength, as the field of view of a system whose field stop sits
+    behind its grating does.
+    """
+    wavelength = na.linspace(500, 600, axis="wavelength", num=3) * u.nm
+    angle = na.linspace(45, 405, axis="vertex", num=5) * u.deg
+    shift = (wavelength - 550 * u.nm) * (0.02 * u.arcsec / u.nm)
+    radius = 15 * np.sqrt(2) * u.arcsec
+    return optika.radiometry.PolynomialFieldStopModel(
+        wavelength=wavelength,
+        vertices=na.Cartesian2dVectorArray(
+            x=radius * np.cos(angle) + shift,
+            y=radius * np.sin(angle) + 0 * shift,
+        ),
+        axis_wavelength="wavelength",
     )
 
 
@@ -106,6 +127,28 @@ class AbstractTestAbstractLinearSystem(
             a.area_effective,
             optika.radiometry.AbstractEffectiveAreaModel,
         )
+
+    def test_field_stop_(self, a: optika.systems.AbstractLinearSystem):
+        result = a.field_stop_
+        if a.field_stop is None:
+            assert result is None
+        else:
+            assert isinstance(result, optika.radiometry.AbstractFieldStopModel)
+
+    def test_footprint(self, a: optika.systems.AbstractLinearSystem):
+        wavelength = 550 * u.nm
+        if a.field_stop is None:
+            with pytest.raises(ValueError):
+                a.footprint(wavelength)
+        else:
+            # one outline at a single wavelength, one per wavelength at many
+            result = a.footprint(wavelength)
+            assert isinstance(result, na.AbstractCartesian2dVectorArray)
+            assert "wire" in na.shape(result)
+            assert "wavelength" not in na.shape(result)
+            wavelength = na.linspace(500, 600, axis="wavelength", num=5) * u.nm
+            result = a.footprint(wavelength)
+            assert na.shape(result)["wavelength"] == 5
 
     def test_sensor(self, a: optika.systems.AbstractLinearSystem):
         assert isinstance(a.sensor, optika.sensors.AbstractImagingSensor)
@@ -256,6 +299,13 @@ class AbstractTestAbstractLinearSystem(
         result_b = b.image(scene, noise=False)
         assert np.allclose(result_a.outputs, result_b.outputs)
 
+    def test_image_device_host(self, a: optika.systems.AbstractLinearSystem):
+        # `device=None` is the host path and must reproduce the default exactly
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        result = a.image(scene, noise=False)
+        result_host = a.image(scene, noise=False, device=None)
+        assert np.all(result.outputs == result_host.outputs)
+
     def test_image_uncertainty(self, a: optika.systems.AbstractLinearSystem):
         scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
         result = a.image(scene, noise=False, uncertainty=True)
@@ -281,6 +331,13 @@ class AbstractTestAbstractLinearSystem(
             sensor=_sensor(),
             vignetting=_vignetting(),
             field_stop=optika.apertures.RectangularAperture(half_width=15 * u.arcsec),
+        ),
+        optika.systems.LinearSystem(
+            area_effective=_area_effective(),
+            distortion=_distortion(),
+            sensor=_sensor(),
+            vignetting=_vignetting(),
+            field_stop=_field_stop(),
         ),
     ],
 )

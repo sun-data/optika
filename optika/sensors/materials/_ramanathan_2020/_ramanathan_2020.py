@@ -205,7 +205,11 @@ def energy_pair(
 
     _iqy = (_n * _probability).sum("num_electron")
 
-    _energy_pair = _energy / _iqy
+    # Below the band gap no pairs are made, so the mean number of pairs is
+    # zero at the lowest energies of the table, and the energy per pair there
+    # is infinite, as it should be.
+    with np.errstate(divide="ignore"):
+        _energy_pair = _energy / _iqy
 
     _energy_pair_inf = energy_pair_inf(temperature)
 
@@ -368,7 +372,12 @@ def fano_factor(
     _iqy = (_n * _probability).sum("num_electron")
 
     _v = (np.square(_n) * _probability).sum("num_electron")
-    _fano_factor = (_v - np.square(_iqy)) / _iqy
+
+    # Below the band gap no pairs are made, so both the variance and the mean
+    # number of pairs are zero at the lowest energies of the table, where the
+    # Fano factor is undefined.
+    with np.errstate(invalid="ignore"):
+        _fano_factor = (_v - np.square(_iqy)) / _iqy
 
     _fano_factor_inf = fano_factor_inf(_temperature)
 

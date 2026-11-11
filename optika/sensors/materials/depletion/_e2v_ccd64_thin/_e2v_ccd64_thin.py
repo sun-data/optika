@@ -12,7 +12,7 @@ __all__ = [
 
 @optika.memory.cache
 def e2v_ccd64_thin() -> JanesickDepletionModel:
-    """
+    r"""
     A model of the depletion region of a "thin" (20 :math:`\Omega`-cm)
     e2v CCD64 imaging sensor, which uses charge diffusion measurements from
     :cite:t:`Stern2004` to estimate the thickness of the depletion region.
