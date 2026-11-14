@@ -240,6 +240,18 @@ class AbstractImagingSensor(
             electrons = na.random.normal(loc=electrons, scale=self.read_noise)
         return electrons
 
+    def _spread_readout(
+        self,
+        electrons: na.AbstractScalar,
+        num_wavelength: int,
+    ) -> na.AbstractScalar:
+        """
+        Spread electrons read out once, summed over wavelength, uniformly
+        across `num_wavelength` wavelength bins, the transpose of the sum over
+        wavelength which precedes :meth:`_readout`.
+        """
+        return electrons / num_wavelength
+
     def _readout_width(
         self,
         variance: na.AbstractScalar,
@@ -453,7 +465,7 @@ class AbstractImagingSensor(
         if integrate:
             # spread the integrated readout uniformly across the wavelength bins
             num_wavelength = na.shape(image.inputs.wavelength)[axis_wavelength] - 1
-            electrons = electrons / num_wavelength
+            electrons = self._spread_readout(electrons, num_wavelength)
 
         photons = self.material.photons_absorbed(
             electrons=electrons,
