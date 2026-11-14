@@ -1514,8 +1514,6 @@ class AbstractSequentialSystem(
         )
         field = rayfunction.inputs.field
         position = rayfunction.outputs.position.xy
-        if axis_ring in na.shape(field):
-            field = field.mean(axis_ring)
         if axis_ring in na.shape(position):
             position = position.mean(axis_ring)
 
