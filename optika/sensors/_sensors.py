@@ -226,6 +226,30 @@ class AbstractImagingSensor(
             )
         )
 
+    def _readout(
+        self,
+        electrons: na.AbstractScalar,
+        noise: bool,
+    ) -> na.AbstractScalar:
+        """
+        Read out electrons which have already been summed over wavelength,
+        adding the read noise once if `noise` is :obj:`True`.
+        """
+        if noise:
+            # add zero-mean Gaussian read noise once per readout
+            electrons = na.random.normal(loc=electrons, scale=self.read_noise)
+        return electrons
+
+    def _readout_width(
+        self,
+        variance: na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The standard deviation of a readout whose signal, summed over
+        wavelength, has the given variance, adding the read noise once.
+        """
+        return np.sqrt(variance + np.square(self.read_noise))
+
     def _integrate(
         self,
         image: na.FunctionArray[
@@ -239,10 +263,7 @@ class AbstractImagingSensor(
         na.AbstractScalar,
     ]:
         """Sum electrons over wavelength into one readout, adding read noise."""
-        electrons = image.outputs.sum(axis_wavelength)
-        if noise:
-            # add zero-mean Gaussian read noise once per readout
-            electrons = na.random.normal(loc=electrons, scale=self.read_noise)
+        electrons = self._readout(image.outputs.sum(axis_wavelength), noise)
         inputs = self._collapse_wavelength(image.inputs, axis_wavelength)
         return dataclasses.replace(image, inputs=inputs, outputs=electrons)
 
@@ -509,8 +530,7 @@ class AbstractImagingSensor(
         if integrate:
             # sum the per-wavelength variances and add the read noise once
             variance = np.square(uncertainty).sum(axis_wavelength)
-            variance = variance + np.square(self.read_noise)
-            uncertainty = np.sqrt(variance)
+            uncertainty = self._readout_width(variance)
             inputs = self._collapse_wavelength(inputs, axis_wavelength)
 
         return dataclasses.replace(image, inputs=inputs, outputs=uncertainty)

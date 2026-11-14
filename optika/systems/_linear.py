@@ -205,6 +205,25 @@ class AbstractLinearSystem(
         """
         return None
 
+    def _distort(
+        self,
+        coordinates: na.SpectralPositionalVectorArray,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        The position on the sensor of each point in `coordinates`, with every
+        axis of `coordinates`.
+
+        A term of the distortion which is zero at every point, such as the
+        dispersion of a scene whose every wavelength is the reference
+        wavelength of the model, is dropped by :mod:`named_arrays` along with
+        the axes it would have been broadcast along. The regridding needs the
+        positions to have every axis of the scene, so they are broadcast
+        against `coordinates`.
+        """
+        position = self.distortion.distort(coordinates).position
+        shape = na.broadcast_shapes(position.shape, coordinates.shape)
+        return position.broadcast_to(shape)
+
     def weights(
         self,
         coordinates: na.SpectralPositionalVectorArray,
@@ -234,7 +253,7 @@ class AbstractLinearSystem(
 
         coordinates = coordinates.cell_centers(axis_wavelength)
 
-        position_sensor = self.distortion.distort(coordinates).position
+        position_sensor = self._distort(coordinates)
 
         # the conservative-regridding weights apply per input *cell*, but
         # `coordinates` are the cell vertices, so evaluate the radiometric
@@ -300,7 +319,7 @@ class AbstractLinearSystem(
 
         coordinates = coordinates.cell_centers(axis_wavelength)
 
-        position_sensor = self.distortion.distort(coordinates).position
+        position_sensor = self._distort(coordinates)
 
         # the conservative-regridding weights apply per input *cell*, but
         # `coordinates` are the cell vertices, so evaluate the radiometric
@@ -596,6 +615,7 @@ class AbstractLinearSystem(
         noise: bool = True,
         uncertainty: bool = False,
         device: None | str = None,
+        chunk_size: None | int = None,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -603,6 +623,12 @@ class AbstractLinearSystem(
 
         Maps the spectral radiance of a scene to the electrons measured by the
         sensor.
+
+        The weights built by :meth:`weights` take memory in proportion to the
+        number of cells in the scene, which can exceed the memory of the host
+        for a large scene.
+        Setting `chunk_size` images the scene a few wavelength bins at a time
+        instead, so that only the weights of one chunk are held at once.
 
         Parameters
         ----------
@@ -638,6 +664,17 @@ class AbstractLinearSystem(
         device
             The device on which to build and apply the weights, see
             :meth:`weights`. If :obj:`None` (the default), the host is used.
+        chunk_size
+            The number of wavelength bins of `scene` to image at once.
+            Each chunk is imaged on its own and the electrons are summed over
+            the chunks (or joined along `axis_wavelength` if `integrate` is
+            :obj:`False`).
+            The shot, Fano, and charge-diffusion noise is independent from one
+            wavelength to the next and the read noise is added once, to the
+            sum of the chunks, so the result does not depend on `chunk_size`
+            if `noise` is :obj:`False`, and has the same distribution if it is
+            :obj:`True`.
+            If :obj:`None` (the default), the whole scene is imaged at once.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
@@ -661,6 +698,19 @@ class AbstractLinearSystem(
                 )
             (axis_wavelength,) = axis
 
+        if chunk_size is not None:
+            return self._image_chunked(
+                scene,
+                axis_wavelength=axis_wavelength,
+                axis_field=axis_field,
+                integrate=integrate,
+                noise=noise,
+                uncertainty=uncertainty,
+                device=device,
+                chunk_size=chunk_size,
+                **kwargs,
+            )
+
         # `weights` folds in the effective area, vignetting, and field stop and
         # is the expensive part of the forward model; `image_from_weights`
         # reuses it to integrate the radiance, regrid, and expose the sensor.
@@ -680,6 +730,134 @@ class AbstractLinearSystem(
             uncertainty=uncertainty,
             integrate=integrate,
             **kwargs,
+        )
+
+    def _image_chunked(
+        self,
+        scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
+        *,
+        axis_wavelength: str,
+        axis_field: tuple[str, str],
+        integrate: bool,
+        noise: bool,
+        uncertainty: bool,
+        device: None | str,
+        chunk_size: int,
+        **kwargs: Any,
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+        """
+        Image an explicit `scene` `chunk_size` wavelength bins at a time.
+
+        See :meth:`image` for the meaning of each parameter.
+        """
+
+        if chunk_size < 1:
+            raise ValueError(f"`chunk_size` must be at least 1, got {chunk_size}.")
+
+        coordinates = scene.inputs
+        radiance = scene.outputs
+
+        # the coordinates are the vertices of the wavelength bins
+        num_wavelength = na.shape(coordinates.wavelength)[axis_wavelength] - 1
+
+        # a radiance which does not vary with wavelength broadcasts against
+        # every chunk, so only one with a value for each bin is cut up
+        varies = na.shape(radiance).get(axis_wavelength, 1) != 1
+
+        electrons_total = None
+        variance_total = None
+        electrons_chunks = []
+
+        for start in range(0, num_wavelength, chunk_size):
+            stop = min(start + chunk_size, num_wavelength)
+
+            # a chunk of bins has one more vertex than it has bins
+            item = {axis_wavelength: slice(start, stop)}
+            item_vertices = {axis_wavelength: slice(start, stop + 1)}
+            scene_chunk = na.FunctionArray(
+                inputs=coordinates[item_vertices],
+                outputs=radiance[item] if varies else radiance,
+            )
+
+            weights = self.weights(
+                coordinates=scene_chunk.inputs,
+                axis_wavelength=axis_wavelength,
+                axis_field=axis_field,
+                device=device,
+            )
+
+            # the read noise is left out here and added once below, to the sum
+            # of every chunk, since the sensor is read out only once
+            image = self.image_from_weights(
+                weights,
+                scene_chunk,
+                axis_wavelength=axis_wavelength,
+                axis_field=axis_field,
+                integrate=False,
+                noise=noise,
+                uncertainty=uncertainty,
+                **kwargs,
+            )
+
+            # the weights of this chunk are released before those of the next
+            # one are built, so that only one chunk is held at a time
+            del weights
+
+            electrons = image.outputs
+
+            if not integrate:
+                electrons_chunks.append(electrons)
+                continue
+
+            if uncertainty:
+                variance = np.square(electrons.width).sum(axis_wavelength)
+                if variance_total is None:
+                    variance_total = variance
+                else:
+                    variance_total = variance_total + variance
+                electrons = electrons.nominal
+
+            electrons = electrons.sum(axis_wavelength)
+            if electrons_total is None:
+                electrons_total = electrons
+            else:
+                electrons_total = electrons_total + electrons
+
+        inputs = na.SpectralPositionalVectorArray(
+            wavelength=coordinates.wavelength,
+            position=self.coordinates_sensor,
+        )
+
+        sensor = self.sensor
+
+        if integrate:
+            inputs = sensor._collapse_wavelength(inputs, axis_wavelength)
+            outputs = sensor._readout(electrons_total, noise)
+            if uncertainty:
+                outputs = na.NormalUncertainScalarArray(
+                    nominal=outputs,
+                    width=sensor._readout_width(variance_total),
+                )
+        elif uncertainty:
+            outputs = na.NormalUncertainScalarArray(
+                nominal=na.concatenate(
+                    arrays=[e.nominal for e in electrons_chunks],
+                    axis=axis_wavelength,
+                ),
+                width=na.concatenate(
+                    arrays=[e.width for e in electrons_chunks],
+                    axis=axis_wavelength,
+                ),
+            )
+        else:
+            outputs = na.concatenate(
+                arrays=electrons_chunks,
+                axis=axis_wavelength,
+            )
+
+        return na.FunctionArray(
+            inputs=inputs,
+            outputs=outputs,
         )
 
     def backproject(

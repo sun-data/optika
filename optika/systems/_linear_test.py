@@ -116,6 +116,18 @@ def _scene_doppler(radiance: u.Quantity | na.AbstractScalar) -> na.FunctionArray
     )
 
 
+def _scene_spectral(radiance: u.Quantity | na.AbstractScalar) -> na.FunctionArray:
+    """A scene whose radiance varies with wavelength as well as position."""
+    scene = _scene(radiance)
+    return scene.replace(
+        outputs=na.random.uniform(
+            low=0 * radiance,
+            high=radiance,
+            shape_random=dict(wavelength=3, field_x=10, field_y=10),
+        ),
+    )
+
+
 class AbstractTestAbstractLinearSystem(
     AbstractTestAbstractSystem,
 ):
@@ -315,6 +327,93 @@ class AbstractTestAbstractLinearSystem(
         assert na.unit(result.outputs.nominal).is_equivalent(u.electron)
         assert na.unit(result.outputs.width).is_equivalent(u.electron)
         assert np.all(result.outputs.width >= 0 * u.electron)
+
+    @pytest.mark.parametrize(
+        argnames="scene",
+        argvalues=[
+            _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm),
+            _scene_spectral(1e-18 * u.W / u.cm**2 / u.arcsec**2 / u.nm),
+            _scene_doppler(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm),
+        ],
+    )
+    @pytest.mark.parametrize("chunk_size", [1, 2, 10])
+    @pytest.mark.parametrize("integrate", [True, False])
+    @pytest.mark.parametrize("uncertainty", [False, True])
+    def test_image_chunk_size(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        scene: na.FunctionArray,
+        chunk_size: int,
+        integrate: bool,
+        uncertainty: bool,
+    ):
+        # imaging the scene a few wavelength bins at a time and summing the
+        # chunks gives the same image as imaging it all at once
+        kwargs = dict(noise=False, integrate=integrate, uncertainty=uncertainty)
+        result = a.image(scene, chunk_size=chunk_size, **kwargs)
+        expected = a.image(scene, **kwargs)
+
+        assert isinstance(result, na.FunctionArray)
+        assert np.all(result.inputs == expected.inputs)
+
+        if uncertainty:
+            # two normal uncertain arrays built separately draw different
+            # samples, so the distributions are compared through the nominal
+            # value and width which define them
+            assert isinstance(result.outputs, na.NormalUncertainScalarArray)
+            assert np.allclose(result.outputs.nominal, expected.outputs.nominal)
+            assert np.allclose(result.outputs.width, expected.outputs.width)
+        else:
+            assert np.allclose(result.outputs, expected.outputs)
+
+    @pytest.mark.parametrize("chunk_size", [None, 1])
+    def test_image_chunk_size_read_noise(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        chunk_size: None | int,
+    ):
+        # the read noise is added once, to the sum of the chunks, so a dark
+        # scene imaged one wavelength bin at a time has the read noise of one
+        # readout, not of one readout per bin
+        read_noise = 10 * u.electron
+        sensor = dataclasses.replace(a.sensor, read_noise=read_noise)
+        b = dataclasses.replace(a, sensor=sensor)
+        scene = _scene(0 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        result = b.image(scene, chunk_size=chunk_size)
+
+        # 32 by 32 pixels measure the width to about 2 percent, and a readout
+        # for each of the 3 bins would give sqrt(3) times the read noise
+        std = np.std(result.outputs.ndarray)
+        assert np.isclose(std, read_noise, rtol=0.15)
+
+    def test_weights_reference_wavelength(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+    ):
+        # a single wavelength bin centered on the reference wavelength of the
+        # distortion, where its dispersion term is zero at every point, keeps
+        # its wavelength axis in both the weights and their transpose
+        axis_wavelength = "wavelength"
+        axis_field = ("field_x", "field_y")
+        coordinates = na.SpectralPositionalVectorArray(
+            wavelength=na.linspace(540, 560, axis=axis_wavelength, num=2) * u.nm,
+            position=_scene(1 * u.photon).inputs.position,
+        )
+        weights = a.weights(coordinates, axis_wavelength, axis_field)
+        _, shape_input, shape_output = weights
+        assert shape_input[axis_wavelength] == 1
+        assert shape_output[axis_wavelength] == 1
+
+        _, shape_input, shape_output = a.weights_transposed(
+            weights, coordinates, axis_wavelength, axis_field
+        )
+        assert shape_input[axis_wavelength] == 1
+        assert shape_output[axis_wavelength] == 1
+
+    def test_image_chunk_size_invalid(self, a: optika.systems.AbstractLinearSystem):
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        with pytest.raises(ValueError, match="chunk_size"):
+            a.image(scene, chunk_size=0)
 
 
 @pytest.mark.parametrize(
