@@ -467,7 +467,9 @@ class AbstractTestAbstractLinearSystem(
         # its wavelength axis in the weights and their transpose, and can be
         # imaged and backprojected
         distortion = a.distortion
-        if not isinstance(distortion, optika.distortion.SimpleDistortionModel):
+        if not isinstance(
+            distortion, optika.distortion.SimpleDistortionModel
+        ):  # pragma: nocover
             pytest.skip("requires a distortion model with a reference wavelength")
 
         axis_wavelength = "wavelength"
@@ -510,6 +512,19 @@ class AbstractTestAbstractLinearSystem(
         image = a.image(scene, noise=False)
         with pytest.raises(ValueError, match="chunk_size"):
             a.backproject(image, scene.inputs, chunk_size=chunk_size)
+
+    def test_backproject_weights(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+    ) -> None:
+        # precomputed forward weights give the same backprojection as weights
+        # built on the fly
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        image = a.image(scene, noise=False)
+        weights = a.weights(scene.inputs, "wavelength", ("field_x", "field_y"))
+        result = a.backproject(image, scene.inputs, weights=weights)
+        expected = a.backproject(image, scene.inputs)
+        assert np.all(result.outputs == expected.outputs)
 
     def test_backproject_chunk_size_weights(
         self,
