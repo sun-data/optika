@@ -173,6 +173,35 @@ class AbstractTestAbstractAperture(
         assert "wire" in wire.shape
         assert wire.shape["wire"] == a.samples_wire
 
+    def test_rings(self, a: optika.apertures.AbstractAperture):
+        outer, inner = a.rings()
+        for ring in (outer, inner):
+            assert isinstance(ring, na.AbstractCartesian3dVectorArray)
+            assert ring.shape["wire"] == a.samples_wire
+        assert outer.shape == inner.shape
+
+        if (a.active is not True) or (a.inverted is not False):
+            return
+
+        # The segment joining a pair of points lies inside the aperture, so
+        # its midpoint does; for a ring with no hole that is halfway to the
+        # center, and for one with a hole it is halfway across the annulus.
+        # The first and last pairs of a sector lie along its edges, so only
+        # the pairs between them are checked.
+        midpoint = (outer + inner) / 2
+        midpoint = midpoint[dict(wire=slice(1, -1))]
+
+        # Each piece along a compound axis has rings of its own, and the
+        # pieces of an opening are a union, so the midpoints of every piece
+        # pass the aperture as a whole.  An aperture may not be called with
+        # points which vary along its compound axis, so the pieces are laid
+        # end to end along the rings.
+        axis = a.axis_compound
+        if axis in na.shape(midpoint):
+            midpoint = midpoint.combine_axes(axes=(axis, "wire"), axis_new="wire")
+
+        assert np.all(na.as_named_array(a(midpoint)))
+
     @pytest.mark.parametrize("num", [None, 21, 7, 3])
     def test_wire_is_closed(
         self,
