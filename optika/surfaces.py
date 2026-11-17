@@ -199,6 +199,23 @@ class AbstractSurface(
 
         attenuation_2 = material.attenuation(rays_1)
 
+        # The phase the rulings add, and the height of the sag that shifts the
+        # phase of the light without deflecting it, as a thin phase screen:
+        # moving the surface by a height `h` along `z` lengthens the optical
+        # path of the incident ray by `n1 h a_z` and shortens that of the
+        # outgoing ray by `n2 h b_z`.
+        optical_path_2 = rays_incident.optical_path
+        if rulings is not None:
+            optical_path_2 = optical_path_2 + rulings.optical_path(
+                rays=rays_incident,
+                normal=normal,
+            )
+        height = sag.height_phase(position_1)
+        direction_incident = rays_incident.direction
+        optical_path_2 = optical_path_2 + height * (
+            n1 * direction_incident.z - n2 * b.z
+        )
+
         rays_2 = dataclasses.replace(
             rays_1,
             wavelength=wavelength_2,
@@ -207,6 +224,7 @@ class AbstractSurface(
             intensity=intensity_2,
             attenuation=attenuation_2,
             index_refraction=n2,
+            optical_path=optical_path_2,
         )
 
         if aperture is not None:
@@ -362,32 +380,9 @@ class AbstractSurface(
         amplitude = wavefield.amplitude
 
         if rulings is not None:
-            spacing = rulings.spacing_
-            position = rays.position
-
-            # The phase shift imparted by the rulings is
-            # 2 pi m N(r), where N(r) is the groove-counting function whose
-            # gradient is the local groove density.
-            # Integrate the groove density along the chord from the local
-            # origin to each sample point using Gauss-Legendre quadrature,
-            # which is exact for constant ruling spacing.
-            nodes, weights = np.polynomial.legendre.leggauss(32)
-            nodes = (nodes + 1) / 2
-            weights = weights / 2
-
-            grooves = 0
-            for node, weight in zip(nodes, weights):
-                kappa = spacing(node * position, normal)
-                density = (position @ kappa) / np.square(kappa.length)
-                grooves = grooves + weight * density
-            grooves = grooves.to(u.dimensionless_unscaled).value
-
-            # The same orientation convention as
-            # optika.rulings.incident_effective.
-            sign = np.sign(na.as_named_array(rays.direction @ normal).value)
-
-            phase = 2 * np.pi * rulings.diffraction_order * grooves
-            amplitude = amplitude * np.exp(1j * sign * phase)
+            optical_path = rulings.optical_path(rays, normal)
+            phase = (optical_path / wavefield.wavelength).to(u.dimensionless_unscaled)
+            amplitude = amplitude * np.exp(2j * np.pi * phase.value)
             amplitude = amplitude * np.sqrt(rulings.efficiency(rays, normal))
 
         efficiency = material.efficiency(rays, normal)

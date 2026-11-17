@@ -1,4 +1,5 @@
 import dataclasses
+import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -41,6 +42,54 @@ class AbstractRulingSpacing(
             The unit vector perpendicular to the surface at the given position.
         """
 
+    def count(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        r"""
+        The number of rulings between the origin and the given position.
+
+        This is the function :math:`N(\mathbf{r})` whose gradient along the
+        surface is the local ruling density, :math:`\mathbf{d} / d^2`, where
+        :math:`\mathbf{d}` is the ruling vector returned by :meth:`__call__`.
+        It is zero at the origin and increases in the direction of
+        :math:`\mathbf{d}`.
+
+        Parameters
+        ----------
+        position
+            The location on the grating at which to count the rulings.
+        normal
+            The unit vector perpendicular to the surface at the given position.
+
+        Notes
+        -----
+        This implementation integrates the ruling density along the chord
+        from the origin to each position,
+
+        .. math::
+
+            N(\mathbf{r}) = \int_0^1 \mathbf{r} \cdot
+                \frac{\mathbf{d}(t \mathbf{r})}{d^2(t \mathbf{r})} \, dt,
+
+        with 32-point Gauss-Legendre quadrature, evaluating the ruling vector
+        with the normal at the end of the chord.
+        It is exact for a ruling density which is a polynomial of degree 63
+        or less in the position, and subclasses with a closed form override
+        it.
+        """
+        nodes, weights = np.polynomial.legendre.leggauss(32)
+        nodes = (nodes + 1) / 2
+        weights = weights / 2
+
+        result = 0
+        for node, weight in zip(nodes, weights):
+            d = self(node * position, normal)
+            result = result + weight * (position @ d) / np.square(d.length)
+
+        return result.to(u.dimensionless_unscaled)
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class ConstantRulingSpacing(
@@ -73,6 +122,13 @@ class ConstantRulingSpacing(
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.Cartesian3dVectorArray:
         return self.constant * self.normal
+
+    def count(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        return (position @ self.normal / self.constant).to(u.dimensionless_unscaled)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -107,26 +163,83 @@ class Polynomial1dRulingSpacing(
             optika.shape(self.transformation),
         )
 
+    def _coordinate(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        The argument of the polynomial at the given position.
+
+        Parameters
+        ----------
+        position
+            The location on the grating at which to evaluate the argument.
+        """
+        transformation = self.transformation
+        if transformation is not None:
+            position = transformation(position)
+        return position @ self.normal
+
+    def _spacing(
+        self,
+        x: na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The value of the polynomial, the distance between the rulings.
+
+        Parameters
+        ----------
+        x
+            The argument of the polynomial.
+        """
+        result = 0 * u.mm
+        for power, coefficient in self.coefficients.items():
+            result = result + coefficient * (x**power)
+        return result
+
     def __call__(
         self,
         position: na.AbstractCartesian3dVectorArray,
         normal: na.AbstractCartesian3dVectorArray,
     ) -> na.Cartesian3dVectorArray:
+        return self._spacing(self._coordinate(position)) * self.normal
 
-        coefficients = self.coefficients
-        normal_rulings = self.normal
-        transformation = self.transformation
+    def count(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        The number of rulings between the origin and the given position.
 
-        if transformation is not None:
-            position = transformation(position)
+        This is the integral of
+        :meth:`optika.rulings.AbstractRulingSpacing.count`, computed with the
+        same quadrature, but only on the argument of the polynomial, which
+        changes linearly along the chord from the origin since
+        :attr:`transformation` is affine.
 
-        x = position @ normal_rulings
+        Parameters
+        ----------
+        position
+            The location on the grating at which to count the rulings.
+        normal
+            The unit vector perpendicular to the surface at the given position.
+            Ignored, since the spacing does not depend on it.
+        """
+        nodes, weights = np.polynomial.legendre.leggauss(32)
+        nodes = (nodes + 1) / 2
+        weights = weights / 2
 
-        result = 0 * u.mm
-        for power, coefficient in coefficients.items():
-            result = result + coefficient * (x**power)
+        x_0 = self._coordinate(na.Cartesian3dVectorArray() * u.mm)
+        x_1 = self._coordinate(position)
 
-        return result * normal_rulings
+        result = 0
+        for node, weight in zip(nodes, weights):
+            result = result + weight / self._spacing(x_0 + node * (x_1 - x_0))
+
+        result = result * (position @ self.normal)
+
+        return result.to(u.dimensionless_unscaled)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -327,3 +440,40 @@ class HolographicRulingSpacing(
         result = spacing * q.cross(n)
 
         return result
+
+    def count(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        r"""
+        The number of rulings between the origin and the given position,
+        the number of fringes between them in the interference pattern of
+        the two recording beams,
+
+        .. math::
+
+            N(\mathbf{r}) = \frac{\pm |\mathbf{r} - \mathbf{x}_1|
+                \mp |\mathbf{r} - \mathbf{x}_2|}{\lambda} - N(0),
+
+        with the signs of :meth:`__call__`.
+
+        Parameters
+        ----------
+        position
+            The location on the grating at which to count the rulings.
+        normal
+            The unit vector perpendicular to the surface at the given position.
+            Ignored, since the interference pattern does not depend on it.
+        """
+        x1 = self.x1
+        x2 = self.x2
+        d1 = 2 * self.is_diverging_1 - 1
+        d2 = 2 * self.is_diverging_2 - 1
+
+        def phase(r: na.AbstractCartesian3dVectorArray) -> na.AbstractScalar:
+            return d1 * (r - x1).length - d2 * (r - x2).length
+
+        result = (phase(position) - phase(0 * position)) / self.wavelength
+
+        return result.to(u.dimensionless_unscaled)

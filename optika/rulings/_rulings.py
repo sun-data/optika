@@ -222,6 +222,46 @@ class AbstractRulings(
 
         return rays.replace(direction=direction)
 
+    def optical_path(
+        self,
+        rays: optika.rays.RayVectorArray,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractScalar:
+        r"""
+        The optical path length these rulings add to the given rays, the phase
+        that changes their direction in :meth:`incident_effective`, expressed
+        as a length.
+
+        Parameters
+        ----------
+        rays
+            The light rays incident on the rulings.
+        normal
+            The vector normal to the surface on which the rulings are placed.
+
+        Notes
+        -----
+        The phase is :math:`2 \pi m N(\mathbf{r})`, where :math:`m` is the
+        diffraction order and :math:`N(\mathbf{r})` is the number of rulings
+        between the origin and the position of the ray,
+        :meth:`optika.rulings.AbstractRulingSpacing.count`.
+        Its gradient along the surface is the change in the tangential
+        component of the wavevector that :func:`incident_effective` applies,
+        with the same orientation, so this optical path is
+
+        .. math::
+
+            \Delta = \operatorname{sgn}(\hat{\mathbf{a}} \cdot \hat{\mathbf{n}})
+                \, m \lambda N(\mathbf{r}),
+
+        where :math:`\hat{\mathbf{a}}` is the direction of the incident ray,
+        :math:`\hat{\mathbf{n}}` is the normal to the surface,
+        and :math:`\lambda` is the vacuum wavelength.
+        """
+        count = self.spacing_.count(rays.position, normal)
+        sign = np.sign(rays.direction @ normal)
+        return sign * self.diffraction_order * rays.wavelength * count
+
     @abc.abstractmethod
     def efficiency(
         self,

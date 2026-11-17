@@ -2171,14 +2171,26 @@ class AbstractSequentialSystem(
             position = grid_input.field
             direction = optika.direction(grid_input.pupil)
 
+        position = na.Cartesian3dVectorArray(
+            x=position.x,
+            y=position.y,
+            z=0 * position.x.unit,
+        )
+
+        # The rays from an object at infinity are a plane wave, so they start
+        # in phase on the plane through the origin perpendicular to them.
+        # The rays from an object at a finite distance all start at the same
+        # point, and so in phase.
+        if self.object_is_at_infinity:
+            optical_path = direction @ position
+        else:
+            optical_path = 0 * position.x.unit
+
         rays = optika.rays.RayVectorArray(
             wavelength=grid_input.wavelength,
-            position=na.Cartesian3dVectorArray(
-                x=position.x,
-                y=position.y,
-                z=0 * position.x.unit,
-            ),
+            position=position,
             direction=direction,
+            optical_path=optical_path,
         )
 
         obj = self.object

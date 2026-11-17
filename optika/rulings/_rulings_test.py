@@ -58,6 +58,48 @@ class AbstractTestAbstractRulings(
         assert not np.all(result == rays)
 
     @pytest.mark.parametrize(
+        argnames="normal",
+        argvalues=[
+            na.Cartesian3dVectorArray(0, 0, -1),
+        ],
+    )
+    def test_optical_path(
+        self,
+        a: optika.rulings.AbstractRulings,
+        normal: na.AbstractCartesian3dVectorArray,
+    ) -> None:
+        """
+        The derivative of the optical path along the surface is the change in
+        the direction of the rays that :meth:`incident_effective` applies, so
+        that the phase and the direction of the diffracted light agree.
+        """
+        angle = 10 * u.deg
+        position = na.Cartesian3dVectorArray(
+            x=na.linspace(-1, 1, axis="position_x", num=3) * u.um,
+            y=na.linspace(-1, 1, axis="position_y", num=3) * u.um,
+            z=0 * u.um,
+        )
+        rays = optika.rays.RayVectorArray(
+            wavelength=500 * u.nm,
+            position=position,
+            direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+        )
+
+        change = a.incident_effective(rays, normal).direction - rays.direction
+
+        step = 1 * u.nm
+        for unit_vector in [
+            na.Cartesian3dVectorArray(1, 0, 0),
+            na.Cartesian3dVectorArray(0, 1, 0),
+        ]:
+            rays_plus = rays.replace(position=position + step * unit_vector)
+            rays_minus = rays.replace(position=position - step * unit_vector)
+            derivative = a.optical_path(rays_plus, normal)
+            derivative = derivative - a.optical_path(rays_minus, normal)
+            derivative = derivative / (2 * step)
+            assert np.allclose(derivative, change @ unit_vector)
+
+    @pytest.mark.parametrize(
         argnames="rays",
         argvalues=test_ray_vectors.rays,
     )

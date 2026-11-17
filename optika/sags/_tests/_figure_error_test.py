@@ -174,6 +174,26 @@ class TestFigureErrorSag(
         assert np.all(result.position == result_expected.position)
         assert np.all(result.direction == result_expected.direction)
 
+    @pytest.mark.parametrize("position", positions)
+    def test_height_phase(
+        self,
+        a: optika.sags.FigureErrorSag,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> None:
+        """
+        The height which shifts the phase of the light is the figure error,
+        the height of the surface above its base profile.
+        This replaces the abstract test, which requires it to be zero.
+        """
+        result = a.height_phase(position)
+
+        position_base = position
+        if a.transformation is not None:
+            position_base = a.transformation.inverse(position)
+        result_expected = a(position) - _base(a)(position_base)
+
+        assert np.allclose(result, result_expected)
+
 
 @pytest.mark.parametrize(
     argnames="sag,scale,offset",

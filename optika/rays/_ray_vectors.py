@@ -21,6 +21,7 @@ DirectionT = TypeVar("DirectionT", bound=na.Cartesian3dVectorArray)
 WavelengthT = TypeVar("WavelengthT", bound=na.ScalarLike)
 IndexRefractionT = TypeVar("IndexRefractionT", bound=na.ScalarLike)
 UnvignettedT = TypeVar("UnvignettedT", bound=na.ScalarLike)
+OpticalPathT = TypeVar("OpticalPathT", bound=na.ScalarLike)
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -69,6 +70,27 @@ class AbstractRayVectorArray(
         A boolean mask where :obj:`True` indicates the ray makes it all the
         way through the optical system without being blocked by an aperture,
         and :obj:`False` indicates the ray has been blocked by an aperture.
+        """
+
+    @property
+    @abc.abstractmethod
+    def optical_path(self) -> na.AbstractScalar:
+        """
+        The optical path length the ray has traveled since it left the
+        object.
+
+        This is the sum of the geometric length of each segment of the ray
+        multiplied by the index of refraction of its medium, plus the phase
+        added by any rulings and by the parts of a sag which shift the phase
+        of the light without deflecting it, such as the figure error of a
+        :class:`optika.sags.FigureErrorSag`, expressed as a length.
+        For an object at infinity, it starts at the distance of the ray's
+        starting point from the plane through the origin of the object
+        perpendicular to the ray, so that the rays of a plane wave start
+        in phase.
+
+        The phase of the light at the ray's position is :math:`2 \\pi`
+        times this length divided by the vacuum wavelength.
         """
 
     @property
@@ -285,6 +307,13 @@ class RayVectorArray(
     and :obj:`False` indicates the ray has been blocked by an aperture.
     """
 
+    optical_path: OpticalPathT = 0 * u.mm
+    """
+    The optical path length the ray has traveled since it left the object.
+
+    See :attr:`AbstractRayVectorArray.optical_path` for its definition.
+    """
+
     @classmethod
     def from_scalar(
         cls,
@@ -299,4 +328,5 @@ class RayVectorArray(
             attenuation=scalar,
             index_refraction=scalar,
             unvignetted=scalar,
+            optical_path=scalar,
         )
