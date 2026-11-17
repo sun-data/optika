@@ -148,6 +148,53 @@ def test_wavefield_centroid_matches_raytrace():
     assert np.abs(centroid.y - centroid_rays.y) < radius_airy / 2
 
 
+def test_wavefield_transformation():
+    """
+    The transformation of a system turns its optics but not its object, so
+    tilting the test telescope moves the image of a star on its old axis by
+    :math:`f \\tan \\theta`.
+    The Huygens PSF must land where the rays do, with most of the light of
+    the PSF of the telescope untilted.
+    """
+    angle = 0.25 * u.deg
+    focal_length = 200 * u.mm
+    system = dataclasses.replace(
+        _telescope(),
+        transformation=na.transformations.Cartesian3dRotationY(angle),
+    )
+    field = na.Cartesian2dVectorArray(0, 0) * u.deg
+    kwargs = dict(
+        field=field,
+        normalized_field=False,
+        width_sensor=0.05 * u.mm,
+        num=101**2,
+        num_sensor=51,
+        seed=11,
+    )
+
+    psf = system.psf(**kwargs)
+    intensity = psf.outputs
+    position = psf.inputs.position
+    centroid = (position * intensity).sum() / intensity.sum()
+
+    rayfunction = system.rayfunction(field=field, normalized_field=False)
+    where = rayfunction.outputs.unvignetted
+    position_rays = rayfunction.outputs.position.xy
+    centroid_rays = (position_rays * where).sum() / where.sum()
+
+    shift = focal_length * np.tan(angle)
+    assert np.abs(np.abs(centroid_rays.x) - shift) < 0.01 * shift
+
+    radius_airy = (1.22 * 500 * u.nm * 200 / 40).to(u.mm)
+    assert np.abs(centroid.x - centroid_rays.x) < radius_airy / 2
+    assert np.abs(centroid.y - centroid_rays.y) < radius_airy / 2
+
+    # the grid is centered on the rays, so check that the light is there
+    # too, rather than a noise floor centered by the grid
+    psf_untilted = _telescope().psf(**kwargs)
+    assert intensity.max() > psf_untilted.outputs.max() / 2
+
+
 def test_psf_zernike_defocus():
     """
     Adding a Zernike defocus term to the primary mirror shifts the focus by

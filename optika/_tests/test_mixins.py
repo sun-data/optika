@@ -12,6 +12,9 @@ import optika
 transformation_parameterization = [
     None,
     na.transformations.Cartesian3dTranslation(x=5 * u.mm),
+    # A translation along z. Every other entry leaves z unchanged, which is
+    # what let a sag intercept solved in the wrong frame go unnoticed.
+    na.transformations.Cartesian3dTranslation(z=7 * u.mm),
     na.transformations.TransformationList(
         [
             na.transformations.Cartesian3dTranslation(x=5 * u.mm),
@@ -42,6 +45,32 @@ class AbstractTestShaped(
         for k in result:
             assert isinstance(k, str)
             assert isinstance(result[k], int)
+
+
+class AbstractTestReplaceable(
+    abc.ABC,
+):
+    def test_replace(self, a: optika.mixins.Replaceable):
+        # replacing nothing is a copy
+        result = a.replace()
+        assert isinstance(result, type(a))
+        assert result is not a
+
+        fields = dataclasses.fields(a)
+        if not fields:  # pragma: nocover
+            return
+
+        # every field is carried over, and by reference, since the copy is
+        # shallow
+        for f in fields:
+            assert getattr(result, f.name) is getattr(a, f.name)
+
+        # and a field which is named is the one thing which differs
+        name = fields[0].name
+        sentinel = object()
+        result = a.replace(**{name: sentinel})
+        assert getattr(result, name) is sentinel
+        assert getattr(a, name) is not sentinel
 
 
 class AbstractTestPrintable(
@@ -270,4 +299,15 @@ class AbstractTestDxfWritable(
 
         assert file.stat().st_size > 0
 
+        # A DXF file cannot represent uncertainty, so an object is drawn
+        # exactly like its nominal value.
+        file_nominal = file.with_stem(f"{file.stem}_nominal")
+        na.nominal(a).to_dxf(
+            file=file_nominal,
+            unit=unit,
+            transformation=na.nominal(transformation),
+        )
+        assert file.read_bytes() == file_nominal.read_bytes()
+
         file.unlink()
+        file_nominal.unlink()

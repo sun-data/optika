@@ -1,10 +1,11 @@
-from typing import Literal
+from typing import Callable, Literal
 from typing_extensions import Self
 import abc
 import functools
 import dataclasses
 import numpy as np
 import scipy.optimize
+import scipy.special
 import astropy.units as u
 import astropy.constants
 import named_arrays as na
@@ -50,6 +51,13 @@ __all__ = [
     "AbstractBackIlluminatedSiliconSensorMaterial",
     "BackIlluminatedSiliconSensorMaterial",
 ]
+
+_chemical_oxide = "SiO2_llnl_cxro_rodriguez"
+"""
+The default oxide on the illuminated surface of a silicon sensor, for both the
+functions in this module and the sensor models: amorphous silicon dioxide from
+the e-beam films of Rodríguez-de Marcos et al. (2016).
+"""
 
 
 def absorption_effective(
@@ -99,10 +107,11 @@ def transmittance(
     n: complex | na.AbstractScalar = 1,
     thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
-    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_oxide: str | optika.chemicals.AbstractChemical = _chemical_oxide,
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
+    num_interpolation: None | int = None,
 ) -> optika.vectors.PolarizationVectorArray:
     """
     The fraction of incident energy transmitted through the oxide layer into
@@ -125,7 +134,8 @@ def transmittance(
         Default is the value given in :cite:t:`Stern1994`.
     chemical_oxide
         The chemical formula of the oxide layer on the illuminated surface of the sensor.
-        Default is silicon dioxide.
+        Default is ``"SiO2_llnl_cxro_rodriguez"``, the amorphous silicon
+        dioxide that the sensor models use.
     chemical_substrate
         The chemical formula of the light-sensitive portion of the sensor.
         Default is silicon.
@@ -133,6 +143,11 @@ def transmittance(
         The RMS roughness the oxide layer surface.
     roughness_substrate
         The RMS roughness of the substrate surface.
+    num_interpolation
+        The number of nodes used to interpolate the response of the oxide and
+        substrate over the angle of incidence, or :obj:`None` (the default)
+        to solve it for every element of `direction`.
+        See :func:`optika.materials.multilayer_efficiency`.
 
     Examples
     --------
@@ -192,6 +207,7 @@ def transmittance(
                 width=roughness_substrate,
             ),
         ),
+        num_interpolation=num_interpolation,
     )
 
     return transmission
@@ -203,11 +219,12 @@ def absorbance(
     n: complex | na.AbstractScalar = 1,
     thickness_oxide: u.Quantity | na.AbstractScalar = _thickness_oxide,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
-    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_oxide: str | optika.chemicals.AbstractChemical = _chemical_oxide,
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
     method: Literal["exact", "Beer-Lambert"] = "Beer-Lambert",
+    num_interpolation: None | int = None,
 ) -> optika.vectors.PolarizationVectorArray:
     """
     The fraction of incident energy absorbed by the light-sensitive
@@ -230,7 +247,8 @@ def absorbance(
         Default is the value given in :cite:t:`Stern1994`.
     chemical_oxide
         The chemical formula of the oxide layer on the illuminated surface of the sensor.
-        Default is silicon dioxide.
+        Default is ``"SiO2_llnl_cxro_rodriguez"``, the amorphous silicon
+        dioxide that the sensor models use.
     chemical_substrate
         The chemical formula of the light-sensitive portion of the sensor.
         Default is silicon.
@@ -245,6 +263,11 @@ def absorbance(
         If ``Beer-Lambert``, this method assumes no interference effects.
         These methods only differ in the infrared, where the wavelength is
         commensurate with the thickness of the light-sensitive region.
+    num_interpolation
+        The number of nodes used to interpolate the response of the oxide and
+        substrate over the angle of incidence, or :obj:`None` (the default)
+        to solve it for every element of `direction`.
+        See :func:`optika.materials.multilayer_efficiency`.
 
     Examples
     --------
@@ -332,6 +355,7 @@ def absorbance(
                     ),
                 ),
             ],
+            num_interpolation=num_interpolation,
         )
 
     elif method == "Beer-Lambert":
@@ -346,6 +370,7 @@ def absorbance(
             chemical_substrate=chemical_substrate,
             roughness_oxide=roughness_oxide,
             roughness_substrate=roughness_substrate,
+            num_interpolation=num_interpolation,
         )
 
         n_substrate = chemical_substrate.n(wavelength)
@@ -505,7 +530,7 @@ def quantum_efficiency_effective(
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
     thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
-    chemical_oxide: str | optika.chemicals.AbstractChemical = "SiO2",
+    chemical_oxide: str | optika.chemicals.AbstractChemical = _chemical_oxide,
     chemical_substrate: str | optika.chemicals.AbstractChemical = "Si",
     roughness_oxide: u.Quantity | na.AbstractScalar = 0 * u.nm,
     roughness_substrate: u.Quantity | na.AbstractScalar = 0 * u.nm,
@@ -537,7 +562,8 @@ def quantum_efficiency_effective(
         Default is the value given in :cite:t:`Stern1994`.
     chemical_oxide
         The chemical composition of the oxide layer.
-        The default is to assume the oxide layer is silicon dioxide.
+        Default is ``"SiO2_llnl_cxro_rodriguez"``, the amorphous silicon
+        dioxide that the sensor models use.
     chemical_substrate
         Optional complex refractive index of the implant region and substrate.
         The default is to assume the substrate is made from silicon.
@@ -1232,17 +1258,105 @@ def signal(
         raise ValueError(f"Unrecognized method: {method}")
 
 
+def _probability_same_pixel(
+    sigma: float | na.AbstractScalar,
+) -> na.AbstractScalar:
+    r"""
+    The probability that two electrons from the same photon land in the same
+    column (or row) of pixels, averaged over the uniformly-distributed
+    sub-pixel position of the photon.
+
+    Both electrons start from the same sub-pixel position
+    :math:`u \sim \mathcal{U}(-1/2, 1/2)` and are displaced independently by
+    :math:`\mathcal{N}(0, \sigma^2)`, so their separation is
+    :math:`\delta \sim \mathcal{N}(0, 2 \sigma^2)`, and the probability that
+    they are binned into the same pixel is
+    :math:`\left\langle (1 - |\delta|)_+ \right\rangle`,
+    which evaluates to
+
+    .. math::
+
+        d(\sigma) = \text{erf} \left( \frac{1}{2 \sigma} \right)
+            - \frac{2 \sigma}{\sqrt{\pi}} \left( 1 - e^{-1 / 4 \sigma^2} \right).
+
+    Parameters
+    ----------
+    sigma
+        The standard deviation of the charge diffusion kernel in units of the
+        pixel width.
+    """
+    where = sigma > 0
+    sigma = np.where(where, sigma, 1)
+    result = scipy.special.erf(1 / (2 * sigma)) + (
+        2 * sigma / np.sqrt(np.pi) * np.expm1(-1 / (4 * np.square(sigma)))
+    )
+    return np.where(where, result, 1)
+
+
+_num_gauss_legendre = 32
+"""
+The number of Gauss-Legendre nodes used on each subinterval by
+:func:`_integrate_gauss_legendre`.
+Chosen so that the charge-diffusion integral of :func:`vmr_signal` is accurate
+to better than one part in :math:`10^6` over the full range of optical depths
+encountered by a silicon sensor between 1 and 10000 angstroms.
+"""
+
+
+def _integrate_gauss_legendre(
+    integrand: Callable[[na.AbstractScalar], na.AbstractScalar],
+    lower: float | na.AbstractScalar,
+    upper: float | na.AbstractScalar,
+    axis: str,
+) -> na.AbstractScalar:
+    """
+    Integrate `integrand` between `lower` and `upper` using Gauss-Legendre
+    quadrature with :obj:`_num_gauss_legendre` nodes.
+
+    The limits may be arrays, in which case a separate quadrature rule is
+    applied to every element, and `axis` is the logical axis along which the
+    nodes are placed.
+
+    Parameters
+    ----------
+    integrand
+        The function to integrate.
+    lower
+        The lower limit of integration.
+    upper
+        The upper limit of integration.
+    axis
+        The logical axis along which to place the quadrature nodes.
+        Consumed by the sum, so it does not appear in the result.
+    """
+    nodes, weights = scipy.special.roots_legendre(_num_gauss_legendre)
+
+    nodes = na.ScalarArray(nodes, axes=(axis,))
+    weights = na.ScalarArray(weights, axes=(axis,))
+
+    half = (upper - lower) / 2
+    center = (upper + lower) / 2
+
+    return half * (weights * integrand(half * nodes + center)).sum(axis)
+
+
 def vmr_signal(
     wavelength: u.Quantity | na.ScalarArray,
     direction: float | na.AbstractScalar = 1,
     n: complex | na.AbstractScalar = 1,
     n_substrate: None | complex | na.AbstractScalar = None,
     thickness_implant: u.Quantity | na.AbstractScalar = _thickness_implant,
+    thickness_depletion: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    thickness_substrate: u.Quantity | na.AbstractScalar = _thickness_substrate,
+    width_pixel: (
+        u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+    ) = _width_pixel,
     cce_backsurface: u.Quantity | na.AbstractScalar = _cce_backsurface,
     temperature: u.Quantity | na.ScalarArray = 300 * u.K,
     shot: bool = True,
     fano: bool = True,
     pcc: bool = True,
+    diffusion: bool = True,
 ) -> na.ScalarArray:
     r"""
     Compute the variance-to-mean ratio (VMR) of the number of electrons measured by
@@ -1263,6 +1377,19 @@ def vmr_signal(
     thickness_implant
         The thickness of the implant layer.
         Default is the value given in :cite:t:`Stern1994`.
+    thickness_depletion
+        The thickness of the depletion region, the region with significant electric
+        field.
+        The default is the same value as `thickness_substrate`,
+        which means there is no field-free region and no charge diffusion.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    width_pixel
+        The size of a single pixel on the sensor,
+        used by the charge-diffusion model.
+        A scalar gives square pixels; a
+        :class:`named_arrays.AbstractCartesian2dVectorArray`
+        gives rectangular pixels.
     cce_backsurface
         The differential charge collection efficiency on the back surface
         of the sensor.
@@ -1275,6 +1402,11 @@ def vmr_signal(
         Whether to include the Fano noise in the result.
     pcc
         Whether to include noise due to partial charge collection in the result.
+    diffusion
+        Whether to include the noise reduction due to charge diffusion
+        in the result.
+        This only has an effect if `thickness_depletion` is smaller than
+        `thickness_substrate` and `width_pixel` is positive.
 
     Examples
     --------
@@ -1329,6 +1461,70 @@ def vmr_signal(
         ax.set_ylabel(f"variance-to-mean ratio ({signal.unit:latex_inline})");
         ax.legend();
 
+    Compare the analytic VMR to a Monte Carlo approximation for a sensor with
+    a field-free region, where charge diffusion is significant.
+
+    .. jupyter-execute::
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        # Define the thickness of the depletion region,
+        # which is smaller than the thickness of the substrate,
+        # so that there is a field-free region where charge diffuses
+        thickness_depletion = 2 * u.um
+
+        # Define the logical axes of the pixel grid
+        axis_xy = ("detector_x", "detector_y")
+
+        # Define the expected number of photons incident on each pixel.
+        # The VMR is independent of the illumination level, so a modest
+        # number of photons keeps the Monte Carlo inexpensive.
+        photons_expected = na.broadcast_to(
+            25 * u.photon,
+            shape=dict(detector_x=16, detector_y=16),
+        )
+
+        # Define a grid of wavelengths
+        wavelength = na.geomspace(10, 10000, axis="wavelength", num=101) * u.AA
+
+        # Compute the actual number of electrons measured for each experiment
+        signal = optika.sensors.signal(
+            photons_expected=photons_expected,
+            wavelength=wavelength,
+            thickness_depletion=thickness_depletion,
+            axis_xy=axis_xy,
+            wrap=True,
+            shape_random=dict(experiment=200),
+        )
+
+        # Estimate the VMR of the measured signal by averaging
+        # over both experiments and pixels
+        vmr_measured = signal.vmr(("experiment",) + axis_xy)
+
+        # Compute the VMR analytically with and without charge diffusion
+        vmr_diffusion = optika.sensors.vmr_signal(
+            wavelength=wavelength,
+            thickness_depletion=thickness_depletion,
+        )
+        vmr_no_diffusion = optika.sensors.vmr_signal(
+            wavelength=wavelength,
+        )
+
+        # Plot the measured and analytic VMRs as a function of wavelength
+        fig, ax = plt.subplots(constrained_layout=True)
+        na.plt.scatter(wavelength, vmr_measured, ax=ax, label="Monte Carlo");
+        na.plt.plot(wavelength, vmr_diffusion, ax=ax, label="analytic");
+        na.plt.plot(wavelength, vmr_no_diffusion, ax=ax, label="analytic (no diffusion)");
+        ax.set_xscale("log");
+        ax.set_yscale("log");
+        ax.set_xlabel(f"wavelength ({wavelength.unit:latex_inline})");
+        ax.set_ylabel(f"variance-to-mean ratio ({signal.unit:latex_inline})");
+        ax.legend();
+
     Notes
     -----
     The VMR of the measured electrons is given by
@@ -1350,6 +1546,109 @@ def vmr_signal(
     where :math:`\alpha` is the absorption coefficient,
     :math:`W` is the thickness of the implant region,
     and :math:`\eta_0` is the CCE at the back surface.
+
+    The expression for :math:`F(N_e'')` above can be written compactly as
+
+    .. math::
+        :label: vmr-compact
+
+        F(N_e'') = 1 + \left( \overline{n} + \mathcal{F} - 1 \right)
+            \frac{\left\langle \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle},
+
+    where :math:`\left\langle \cdot \right\rangle` denotes an average over the
+    exponentially-distributed absorption depth :math:`z`,
+    since :math:`\left\langle \eta^2 \right\rangle / \left\langle \eta \right\rangle
+    = \overline{\eta} + F(\eta)`.
+    The constant term is the uncorrelated (Poisson) component of the noise,
+    and the second term is the photon-correlated component,
+    which arises because the :math:`\sim \overline{n}` electrons produced by a
+    single photon are measured together in the same pixel.
+
+    Charge diffusion weakens exactly this correlation:
+    two electrons produced by the same photon at depth :math:`z` in the
+    field-free region land in the same pixel only with probability
+
+    .. math::
+
+        D(z) = d \left( \frac{w(z)}{p_x} \right) d \left( \frac{w(z)}{p_y} \right),
+
+    where :math:`p_x` and :math:`p_y` are the pixel widths,
+    :math:`w(z) = z_f \sqrt{1 - z / z_f}` is the standard deviation of the
+    Gaussian charge diffusion kernel,
+    :math:`z_f` is the thickness of the field-free region
+    (the difference between the substrate thickness and the depletion
+    thickness),
+    and
+
+    .. math::
+
+        d(\sigma) = \text{erf} \left( \frac{1}{2 \sigma} \right)
+            - \frac{2 \sigma}{\sqrt{\pi}} \left( 1 - e^{-1 / 4 \sigma^2} \right)
+
+    is the probability that two electrons displaced independently by
+    :math:`\mathcal{N}(0, \sigma^2)` from the same uniformly-distributed
+    sub-pixel starting position fall into the same column of pixels.
+    Weighting the photon-correlated component of Equation :eq:`vmr-compact`
+    by :math:`D(z)` yields the VMR with charge diffusion,
+
+    .. math::
+        :label: vmr-diffusion
+
+        F(N_e'') = 1 + \left( \overline{n} + \mathcal{F} - 1 \right)
+            \frac{\left\langle D(z) \, \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle}.
+
+    Note that the uncorrelated term is unchanged since diffusion only moves
+    electrons between pixels, which preserves Poisson statistics.
+    This function evaluates Equation :eq:`vmr-diffusion` by subtracting the
+    correction
+
+    .. math::
+
+        F_\text{diffusion} = - \left( \overline{n} + \mathcal{F} - 1 \right)
+            \frac{\left\langle \left[ 1 - D(z) \right] \eta^2(z) \right\rangle}{\left\langle \eta(z) \right\rangle}
+
+    from Equation :eq:`vmr-compact`.
+    The integrand vanishes outside the field-free region, since :math:`D = 1`
+    where the charge does not spread, so only that region is integrated.
+
+    The average has no closed form.
+    The obstruction is :math:`D`, which contains
+    :math:`\text{erf}(1 / 2 \sigma)` with :math:`\sigma \propto \sqrt{z_f - z}`,
+    and squaring it to cover the two axes of the sensor produces a product of
+    two error functions integrated against the exponential absorption profile.
+    It is therefore evaluated by quadrature, in a variable chosen to make that
+    quadrature converge quickly.
+    Writing the average as an integral over the cumulative absorption
+    probability :math:`s` within the field-free region distributes the nodes
+    according to where photons are actually absorbed, which matters because the
+    optical depth of that region spans four orders of magnitude across the
+    wavelengths of interest.
+    Substituting :math:`s = 1 - r^2` then removes the square-root branch point
+    which :math:`\sigma(z)` places at :math:`z = z_f`, since the diffusion width
+    becomes proportional to :math:`r` near that end of the range.
+    In terms of :math:`r` the optical depth is
+
+    .. math::
+
+        \alpha z = -\log \left( e^{-\alpha z_f} + \left( 1 - e^{-\alpha z_f} \right) r^2 \right),
+
+    which is evaluated in this form rather than through :math:`s` so that it
+    stays finite when :math:`e^{-\alpha z_f}` underflows.
+    The remaining integrand is smooth apart from the point where the implant
+    ends and :math:`\eta` saturates, so the interval is split there and
+    Gauss-Legendre quadrature is applied to each part.
+
+    With :obj:`_num_gauss_legendre` nodes per part this is accurate to better
+    than one part in :math:`10^6` for optical depths
+    :math:`\alpha z_f` between :math:`0.02` and :math:`3000`,
+    which covers silicon between 1 and 10000 angstroms;
+    a midpoint rule in :math:`s` needs some thirty times as many nodes to reach
+    a hundred times worse accuracy.
+
+    This result assumes uniform illumination and a periodic pixel grid,
+    so it corresponds to ``wrap=True`` in :func:`signal`,
+    and is a good approximation away from the edges of a sensor
+    with ``wrap=False``.
     """
 
     if n_substrate is None:
@@ -1403,6 +1702,71 @@ def vmr_signal(
         F_pcc = 1 * unit - cce * unit - F_cce * unit + iqy * F_cce + F * F_cce
 
         result = result + F_pcc
+
+    if diffusion:
+        if not isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
+            width_pixel = na.Cartesian2dVectorArray(width_pixel, width_pixel)
+
+        n0 = cce_backsurface
+        aW = (absorption * thickness_implant).to(u.dimensionless_unscaled).value
+
+        thickness_ff = np.maximum(
+            thickness_substrate - thickness_depletion,
+            0 * thickness_substrate,
+        )
+        az_ff = (absorption * thickness_ff).to(u.dimensionless_unscaled).value
+        az_substrate = absorption * thickness_substrate
+        az_substrate = az_substrate.to(u.dimensionless_unscaled).value
+
+        def ratio_ff(width: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            where = width > 0
+            width = np.where(where, width, 1 * u.um)
+            r = (thickness_ff / width).to(u.dimensionless_unscaled).value
+            return np.where(where, r, 0)
+
+        r_x = ratio_ff(width_pixel.x)
+        r_y = ratio_ff(width_pixel.y)
+
+        fraction_absorbed = -np.expm1(-az_substrate)
+        fraction_ff = -np.expm1(-az_ff)
+        t_ff = fraction_ff / fraction_absorbed
+        az_ff_safe = np.where(az_ff > 0, az_ff, 1)
+
+        axis_z = "_vmr_signal_depth"
+
+        def integrand(r: na.AbstractScalar) -> na.AbstractScalar:
+            az = -np.log(np.exp(-az_ff) + fraction_ff * np.square(r))
+            eta = np.minimum(n0 + (1 - n0) * az / aW, 1)
+            w = np.sqrt(np.maximum(1 - az / az_ff_safe, 0))
+            D = _probability_same_pixel(r_x * w) * _probability_same_pixel(r_y * w)
+            return (1 - D) * np.square(eta) * 2 * r
+
+        # The integrand is smooth except where the implant ends and the
+        # differential CCE saturates, so integrate up to that point and beyond
+        # it separately.  The breakpoint collapses to zero if the implant is
+        # thicker than the field-free region, leaving a single interval.
+        #
+        # The kink is inherited from the piecewise-linear differential CCE of
+        # `charge_collection_efficiency`, which follows :cite:t:`Stern1994`.
+        # A smooth profile would need no split and half as many nodes, but the
+        # piecewise-linear form is kept deliberately so that the fitted implant
+        # thickness and back-surface CCE remain comparable with the values
+        # published by :cite:t:`Stern1994` and :cite:t:`Boerner2012`.  Do not
+        # trade that away for the quadrature.
+        r_implant = np.sqrt(
+            np.maximum((np.exp(-aW) - np.exp(-az_ff)) / fraction_ff, 0),
+        )
+
+        integral = t_ff * (
+            _integrate_gauss_legendre(integrand, 0, r_implant, axis_z)
+            + _integrate_gauss_legendre(integrand, r_implant, 1, axis_z)
+        )
+
+        unit = u.electron / u.photon
+
+        F_diffusion = -(iqy + F - 1 * unit) * integral / cce
+
+        result = result + F_diffusion
 
     return result * u.photon
 
@@ -1513,6 +1877,62 @@ class AbstractSensorMaterial(
             The vector perpendicular to the surface of the sensor.
         """
 
+    @abc.abstractmethod
+    def photons_absorbed(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        """
+        Given the number of electrons measured by the sensor, compute the
+        expected number of photons *absorbed* by the light-sensitive region.
+
+        This is the inverse of :meth:`signal`: it divides out only the quantum
+        yield and the charge collection efficiency, not the absorbance. The
+        absorbance is deliberately excluded because it is usually accounted for
+        elsewhere (for example in the effective area of the optical system).
+
+        Parameters
+        ----------
+        electrons
+            The number of electrons measured by each pixel.
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        """
+
+    @abc.abstractmethod
+    def uncertainty(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
+    ) -> na.AbstractScalar:
+        """
+        Given the number of electrons measured by the sensor, compute the
+        standard deviation of the measurement noise, in electrons.
+
+        Parameters
+        ----------
+        electrons
+            The number of electrons measured by each pixel.
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        width_pixel
+            The physical size of each pixel, used by the charge-diffusion model.
+            Should match the value passed to :meth:`signal`.
+        """
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class IdealSensorMaterial(
@@ -1575,6 +1995,30 @@ class IdealSensorMaterial(
     ) -> na.AbstractScalar:
         return electrons * u.photon / u.electron
 
+    def photons_absorbed(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        return electrons * u.photon / u.electron
+
+    def uncertainty(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
+    ) -> na.AbstractScalar:
+        # an ideal sensor has only shot noise, so the electrons are
+        # Poisson-distributed and the variance equals the mean.
+        # `width_pixel` is unused since charge diffusion preserves
+        # Poisson statistics.
+        return np.sqrt(electrons * u.electron)
+
 
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSiliconSensorMaterial(
@@ -1597,7 +2041,7 @@ class AbstractSiliconSensorMaterial(
 
     @functools.cached_property
     def _chemical_oxide(self) -> optika.chemicals.Chemical:
-        return optika.chemicals.Chemical("SiO2_llnl_cxro_rodriguez")
+        return optika.chemicals.Chemical(_chemical_oxide)
 
     def quantum_yield_ideal(
         self,
@@ -1687,6 +2131,19 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
     @abc.abstractmethod
     def roughness_substrate(self):
         """The RMS roughness of the silicon substrate surface."""
+
+    @property
+    @abc.abstractmethod
+    def num_interpolation(self) -> None | int:
+        """
+        The number of nodes used to interpolate the absorbance of this sensor
+        over the angle of incidence, or :obj:`None` to compute it for every
+        direction.
+
+        The absorbance is the response of a stack of layers, the oxide over
+        the substrate, and costs as much to compute as any other stack; see
+        :func:`optika.materials.multilayer_efficiency`.
+        """
 
     @property
     @abc.abstractmethod
@@ -1801,6 +2258,7 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             chemical_substrate=self._chemical,
             roughness_oxide=self.roughness_oxide,
             roughness_substrate=self.roughness_substrate,
+            num_interpolation=self.num_interpolation,
         )
 
     def charge_collection_efficiency(
@@ -2106,6 +2564,68 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
 
         return electrons / qe
 
+    def photons_absorbed(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        # `direction` is the cosine of the refracted angle *inside* the
+        # substrate (as passed to `signal`), so compute the substrate
+        # absorption directly from it and divide out only the quantum yield and
+        # charge collection efficiency, matching `signal` at ``absorbance=1``.
+        n_substrate = self._chemical.n(wavelength)
+
+        absorption = absorption_effective(
+            wavelength=wavelength,
+            n_substrate=n_substrate,
+            direction_substrate=direction,
+        )
+
+        iqy = quantum_yield_ideal(
+            wavelength=wavelength,
+            temperature=self.temperature,
+        )
+
+        cce = charge_collection_efficiency(
+            absorption=absorption,
+            thickness_implant=self.thickness_implant,
+            cce_backsurface=self.cce_backsurface,
+        )
+
+        return electrons / (iqy * cce)
+
+    def uncertainty(
+        self,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar = 1,
+        width_pixel: (
+            u.Quantity | na.AbstractScalar | na.AbstractCartesian2dVectorArray
+        ) = 0
+        * u.um,
+    ) -> na.AbstractScalar:
+        # `direction` is the cosine of the refracted angle *inside* the
+        # substrate (as passed to `signal`); pass ``n == n_substrate`` so
+        # `vmr_signal` uses it directly as the substrate direction. The
+        # variance-to-mean ratio then gives the variance per measured electron.
+        n_substrate = self._chemical.n(wavelength)
+
+        vmr = vmr_signal(
+            wavelength=wavelength,
+            direction=direction,
+            n=n_substrate,
+            n_substrate=n_substrate,
+            thickness_implant=self.thickness_implant,
+            thickness_depletion=self.depletion.thickness,
+            thickness_substrate=self.thickness_substrate,
+            width_pixel=width_pixel,
+            cce_backsurface=self.cce_backsurface,
+            temperature=self.temperature,
+        )
+
+        return np.sqrt(vmr * electrons)
+
     def efficiency(
         self,
         rays: optika.rays.AbstractRayVectorArray,
@@ -2154,6 +2674,13 @@ class BackIlluminatedSiliconSensorMaterial(
     eqe_measured: None | na.FunctionArray = None
     """An optional measurement of the effective quantum efficiency."""
 
+    num_interpolation: None | int = None
+    """
+    The number of nodes used to interpolate the absorbance over the angle of
+    incidence, or :obj:`None` to compute it for every direction.
+    See :func:`optika.materials.multilayer_efficiency`.
+    """
+
     @property
     def shape(self) -> dict[str, int]:
         return dict()
@@ -2169,6 +2696,9 @@ class BackIlluminatedSiliconSensorMaterial(
         """
         Fit the parameters of this sensor to a given effective quantum efficiency.
 
+        The fit evaluates :meth:`quantum_efficiency_effective` of the sensor
+        itself, so it uses the same oxide and substrate as the fitted sensor.
+
         Parameters
         ---------
         temperature
@@ -2178,33 +2708,57 @@ class BackIlluminatedSiliconSensorMaterial(
         depletion
             A model of this sensor's depletion region.
         eqe_measured
-            The measured quantum efficiency that will be fit by the function
-            :func:`optika.sensors.quantum_efficiency_effective`.
+            The measured quantum efficiency that will be fit by
+            :meth:`quantum_efficiency_effective` at normal incidence.
         """
         unit_thickness_oxide = u.AA
         unit_thickness_implant = u.AA
         unit_roughness = u.nm
         unit_cce_backsurface = u.dimensionless_unscaled
 
-        roughness_oxide = 0 * unit_roughness
+        material = cls(
+            temperature=temperature,
+            thickness_substrate=thickness_substrate,
+            roughness_oxide=0 * unit_roughness,
+            depletion=depletion,
+            eqe_measured=eqe_measured,
+        )
 
-        def eqe_rms_difference(x: tuple[float, float, float, float]):
+        def trial(x: tuple[float, float, float, float]) -> Self:
+            """
+            The sensor with the given parameters.
+
+            Parameters
+            ----------
+            x
+                The thickness of the oxide and of the implant layer, the
+                roughness of the substrate, and the charge-collection
+                efficiency of the back surface.
+            """
             (
                 thickness_oxide,
                 thickness_implant,
                 roughness_substrate,
                 cce_backsurface,
             ) = x
-            qe_fit = quantum_efficiency_effective(
-                wavelength=eqe_measured.inputs,
-                direction=1,
+            return material.replace(
                 thickness_oxide=thickness_oxide << unit_thickness_oxide,
                 thickness_implant=thickness_implant << unit_thickness_implant,
-                thickness_substrate=thickness_substrate,
-                roughness_oxide=0 * unit_roughness,
                 roughness_substrate=roughness_substrate << unit_roughness,
                 cce_backsurface=cce_backsurface << unit_cce_backsurface,
             )
+
+        def eqe_rms_difference(x: tuple[float, float, float, float]) -> float:
+            """
+            The RMS difference between the measured effective quantum
+            efficiency and that of the sensor with the given parameters.
+
+            Parameters
+            ----------
+            x
+                The parameters of :func:`trial`.
+            """
+            qe_fit = trial(x).quantum_efficiency_effective(eqe_measured.inputs)
 
             return np.sqrt(np.mean(np.square(eqe_measured.outputs - qe_fit))).ndarray
 
@@ -2230,26 +2784,9 @@ class BackIlluminatedSiliconSensorMaterial(
             method="nelder-mead",
         )
 
-        (
-            thickness_oxide,
-            thickness_implant,
-            roughness_substrate,
-            cce_backsurface,
-        ) = fit.x
+        if not fit.success:
+            raise RuntimeError(
+                f"The fit of the effective quantum efficiency did not converge: {fit.message}"
+            )
 
-        thickness_oxide = thickness_oxide << unit_thickness_oxide
-        thickness_implant = thickness_implant << unit_thickness_implant
-        roughness_substrate = roughness_substrate << unit_roughness
-        cce_backsurface = cce_backsurface << unit_cce_backsurface
-
-        return cls(
-            temperature=temperature,
-            thickness_oxide=thickness_oxide,
-            thickness_implant=thickness_implant,
-            thickness_substrate=thickness_substrate,
-            roughness_oxide=roughness_oxide,
-            roughness_substrate=roughness_substrate,
-            cce_backsurface=cce_backsurface,
-            depletion=depletion,
-            eqe_measured=eqe_measured,
-        )
+        return trial(fit.x)

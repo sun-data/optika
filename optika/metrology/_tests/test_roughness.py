@@ -17,6 +17,7 @@ from optika._tests import test_mixins
 )
 class TestRoughnessParameters(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
 ):
     def test_period_min(self, a: optika.metrology.RoughnessParameters):

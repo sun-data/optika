@@ -6,6 +6,8 @@ import matplotlib.cm
 import matplotlib.colors
 import matplotlib.figure
 import matplotlib.pyplot as plt
+import numpy as np
+import astropy.units as u
 import astropy.visualization
 import named_arrays as na
 import optika
@@ -20,11 +22,14 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractVignettingModel(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
+    optika.mixins.Shaped,
 ):
     """
     An interface describing an arbitrary vignetting model, which maps scene
     coordinates to the relative illumination of the optical system (the spatial
-    response normalized to one at the center of the field of view).
+    response normalized to one *on average* over the field of view, not at its
+    center).
     """
 
     @abc.abstractmethod
@@ -62,11 +67,11 @@ class AbstractInterpolatedVignettingModel(
     AbstractVignettingModel,
 ):
     """
-    A vignetting model defined by interpolating between known scene coordinates
-    and their measured illumination.
+    A vignetting model defined by interpolating between the measured
+    illumination of a grid of cells in the scene.
 
     This class has two main members, :attr:`coordinates_scene` and
-    :attr:`illumination`, the calibration points between which subclasses
+    :attr:`illumination`, the calibration cells between which subclasses
     interpolate.
     """
 
@@ -74,14 +79,16 @@ class AbstractInterpolatedVignettingModel(
     @abc.abstractmethod
     def coordinates_scene(self) -> na.AbstractSpectralPositionalVectorArray:
         """
-        The wavelength and position of each calibration point in the scene.
+        The wavelength of each calibration point, and the corners of the
+        field cell it was measured in, one longer than :attr:`illumination`
+        along each of :attr:`axis_field`.
         """
 
     @property
     @abc.abstractmethod
     def illumination(self) -> na.AbstractScalar:
         """
-        The relative illumination at each calibration point.
+        The relative illumination of each calibration cell.
         """
 
     @property
@@ -100,8 +107,13 @@ class PolynomialVignettingModel(
     AbstractInterpolatedVignettingModel,
 ):
     """
-    A vignetting model which fits a polynomial to the measured illumination at
-    known scene coordinates.
+    A vignetting model which fits a polynomial to the measured illumination of
+    a grid of cells in the scene.
+
+    :attr:`coordinates_scene` describes the corners of those cells, one more
+    than the measurements along each field axis.  Where inside its cell each
+    measurement was made is :attr:`coordinates_sample`, the centers of them
+    unless it says otherwise.
 
     Examples
     --------
@@ -123,10 +135,11 @@ class PolynomialVignettingModel(
                 start=-1 * u.deg,
                 stop=+1 * u.deg,
                 axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-                num=13,
+                num=14,
             ),
         )
-        illumination = 1 - 0.1 * (scene.position.length / u.deg) ** 2
+        centers = scene.cell_centers(("field_x", "field_y"))
+        illumination = 1 - 0.1 * (centers.position.length / u.deg) ** 2
 
         model = optika.radiometry.PolynomialVignettingModel(
             coordinates_scene=scene,
@@ -136,18 +149,38 @@ class PolynomialVignettingModel(
             degree=1,
         )
 
-        fig, ax = model.plot()
-        na.plt.set_aspect("equal", ax=ax);
+        fig, ax = na.plt.subplots(
+            axis_rows="row",
+            nrows=2,
+            axis_cols="wavelength",
+            ncols=3,
+            sharex=True,
+            sharey=True,
+            squeeze=False,
+            constrained_layout=True,
+        )
 
-        fig, ax = model.plot_residual()
+        model.plot(ax=ax[{"row": 1}])
+        model.plot_residual(ax=ax[{"row": 0}])
+
         na.plt.set_aspect("equal", ax=ax);
     """
 
     coordinates_scene: na.AbstractSpectralPositionalVectorArray = dataclasses.MISSING
-    """The wavelength and position of each calibration point in the scene."""
+    """
+    The wavelength of each calibration point, and the corners of the field
+    cell it was measured in, one longer than :attr:`illumination` along each
+    of :attr:`axis_field`.
+
+    The illumination is a property of a cell rather than of a point: it is the
+    unvignetted area of the pupil seen from somewhere inside that cell, and
+    the average which normalizes it is a quadrature over the cells.  Saying so
+    is also what lets the model be plotted, since the mesh it is drawn on is
+    these corners.
+    """
 
     illumination: na.AbstractScalar = dataclasses.MISSING
-    """The relative illumination at each calibration point."""
+    """The relative illumination of each cell."""
 
     axis_wavelength: str = dataclasses.MISSING
     """The logical axis corresponding to changing wavelength."""
@@ -161,6 +194,54 @@ class PolynomialVignettingModel(
     where: bool | na.AbstractScalar = True
     """A boolean mask selecting which calibration points to use for fitting."""
 
+    coordinates_sample: None | na.AbstractSpectralPositionalVectorArray = (
+        dataclasses.field(default=None, kw_only=True)
+    )
+    """
+    Where inside its cell each calibration point was measured.
+
+    A measurement need not be made at the center of its cell, and one made at
+    a point drawn uniformly inside it is the better estimate of the cell's
+    average: a rule which always samples the same place aliases against the
+    edge of an aperture falling between two of them.  The fit reads these
+    rather than the corners, so a measurement counts at the place it was
+    actually made.
+
+    If :obj:`None` (the default), the centers of the cells
+    :attr:`coordinates_scene` describes, which is right for a grid sampled
+    that way.  See :attr:`coordinates_sample_`.
+    """
+
+    @property
+    def coordinates_sample_(self) -> na.AbstractSpectralPositionalVectorArray:
+        """
+        :attr:`coordinates_sample`, or the centers of the cells
+        :attr:`coordinates_scene` describes where it is :obj:`None`.
+        """
+        result = self.coordinates_sample
+        if result is None:
+            result = self.coordinates_scene.cell_centers(self.axis_field)
+        return result
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            self._shape_orthogonal(self.coordinates_scene),
+            self._shape_orthogonal(self.illumination),
+        )
+
+    def _shape_orthogonal(self, a: na.AbstractArray) -> dict[str, int]:
+        """
+        The shape of `a` with the axes the calibration points run along
+        dropped.
+
+        They are dropped rather than broadcast because the corners and the
+        measurements deliberately disagree along them, by one.
+        """
+        return {
+            ax: n for ax, n in optika.shape(a).items() if ax not in self._axis_scene
+        }
+
     @property
     def _axis_scene(self) -> tuple[str, ...]:
         """The logical axes over which the calibration points are distributed."""
@@ -169,12 +250,13 @@ class PolynomialVignettingModel(
     @functools.cached_property
     def fit(self) -> na.PolynomialFitFunctionArray:
         """The polynomial fit mapping scene coordinates to illumination."""
-        scene = self.coordinates_scene
+        scene = self.coordinates_sample_
         return na.PolynomialFitFunctionArray.from_degree(
             inputs=scene,
             outputs=self.illumination,
             center=scene.mean(self._axis_scene),
             degree=self.degree,
+            axis_polynomial=self._axis_scene,
             where_polynomial=self.where,
         )
 
@@ -186,10 +268,12 @@ class PolynomialVignettingModel(
 
     def plot_residual(
         self,
+        ax: None | na.ScalarArray = None,
         figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
         vmax: None | na.ArrayLike = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
@@ -202,6 +286,12 @@ class PolynomialVignettingModel(
 
         Parameters
         ----------
+        ax
+            The matplotlib axes to draw on, distributed along
+            :attr:`axis_wavelength`.
+            If :obj:`None`, a new figure is created with one subplot per
+            wavelength, and `figsize` sets its size.
+            If given, `figsize` is ignored, since the figure already exists.
         figsize
             The size of the returned figure in inches.
             If :obj:`None`, the size is chosen automatically from the number
@@ -213,35 +303,61 @@ class PolynomialVignettingModel(
             If :obj:`None`, defaults to zero.
         vmax
             The residual value mapped to the highest color.
-            If :obj:`None`, defaults to the maximum residual.
+            If :obj:`None`, defaults to the largest residual among the points
+            the fit was constrained by.
+        unit
+            The unit to express the field position in.
+
+            A model is free to describe the scene in whichever unit suits it,
+            and the one that suits the fit is not always the one that reads
+            well on an axis: a field of a tenth of a degree is easier to see
+            in arcseconds. If :obj:`None`, the position is drawn in the unit
+            it is already in.
         kwargs
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
         """
+        residual = abs(self.illumination - self.fit.predictions)
+
+        # exclude the calibration points that were not used by the fit
+        residual = np.where(self.where, residual, np.nan)
+
         return self._plot(
-            abs(self.illumination - self.fit.predictions),
+            residual,
             label="illumination residual",
+            ax=ax,
             figsize=figsize,
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
+            unit=unit,
             **kwargs,
         )
 
     def plot(
         self,
+        ax: None | na.ScalarArray = None,
         figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
         vmax: None | na.ArrayLike = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
         Plot the calibration :attr:`illumination` as a function of field angle,
         with a separate subplot for each wavelength.
 
+        Cells the model was not fit over, see :attr:`where`, are left blank.
+
         Parameters
         ----------
+        ax
+            The matplotlib axes to draw on, distributed along
+            :attr:`axis_wavelength`.
+            If :obj:`None`, a new figure is created with one subplot per
+            wavelength, and `figsize` sets its size.
+            If given, `figsize` is ignored, since the figure already exists.
         figsize
             The size of the returned figure in inches.
             If :obj:`None`, the size is chosen automatically from the number
@@ -254,17 +370,31 @@ class PolynomialVignettingModel(
         vmax
             The illumination value mapped to the highest color.
             If :obj:`None`, defaults to the maximum illumination.
+        unit
+            The unit to express the field position in.
+
+            A model is free to describe the scene in whichever unit suits it,
+            and the one that suits the fit is not always the one that reads
+            well on an axis: a field of a tenth of a degree is easier to see
+            in arcseconds. If :obj:`None`, the position is drawn in the unit
+            it is already in.
         kwargs
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
         """
+        # exclude the calibration points that were not used by the fit, as
+        # :meth:`plot_residual` does
+        illumination = np.where(self.where, self.illumination, np.nan)
+
         return self._plot(
-            self.illumination,
+            illumination,
             label="illumination",
+            ax=ax,
             figsize=figsize,
             cmap=cmap,
             vmin=vmin,
             vmax=vmax,
+            unit=unit,
             **kwargs,
         )
 
@@ -272,10 +402,12 @@ class PolynomialVignettingModel(
         self,
         values: na.AbstractScalar,
         label: str,
+        ax: None | na.ScalarArray = None,
         figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
         vmax: None | na.ArrayLike = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
@@ -283,37 +415,52 @@ class PolynomialVignettingModel(
         subplot for each wavelength.
         """
         scene = self.coordinates_scene
-        position = scene.position
         wavelength = na.as_named_array(scene.wavelength)
         axis_wavelength = self.axis_wavelength
+
+        # each value is drawn across the whole cell it belongs to, so the mesh
+        # is the corners of those cells rather than the points inside them
+        position = scene.position
+
+        if unit is not None:
+            position = position.to(unit)
 
         if vmin is None:
             vmin = 0
         if vmax is None:
-            vmax = values.max()
+            vmax = np.nanmax(values)
 
         ncols = na.shape(wavelength).get(axis_wavelength, 1)
 
-        if figsize is None:
-            # shape each subplot to the field-of-view aspect ratio, and widen
-            # the figure to fit one subplot per wavelength
-            height_subplot = 3
-            aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
-            figsize = (
-                ncols * height_subplot * aspect + 1.5,
-                height_subplot + 1,
-            )
-
         with astropy.visualization.quantity_support():
-            fig, ax = na.plt.subplots(
-                axis_cols=axis_wavelength,
-                ncols=ncols,
-                sharex=True,
-                sharey=True,
-                squeeze=False,
-                figsize=figsize,
-                constrained_layout=True,
-            )
+            if ax is None:
+                if figsize is None:
+                    # shape each subplot to the field-of-view aspect ratio, and
+                    # widen the figure to fit one subplot per wavelength
+                    height_subplot = 3
+                    aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
+                    figsize = (
+                        ncols * height_subplot * aspect + 1.5,
+                        height_subplot + 1,
+                    )
+
+                fig, ax = na.plt.subplots(
+                    axis_cols=axis_wavelength,
+                    ncols=ncols,
+                    sharex=True,
+                    sharey=True,
+                    squeeze=False,
+                    figsize=figsize,
+                    constrained_layout=True,
+                )
+            else:
+                ax = na.as_named_array(ax)
+                if axis_wavelength not in ax.shape:
+                    raise ValueError(
+                        f"the given axes must be distributed along "
+                        f"{axis_wavelength=}, got {ax.shape=}."
+                    )
+                fig = ax.ndarray.reshape(-1)[0].get_figure()
 
             colorizer = plt.Colorizer(
                 cmap=cmap,

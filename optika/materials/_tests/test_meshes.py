@@ -6,6 +6,7 @@ from optika._tests import test_mixins
 
 class AbstractTestAbstractMesh(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
 ):
     def test_chemical(self, a: optika.materials.meshes.AbstractMesh):

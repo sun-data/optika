@@ -63,6 +63,12 @@ class AbstractTestAbstractSceneVectorArray(
         test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions
     ):
         @pytest.mark.parametrize("array_2", vectors_scene)
+        class TestStackLikeFunctions(
+            test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions.TestStackLikeFunctions,
+        ):
+            pass
+
+        @pytest.mark.parametrize("array_2", vectors_scene)
         class TestAsArrayLikeFunctions(
             test_vectors_cartesian.AbstractTestAbstractCartesianVectorArray.TestArrayFunctions.TestAsArrayLikeFunctions
         ):
@@ -140,3 +146,12 @@ class TestSceneVectorArray(
         value: optika.vectors.AbstractSceneVectorArray,
     ):
         super().test__setitem__(array=array, item=item, value=value)
+
+
+def test_from_scalar():
+    """Without a vector to be like, the class asked is the class built."""
+    result = optika.vectors.SceneVectorArray.from_scalar(2)
+
+    assert isinstance(result, optika.vectors.SceneVectorArray)
+    assert result.wavelength == 2
+    assert result.field == 2

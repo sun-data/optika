@@ -8,6 +8,7 @@ from optika._tests import test_mixins
 
 class AbstractTestAbstractDepletionModel(
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestShaped,
 ):
     def test_thickness(
@@ -74,3 +75,16 @@ class TestJanesickDepletionModel(
         assert isinstance(result, na.AbstractFunctionArray)
         assert np.all(result.inputs > 0 * u.AA)
         assert np.all(result.outputs > 0)
+
+    def test_shape_excludes_mcc_measured(
+        self,
+        a: optika.sensors.materials.depletion.JanesickDepletionModel,
+    ):
+        """
+        The measurement this model was fitted against does not shape it.
+
+        It is sampled along an axis of its own, which need not agree with the
+        axes of any other measurement carried alongside it, and which says
+        nothing about the shape of the model.
+        """
+        assert set(na.shape(a.mcc_measured)).isdisjoint(a.shape)

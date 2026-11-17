@@ -134,6 +134,15 @@ class AbstractTestAbstractLayerSequence(
         for layer in result:
             assert isinstance(layer, optika.materials.AbstractLayer)
 
+    def test_layers_(self, a: optika.materials.AbstractLayerSequence) -> None:
+        result = a.layers_
+        for layer in result:
+            assert isinstance(layer, optika.materials.Layer)
+        # every layer is written out once for each time it is deposited, so
+        # together they are as thick as the sequence
+        thickness = sum((layer.thickness for layer in result), 0 * u.nm)
+        assert np.allclose(thickness, a.thickness)
+
 
 @pytest.mark.parametrize(
     argnames="a",
@@ -289,3 +298,27 @@ class TestPeriodicLayerSequence(
             assert np.allclose(direction_test, direction_expected)
             assert np.allclose(result_test, result_expected)
             assert np.allclose(where_test, where_expected)
+
+
+def test_layers_written_out_in_order() -> None:
+    """Nested and periodic sequences are written out where they sit."""
+
+    def layer(chemical: str) -> optika.materials.Layer:
+        """A thin layer of the given material."""
+        return optika.materials.Layer(chemical=chemical, thickness=1 * u.nm)
+
+    sequence = optika.materials.LayerSequence(
+        [
+            layer("SiO2"),
+            optika.materials.PeriodicLayerSequence(
+                layers=[
+                    layer("Al"),
+                    optika.materials.LayerSequence([layer("SiC"), layer("Mg")]),
+                ],
+                num_periods=2,
+            ),
+            layer("Cr"),
+        ]
+    )
+    result = [item.chemical for item in sequence.layers_]
+    assert result == ["SiO2", "Al", "SiC", "Mg", "Al", "SiC", "Mg", "Cr"]

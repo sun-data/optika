@@ -20,9 +20,10 @@ class ZernikeSag(
     polynomials.
 
     This is useful for representing measured or modeled figure errors of an
-    optical surface, since the perturbation modifies the actual shape of the
-    surface, it is seen consistently by both geometric raytraces and
-    physical-optics calculations.
+    optical surface.
+    Since the perturbation modifies the actual shape of the surface, it is
+    seen consistently by both geometric raytraces and physical-optics
+    calculations.
 
     Examples
     --------
@@ -85,13 +86,23 @@ class ZernikeSag(
     axis: str = "zernike"
     """The logical axis of `coefficients` indexing the Noll terms."""
 
-    def __post_init__(self):
+    @property
+    def base_(self) -> AbstractSag:
+        """The base sag profile, with :obj:`None` resolved to a flat profile."""
         if self.base is None:
-            self.base = NoSag()
+            return NoSag()
+        return self.base
 
     @property
-    def _coefficients_normalized(self) -> na.AbstractScalar:
-        """The coefficients as a named array guaranteed to contain `axis`."""
+    def coefficients_(self) -> na.AbstractScalar:
+        """
+        The coefficients as a named array guaranteed to vary along `axis`.
+
+        A bare array or scalar is interpreted as being along `axis`.
+        A named array which does not vary along `axis` is rejected here, so
+        that :attr:`shape` fails fast instead of reporting the misnamed axis
+        as if it were a batch axis.
+        """
         result = self.coefficients
         if not isinstance(result, na.AbstractArray):
             result = np.atleast_1d(u.Quantity(result))
@@ -105,10 +116,10 @@ class ZernikeSag(
 
     @property
     def shape(self) -> dict[str, int]:
-        shape_coefficients = dict(self._coefficients_normalized.shape)
+        shape_coefficients = dict(self.coefficients_.shape)
         shape_coefficients.pop(self.axis, None)
         return na.broadcast_shapes(
-            optika.shape(self.base),
+            optika.shape(self.base_),
             shape_coefficients,
             optika.shape(self.radius),
             optika.shape(self.transformation),
@@ -125,17 +136,72 @@ class ZernikeSag(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        result = self.base(position)
+        result = self.base_(position)
 
-        coefficients = self._coefficients_normalized
-        position_normalized = position.xy / self.radius
+        return result + optika.zernikes.zernike_sum(
+            position=position.xy / self.radius,
+            coefficients=self.coefficients_,
+            axis=self.axis,
+        )
 
-        for i in range(coefficients.shape[self.axis]):
-            c = coefficients[{self.axis: i}]
-            result = result + c * optika.zernikes.zernike(
-                position=position_normalized,
-                j=i + 1,
-            )
+    def intercept(
+        self,
+        rays: optika.rays.AbstractRayVectorArray,
+    ) -> optika.rays.RayVectorArray:
+        """
+        A set of new rays with the same direction as the input rays,
+        but with the :attr:`optika.rays.RayVectorArray.position` updated to
+        their interception point with this sag function.
+
+        Parameters
+        ----------
+        rays
+            input rays that will intercept this sag function
+
+        Notes
+        -----
+        There is no closed-form intercept with an arbitrary Zernike sum, so
+        this is found iteratively, as in
+        :meth:`optika.sags.AbstractSag.intercept`.
+        Since the perturbation is usually small compared to the base profile,
+        the search is seeded from the intercept with the base profile alone,
+        and the Zernike sum is collected into its harmonics once rather than
+        on every evaluation.
+        """
+        base = self.base_
+        radius = self.radius
+        harmonics = optika.zernikes._harmonics(
+            coefficients=self.coefficients_,
+            axis=self.axis,
+        )
+
+        transformation = self.transformation
+        if transformation is not None:
+            rays = transformation.inverse(rays)
+
+        # Start the search from the base profile, which the perturbation
+        # usually moves by nanometres.
+        rays = base.intercept(rays)
+
+        def line(t: na.AbstractScalar) -> na.Cartesian3dVectorArray:
+            return rays.position + rays.direction * t
+
+        def func(t: na.AbstractScalar) -> na.AbstractScalar:
+            a = line(t)
+            z = base(a) + optika.zernikes._sum(a.xy / radius, harmonics)
+            return a.z - z
+
+        t_intercept = na.optimize.root_secant(
+            function=func,
+            guess=0 * u.mm,
+            min_step_size=1e-6 * u.mm,
+        )
+
+        result = rays.copy_shallow()
+        result.position = line(t_intercept)
+
+        if transformation is not None:
+            result = transformation(result)
 
         return result
 
@@ -147,28 +213,26 @@ class ZernikeSag(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        normal_base = self.base.normal(position)
+        normal_base = self.base_.normal(position)
 
-        gradient_x = normal_base.x / -normal_base.z
-        gradient_y = normal_base.y / -normal_base.z
-
-        coefficients = self._coefficients_normalized
         radius = self.radius
-        position_normalized = position.xy / radius
 
-        for i in range(coefficients.shape[self.axis]):
-            c = coefficients[{self.axis: i}]
-            gradient = optika.zernikes.zernike_gradient(
-                position=position_normalized,
-                j=i + 1,
-            )
-            gradient_x = gradient_x + c * gradient.x / radius
-            gradient_y = gradient_y + c * gradient.y / radius
-
-        norm = np.sqrt(np.square(gradient_x) + np.square(gradient_y) + 1)
-
-        return na.Cartesian3dVectorArray(
-            x=gradient_x / norm,
-            y=gradient_y / norm,
-            z=-1 / norm,
+        gradient = optika.zernikes.zernike_sum_gradient(
+            position=position.xy / radius,
+            coefficients=self.coefficients_,
+            axis=self.axis,
         )
+        gradient = gradient / radius
+
+        # The perturbed normal is parallel to (gradient_base + gradient, -1),
+        # where gradient_base is the slope of the base profile.
+        # Multiplying through by -normal_base.z turns the first term into
+        # normal_base.xy without ever dividing by normal_base.z, so the result
+        # stays finite where the base profile is vertical.
+        result = na.Cartesian3dVectorArray(
+            x=normal_base.x - normal_base.z * gradient.x,
+            y=normal_base.y - normal_base.z * gradient.y,
+            z=normal_base.z,
+        )
+
+        return result / result.length

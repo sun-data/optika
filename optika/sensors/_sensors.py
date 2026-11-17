@@ -73,13 +73,60 @@ class AbstractImagingSensor(
         """
 
     @property
+    @abc.abstractmethod
+    def read_noise(self) -> u.Quantity | na.AbstractScalar:
+        """
+        The standard deviation of the Gaussian read noise added to each pixel
+        during readout, in electrons.
+        """
+
+    @property
+    @abc.abstractmethod
+    def clip_rays(self) -> bool:
+        """
+        Whether :attr:`aperture` vignettes the rays which miss the
+        light-sensitive area.
+
+        If :obj:`False`, rays which miss it leave the sensor as unvignetted
+        as they arrived, and land where they would have.  The light-sensitive
+        area is the same either way: :meth:`pixels` and :meth:`collect` still
+        bin onto it, and a ray which misses it still falls in no pixel.
+        """
+
+    @property
     def aperture(self):
         """
         The light-sensitive aperture of the sensor.
+
+        It is derived from the pixels, so it cannot be replaced or removed
+        like the aperture of another surface; it vignettes the rays which
+        miss it only if :attr:`clip_rays` is set.
         """
         return optika.apertures.RectangularAperture(
             half_width=self.width_pixel * self.num_pixel / 2,
+            active=self.clip_rays,
         )
+
+    def pixels(
+        self,
+        position: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Convert an in-plane position on the sensor plane into fractional pixel
+        coordinates.
+
+        Pixel ``0`` is the lower edge of the light-sensitive area (the same grid
+        that :meth:`collect` bins onto), so an integer value lands on a pixel
+        boundary and a half-integer on a pixel center.
+
+        Parameters
+        ----------
+        position
+            The in-plane (``xy``) position on the sensor plane, in physical
+            units.
+        """
+        lower = self.aperture.bound_lower.xy
+        return (position - lower) / self.width_pixel * u.pix << u.pix
 
     def collect(
         self,
@@ -162,6 +209,76 @@ class AbstractImagingSensor(
 
         return image, direction
 
+    @staticmethod
+    def _collapse_wavelength(
+        inputs: na.SpectralPositionalVectorArray,
+        axis_wavelength: str,
+    ) -> na.SpectralPositionalVectorArray:
+        """Collapse a wavelength axis to its two band edges."""
+        wavelength = inputs.wavelength
+        return inputs.replace(
+            wavelength=na.stack(
+                arrays=[
+                    wavelength.min(axis_wavelength),
+                    wavelength.max(axis_wavelength),
+                ],
+                axis=axis_wavelength,
+            )
+        )
+
+    def _readout(
+        self,
+        electrons: na.AbstractScalar,
+        noise: bool,
+    ) -> na.AbstractScalar:
+        """
+        Read out electrons which have already been summed over wavelength,
+        adding the read noise once if `noise` is :obj:`True`.
+        """
+        if noise:
+            # add zero-mean Gaussian read noise once per readout
+            electrons = na.random.normal(loc=electrons, scale=self.read_noise)
+        return electrons
+
+    def _spread_readout(
+        self,
+        electrons: na.AbstractScalar,
+        num_wavelength: int,
+    ) -> na.AbstractScalar:
+        """
+        Spread electrons read out once, summed over wavelength, uniformly
+        across `num_wavelength` wavelength bins, the transpose of the sum over
+        wavelength which precedes :meth:`_readout`.
+        """
+        return electrons / num_wavelength
+
+    def _readout_width(
+        self,
+        variance: na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The standard deviation of a readout whose signal, summed over
+        wavelength, has the given variance, adding the read noise once.
+        """
+        return np.sqrt(variance + np.square(self.read_noise))
+
+    def _integrate(
+        self,
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        axis_wavelength: str,
+        noise: bool,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """Sum electrons over wavelength into one readout, adding read noise."""
+        electrons = self._readout(image.outputs.sum(axis_wavelength), noise)
+        inputs = self._collapse_wavelength(image.inputs, axis_wavelength)
+        return dataclasses.replace(image, inputs=inputs, outputs=electrons)
+
     def expose(
         self,
         image: na.FunctionArray[
@@ -172,6 +289,8 @@ class AbstractImagingSensor(
         axis_wavelength: None | str = None,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         noise: bool = True,
+        integrate: bool = True,
+        uncertainty: bool = False,
     ) -> na.FunctionArray[
         na.SpectralPositionalVectorArray,
         na.AbstractScalar,
@@ -187,7 +306,10 @@ class AbstractImagingSensor(
         The photon flux is multiplied by the exposure time and converted to
         electrons using
         :meth:`~optika.sensors.materials.AbstractSensorMaterial.signal`, which
-        applies the quantum efficiency, noise, and charge-diffusion models.
+        applies the quantum efficiency and the shot, Fano, and charge-diffusion
+        noise per wavelength. If `integrate` is :obj:`True`, the electrons are
+        then summed over wavelength into a single readout and the sensor's
+        :attr:`read_noise` is added once.
 
         Parameters
         ----------
@@ -208,7 +330,21 @@ class AbstractImagingSensor(
             If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
             will be used.
         noise
-            Whether to add shot noise and intrinsic sensor noise to the result.
+            Whether to add shot, Fano, and charge-diffusion noise per wavelength
+            and (if `integrate`) read noise once per readout.
+        integrate
+            Whether to integrate the electrons over wavelength into a single
+            readout, applying :attr:`read_noise` once.
+            A real imaging sensor cannot resolve the individual wavelengths, so
+            this defaults to :obj:`True`; :obj:`False` keeps the wavelengths
+            separate for demonstration.
+        uncertainty
+            Whether to attach the standard deviation of the measurement noise to
+            the result as a
+            :class:`~named_arrays.NormalUncertainScalarArray`, computed with
+            :meth:`uncertainty`.
+            The width uses the *expected* electrons, so the noiseless signal
+            model is only re-evaluated when `noise` is also :obj:`True`.
         """
         if axis_wavelength is None:
             shape_wavelength = na.shape(image.inputs.wavelength)
@@ -223,17 +359,193 @@ class AbstractImagingSensor(
             timedelta = self.timedelta_exposure
 
         photons = image.outputs * timedelta
+        wavelength = image.inputs.wavelength.cell_centers(axis_wavelength)
 
-        electrons = self.material.signal(
-            photons=photons,
+        def signal(noise: bool) -> na.AbstractScalar:
+            return self.material.signal(
+                photons=photons,
+                wavelength=wavelength,
+                direction=direction,
+                width_pixel=self.width_pixel,
+                axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
+                noise=noise,
+            )
+
+        result = dataclasses.replace(image, outputs=signal(noise))
+
+        if uncertainty:
+            # the width uses the expected electrons, which are the same as the
+            # nominal result unless `noise` added a realization
+            expected = result if not noise else image.replace(outputs=signal(False))
+            width = self.uncertainty(
+                expected,
+                direction=direction,
+                axis_wavelength=axis_wavelength,
+                integrate=integrate,
+            )
+
+        if integrate:
+            # a real sensor reads out all wavelengths at once
+            result = self._integrate(result, axis_wavelength, noise)
+
+        if uncertainty:
+            result = result.replace(
+                outputs=na.NormalUncertainScalarArray(
+                    nominal=result.outputs,
+                    width=width.outputs,
+                ),
+            )
+
+        return result
+
+    def photons_absorbed(
+        self,
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        direction: float | na.AbstractScalar = 1,
+        axis_wavelength: None | str = None,
+        timedelta: None | u.Quantity | na.AbstractScalar = None,
+        integrate: bool = True,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """
+        Invert :meth:`expose`, mapping the electrons measured in each pixel back
+        into a photon flux absorbed by the light-sensitive region.
+
+        The absorbance is *not* restored, since :meth:`expose` runs the
+        detector with an absorbance of one (the absorbance is usually accounted
+        for elsewhere, such as in the effective area of an optical system), so
+        this only divides out the quantum yield, the charge collection
+        efficiency, and the exposure time. It is the deterministic inverse of
+        :meth:`expose`; the sensor noise is not undone.
+
+        Parameters
+        ----------
+        image
+            The electrons measured in each pixel, as a function of wavelength
+            and pixel position.
+            The wavelength inputs (``image.inputs.wavelength``) must be the
+            bin *edges*, not the centers.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            matching the value passed to :meth:`expose`.
+        axis_wavelength
+            The logical axis of `image` corresponding to changing wavelength.
+            If :obj:`None` (the default), ``image.inputs.wavelength`` must have
+            only one logical axis.
+        timedelta
+            The exposure time of the measurement.
+            If :obj:`None` (the default), the value in :attr:`timedelta_exposure`
+            will be used.
+        integrate
+            Whether `image` is a single wavelength-integrated readout (as
+            produced by :meth:`expose` with ``integrate=True``).
+            If :obj:`True` (the default), the readout is spread uniformly across
+            the wavelength bins before the per-wavelength inverse, mirroring the
+            integration performed by :meth:`expose`.
+        """
+        if axis_wavelength is None:
+            shape_wavelength = na.shape(image.inputs.wavelength)
+            if len(shape_wavelength) != 1:  # pragma: nocover
+                raise ValueError(
+                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
+                    f"must have exactly one logical axis, got {shape_wavelength}."
+                )
+            (axis_wavelength,) = shape_wavelength
+
+        if timedelta is None:
+            timedelta = self.timedelta_exposure
+
+        electrons = image.outputs
+
+        if integrate:
+            # spread the integrated readout uniformly across the wavelength bins
+            num_wavelength = na.shape(image.inputs.wavelength)[axis_wavelength] - 1
+            electrons = self._spread_readout(electrons, num_wavelength)
+
+        photons = self.material.photons_absorbed(
+            electrons=electrons,
+            wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
+            direction=direction,
+        )
+
+        return dataclasses.replace(image, outputs=photons / timedelta)
+
+    def uncertainty(
+        self,
+        image: na.FunctionArray[
+            na.SpectralPositionalVectorArray,
+            na.AbstractScalar,
+        ],
+        direction: float | na.AbstractScalar = 1,
+        axis_wavelength: None | str = None,
+        integrate: bool = True,
+    ) -> na.FunctionArray[
+        na.SpectralPositionalVectorArray,
+        na.AbstractScalar,
+    ]:
+        """
+        Compute the standard deviation of the noise in an image of electrons
+        measured by the sensor.
+
+        This uses the material's analytic per-wavelength noise model
+        (:meth:`~optika.sensors.materials.AbstractSensorMaterial.uncertainty`),
+        which accounts for shot, Fano, and partial-charge-collection noise,
+        and the noise reduction from charge diffusion using
+        :attr:`width_pixel`. If
+        `integrate` is :obj:`True`, the per-wavelength variances are summed in
+        quadrature and the sensor's :attr:`read_noise` is added once, giving the
+        deterministic counterpart of the noise added by :meth:`expose`.
+
+        Parameters
+        ----------
+        image
+            The electrons measured in each pixel, as a function of wavelength
+            and pixel position.
+            The wavelength inputs (``image.inputs.wavelength``) must be the
+            bin *edges*, not the centers.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            matching the value passed to :meth:`expose`.
+        axis_wavelength
+            The logical axis of `image` corresponding to changing wavelength.
+            If :obj:`None` (the default), ``image.inputs.wavelength`` must have
+            only one logical axis.
+        integrate
+            Whether to integrate the noise over wavelength into a single
+            readout: the per-wavelength variances are summed in quadrature and
+            :attr:`read_noise` is added once.
+            Defaults to :obj:`True`, matching :meth:`expose`.
+        """
+        if axis_wavelength is None:
+            shape_wavelength = na.shape(image.inputs.wavelength)
+            if len(shape_wavelength) != 1:  # pragma: nocover
+                raise ValueError(
+                    f"if `axis_wavelength` is `None`, `image.inputs.wavelength` "
+                    f"must have exactly one logical axis, got {shape_wavelength}."
+                )
+            (axis_wavelength,) = shape_wavelength
+
+        uncertainty = self.material.uncertainty(
+            electrons=image.outputs,
             wavelength=image.inputs.wavelength.cell_centers(axis_wavelength),
             direction=direction,
             width_pixel=self.width_pixel,
-            axis_xy=(self.axis_pixel.x, self.axis_pixel.y),
-            noise=noise,
         )
 
-        return dataclasses.replace(image, outputs=electrons)
+        inputs = image.inputs
+
+        if integrate:
+            # sum the per-wavelength variances and add the read noise once
+            variance = np.square(uncertainty).sum(axis_wavelength)
+            uncertainty = self._readout_width(variance)
+            inputs = self._collapse_wavelength(inputs, axis_wavelength)
+
+        return dataclasses.replace(image, inputs=inputs, outputs=uncertainty)
 
     def measure(
         self,
@@ -244,6 +556,7 @@ class AbstractImagingSensor(
         where: bool | na.AbstractScalar = True,
         timedelta: None | u.Quantity | na.AbstractScalar = None,
         noise: bool = True,
+        integrate: bool = True,
     ) -> na.FunctionArray[
         na.SpectralPositionalVectorArray,
         na.AbstractScalar,
@@ -289,6 +602,7 @@ class AbstractImagingSensor(
             axis_wavelength=axis_wavelength,
             timedelta=timedelta,
             noise=noise,
+            integrate=integrate,
         )
 
 
@@ -319,6 +633,12 @@ class ImagingSensor(
     timedelta_exposure: u.Quantity | na.AbstractScalar = 0 * u.s
     """The exposure time of the sensor."""
 
+    read_noise: u.Quantity | na.AbstractScalar = 0 * u.electron
+    """
+    The standard deviation of the Gaussian read noise added to each pixel
+    during readout, in electrons.
+    """
+
     material: AbstractSensorMaterial = None
     """
     A model of the light-sensitive material composing this sensor.
@@ -329,6 +649,12 @@ class ImagingSensor(
 
     aperture_mechanical: optika.apertures.RectangularAperture = None
     """The shape of the physical substrate supporting the sensor."""
+
+    clip_rays: bool = dataclasses.field(default=True, kw_only=True)
+    """
+    Whether :attr:`aperture` vignettes the rays which miss the
+    light-sensitive area.
+    """
 
     is_field_stop: bool = False
     """A flag controlling whether this sensor is the field stop for the system."""
@@ -353,5 +679,6 @@ class ImagingSensor(
             optika.shape(self.width_pixel),
             optika.shape(self.num_pixel),
             optika.shape(self.timedelta_exposure),
+            optika.shape(self.read_noise),
             optika.shape(self.transformation),
         )

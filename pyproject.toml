@@ -9,13 +9,15 @@ authors = [
 ]
 description = "A Python library for simulating optical systems, similar to Zemax"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
     "astropy!=6.1.5",
-    "named-arrays~=2.0",
+    "named-arrays~=2.18",
     "pymupdf",
     "joblib",
     "ezdxf",
@@ -46,3 +48,6 @@ Homepage = "https://github.com/sun-data/optika"
 Documentation = "https://optika.readthedocs.io/en/latest"
 
 [tool.setuptools_scm]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W605"]

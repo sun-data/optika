@@ -47,6 +47,7 @@ class AbstractSurface(
     optika.mixins.DxfWritable,
     optika.mixins.Plottable,
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Transformable,
     optika.mixins.Shaped,
     optika.propagators.AbstractLightPropagator,
@@ -124,6 +125,7 @@ class AbstractSurface(
     def propagate_rays(
         self,
         rays: optika.rays.RayVectorArray,
+        efficiency: bool = True,
     ) -> optika.rays.RayVectorArray:
         r"""
         Refract, reflect, and/or diffract the given rays off of this surface
@@ -132,6 +134,14 @@ class AbstractSurface(
         ----------
         rays
             A set of input rays that will interact with this surface.
+        efficiency
+            A boolean flag indicating whether to accumulate the efficiency of
+            this surface into
+            :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
+            If :obj:`False`, the intensity of the result is meaningless, but
+            the geometry is unchanged and much cheaper to compute, since the
+            efficiency of a multilayer coating usually costs far more than
+            the raytrace it belongs to.
         """
         sag = self.sag
         material = self.material
@@ -142,12 +152,13 @@ class AbstractSurface(
         if transformation is not None:
             rays = transformation.inverse(rays)
 
-        rays_1 = sag.propagate_rays(rays)
+        rays_1 = sag.propagate_rays(rays, efficiency=efficiency)
 
         position_1 = rays_1.position
 
         normal = sag.normal(position_1)
 
+        rays_incident = rays_1
         if rulings is not None:
             rays_1 = rulings.incident_effective(
                 rays=rays_1,
@@ -173,11 +184,19 @@ class AbstractSurface(
             normal=normal,
         )
 
-        efficiency = material.efficiency(rays_1, normal)
-        if rulings is not None:
-            efficiency = efficiency * rulings.efficiency(rays_1, normal)
+        if efficiency:
+            throughput = material.efficiency(rays_1, normal)
+            if rulings is not None:
+                throughput = throughput * rulings.efficiency(
+                    rays=rays_incident,
+                    normal=normal,
+                    index_refraction_new=n2,
+                    is_mirror=material.is_mirror,
+                )
+            intensity_2 = intensity_1 * throughput
+        else:
+            intensity_2 = intensity_1
 
-        intensity_2 = intensity_1 * efficiency
         attenuation_2 = material.attenuation(rays_1)
 
         rays_2 = dataclasses.replace(
@@ -490,9 +509,46 @@ class AbstractSurface(
         ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
         transformation: None | na.transformations.AbstractTransformation = None,
         components: None | tuple[str, ...] = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> dict[str, na.AbstractScalar]:
+        """
+        Draw this surface onto the given axes.
+
+        Parameters
+        ----------
+        ax
+            The matplotlib axes to draw onto.
+            If :obj:`None`, the current axes is used.
+        transformation
+            Any extra transformation to apply before drawing.
+        components
+            Which components of the surface to draw, in the order of the axes
+            of the plot.
+        unit
+            The unit to express every drawn length in.
+        kwargs
+            Additional keyword arguments passed along to the apertures and the
+            substrate.
+
+        Returns
+        -------
+        A dictionary of the artists drawn, under the keys
+
+        ``aperture``
+            the region which admits light, if this surface has one.
+
+        ``aperture_mechanical``
+            the outline of the substrate, if this surface has one.
+
+        ``substrate``
+            the thickness of the substrate, if the material of this surface
+            has one. Itself a dictionary, holding the ``back`` face and either
+            the ``wall`` joining it to the front on a 3D axes, or the
+            ``edges`` of the substrate on a 2D one.
+        """
         sag = self.sag
+        material = self.material
         aperture = self.aperture
         aperture_mechanical = self.aperture_mechanical
         transformation_self = self.transformation
@@ -516,6 +572,7 @@ class AbstractSurface(
                 transformation=transformation,
                 components=components,
                 sag=sag,
+                unit=unit,
                 **kwargs,
             )
 
@@ -525,8 +582,145 @@ class AbstractSurface(
                 transformation=transformation,
                 components=components,
                 sag=sag,
+                unit=unit,
                 **kwargs,
             )
+
+        substrate = getattr(material, "substrate", None)
+        if substrate is not None:
+            result["substrate"] = self._plot_substrate(
+                thickness=substrate.thickness,
+                aperture=(
+                    aperture_mechanical if aperture_mechanical is not None else aperture
+                ),
+                sag=sag,
+                ax=ax,
+                transformation=transformation,
+                components=components,
+                unit=unit,
+                **kwargs,
+            )
+
+        return result
+
+    def _plot_substrate(
+        self,
+        thickness: u.Quantity | na.AbstractScalar,
+        aperture: None | optika.apertures.AbstractAperture,
+        sag: optika.sags.AbstractSag,
+        ax: None | matplotlib.axes.Axes | na.ScalarArray[npt.NDArray] = None,
+        transformation: None | na.transformations.AbstractTransformation = None,
+        components: None | tuple[str, ...] = None,
+        unit: None | u.UnitBase = None,
+        **kwargs,
+    ) -> dict[str, na.AbstractScalar]:
+        """
+        Draw the substrate holding this surface, giving it a visible thickness.
+
+        An optic drawn as a bare outline reads as a plane rather than a piece
+        of glass. The back of the substrate is drawn flat, a thickness behind
+        the vertex, and joined to the front at each vertex of the aperture, so
+        the optic reads as a solid seen edge on.
+
+        On a 3D axes the faces are filled, so that the optic is opaque and
+        hides whatever lies behind it. Seen flat there is nothing to hide, so
+        the substrate is drawn as outlines, which is how a layout drawing
+        shows one.
+        """
+        result = dict()
+
+        if aperture is None:
+            return result
+
+        solid = optika.plot.is_3d(ax)
+
+        # The substrate lies behind the optic, on the far side from the face
+        # the light meets, which is the side the surface normal points away
+        # from. Deriving it means a surface facing either direction is drawn
+        # correctly; a fixed sign would be right for half of them.
+        normal = sag.normal(na.Cartesian3dVectorArray() * u.mm)
+        depth = -np.sign(normal.z) * thickness
+
+        def draw(
+            a: na.AbstractCartesian3dVectorArray,
+            fill: bool = False,
+        ) -> na.AbstractScalar:
+            if unit is not None:
+                a = a.to(unit)
+
+            if fill and solid:
+                # An opaque face is what hides whatever is behind the optic,
+                # which is the whole reason for filling it. The face is left
+                # blank and the colour asked for is used for the edges, so the
+                # solid reads as a drawing rather than a silhouette.
+                kwargs_fill = optika.plot.kwargs_filled(kwargs)
+                return na.plt.fill(
+                    a,
+                    ax=ax,
+                    axis="wire",
+                    transformation=transformation,
+                    components=components,
+                    **kwargs_fill,
+                )
+
+            return na.plt.plot(
+                a,
+                ax=ax,
+                axis="wire",
+                transformation=transformation,
+                components=components,
+                **kwargs,
+            )
+
+        # the back of the substrate. The front is left open, so what is seen
+        # through it is the inside of the back face, and the apertures drawn on
+        # the surface itself stay on top of it.
+        back = aperture.wire().explicit
+        back.z = na.broadcast_to(depth, na.shape(back.z))
+        result["back"] = draw(back, fill=True)
+
+        axis = "vertex"
+
+        vertices = getattr(aperture, "vertices", None)
+        if vertices is not None:
+            # An aperture can be placed within its surface, and `wire` returns
+            # points which already account for that while `vertices` returns
+            # them as the shape was defined. Without this the wall is built
+            # from corners which are not where the faces are.
+            if aperture.transformation is not None:
+                vertices = aperture.transformation(vertices)
+        else:
+            # An aperture with no corners, a circle for instance, is walled
+            # from the samples along its edge instead, which `wire` gives
+            # already placed.
+            vertices = aperture.wire().explicit.combine_axes(
+                axes=("wire",),
+                axis_new=axis,
+            )
+
+        front = vertices.copy_shallow()
+        front.z = sag(front)
+        behind = vertices.copy_shallow()
+        behind.z = na.broadcast_to(depth, na.shape(front.z))
+
+        if solid:
+            # the wall between the faces, a panel at a time so that each is
+            # sorted by depth on its own
+            rolled = {
+                axis: na.ScalarArray(
+                    ndarray=np.roll(np.arange(front.shape[axis]), -1),
+                    axes=(axis,),
+                )
+            }
+            panel = np.stack(
+                arrays=[front, front[rolled], behind[rolled], behind],
+                axis="wire",
+            )
+            result["wall"] = draw(panel, fill=True)
+        else:
+            # seen flat there is no wall to speak of, only the edge of the
+            # substrate showing at each vertex
+            result["edges"] = draw(np.stack([front, behind], axis="wire"))
 
         return result
 

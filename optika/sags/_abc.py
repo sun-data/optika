@@ -13,6 +13,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractSag(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Transformable,
     optika.mixins.Shaped,
     optika.propagators.AbstractRayPropagator,
@@ -88,12 +89,22 @@ class AbstractSag(
             input rays that will intercept this sag function
         """
 
+        # Solve in this sag's own frame, as the closed-form intercepts do.
+        # `self(position)` measures the sag from the local `z = 0` plane, so
+        # comparing it against a `z` in the parent frame would mix the two.
+        transformation = self.transformation
+        if transformation is not None:
+            rays = transformation.inverse(rays)
+            sag = self.replace(transformation=None)
+        else:
+            sag = self
+
         def line(t: na.AbstractScalar) -> na.Cartesian3dVectorArray:
             return rays.position + rays.direction * t
 
         def func(t: na.AbstractScalar) -> na.AbstractScalar:
             a = line(t)
-            z = self(a)
+            z = sag(a)
             return a.z - z
 
         t_intercept = na.optimize.root_secant(
@@ -104,19 +115,25 @@ class AbstractSag(
 
         result = rays.copy_shallow()
         result.position = line(t_intercept)
+
+        if transformation is not None:
+            result = transformation(result)
+
         return result
 
     def propagate_rays(
         self,
         rays: optika.rays.AbstractRayVectorArray,
+        efficiency: bool = True,
     ) -> optika.rays.AbstractRayVectorArray:
 
         result = self.intercept(rays)
 
-        displacement = result.position - rays.position
+        if efficiency:
+            displacement = result.position - rays.position
 
-        f = np.exp(-result.attenuation * displacement.length)
+            f = np.exp(-result.attenuation * displacement.length)
 
-        result.intensity = f * result.intensity
+            result.intensity = f * result.intensity
 
         return result

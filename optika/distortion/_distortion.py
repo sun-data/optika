@@ -24,6 +24,8 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractDistortionModel(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
+    optika.mixins.Shaped,
 ):
     """
     An interface describing an arbitrary distortion model,
@@ -189,6 +191,15 @@ class SimpleDistortionModel(
     """The reference wavelength and the sensor position that the field center
     maps to at that wavelength."""
 
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            optika.shape(self.plate_scale),
+            optika.shape(self.dispersion),
+            optika.shape(self.angle),
+            optika.shape(self.reference),
+        )
+
     @functools.cached_property
     def matrix(self) -> na.SpectralPositionalMatrixArray:
         cos = np.cos(self.angle)
@@ -239,11 +250,11 @@ class AbstractInterpolatedDistortionModel(
     AbstractDistortionModel,
 ):
     """
-    A distortion model defined by interpolating between known scene/sensor
-    coordinates.
+    A distortion model defined by interpolating between the measured sensor
+    positions of a grid of cells in the scene.
 
     This class has two main members, :attr:`coordinates_scene` and
-    :attr:`coordinates_sensor`, the calibration points between which subclasses
+    :attr:`coordinates_sensor`, the calibration cells between which subclasses
     interpolate.
     """
 
@@ -251,14 +262,16 @@ class AbstractInterpolatedDistortionModel(
     @abc.abstractmethod
     def coordinates_scene(self) -> na.AbstractSpectralPositionalVectorArray:
         """
-        The wavelength and position of each calibration point in the scene.
+        The wavelength of each calibration point, and the corners of the
+        field cell it was measured in, one longer than
+        :attr:`coordinates_sensor` along each of :attr:`axis_field`.
         """
 
     @property
     @abc.abstractmethod
     def coordinates_sensor(self) -> na.AbstractCartesian2dVectorArray:
         """
-        The position of each calibration point mapped onto the sensor.
+        The position of each calibration cell mapped onto the sensor.
         """
 
     @property
@@ -285,6 +298,11 @@ class PolynomialDistortionModel(
     opposite direction, so the round trip is exact only to the accuracy of the
     two fits.
 
+    :attr:`coordinates_scene` describes the corners of the cells the sensor
+    positions were measured over, one more than the measurements along each
+    field axis.  Where inside its cell each measurement was made is
+    :attr:`coordinates_sample`, the centers of them unless it says otherwise.
+
     Examples
     --------
 
@@ -304,14 +322,13 @@ class PolynomialDistortionModel(
                 start=-1 * u.deg,
                 stop=+1 * u.deg,
                 axis=na.Cartesian2dVectorArray("field_x", "field_y"),
-                num=13,
+                num=14,
             ),
         )
+        centers = scene.cell_centers(("field_x", "field_y")).position
         sensor = na.Cartesian2dVectorArray(
-            x=scene.position.x * (10 * u.mm / u.deg)
-            + scene.position.x**2 * (1 * u.mm / u.deg**2),
-            y=scene.position.y * (10 * u.mm / u.deg)
-            + scene.position.y**2 * (1 * u.mm / u.deg**2),
+            x=centers.x * (10 * u.mm / u.deg) + centers.x**2 * (1 * u.mm / u.deg**2),
+            y=centers.y * (10 * u.mm / u.deg) + centers.y**2 * (1 * u.mm / u.deg**2),
         )
 
         model = optika.distortion.PolynomialDistortionModel(
@@ -327,10 +344,18 @@ class PolynomialDistortionModel(
     """
 
     coordinates_scene: na.AbstractSpectralPositionalVectorArray = dataclasses.MISSING
-    """The wavelength and position of each calibration point in the scene."""
+    """
+    The wavelength of each calibration point, and the corners of the field
+    cell it was measured in, one longer than :attr:`coordinates_sensor` along
+    each of :attr:`axis_field`.
+
+    Saying where the cells are is what lets :meth:`plot_residual` draw each
+    residual across the cell it belongs to, since the mesh it is drawn on is
+    these corners.
+    """
 
     coordinates_sensor: na.AbstractCartesian2dVectorArray = dataclasses.MISSING
-    """The position of each calibration point mapped onto the sensor."""
+    """The position of each calibration cell mapped onto the sensor."""
 
     axis_wavelength: str = dataclasses.MISSING
     """The logical axis corresponding to changing wavelength."""
@@ -344,6 +369,52 @@ class PolynomialDistortionModel(
     where: bool | na.AbstractScalar = True
     """A boolean mask selecting which calibration points to use for fitting."""
 
+    coordinates_sample: None | na.AbstractSpectralPositionalVectorArray = (
+        dataclasses.field(default=None, kw_only=True)
+    )
+    """
+    Where inside its cell each calibration point was measured.
+
+    A measurement need not be made at the center of its cell, and one made at
+    a point drawn uniformly inside it does not alias against whatever in the
+    system varies on the scale of a cell.  The fit reads these rather than the
+    corners, so a measurement counts at the place it was actually made.
+
+    If :obj:`None` (the default), the centers of the cells
+    :attr:`coordinates_scene` describes, which is right for a grid sampled
+    that way.  See :attr:`coordinates_sample_`.
+    """
+
+    @property
+    def coordinates_sample_(self) -> na.AbstractSpectralPositionalVectorArray:
+        """
+        :attr:`coordinates_sample`, or the centers of the cells
+        :attr:`coordinates_scene` describes where it is :obj:`None`.
+        """
+        result = self.coordinates_sample
+        if result is None:
+            result = self.coordinates_scene.cell_centers(self.axis_field)
+        return result
+
+    @property
+    def shape(self) -> dict[str, int]:
+        return na.broadcast_shapes(
+            self._shape_orthogonal(self.coordinates_scene),
+            self._shape_orthogonal(self.coordinates_sensor),
+        )
+
+    def _shape_orthogonal(self, a: na.AbstractArray) -> dict[str, int]:
+        """
+        The shape of `a` with the axes the calibration points run along
+        dropped.
+
+        They are dropped rather than broadcast because the corners and the
+        measurements deliberately disagree along them, by one.
+        """
+        return {
+            ax: n for ax, n in optika.shape(a).items() if ax not in self._axis_scene
+        }
+
     @property
     def _axis_scene(self) -> tuple[str, ...]:
         """The logical axes over which the calibration points are distributed."""
@@ -352,19 +423,20 @@ class PolynomialDistortionModel(
     @functools.cached_property
     def fit(self) -> na.PolynomialFitFunctionArray:
         """The polynomial fit mapping scene position to sensor position."""
-        scene = self.coordinates_scene
+        scene = self.coordinates_sample_
         return na.PolynomialFitFunctionArray.from_degree(
             inputs=scene,
             outputs=self.coordinates_sensor,
             center=scene.mean(self._axis_scene),
             degree=self.degree,
+            axis_polynomial=self._axis_scene,
             where_polynomial=self.where,
         )
 
     @functools.cached_property
     def fit_inverse(self) -> na.PolynomialFitFunctionArray:
         """The polynomial fit mapping sensor position back to scene position."""
-        scene = self.coordinates_scene
+        scene = self.coordinates_sample_
         inputs = na.SpectralPositionalVectorArray(
             wavelength=scene.wavelength,
             position=self.coordinates_sensor,
@@ -374,6 +446,7 @@ class PolynomialDistortionModel(
             outputs=scene.position,
             center=inputs.mean(self._axis_scene),
             degree=self.degree,
+            axis_polynomial=self._axis_scene,
             where_polynomial=self.where,
         )
 
@@ -397,10 +470,12 @@ class PolynomialDistortionModel(
 
     def plot_residual(
         self,
+        ax: None | na.ScalarArray = None,
         figsize: None | tuple[float, float] = None,
         cmap: None | str | matplotlib.colors.Colormap = None,
         vmin: None | na.ArrayLike = None,
         vmax: None | na.ArrayLike = None,
+        unit: None | u.UnitBase = None,
         **kwargs,
     ) -> tuple[matplotlib.figure.Figure, na.ScalarArray]:
         """
@@ -413,6 +488,12 @@ class PolynomialDistortionModel(
 
         Parameters
         ----------
+        ax
+            The matplotlib axes to draw on, distributed along
+            :attr:`axis_wavelength`.
+            If :obj:`None`, a new figure is created with one subplot per
+            wavelength, and `figsize` sets its size.
+            If given, `figsize` is ignored, since the figure already exists.
         figsize
             The size of the returned figure in inches.
             If :obj:`None`, the size is chosen automatically from the number
@@ -425,45 +506,71 @@ class PolynomialDistortionModel(
         vmax
             The residual value mapped to the highest color.
             If :obj:`None`, defaults to the maximum residual.
+        unit
+            The unit to express the field position in.
+
+            A model is free to describe the scene in whichever unit suits it,
+            and the one that suits the fit is not always the one that reads
+            well on an axis: a field of a tenth of a degree is easier to see
+            in arcseconds. If :obj:`None`, the position is drawn in the unit
+            it is already in.
         kwargs
             Additional keyword arguments passed to
             :func:`named_arrays.plt.pcolormesh`.
         """
         scene = self.coordinates_scene
-        position = scene.position
         wavelength = na.as_named_array(scene.wavelength)
         axis_wavelength = self.axis_wavelength
+
+        # each residual is drawn across the whole cell it belongs to, so the
+        # mesh is the corners of those cells rather than the points inside them
+        position = scene.position
+
+        if unit is not None:
+            position = position.to(unit)
 
         residual = (self.coordinates_sensor - self.fit.predictions).length
         unit = na.unit(residual)
 
+        # exclude the calibration points that were not used by the fit
+        residual = np.where(self.where, residual, np.nan * unit)
+
         if vmin is None:
             vmin = 0 * unit
         if vmax is None:
-            vmax = residual.max()
+            vmax = np.nanmax(residual)
 
         ncols = na.shape(wavelength).get(axis_wavelength, 1)
 
-        if figsize is None:
-            # shape each subplot to the field-of-view aspect ratio, and widen
-            # the figure to fit one subplot per wavelength
-            height_subplot = 3
-            aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
-            figsize = (
-                ncols * height_subplot * aspect + 1.5,
-                height_subplot + 1,
-            )
-
         with astropy.visualization.quantity_support():
-            fig, ax = na.plt.subplots(
-                axis_cols=axis_wavelength,
-                ncols=ncols,
-                sharex=True,
-                sharey=True,
-                squeeze=False,
-                figsize=figsize,
-                constrained_layout=True,
-            )
+            if ax is None:
+                if figsize is None:
+                    # shape each subplot to the field-of-view aspect ratio, and
+                    # widen the figure to fit one subplot per wavelength
+                    height_subplot = 3
+                    aspect = (position.x.ptp() / position.y.ptp()).ndarray.value
+                    figsize = (
+                        ncols * height_subplot * aspect + 1.5,
+                        height_subplot + 1,
+                    )
+
+                fig, ax = na.plt.subplots(
+                    axis_cols=axis_wavelength,
+                    ncols=ncols,
+                    sharex=True,
+                    sharey=True,
+                    squeeze=False,
+                    figsize=figsize,
+                    constrained_layout=True,
+                )
+            else:
+                ax = na.as_named_array(ax)
+                if axis_wavelength not in ax.shape:
+                    raise ValueError(
+                        f"the given axes must be distributed along "
+                        f"{axis_wavelength=}, got {ax.shape=}."
+                    )
+                fig = ax.ndarray.reshape(-1)[0].get_figure()
 
             colorizer = plt.Colorizer(
                 cmap=cmap,
@@ -475,7 +582,7 @@ class PolynomialDistortionModel(
 
             na.plt.pcolormesh(
                 position,
-                C=residual,
+                C=residual.value,
                 ax=ax,
                 colorizer=colorizer,
                 **kwargs,

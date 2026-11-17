@@ -1,7 +1,7 @@
 """Mixin classes used throughout this package."""
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, Self
 import abc
 import dataclasses
 import pathlib
@@ -15,6 +15,7 @@ from ezdxf.addons.r12writer import R12FastStreamWriter
 
 __all__ = [
     "Shaped",
+    "Replaceable",
     "Printable",
     "Plottable",
     "Transformable",
@@ -35,6 +36,67 @@ class Shaped(abc.ABC):
         """
         The array shape of this object.
         """
+
+
+@dataclasses.dataclass(repr=False)
+class Replaceable(abc.ABC):
+    """
+    An object which can be copied with some of its fields changed.
+
+    Examples
+    --------
+    Move a surface without disturbing the one it was copied from.
+
+    .. jupyter-execute::
+
+        import astropy.units as u
+        import named_arrays as na
+        import optika
+
+        surface = optika.surfaces.Surface(
+            sag=optika.sags.SphericalSag(radius=100 * u.mm),
+        )
+
+        moved = surface.replace(
+            transformation=na.transformations.Cartesian3dTranslation(
+                z=10 * u.mm,
+            ),
+        )
+
+        moved.transformation, surface.transformation
+    """
+
+    # The executed example lives on the class rather than on `replace()`.
+    # The class pages in the docs render inherited members, so an example
+    # on the method would be executed again, in a fresh kernel, on the page
+    # of every class that inherits it.
+    def replace(self, /, **changes) -> Self:
+        """
+        A copy of this object with the given fields replaced.
+
+        A method version of :func:`dataclasses.replace`, matching
+        :meth:`named_arrays.AbstractArray.replace`, so that a nested change
+        reads the same at every level:
+
+        .. code-block:: python
+
+            system.replace(
+                surface=system.surface.replace(
+                    sag=system.surface.sag.replace(radius=r),
+                ),
+            )
+
+        The copy is shallow, as :func:`dataclasses.replace` is: every field
+        which is not named is shared with the original, and mutating one
+        through the copy is mutating it in both. Take
+        :func:`copy.deepcopy` of the result where that matters.
+
+        Parameters
+        ----------
+        changes
+            The fields to overwrite in the copy.
+        """
+        return dataclasses.replace(self, **changes)
 
 
 @dataclasses.dataclass(repr=False)
@@ -159,7 +221,12 @@ class Plottable(abc.ABC):
             Which 3d components to plot, helpful if plotting in 2d.
         kwargs
             Additional keyword arguments that will be passed along to
-            :func:`named_arrays.plt.plot()`
+            :func:`named_arrays.plt.plot`.
+
+            On a 3D axes a surface is drawn filled rather than as an outline,
+            so that it hides whatever lies behind it, and these are passed to
+            :func:`named_arrays.plt.fill` instead. The colour asked for becomes
+            the edge of the polygon and ``facecolor`` its face.
         """
 
 
@@ -257,12 +324,32 @@ class DxfWritable(abc.ABC):
         unit: u.Unit,
         transformation: None | na.transformations.AbstractTransformation = None,
     ):
+        """
+        Write a drawing of this object to a DXF file.
+
+        A DXF file cannot represent uncertainty, so if this object has any
+        uncertain parameters, the drawing is of its nominal value.
+
+        Parameters
+        ----------
+        file
+            The path of the DXF file to write.
+        unit
+            The length units to use for this file.
+        transformation
+            An additional transformation to apply to the coordinate system
+            before writing to the DXF file.
+        """
+        # The nominal value is taken before anything is computed, rather than
+        # from the results, so that quantities like the rays of a system are
+        # only ever computed for the nominal value.
+        nominal = na.nominal(self)
 
         with ezdxf.addons.r12writer(file) as dxf:
-            self._write_to_dxf(
+            nominal._write_to_dxf(
                 dxf=dxf,
                 unit=unit,
-                transformation=transformation,
+                transformation=na.nominal(transformation),
             )
 
     @abc.abstractmethod

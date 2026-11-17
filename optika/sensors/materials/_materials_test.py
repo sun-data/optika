@@ -1,4 +1,6 @@
+import dataclasses
 import pytest
+import scipy.optimize
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -333,6 +335,79 @@ def test_vmr_signal(
     assert np.all(result >= 0 * u.electron)
 
 
+def test_vmr_signal_diffusion():
+    wavelength = 304 * u.AA
+    thickness_depletion = 2 * u.um
+    axis_xy = ("detector_x", "detector_y")
+
+    photons_expected = na.broadcast_to(
+        100 * u.photon,
+        shape=dict(detector_x=16, detector_y=16),
+    )
+
+    signal = optika.sensors.signal(
+        photons_expected=photons_expected,
+        wavelength=wavelength,
+        thickness_depletion=thickness_depletion,
+        axis_xy=axis_xy,
+        wrap=True,
+        shape_random=dict(experiment=500),
+    )
+
+    vmr_measured = signal.vmr(("experiment",) + axis_xy)
+
+    result = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        thickness_depletion=thickness_depletion,
+    )
+    result_no_diffusion = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        thickness_depletion=thickness_depletion,
+        diffusion=False,
+    )
+
+    assert np.all(result > 0 * u.electron)
+    assert np.all(result < result_no_diffusion)
+    assert np.abs(vmr_measured - result) < 0.1 * result
+
+    result_default = optika.sensors.vmr_signal(wavelength=wavelength)
+    result_default_no_diffusion = optika.sensors.vmr_signal(
+        wavelength=wavelength,
+        diffusion=False,
+    )
+    assert np.all(result_default == result_default_no_diffusion)
+
+
+def test_vmr_signal_quadrature():
+    """
+    The charge-diffusion integral should be converged at the default number of
+    quadrature nodes, across the full range of optical depths that silicon
+    spans between 1 and 10000 angstroms.
+    """
+    ccd = optika.sensors.materials.e2v_ccd97()
+
+    kwargs = dict(
+        wavelength=na.geomspace(1, 10000, axis="wavelength", num=101) * u.AA,
+        thickness_implant=ccd.thickness_implant,
+        thickness_depletion=ccd.depletion.thickness,
+        thickness_substrate=ccd.thickness_substrate,
+        width_pixel=16 * u.um,
+        cce_backsurface=ccd.cce_backsurface,
+        temperature=ccd.temperature,
+    )
+
+    result = optika.sensors.vmr_signal(**kwargs)
+
+    num = optika.sensors.materials._materials._num_gauss_legendre
+    try:
+        optika.sensors.materials._materials._num_gauss_legendre = 8 * num
+        expected = optika.sensors.vmr_signal(**kwargs)
+    finally:
+        optika.sensors.materials._materials._num_gauss_legendre = num
+
+    assert np.all(np.abs(result / expected - 1) < 1e-5)
+
+
 class AbstractTestAbstractSensorMaterial(
     AbstractTestAbstractMaterial,
 ):
@@ -416,6 +491,97 @@ class AbstractTestAbstractSensorMaterial(
         )
         assert isinstance(na.as_named_array(result), na.AbstractScalar)
         assert result.unit.is_equivalent(u.photon)
+
+    @pytest.mark.parametrize(
+        argnames="photons",
+        argvalues=[
+            100 * u.photon,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
+        ],
+    )
+    def test_photons_absorbed(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        photons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
+    ):
+        # `photons_absorbed` inverts the noiseless `signal` (which uses unit
+        # absorbance), recovering the number of absorbed photons.
+        electrons = a.signal(
+            photons=photons,
+            wavelength=wavelength,
+            direction=direction,
+            noise=False,
+        )
+        result = a.photons_absorbed(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+        )
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert result.unit.is_equivalent(u.photon)
+        assert np.allclose(
+            na.as_named_array(result / photons).ndarray.to_value(
+                u.dimensionless_unscaled
+            ),
+            1,
+        )
+
+    @pytest.mark.parametrize(
+        argnames="electrons",
+        argvalues=[
+            1000 * u.electron,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
+            100 * u.AA,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
+        ],
+    )
+    def test_uncertainty(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        electrons: u.Quantity | na.AbstractScalar,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
+    ):
+        result = a.uncertainty(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+        )
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert result.unit.is_equivalent(u.electron)
+        assert np.all(result >= 0 * u.electron)
+
+        result_diffusion = a.uncertainty(
+            electrons=electrons,
+            wavelength=wavelength,
+            direction=direction,
+            width_pixel=15 * u.um,
+        )
+        assert np.all(result_diffusion <= result)
 
     @pytest.mark.parametrize(
         argnames="wavelength",
@@ -511,6 +677,64 @@ class AbstractTestAbstractBackIlluminatedSiliconSensorMaterial(
     ):
         result = a.cce_backsurface
         assert result >= 0
+
+    def test_num_interpolation(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+    ):
+        result = a.num_interpolation
+        assert (result is None) or (result > 0)
+
+    def test_efficiency_interpolated(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+    ):
+        """
+        Interpolating the absorbance over the angle of incidence reproduces
+        computing it for every ray, and does so better the more nodes it is
+        given.
+        """
+        angle = na.linspace(0, 20, axis="angle", num=25) * u.deg
+        rays = optika.rays.RayVectorArray(
+            wavelength=na.linspace(100, 1000, axis="wavelength", num=5) * u.AA,
+            direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        expected = a.efficiency(rays, normal)
+        scale = np.abs(expected).max()
+
+        def error(num: int) -> float:
+            result = dataclasses.replace(a, num_interpolation=num).efficiency(
+                rays=rays,
+                normal=normal,
+            )
+            assert na.shape(result) == na.shape(expected)
+            return np.abs(result - expected).max() / scale
+
+        coarse, fine = error(4), error(32)
+
+        assert coarse < 0.01
+        assert fine <= coarse
+
+    def test_efficiency_interpolated_scalar(
+        self,
+        a: optika.sensors.materials.AbstractBackIlluminatedSiliconSensorMaterial,
+    ):
+        """With a single angle of incidence there is nothing to interpolate
+        over, so the absorbance is computed directly."""
+        rays = optika.rays.RayVectorArray(
+            wavelength=200 * u.AA,
+            direction=na.Cartesian3dVectorArray(0, 0, 1),
+        )
+        normal = na.Cartesian3dVectorArray(0, 0, -1)
+
+        result = dataclasses.replace(a, num_interpolation=8).efficiency(
+            rays=rays,
+            normal=normal,
+        )
+
+        assert np.all(result == a.efficiency(rays, normal))
 
     def test_depletion(
         self,
@@ -762,3 +986,68 @@ class TestBackIlluminatedSiliconSensorMaterial(
         assert np.all(result.outputs >= 0)
         assert np.all(result.outputs <= 1.1)
         assert np.all(result.inputs >= 0 * u.nm)
+
+
+def test_fit_eqe_recovers_parameters():
+    """
+    :meth:`~optika.sensors.materials.BackIlluminatedSiliconSensorMaterial.fit_eqe`
+    fits the same model that the fitted sensor evaluates, so it recovers the
+    parameters of a sensor from that sensor's own effective quantum
+    efficiency.
+    """
+    expected = optika.sensors.materials.BackIlluminatedSiliconSensorMaterial(
+        thickness_oxide=30 * u.AA,
+        thickness_implant=1500 * u.AA,
+        thickness_substrate=14 * u.um,
+        roughness_substrate=3 * u.nm,
+        cce_backsurface=0.4,
+    )
+    wavelength = na.geomspace(10, 4000, axis="wavelength", num=61) * u.AA
+    eqe = na.FunctionArray(
+        inputs=wavelength,
+        outputs=expected.quantum_efficiency_effective(wavelength),
+    )
+    result = optika.sensors.materials.BackIlluminatedSiliconSensorMaterial.fit_eqe(
+        thickness_substrate=expected.thickness_substrate,
+        depletion=optika.sensors.materials.depletion.e2v_ccd64_thick(),
+        eqe_measured=eqe,
+    )
+    assert np.isclose(result.thickness_oxide, expected.thickness_oxide, rtol=0.05)
+    assert np.isclose(result.thickness_implant, expected.thickness_implant, rtol=0.05)
+    assert np.isclose(
+        result.roughness_substrate, expected.roughness_substrate, rtol=0.05
+    )
+    assert np.isclose(result.cce_backsurface, expected.cce_backsurface, rtol=0.05)
+
+
+def test_fit_eqe_not_converged(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    :meth:`~optika.sensors.materials.BackIlluminatedSiliconSensorMaterial.fit_eqe`
+    raises an error, rather than returning parameters that were not fit, when
+    the fit does not converge.
+    """
+    minimize = scipy.optimize.minimize
+
+    def minimize_one_iteration(
+        *args: object,
+        **kwargs: object,
+    ) -> scipy.optimize.OptimizeResult:
+        """Stop the fit after one iteration."""
+        return minimize(*args, **kwargs, options=dict(maxiter=1))
+
+    monkeypatch.setattr(scipy.optimize, "minimize", minimize_one_iteration)
+
+    sensor = optika.sensors.materials.BackIlluminatedSiliconSensorMaterial()
+    wavelength = na.geomspace(10, 4000, axis="wavelength", num=11) * u.AA
+    eqe = na.FunctionArray(
+        inputs=wavelength,
+        outputs=sensor.quantum_efficiency_effective(wavelength),
+    )
+    with pytest.raises(RuntimeError, match="did not converge"):
+        optika.sensors.materials.BackIlluminatedSiliconSensorMaterial.fit_eqe(
+            thickness_substrate=sensor.thickness_substrate,
+            depletion=optika.sensors.materials.depletion.e2v_ccd64_thick(),
+            eqe_measured=eqe,
+        )
