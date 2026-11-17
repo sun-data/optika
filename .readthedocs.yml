@@ -6,6 +6,10 @@ build:
     python: "3.12"
   apt_packages:
     - graphviz
+  jobs:
+    build:
+      html:
+        - python .github/docs-hang/rtd_build.py
 
 sphinx:
   configuration: docs/conf.py

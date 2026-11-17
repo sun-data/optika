@@ -1,0 +1,31 @@
+name: docs-hang
+
+on:
+  push:
+    branches:
+      - diag/rtd-hang
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      READTHEDOCS_OUTPUT: ${{ github.workspace }}/out
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: A command that finishes
+        env:
+          DOCS_HANG_HEARTBEAT: "2"
+        run: python .github/docs-hang/rtd_build.py python -c "import time; time.sleep(5); print('done')"
+      - name: A command that hangs
+        env:
+          DOCS_HANG_DEADLINE: "10"
+          DOCS_HANG_HEARTBEAT: "3"
+          DOCS_HANG_PAUSE: "3"
+        run: |
+          set +e
+          python .github/docs-hang/rtd_build.py python -c "import subprocess, sys; subprocess.run([sys.executable, '-c', 'import time; time.sleep(1000)'])"
+          echo "exit code $?"
