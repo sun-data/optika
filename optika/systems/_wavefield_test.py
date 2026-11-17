@@ -79,9 +79,8 @@ def test_psf_airy():
     psf = system.psf(
         field=na.Cartesian2dVectorArray(0, 0),
         width_sensor=0.02 * u.mm,
-        num=101**2,
+        num_pupil=101,
         num_sensor=51,
-        seed=42,
     )
 
     intensity = psf.outputs
@@ -126,9 +125,8 @@ def test_wavefield_centroid_matches_raytrace():
     wavefield = system.wavefield(
         field=field,
         width_sensor=0.02 * u.mm,
-        num=101**2,
+        num_pupil=101,
         num_sensor=51,
-        seed=11,
     )
     intensity = np.square(np.abs(wavefield.outputs.amplitude))
     position = wavefield.outputs.position.xy
@@ -172,9 +170,8 @@ def test_wavefield_transformation(tilted: str) -> None:
         field=field,
         normalized_field=False,
         width_sensor=0.05 * u.mm,
-        num=101**2,
+        num_pupil=101,
         num_sensor=51,
-        seed=11,
     )
 
     psf = system.psf(**kwargs)
@@ -224,9 +221,8 @@ def test_psf_zernike_defocus():
     kwargs = dict(
         field=na.Cartesian2dVectorArray(0, 0),
         width_sensor=0.2 * u.mm,
-        num=101**2,
+        num_pupil=101,
         num_sensor=51,
-        seed=3,
     )
 
     psf_nominal = _telescope(sag_primary=sag).psf(**kwargs)
@@ -260,9 +256,8 @@ def test_wavefield_multiwavelength():
         wavelength=wavelength,
         field=field,
         width_sensor=0.05 * u.mm,
-        num=31**2,
+        num_pupil=31,
         num_sensor=11,
-        seed=5,
     )
 
     amplitude = wavefield.outputs.amplitude
@@ -277,7 +272,7 @@ def test_psf_newtonian():
     """
     The Huygens PSF of the Newtonian telescope from the SequentialSystem
     docstring, which exercises fold mirrors (the obliquity sign) and central
-    obscurations (beam-footprint sampling).
+    obscurations.
     """
     primary_mirror_z = 200 * u.mm
     fold_mirror_z = 50 * u.mm
@@ -360,9 +355,8 @@ def test_psf_newtonian():
     wavefield = system.wavefield(
         field=field,
         width_sensor=0.05 * u.mm,
-        num=101**2,
+        num_pupil=101,
         num_sensor=51,
-        seed=9,
     )
     intensity = np.square(np.abs(wavefield.outputs.amplitude))
     position = wavefield.outputs.position.xy
@@ -432,9 +426,8 @@ def test_wavefield_grating():
     wavefield = system.wavefield(
         field=field,
         width_sensor=0.2 * u.mm,
-        num=151**2,
+        num_pupil=151,
         num_sensor=51,
-        seed=4,
     )
     intensity = np.square(np.abs(wavefield.outputs.amplitude))
     position = wavefield.outputs.position.xy
@@ -454,20 +447,6 @@ def test_wavefield_invalid():
 
     with pytest.raises(ValueError, match="width_sensor"):
         system.wavefield(field=na.Cartesian2dVectorArray(0, 0))
-
-    with pytest.raises(ValueError, match="num"):
-        system.wavefield(
-            field=na.Cartesian2dVectorArray(0, 0),
-            width_sensor=0.02 * u.mm,
-            num=[100, 100],
-        )
-
-    with pytest.raises(ValueError, match="`bound`"):
-        system.wavefield(
-            field=na.Cartesian2dVectorArray(0, 0),
-            width_sensor=0.02 * u.mm,
-            bound=[None, None],
-        )
 
     # A field given as an angle needs neither a field stop nor a sensor to
     # be found, so these reach the checks of the wavefield itself.
@@ -496,9 +475,8 @@ def test_wavefield_default_field() -> None:
 
     wavefield = system.wavefield(
         width_sensor=0.02 * u.mm,
-        num=11**2,
+        num_pupil=11,
         num_sensor=5,
-        seed=0,
     )
 
     assert isinstance(wavefield, optika.wavefields.WavefieldFunctionArray)
@@ -526,15 +504,13 @@ def test_wavefield_position_sensor() -> None:
     wavefield = system.wavefield(
         field=field,
         position_sensor=position_sensor,
-        num=101**2,
-        seed=42,
+        num_pupil=101,
     )
     grid = system.wavefield(
         field=field,
         width_sensor=0.004 * u.mm,
-        num=101**2,
+        num_pupil=101,
         num_sensor=3,
-        seed=42,
     )
 
     assert wavefield.outputs.area == 0 * u.mm**2
@@ -594,9 +570,8 @@ def test_psf_finite_object(moved: None | str, image: u.Quantity) -> None:
         field=field,
         normalized_field=False,
         width_sensor=0.05 * u.mm,
-        num=101**2,
+        num_pupil=101,
         num_sensor=51,
-        seed=11,
     )
     intensity = psf.outputs
     centroid = (psf.inputs.position * intensity).sum() / intensity.sum()
@@ -737,3 +712,139 @@ def test_wavefield_samples_decentered_aperture():
     assert x.max() > decenter + 0.9 * half_width
     assert y.min() < -0.9 * half_width
     assert y.max() > +0.9 * half_width
+
+
+def test_raytrace_optical_path_focus() -> None:
+    """
+    By Fermat's principle, every ray of a plane wave which a paraboloid brings
+    to a focus takes the same optical path to it.
+    """
+    system = _telescope()
+    pupil = na.Cartesian2dVectorLinearSpace(
+        start=-1,
+        stop=1,
+        axis=na.Cartesian2dVectorArray("px", "py"),
+        num=11,
+        centers=True,
+    )
+    rays = system.raytrace(
+        field=na.Cartesian2dVectorArray(0, 0),
+        pupil=pupil,
+    ).outputs[{system.axis_surface: ~0}]
+
+    where = rays.unvignetted
+    assert np.any(where)
+
+    optical_path = rays.optical_path
+    reference = (optical_path * where).sum() / where.sum()
+    assert np.all(np.abs(np.where(where, optical_path - reference, 0)) < 1e-9 * u.mm)
+
+
+def test_wavefield_energy() -> None:
+    """
+    The wavefield on the sensor carries the power of the incident beam:
+    nearly all of the power of rays of unit intensity through the aperture
+    lands in a window of many Airy radii around the image.
+    """
+    system = _telescope()
+
+    wavefield = system.wavefield(
+        field=na.Cartesian2dVectorArray(0, 0),
+        width_sensor=0.1 * u.mm,
+        num_pupil=101,
+        num_sensor=201,
+    )
+    outputs = wavefield.outputs
+    power = (np.square(np.abs(outputs.amplitude)) * outputs.area).sum()
+    power_expected = np.pi * np.square(20 * u.mm)
+
+    ratio = (power / power_expected).to(u.dimensionless_unscaled)
+    assert 0.98 < ratio < 1.001
+
+
+def test_wavefield_figure_error_tilt() -> None:
+    """
+    A figure error which tilts the primary mirror does not deflect the rays,
+    but it moves the Huygens PSF to where the rays of a mirror which is tilted
+    by the same amount land.
+    """
+    focal_length = 200 * u.mm
+    radius = 20 * u.mm
+    slope = 5e-6
+    base = optika.sags.ParabolicSag(focal_length=-focal_length)
+
+    grid = na.Cartesian2dVectorLinearSpace(
+        start=-25 * u.mm,
+        stop=25 * u.mm,
+        axis=na.Cartesian2dVectorArray("map_x", "map_y"),
+        num=11,
+    ).explicit
+    sag_map = optika.sags.FigureErrorSag(
+        base=base,
+        figure_error=na.FunctionArray(grid, slope * grid.x),
+        axis=("map_x", "map_y"),
+    )
+    sag_tilt = optika.sags.ZernikeSag(
+        base=base,
+        coefficients=[0 * u.mm, slope * radius / 2],
+        radius=radius,
+    )
+
+    # A physical field angle, since a normalized one is solved for the center
+    # of the sensor, which is the field stop, and so would follow the tilt.
+    field = na.Cartesian2dVectorArray(0, 0) * u.deg
+    kwargs = dict(
+        field=field,
+        normalized_field=False,
+        position_sensor=na.Cartesian2dVectorLinearSpace(
+            start=-15 * u.um,
+            stop=15 * u.um,
+            axis=na.Cartesian2dVectorArray("wavefield_x", "wavefield_y"),
+            num=61,
+        ).explicit,
+        num_pupil=101,
+    )
+    psf = _telescope(sag_primary=sag_map).psf(**kwargs)
+    psf_expected = _telescope(sag_primary=sag_tilt).psf(**kwargs)
+
+    peak = psf_expected.outputs.max()
+    assert np.all(np.abs(psf.outputs - psf_expected.outputs) < 1e-6 * peak)
+
+    def centroid_rays(sag: optika.sags.AbstractSag) -> na.Cartesian2dVectorArray:
+        """The centroid of the rays on the sensor of the telescope."""
+        rayfunction = _telescope(sag_primary=sag).rayfunction(
+            field=field,
+            normalized_field=False,
+        )
+        where = rayfunction.outputs.unvignetted
+        return (rayfunction.outputs.position.xy * where).sum() / where.sum()
+
+    # the map does not deflect the rays, but the tilted mirror does
+    assert np.all(centroid_rays(sag_map).length < 1 * u.nm)
+    shift = centroid_rays(sag_tilt)
+    assert np.abs(shift.x - 2 * slope * focal_length) < 1 * u.nm
+    assert np.abs(shift.y) < 1 * u.nm
+
+    # the window cuts off more of the far side of the PSF, which pulls its
+    # centroid toward the center of the window by a few tens of nanometers
+    centroid = (psf.inputs.position * psf.outputs).sum() / psf.outputs.sum()
+    assert np.abs(centroid.x - shift.x) < 0.05 * u.um
+    assert np.abs(centroid.y - shift.y) < 0.01 * u.um
+
+
+def test_derivative() -> None:
+    """
+    The derivative is a central difference inside the grid and a one-sided
+    difference at its ends and next to a missing point.
+    """
+    x = na.linspace(0, 5, axis="i", num=6) * u.mm
+    a = na.Cartesian3dVectorArray(x=np.square(x) / u.mm, y=0 * u.mm, z=0 * u.mm)
+    a.x[dict(i=2)] = np.nan * u.mm
+
+    result = optika.systems._sequential._derivative(a, axis="i")
+
+    result_expected = na.ScalarArray(
+        ndarray=np.array([1, 1, np.nan, 7, 8, 9]) * u.mm,
+        axes="i",
+    )
+    assert np.allclose(result.x, result_expected, equal_nan=True)

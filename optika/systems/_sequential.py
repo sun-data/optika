@@ -56,6 +56,38 @@ def _described(surface: optika.surfaces.AbstractSurface) -> str:
     return f"an unnamed {type(surface).__name__}"
 
 
+def _derivative(
+    a: na.AbstractCartesian3dVectorArray,
+    axis: str,
+) -> na.AbstractCartesian3dVectorArray:
+    """
+    The derivative of the given vectors with respect to their index along the
+    given axis.
+
+    It is the central difference where both neighbors are finite and the
+    one-sided difference where only one of them is, so that a ray next to one
+    which missed a surface keeps a finite derivative.
+
+    Parameters
+    ----------
+    a
+        The vectors to differentiate, sampled along `axis`.
+    axis
+        The logical axis along which to differentiate.
+    """
+    difference = a[{axis: slice(1, None)}] - a[{axis: slice(None, ~0)}]
+    nan = np.nan * difference[{axis: slice(0, 1)}]
+    backward = na.concatenate([nan, difference], axis=axis)
+    forward = na.concatenate([difference, nan], axis=axis)
+    finite_backward = np.isfinite(backward.length)
+    finite_forward = np.isfinite(forward.length)
+    return np.where(
+        finite_backward & finite_forward,
+        (backward + forward) / 2,
+        np.where(finite_backward, backward, forward),
+    )
+
+
 class _Sampling(NamedTuple):
     """
     One stratified trace of a system, and which of its field positions the
@@ -2695,25 +2727,24 @@ class AbstractSequentialSystem(
         field: None | na.AbstractCartesian2dVectorArray = None,
         position_sensor: None | na.AbstractCartesian2dVectorArray = None,
         width_sensor: None | u.Quantity | na.AbstractScalar = None,
-        num: int | na.AbstractCartesian2dVectorArray | Sequence = 10_000,
+        num_pupil: int = 151,
         num_sensor: int = 101,
         axis: tuple[str, str] = ("wavefield_x", "wavefield_y"),
         chunk_size: int = 1024,
         normalized_field: bool = True,
-        seed: None | int = None,
-        bound: None | Sequence = None,
     ) -> optika.wavefields.WavefieldFunctionArray:
         r"""
-        Propagate a wavefield through this system using physical optics and
-        evaluate it on a grid of sensor positions.
-
-        The wavefield is computed by sampling each surface's aperture with a
-        stratified random grid and evaluating the Rayleigh-Sommerfeld
-        diffraction integral surface by surface,
+        The wavefield on the sensor of this system, from a raytrace of a
+        regular grid of rays across the beam followed by one evaluation of
+        the Rayleigh-Sommerfeld diffraction integral,
         :func:`optika.wavefields.rayleigh_sommerfeld`.
 
-        Only surfaces with an aperture participate in the propagation,
-        all other surfaces are ignored.
+        This is the method of the Huygens point-spread function of optical
+        design programs.
+        The rays are traced through the whole system as it is, carrying their
+        :attr:`~optika.rays.AbstractRayVectorArray.optical_path`, and each
+        ray which reaches the last surface before the sensor stands for a
+        patch of the wavefield there, which is then propagated to the sensor.
 
         Parameters
         ----------
@@ -2730,14 +2761,13 @@ class AbstractSequentialSystem(
             The sensor-local positions at which to evaluate the wavefield.
             If :obj:`None` (the default), a grid of `num_sensor` positions
             along each axis, spanning `width_sensor` and centered on the
-            centroid of a geometric raytrace, will be used.
+            centroid of the rays on the sensor, will be used.
         width_sensor
             The width of the automatic grid of sensor positions.
             Only used if `position_sensor` is :obj:`None`.
-        num
-            The approximate number of samples on each surface.
-            If a sequence, it must have the same number of elements as the
-            number of surfaces with an aperture.
+        num_pupil
+            The number of rays along each axis of the regular grid of rays
+            across the beam.
         num_sensor
             The number of sensor positions along each axis.
             Only used if `position_sensor` is :obj:`None`.
@@ -2751,41 +2781,70 @@ class AbstractSequentialSystem(
         normalized_field
             A boolean flag indicating whether the `field` parameter is given
             in normalized or physical units.
-        seed
-            An optional seed for the random number generators used to sample
-            each surface.
-        bound
-            An optional sequence of sampling regions, one for each surface
-            with an aperture, where each element is either :obj:`None` (use
-            the bounding box of the surface's aperture) or a tuple of the
-            lower and upper corners of the region in local surface
-            coordinates.
-            This is important for surfaces near an intermediate focus,
-            where the wavefield is concentrated in a region much smaller than
-            the aperture and would otherwise be unresolved by the samples.
 
         Notes
         -----
-        The brute-force Rayleigh-Sommerfeld integral is only well-sampled if
-        the phase of its integrand varies by less than about :math:`\pi`
-        between neighboring samples.
-        This is naturally satisfied when consecutive surfaces are close to
-        conjugate (each surface is near an image of the previous one, or near
-        a focus of the light leaving it), but it is violated for plane-to-plane
-        propagation with a large Fresnel number, such as between two
-        collimated-space apertures.
-        Undersampled propagation manifests as a speckle-like noise floor
-        rather than an error in the mean, so check convergence by increasing
-        `num`.
-        Surfaces that only mask the beam in collimated space (obscurations,
-        filters) are often better excluded from the wave propagation
-        (by setting their aperture to :obj:`None` in a copy of the system)
-        than included as an undersampled propagation step.
+        The grid of rays is regular in the physical pupil coordinates of the
+        rays, across a box around the rays which pass through the system,
+        found with a coarser trace.
+        On the last surface before the sensor, each ray which is not
+        vignetted stands for a patch of the wavefield with the complex
+        amplitude
+
+        .. math::
+
+            E = \sqrt{\frac{I \, A_0}{A \, |\cos \theta|}}
+                \exp \left( \frac{2 \pi i L}{\lambda} \right),
+
+        where :math:`I` is the intensity of the ray,
+        :math:`L` is its optical path,
+        :math:`\lambda` is the vacuum wavelength,
+        :math:`A` is the area of the patch, from the distances to the
+        neighboring rays,
+        :math:`\theta` is the angle between the ray and the normal to the
+        surface,
+        and :math:`A_0` is the area of the incident beam that the ray
+        carries, perpendicular to the beam, for an object at infinity, or the
+        solid angle of the ray, for an object at a finite distance.
+        So, for an object at infinity, :math:`|E|^2` is the irradiance of
+        the wavefield across the beam relative to the intensity of the
+        incident rays, and for an object at a finite distance it is the
+        irradiance per unit radiant intensity, in steradians per square
+        millimeter.
+
+        The rulings and the figure errors of the surfaces enter through the
+        optical path of the rays, and the apertures before the last surface
+        through the vignetting of the rays.
+        So diffraction by those apertures is left out, which is accurate as
+        long as the image of the source is far from their edges, as it is
+        away from the edges of a field stop.
+
+        The rays sample the wavefield on the last surface at an interval
+        :math:`\Delta`, so the integral aliases the image at a distance of
+        about :math:`\lambda z / \Delta` from it, where :math:`z` is the
+        distance from the last surface to the sensor.
+        Choose `num_pupil` so that this distance is much larger than the
+        region of the sensor of interest, and check that the result has
+        converged by increasing it.
         """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
         if field is None:
             field = self.grid_input.field
+
+        if not any(s.aperture is not None for s in self.surfaces):
+            raise ValueError(
+                "at least one surface in this system must have an aperture "
+                "to bound the beam of a wavefield."
+            )
+
+        if self.sensor is None:
+            raise ValueError("this system must have a sensor to propagate a wavefield.")
+
+        if (position_sensor is None) and (width_sensor is None):
+            raise ValueError(
+                "either `position_sensor` or `width_sensor` must be specified."
+            )
 
         grid = optika.vectors.ObjectVectorArray(
             wavelength=wavelength,
@@ -2797,153 +2856,131 @@ class AbstractSequentialSystem(
             normalized_field=normalized_field,
             normalized_pupil=False,
         )
+        wavelength = grid.wavelength
+        field = grid.field
 
-        surfaces = [s for s in self.surfaces if s.aperture is not None]
-        if not surfaces:
-            raise ValueError(
-                "at least one surface in this system must have an aperture "
-                "to propagate a wavefield."
-            )
+        axis_surface = f"_{axis[0]}_{axis[1]}_surface"
+        axis_pupil = (f"_{axis[0]}_pupil", f"_{axis[1]}_pupil")
 
-        sensor = self.sensor
-        if sensor is None:
-            raise ValueError("this system must have a sensor to propagate a wavefield.")
+        surfaces = self.surfaces_all
+        surface = surfaces[~1]
+        sensor = surfaces[~0]
 
-        if isinstance(num, (int, np.integer, na.AbstractCartesian2dVectorArray)):
-            num = [num] * len(surfaces)
-        if len(num) != len(surfaces):
-            raise ValueError(
-                f"`num` must have one element for each of the "
-                f"{len(surfaces)} surfaces with an aperture, got {len(num)}."
-            )
-
-        if bound is None:
-            bound = [None] * len(surfaces)
-        if len(bound) != len(surfaces):
-            raise ValueError(
-                f"`bound` must have one element for each of the "
-                f"{len(surfaces)} surfaces with an aperture, got {len(bound)}."
-            )
-
-        axes = [
-            (f"_{axis[0]}_{k % 2}", f"_{axis[1]}_{k % 2}") for k in range(len(surfaces))
-        ]
-        seeds = [seed if seed is None else seed + k for k in range(len(surfaces))]
-
-        surface_0 = surfaces[0]
-
-        bound_0 = bound[0]
-        if (bound_0 is None) and surface_0.aperture.inverted:
-            # The aperture of an obscuration does not bound the beam,
-            # so sample the footprint of the pupil stop instead.
-            stop = self.pupil_stop
-            corner_lower = stop.aperture.bound_lower
-            corner_upper = stop.aperture.bound_upper
-            if stop.transformation is not None:
-                corner_lower = stop.transformation(corner_lower)
-                corner_upper = stop.transformation(corner_upper)
-            if surface_0.transformation is not None:
-                corner_lower = surface_0.transformation.inverse(corner_lower)
-                corner_upper = surface_0.transformation.inverse(corner_upper)
-            bound_0 = (
-                np.minimum(corner_lower.xy, corner_upper.xy),
-                np.maximum(corner_lower.xy, corner_upper.xy),
-            )
-
-        wavefield = surface_0.wavefield_samples(
-            axis=axes[0],
-            num=num[0],
-            seed=seeds[0],
-            bound=bound_0,
+        # A box in the physical pupil coordinates around the rays which pass
+        # through the system, from a coarse trace of the normalized pupil.
+        num_coarse = 41
+        raytrace = self.raytrace(
+            wavelength=wavelength,
+            field=field,
+            pupil=na.Cartesian2dVectorLinearSpace(
+                start=-1,
+                stop=1,
+                axis=na.Cartesian2dVectorArray(*axis_pupil),
+                num=num_coarse,
+                centers=True,
+            ),
+            axis=axis_surface,
+            normalized_field=False,
+            efficiency=False,
         )
-        if surface_0.transformation is not None:
-            wavefield = surface_0.transformation(wavefield)
-        wavefield.wavelength = grid.wavelength
+        where = raytrace.outputs.unvignetted[{axis_surface: ~0}]
+        pupil = raytrace.inputs.pupil
+        inf_x = np.inf * na.unit_normalized(pupil.x)
+        inf_y = np.inf * na.unit_normalized(pupil.y)
+        lower = na.Cartesian2dVectorArray(
+            x=np.where(where, pupil.x, inf_x).min(axis_pupil),
+            y=np.where(where, pupil.y, inf_y).min(axis_pupil),
+        )
+        upper = na.Cartesian2dVectorArray(
+            x=np.where(where, pupil.x, -inf_x).max(axis_pupil),
+            y=np.where(where, pupil.y, -inf_y).max(axis_pupil),
+        )
+        padding = (upper - lower) / 20
+        lower = lower - padding
+        upper = upper + padding
 
-        obj = self.object
+        raytrace = self.raytrace(
+            wavelength=wavelength,
+            field=field,
+            pupil=na.Cartesian2dVectorLinearSpace(
+                start=lower,
+                stop=upper,
+                axis=na.Cartesian2dVectorArray(*axis_pupil),
+                num=num_pupil,
+                centers=True,
+            ),
+            axis=axis_surface,
+            normalized_field=False,
+            normalized_pupil=False,
+        )
+        rays = raytrace.outputs
 
+        # The area of the incident beam that each ray carries, perpendicular
+        # to the beam, or its solid angle for an object at a finite distance.
+        rays_0 = rays[{axis_surface: 0}]
+        direction_0 = rays_0.direction
         if self.object_is_at_infinity:
-            rays = optika.rays.RayVectorArray(
-                position=na.Cartesian3dVectorArray() * u.mm,
-                direction=optika.direction(grid.field),
-            )
-            if obj is not None:
-                if obj.transformation is not None:
-                    rays = obj.transformation(rays)
-            if self.transformation is not None:
-                rays = self.transformation.inverse(rays)
-
-            direction = rays.direction
-
-            phase = (direction @ wavefield.position) / grid.wavelength
-            phase = phase.to(u.dimensionless_unscaled).value
-            wavefield.amplitude = wavefield.amplitude * np.exp(2j * np.pi * phase)
+            start = rays_0.position
+            unit_0 = u.dimensionless_unscaled
         else:
-            rays = optika.rays.RayVectorArray(
-                position=na.Cartesian3dVectorArray(
-                    x=grid.field.x,
-                    y=grid.field.y,
-                    z=0 * na.unit_normalized(grid.field.x),
-                ),
-                direction=na.Cartesian3dVectorArray(0, 0, 1),
-            )
-            if obj is not None:
-                if obj.transformation is not None:
-                    rays = obj.transformation(rays)
-            if self.transformation is not None:
-                rays = self.transformation.inverse(rays)
-
-            displacement = wavefield.position - rays.position
-            distance = displacement.length
-            direction = displacement / distance
-
-            phase = distance / grid.wavelength
-            phase = phase.to(u.dimensionless_unscaled).value
-            scale = distance.mean(axes[0]) / distance
-            wavefield.amplitude = (
-                wavefield.amplitude * scale * np.exp(2j * np.pi * phase)
-            )
-
-        wavefield = surface_0._interact_wavefield(
-            wavefield=wavefield,
-            direction=direction,
+            start = direction_0
+            unit_0 = 1 / u.mm**2
+        area_0 = np.abs(
+            direction_0
+            @ _derivative(start, axis_pupil[0]).cross(_derivative(start, axis_pupil[1]))
         )
 
-        for k, surface in enumerate(surfaces[1:], start=1):
-            wavefield = surface.propagate_wavefield(
-                wavefield=wavefield,
-                axis=axes[k - 1],
-                axis_new=axes[k],
-                num=num[k],
-                chunk_size=chunk_size,
-                seed=seeds[k],
-                bound=bound[k],
-            )
+        rays_surface = rays[{axis_surface: ~1}]
+        position = rays_surface.position
+        area = (
+            _derivative(position, axis_pupil[0])
+            .cross(_derivative(position, axis_pupil[1]))
+            .length
+        )
 
-        axis_last = axes[len(surfaces) - 1]
+        rays_local = rays_surface
+        if surface.transformation is not None:
+            rays_local = surface.transformation.inverse(rays_local)
+        normal = surface.sag.normal(rays_local.position)
+        cos_theta = np.abs(rays_local.direction @ normal)
+
+        where = rays_surface.unvignetted & np.isfinite(area) & np.isfinite(cos_theta)
+
+        optical_path = np.where(where, rays_surface.optical_path, 0 * u.mm)
+        optical_path_mean = optical_path.sum(axis_pupil) / where.sum(axis_pupil)
+        phase = (optical_path - optical_path_mean) / wavelength
+        phase = phase.to(u.dimensionless_unscaled).value
+
+        magnitude = rays_surface.intensity * area_0 / (area * cos_theta)
+        magnitude = np.sqrt(np.where(where, magnitude, 0 * unit_0).to(unit_0).value)
+
+        # The index of the medium after the last surface is the same for every
+        # ray, but it may still be broadcast along the axes of the grid.
+        index_refraction = na.as_named_array(np.abs(rays_surface.index_refraction))
+        axis_index = tuple(a for a in axis_pupil if a in index_refraction.shape)
+        if axis_index:
+            index_refraction = index_refraction.mean(axis_index)
+
+        origin = na.Cartesian3dVectorArray(0, 0, 0) * u.mm
+
+        wavefield = optika.wavefields.WavefieldVectorArray(
+            wavelength=wavelength,
+            position=np.where(where, rays_local.position, origin),
+            amplitude=magnitude * np.exp(2j * np.pi * phase),
+            normal=np.where(where, normal, na.Cartesian3dVectorArray(0, 0, 1)),
+            area=np.where(where, area, 0 * u.mm**2),
+            index_refraction=index_refraction,
+        )
+        if surface.transformation is not None:
+            wavefield = surface.transformation(wavefield)
 
         if position_sensor is None:
-            if width_sensor is None:
-                raise ValueError(
-                    "either `position_sensor` or `width_sensor` must be " "specified."
-                )
-
-            rayfunction = self.rayfunction(
-                wavelength=grid.wavelength,
-                field=grid.field,
-                normalized_field=False,
-            )
-            position_spot = rayfunction.outputs.position.xy
-            where = rayfunction.outputs.unvignetted
-            axis_centroid = tuple(
-                set(na.shape(position_spot))
-                - set(na.shape(grid.wavelength))
-                - set(na.shape(grid.field))
-                - set(self.shape)
-            )
-            centroid = (position_spot * where).sum(axis_centroid)
-            centroid = centroid / where.sum(axis_centroid)
-
+            rays_sensor = rays[{axis_surface: ~0}]
+            if sensor.transformation is not None:
+                rays_sensor = sensor.transformation.inverse(rays_sensor)
+            weight = rays_sensor.unvignetted * rays_sensor.intensity
+            centroid = (rays_sensor.position.xy * weight).sum(axis_pupil)
+            centroid = centroid / weight.sum(axis_pupil)
             position_sensor = na.Cartesian2dVectorLinearSpace(
                 start=centroid - width_sensor / 2,
                 stop=centroid + width_sensor / 2,
@@ -2967,7 +3004,7 @@ class AbstractSequentialSystem(
         amplitude = optika.wavefields.rayleigh_sommerfeld(
             wavefield=wavefield,
             position=position_global,
-            axis=axis_last,
+            axis=axis_pupil,
             chunk_size=chunk_size,
         )
 
@@ -2978,24 +3015,24 @@ class AbstractSequentialSystem(
         if (axis[0] in shape_sensor) and (axis[1] in shape_sensor):
             num_x = shape_sensor[axis[0]]
             num_y = shape_sensor[axis[1]]
-            area = position_sensor.x.ptp(axis[0]) / (num_x - 1)
-            area = area * position_sensor.y.ptp(axis[1]) / (num_y - 1)
+            area_sensor = position_sensor.x.ptp(axis[0]) / (num_x - 1)
+            area_sensor = area_sensor * position_sensor.y.ptp(axis[1]) / (num_y - 1)
         else:
-            area = 0 * u.mm**2
+            area_sensor = 0 * u.mm**2
 
         outputs = optika.wavefields.WavefieldVectorArray(
-            wavelength=grid.wavelength,
+            wavelength=wavelength,
             position=position,
             amplitude=amplitude,
             normal=sag_sensor.normal(position),
-            area=area,
+            area=area_sensor,
             index_refraction=wavefield.index_refraction,
         )
 
         return optika.wavefields.WavefieldFunctionArray(
             inputs=optika.vectors.ObjectVectorArray(
-                wavelength=grid.wavelength,
-                field=grid.field,
+                wavelength=wavelength,
+                field=field,
                 pupil=position_sensor,
             ),
             outputs=outputs,
