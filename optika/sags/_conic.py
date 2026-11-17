@@ -111,6 +111,22 @@ class AbstractConicSag(
             B &= 2 \left[ c (o_x u_x + o_y u_y + (1 + k) o_z u_z) - u_z \right] \\
             C &= c \left[ o_x^2 + o_y^2 + (1 + k) o_z^2 \right] - 2 o_z.
 
+        The roots are computed with the numerically stable form of the
+        quadratic formula,
+
+        .. math::
+
+            q &= -\frac{B + \operatorname{sgn}(B) \sqrt{B^2 - 4 A C}}{2} \\
+            t &= \frac{q}{A}, \quad \frac{C}{q},
+
+        since the textbook form, :math:`(-B \pm \sqrt{B^2 - 4 A C}) / 2 A`,
+        subtracts two nearly equal numbers to find the nearer root whenever
+        :math:`|4 A C| \ll B^2`.
+        That is the case of a nearly paraboloidal conic struck nearly along
+        its axis, where :math:`A` is close to zero.
+        The stable form also needs no special case for :math:`A = 0`,
+        where :math:`C / q` reduces to the root of the linear equation.
+
         Of the (up to two) real roots, the intercept is the one on the same
         sheet of the conic as the vertex (identified by
         :math:`z \, (c (x^2 + y^2) - z) \geq 0`) that is nearest the ray's
@@ -135,31 +151,25 @@ class AbstractConicSag(
         real = discriminant >= 0
         sqrt_discriminant = np.sqrt(np.where(real, discriminant, 0))
 
-        # guard against the degenerate (nearly linear, A -> 0) case
-        unit_a = na.unit_normalized(a)
-        degenerate = np.abs(a) < (1e-12 * unit_a)
-        denominator = np.where(degenerate, 1 * unit_a, 2 * a)
-        t_linear = -cc / b
+        # the stable form of the quadratic formula, see the notes above
+        q = -(b + np.where(b >= 0, 1, -1) * sqrt_discriminant) / 2
 
-        def root(sign: int) -> na.AbstractScalar:
-            t = np.where(
-                degenerate,
-                t_linear,
-                (-b + sign * sqrt_discriminant) / denominator,
-            )
+        def root(t: na.AbstractScalar) -> na.AbstractScalar:
             position = o + u * t
             r2 = np.square(position.x) + np.square(position.y)
             on_vertex_sheet = (position.z * (c * r2 - position.z)) >= 0
-            valid = real & on_vertex_sheet
+            valid = real & on_vertex_sheet & np.isfinite(t)
             return np.where(valid, t, np.inf * na.unit_normalized(t))
 
         # of the (up to two) roots, take the one on the vertex sheet nearest the
         # ray's current position.  This selects the physical intercept and avoids
         # the far / wrong-sheet root that an iterative solver can land on along
-        # the steep flank of a grazing conic.
-        t_a = root(-1)
-        t_b = root(+1)
-        t = np.where(np.abs(t_a) <= np.abs(t_b), t_a, t_b)
+        # the steep flank of a grazing conic.  A root is infinite or
+        # not-a-number where `A` or `q` vanishes, which `root()` rejects.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t_a = root(q / a)
+            t_b = root(cc / q)
+            t = np.where(np.abs(t_a) <= np.abs(t_b), t_a, t_b)
 
         result = rays.copy_shallow()
         result.position = o + u * t

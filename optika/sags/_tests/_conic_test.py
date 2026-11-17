@@ -85,3 +85,36 @@ def test_intercept_grazing_conic():
     c = 1 / sag.radius
     r2 = np.square(position.x) + np.square(position.y)
     assert np.all((position.z * (c * r2 - position.z)) >= 0)
+
+
+@pytest.mark.parametrize("conic", [-1, -0.9999, 0])
+@pytest.mark.parametrize("angle", [0, 1e-7, 1e-5, 1e-3, 1e-2] * u.rad)
+def test_intercept_of_nearly_axial_rays(conic: float, angle: u.Quantity) -> None:
+    """
+    The intercept of a ray travelling nearly parallel to the axis of a
+    nearly paraboloidal conic must lie on the conic to within the precision
+    of a double.
+
+    The textbook form of the quadratic formula finds the nearer root of such
+    a ray by subtracting two nearly equal numbers, which left intercepts
+    off the surface, and in some cases rejected both roots as off the
+    vertex sheet, so that the ray missed the conic entirely.
+    """
+    sag = optika.sags.ConicSag(radius=2000 * u.mm, conic=conic)
+
+    radius = na.linspace(-50, 50, axis="radius", num=21) * u.mm
+    direction = na.Cartesian3dVectorArray(
+        x=np.sin(angle),
+        y=0.5 * np.sin(angle),
+        z=np.cos(angle),
+    )
+    rays = optika.rays.RayVectorArray(
+        wavelength=63 * u.nm,
+        position=na.Cartesian3dVectorArray(x=radius, y=0.3 * radius, z=-1000 * u.mm),
+        direction=direction / direction.length,
+    )
+
+    position = sag.intercept(rays).position
+
+    assert np.allclose(sag(position), position.z, rtol=0, atol=1e-11 * u.mm)
+    assert np.all(np.abs(position.z) < 10 * u.mm)
