@@ -2940,8 +2940,6 @@ class AbstractSequentialSystem(
             ).explicit
 
         sag_sensor = sensor.sag
-        if sag_sensor is None:
-            sag_sensor = optika.sags.NoSag()
 
         position = na.Cartesian3dVectorArray(
             x=position_sensor.x,

@@ -102,10 +102,7 @@ def test_psf_airy():
     ]
     assert minima
 
-    x = psf.inputs.position.x
-    if "wavefield_y" in x.shape:
-        x = x[dict(wavefield_y=51 // 2)]
-    x = x.ndarray
+    x = psf.inputs.position.x.ndarray
     radius_zero = np.abs(x[minima[0]] - x[51 // 2])
 
     radius_airy = (1.22 * 500 * u.nm * 200 / 40).to(u.mm)
@@ -148,20 +145,28 @@ def test_wavefield_centroid_matches_raytrace():
     assert np.abs(centroid.y - centroid_rays.y) < radius_airy / 2
 
 
-def test_wavefield_transformation():
+@pytest.mark.parametrize(
+    argnames="tilted",
+    argvalues=["system", "object"],
+)
+def test_wavefield_transformation(tilted: str) -> None:
     """
     The transformation of a system turns its optics but not its object, so
-    tilting the test telescope moves the image of a star on its old axis by
-    :math:`f \\tan \\theta`.
+    tilting the test telescope, or tilting the object instead, moves the
+    image of a star on the old axis by :math:`f \\tan \\theta`.
     The Huygens PSF must land where the rays do, with most of the light of
     the PSF of the telescope untilted.
     """
     angle = 0.25 * u.deg
     focal_length = 200 * u.mm
-    system = dataclasses.replace(
-        _telescope(),
-        transformation=na.transformations.Cartesian3dRotationY(angle),
-    )
+    rotation = na.transformations.Cartesian3dRotationY(angle)
+    if tilted == "system":
+        system = dataclasses.replace(_telescope(), transformation=rotation)
+    else:
+        system = dataclasses.replace(
+            _telescope(),
+            object=optika.surfaces.Surface(name="object", transformation=rotation),
+        )
     field = na.Cartesian2dVectorArray(0, 0) * u.deg
     kwargs = dict(
         field=field,
@@ -456,6 +461,243 @@ def test_wavefield_invalid():
             width_sensor=0.02 * u.mm,
             num=[100, 100],
         )
+
+    with pytest.raises(ValueError, match="`bound`"):
+        system.wavefield(
+            field=na.Cartesian2dVectorArray(0, 0),
+            width_sensor=0.02 * u.mm,
+            bound=[None, None],
+        )
+
+    # A field given as an angle needs neither a field stop nor a sensor to
+    # be found, so these reach the checks of the wavefield itself.
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        width_sensor=0.02 * u.mm,
+    )
+
+    primary = dataclasses.replace(system.surfaces[0], aperture=None)
+    system_open = dataclasses.replace(system, surfaces=[primary])
+    with pytest.raises(ValueError, match="at least one surface"):
+        system_open.wavefield(**kwargs)
+
+    system_blind = dataclasses.replace(system, sensor=None)
+    with pytest.raises(ValueError, match="must have a sensor"):
+        system_blind.wavefield(**kwargs)
+
+
+def test_wavefield_default_field() -> None:
+    """
+    Without a field, the wavefield is computed at every field point of the
+    input grid of the system, as a :class:`WavefieldFunctionArray`.
+    """
+    system = _telescope()
+
+    wavefield = system.wavefield(
+        width_sensor=0.02 * u.mm,
+        num=11**2,
+        num_sensor=5,
+        seed=0,
+    )
+
+    assert isinstance(wavefield, optika.wavefields.WavefieldFunctionArray)
+    assert wavefield.type_explicit is optika.wavefields.WavefieldFunctionArray
+    assert wavefield.outputs.amplitude.shape == dict(
+        field_x=5,
+        field_y=5,
+        wavefield_x=5,
+        wavefield_y=5,
+    )
+
+
+def test_wavefield_position_sensor() -> None:
+    """
+    The wavefield can be evaluated at any positions on the sensor.
+    Positions which are not a grid along both axes have no area of their own.
+    """
+    system = _telescope()
+    field = na.Cartesian2dVectorArray(0, 0)
+    position_sensor = na.Cartesian2dVectorArray(
+        x=na.linspace(-2, 2, axis="p", num=3) * u.um,
+        y=0 * u.um,
+    )
+
+    wavefield = system.wavefield(
+        field=field,
+        position_sensor=position_sensor,
+        num=101**2,
+        seed=42,
+    )
+    grid = system.wavefield(
+        field=field,
+        width_sensor=0.004 * u.mm,
+        num=101**2,
+        num_sensor=3,
+        seed=42,
+    )
+
+    assert wavefield.outputs.area == 0 * u.mm**2
+    assert np.allclose(
+        wavefield.outputs.amplitude,
+        grid.outputs.amplitude[dict(wavefield_y=1)].combine_axes(["wavefield_x"], "p"),
+    )
+
+
+@pytest.mark.parametrize(
+    argnames="moved,image",
+    argvalues=[
+        (None, -0.5 * u.mm),
+        ("object", -0.7 * u.mm),
+        ("system", -0.5 * u.mm),
+    ],
+)
+def test_psf_finite_object(moved: None | str, image: u.Quantity) -> None:
+    """
+    A spherical mirror images a point at its center of curvature onto
+    itself, turned around the axis, without aberration.
+    The Huygens PSF of a point at a finite distance must land on its image,
+    where the rays do, with the object moved by a transformation of its own,
+    or with the mirror and the sensor tilted about the center of curvature
+    by a transformation of the system.
+    """
+    mirror = optika.surfaces.Surface(
+        name="mirror",
+        sag=optika.sags.SphericalSag(radius=-200 * u.mm),
+        aperture=optika.apertures.CircularAperture(20 * u.mm),
+        material=optika.materials.Mirror(),
+        is_pupil_stop=True,
+        transformation=na.transformations.Cartesian3dTranslation(z=200 * u.mm),
+    )
+    obj = optika.surfaces.Surface(
+        name="object",
+        aperture=optika.apertures.RectangularAperture(1 * u.mm),
+    )
+    transformation = None
+    if moved == "object":
+        obj = dataclasses.replace(
+            obj,
+            transformation=na.transformations.Cartesian3dTranslation(x=0.2 * u.mm),
+        )
+    elif moved == "system":
+        transformation = na.transformations.Cartesian3dRotationY(0.25 * u.deg)
+    system = dataclasses.replace(
+        _telescope(),
+        surfaces=[mirror],
+        object=obj,
+        transformation=transformation,
+    )
+    assert not system.object_is_at_infinity
+
+    field = na.Cartesian2dVectorArray(0.5, 0) * u.mm
+    psf = system.psf(
+        field=field,
+        normalized_field=False,
+        width_sensor=0.05 * u.mm,
+        num=101**2,
+        num_sensor=51,
+        seed=11,
+    )
+    intensity = psf.outputs
+    centroid = (psf.inputs.position * intensity).sum() / intensity.sum()
+
+    rayfunction = system.rayfunction(field=field, normalized_field=False)
+    where = rayfunction.outputs.unvignetted
+    position_rays = rayfunction.outputs.position.xy
+    centroid_rays = (position_rays * where).sum() / where.sum()
+    assert np.abs(centroid_rays.x - image) < 1 * u.um
+
+    radius_airy = (1.22 * 500 * u.nm * 200 / 40).to(u.mm)
+    assert np.abs(centroid.x - centroid_rays.x) < radius_airy / 2
+    assert np.abs(centroid.y - centroid_rays.y) < radius_airy / 2
+    assert intensity.max() > 0.1
+
+
+@pytest.mark.parametrize(
+    argnames="aperture,match",
+    argvalues=[
+        (None, "must have an aperture"),
+        (
+            optika.apertures.CircularAperture(5 * u.mm, inverted=True),
+            "is inverted",
+        ),
+        (optika.apertures.CircularAperture(5), "physical units"),
+    ],
+)
+def test_wavefield_samples_invalid(
+    aperture: None | optika.apertures.AbstractAperture,
+    match: str,
+) -> None:
+    """
+    A surface can only be sampled inside an aperture which bounds the beam,
+    in physical units.
+    """
+    surface = optika.surfaces.Surface(name="surface", aperture=aperture)
+    with pytest.raises(ValueError, match=match):
+        surface.wavefield_samples(axis=("sx", "sy"))
+
+
+def _source() -> optika.wavefields.WavefieldVectorArray:
+    """A uniform wavefield sampled on a square 10 mm wide at the origin."""
+    source = optika.surfaces.Surface(
+        name="source",
+        aperture=optika.apertures.RectangularAperture(5 * u.mm),
+    )
+    wavefield = source.wavefield_samples(axis=("sx", "sy"), num=21**2, seed=0)
+    wavefield.wavelength = 500 * u.nm
+    return wavefield
+
+
+def test_propagate_wavefield_axis() -> None:
+    """The samples on the new surface need axes of their own."""
+    surface = optika.surfaces.Surface(
+        name="surface",
+        aperture=optika.apertures.RectangularAperture(5 * u.mm),
+    )
+    with pytest.raises(ValueError, match="distinct"):
+        surface.propagate_wavefield(
+            wavefield=_source(),
+            axis=("sx", "sy"),
+            axis_new=("sx", "ty"),
+        )
+
+
+def test_propagate_wavefield_obscuration() -> None:
+    """
+    An obscuration does not bound the beam, so the wavefield is sampled on
+    the footprint of the light arriving at it, a tenth wider each way, and is
+    zero behind the obscuration.
+    """
+    wavefield = _source()
+    obscuration = optika.surfaces.Surface(
+        name="obscuration",
+        aperture=optika.apertures.CircularAperture(2 * u.mm, inverted=True),
+        transformation=na.transformations.Cartesian3dTranslation(z=10 * u.mm),
+    )
+
+    result = obscuration.propagate_wavefield(
+        wavefield=wavefield,
+        axis=("sx", "sy"),
+        axis_new=("ox", "oy"),
+        num=21**2,
+        seed=1,
+    )
+
+    for component in ["x", "y"]:
+        source = getattr(wavefield.position, component)
+        lower = source.min()
+        upper = source.max()
+        padding = (upper - lower) / 10
+        sample = getattr(result.position, component)
+        assert np.all(sample >= lower - padding)
+        assert np.all(sample <= upper + padding)
+        assert sample.min() < lower
+        assert sample.max() > upper
+
+    radius = result.position.xy.length
+    amplitude = np.abs(result.amplitude)
+    assert np.all(amplitude[radius < 2 * u.mm] == 0)
+    assert np.all(amplitude[radius > 2 * u.mm] > 0)
 
 
 def test_wavefield_samples_decentered_aperture():
