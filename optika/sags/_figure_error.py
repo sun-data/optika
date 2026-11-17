@@ -1,6 +1,7 @@
 from typing import Sequence
 import dataclasses
 import numpy as np
+import astropy.units as u
 import named_arrays as na
 import optika
 from ._abc import AbstractSag
@@ -177,22 +178,46 @@ class FigureErrorSag(
         position: na.AbstractCartesian3dVectorArray,
     ) -> na.AbstractScalar:
 
+        height = self.height_phase(position)
+
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        result = self.base_(position)
+        return self.base_(position) + height
 
+    def height_phase(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> u.Quantity | na.AbstractScalar:
+        """
+        The height of :attr:`figure_error` at the given position, which
+        :meth:`intercept` and :meth:`normal` leave out.
+
+        :meth:`optika.surfaces.AbstractSurface.propagate_rays` adds it to the
+        :attr:`~optika.rays.AbstractRayVectorArray.optical_path` of the rays
+        as a thin phase screen instead.
+        Pixels which were not measured have no height.
+
+        Parameters
+        ----------
+        position
+            The points at which to evaluate the height.
+            The :math:`z` coordinate is ignored.
+        """
         figure_error = self.figure_error
-        if figure_error is not None:
-            height = figure_error.outputs
-            figure_error = dataclasses.replace(
-                figure_error,
-                outputs=np.where(np.isfinite(height), height, 0),
-            )
-            figure_error = figure_error(position.xy, axis=self.axis_)
-            result = result + figure_error.outputs
+        if figure_error is None:
+            return 0 * u.mm
 
-        return result
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
+
+        height = figure_error.outputs
+        figure_error = dataclasses.replace(
+            figure_error,
+            outputs=np.where(np.isfinite(height), height, 0),
+        )
+
+        return figure_error(position.xy, axis=self.axis_).outputs
 
     def intercept(
         self,

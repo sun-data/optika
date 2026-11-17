@@ -112,3 +112,32 @@ class AbstractTestAbstractSag(
         result_expected = optika.sags.AbstractSag.intercept(a, rays)
 
         assert np.allclose(result, result_expected)
+
+    @pytest.mark.parametrize("position", positions)
+    def test_height_phase(
+        self,
+        a: optika.sags.AbstractSag,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> None:
+        """
+        Only the figure error of a :class:`optika.sags.FigureErrorSag` shifts
+        the phase of the light without deflecting it.
+        """
+        result = a.height_phase(position)
+        assert na.unit_normalized(result).is_equivalent(u.mm)
+        assert np.all(result == 0)
+
+    @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
+    def test_propagate_rays_optical_path(
+        self,
+        a: optika.sags.AbstractSag,
+        rays: optika.rays.RayVectorArray,
+    ) -> None:
+        """
+        The optical path of a ray grows by the distance to its intercept,
+        times the index of refraction of the medium it travels through.
+        """
+        result = a.propagate_rays(rays)
+        distance = (result.position - rays.position) @ rays.direction
+        result_expected = rays.optical_path + rays.index_refraction * distance
+        assert np.allclose(result.optical_path, result_expected)

@@ -199,6 +199,23 @@ class AbstractSurface(
 
         attenuation_2 = material.attenuation(rays_1)
 
+        # The phase the rulings add, and the height of the sag that shifts the
+        # phase of the light without deflecting it, as a thin phase screen:
+        # moving the surface by a height `h` along `z` lengthens the optical
+        # path of the incident ray by `n1 h a_z` and shortens that of the
+        # outgoing ray by `n2 h b_z`.
+        optical_path_2 = rays_incident.optical_path
+        if rulings is not None:
+            optical_path_2 = optical_path_2 + rulings.optical_path(
+                rays=rays_incident,
+                normal=normal,
+            )
+        height = sag.height_phase(position_1)
+        direction_incident = rays_incident.direction
+        optical_path_2 = optical_path_2 + height * (
+            n1 * direction_incident.z - n2 * b.z
+        )
+
         rays_2 = dataclasses.replace(
             rays_1,
             wavelength=wavelength_2,
@@ -207,6 +224,7 @@ class AbstractSurface(
             intensity=intensity_2,
             attenuation=attenuation_2,
             index_refraction=n2,
+            optical_path=optical_path_2,
         )
 
         if aperture is not None:
