@@ -696,6 +696,41 @@ class AbstractDiffusionModel(
             outputs=_kernel_mixture(variance, weight, axis, width_pixel, inputs),
         )
 
+    def mtf(
+        self,
+        depth: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        frequency: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
+        r"""
+        The modulation transfer function of the charge cloud created at a
+        given depth: its two-dimensional Fourier transform at the given
+        spatial frequencies.
+
+        Each Gaussian of :meth:`mixture`, with a variance :math:`\sigma_i^2`
+        along each axis and a weight :math:`w_i`, transforms to
+        :math:`w_i \exp(-2 \pi^2 \sigma_i^2 |f|^2)`,
+        so the transform is real, positive, and one at zero frequency.
+        Unlike :meth:`kernel`, the charge cloud is not integrated over pixels,
+        which have a transfer function of their own,
+        :meth:`optika.sensors.AbstractImagingSensor.mtf`.
+
+        Parameters
+        ----------
+        depth
+            The distance from the back surface of the sensor at which the
+            charge was created, between zero and `thickness_substrate`.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        frequency
+            The spatial frequencies along each axis, in cycles per unit length.
+        """
+        axis = "_diffusion_mixture"
+        variance, weight = self.mixture(depth, thickness_substrate, axis)
+        exponent = -2 * np.square(np.pi) * variance * np.square(frequency.length)
+        exponent = exponent.to(u.dimensionless_unscaled).value
+        return (weight * np.exp(exponent)).sum(axis)
+
     def width_average(
         self,
         absorption: u.Quantity | na.AbstractScalar,
@@ -792,6 +827,38 @@ class AbstractDiffusionModel(
             inputs=_indices_kernel(num, axis_x, axis_y),
             outputs=result,
         )
+
+    def mtf_average(
+        self,
+        absorption: u.Quantity | na.AbstractScalar,
+        thickness_substrate: u.Quantity | na.AbstractScalar,
+        frequency: na.AbstractCartesian2dVectorArray,
+    ) -> na.AbstractScalar:
+        """
+        The modulation transfer function of the charge clouds, averaged over
+        the depth at which photons are absorbed.
+
+        This averages :meth:`mtf` with :meth:`average_depth`, as
+        :meth:`kernel_average` averages :meth:`kernel`,
+        so it is the transform of the charge cloud each photon creates,
+        before the pixels integrate it,
+        and it is one at zero frequency.
+
+        Parameters
+        ----------
+        absorption
+            The absorption coefficient of the light-sensitive region for the
+            incident photons, per unit of perpendicular depth.
+        thickness_substrate
+            The thickness of the light-sensitive region of the sensor.
+        frequency
+            The spatial frequencies along each axis, in cycles per unit length.
+        """
+
+        def mtf(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+            return self.mtf(depth, thickness_substrate, frequency)
+
+        return self.average_depth(mtf, absorption, thickness_substrate)
 
     def mean_charge_capture(
         self,

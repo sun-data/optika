@@ -170,6 +170,26 @@ class AbstractTestAbstractImagingSensor(
         assert np.isclose(electrons.sum(), expected.sum())
         assert electrons[{a.axis_pixel.x: 6, a.axis_pixel.y: 5}] == electrons.max()
 
+    def test_mtf(self, a: optika.sensors.AbstractImagingSensor) -> None:
+        """
+        The MTF of the sensor is that of the charge diffusion of its material
+        times that of a pixel, which is :math:`2 / \\pi` at half the sampling
+        frequency of the pixels and zero at every multiple of it, along
+        either axis.
+        """
+        wavelength = 550 * u.nm
+        width = a.width_pixel
+        cycles = na.ScalarArray(np.array([0, 0.5, 1, 2]), axes="f")
+        pixel = na.ScalarArray(np.array([1, 2 / np.pi, 0, 0]), axes="f")
+
+        for frequency in [
+            na.Cartesian2dVectorArray(cycles / width, 0 / u.mm),
+            na.Cartesian2dVectorArray(0 / u.mm, cycles / width),
+        ]:
+            result = a.mtf(wavelength, frequency)
+            material = a.material.mtf(wavelength, frequency)
+            assert np.allclose(result, pixel * material, rtol=1e-12, atol=1e-15)
+
     def test_kernel_variance(self, a: optika.sensors.AbstractImagingSensor) -> None:
         wavelength = 550 * u.nm
         kernel = a.kernel(wavelength)

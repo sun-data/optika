@@ -312,6 +312,62 @@ class AbstractImagingSensor(
             num=num,
         )
 
+    def mtf(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        frequency: na.AbstractCartesian2dVectorArray,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        r"""
+        The modulation transfer function of this sensor, before the image is
+        sampled by its pixels.
+
+        This is the
+        :meth:`~optika.sensors.materials.AbstractSensorMaterial.mtf` of the
+        charge diffusion of :attr:`material` times the transfer function of
+        a pixel :math:`p_x` by :math:`p_y` wide,
+        :math:`|\mathrm{sinc}(f_x p_x) \, \mathrm{sinc}(f_y p_y)|`,
+        with :math:`\mathrm{sinc}(x) = \sin(\pi x) / \pi x`.
+        It is the transform of the point-spread function of the sensor,
+        :meth:`kernel`, before the pixels sample it,
+        so the transform of the kernel itself is this summed over the
+        frequencies which the pixels fold onto each other,
+        times the transfer function of a pixel once more for the position of
+        each photon within its pixel, which the kernel averages over.
+        Multiplied by the MTF of the optics,
+        such as :func:`optika.wavefields.mtf`,
+        it gives the MTF of the system.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        frequency
+            The spatial frequencies along each axis, in cycles per unit length.
+        direction
+            The cosine of the refracted angle inside the light-sensitive
+            region, as produced by :meth:`collect`.
+        """
+        width = self.width_pixel
+        if not isinstance(width, na.AbstractCartesian2dVectorArray):
+            width = na.Cartesian2dVectorArray(width, width)
+
+        def sinc(x: na.AbstractScalar) -> na.AbstractScalar:
+            x = np.pi * x.to(u.dimensionless_unscaled).value
+            zero = x == 0
+            x_safe = np.where(zero, 1, x)
+            return np.where(zero, 1, np.sin(x_safe) / x_safe)
+
+        pixel = np.abs(sinc(frequency.x * width.x) * sinc(frequency.y * width.y))
+
+        diffusion = self.material.mtf(
+            wavelength=wavelength,
+            frequency=frequency,
+            direction=direction,
+        )
+
+        return pixel * diffusion
+
     def kernel_variance(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
