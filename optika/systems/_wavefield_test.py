@@ -117,6 +117,33 @@ def test_psf_airy():
     assert cut[minima[0]] < 1e-2
 
 
+def test_mtf_diffraction_limited() -> None:
+    """
+    The MTF of the Huygens PSF of the ideal test telescope is the MTF of its
+    circular aperture limited by diffraction alone, which falls to zero at
+    the cutoff frequency :math:`D / \\lambda f`.
+    """
+    psf = _telescope().psf(
+        field=na.Cartesian2dVectorArray(0, 0),
+        width_sensor=0.1 * u.mm,
+        num=101**2,
+        num_sensor=101,
+        seed=42,
+    )
+    mtf = optika.wavefields.mtf(
+        intensity=psf.outputs,
+        position=psf.inputs.position,
+        axis=("wavefield_x", "wavefield_y"),
+    )
+
+    cutoff = 40 * u.mm / (500 * u.nm * 200 * u.mm)
+    ratio = (mtf.inputs.length / cutoff).to(u.dimensionless_unscaled).value
+    ratio = np.minimum(ratio, 1)
+    expected = 2 / np.pi * (np.arccos(ratio) - ratio * np.sqrt(1 - np.square(ratio)))
+
+    assert np.all(np.abs(mtf.outputs - expected) < 0.02)
+
+
 def test_wavefield_centroid_matches_raytrace():
     """
     For an off-axis field angle, the centroid of the Huygens PSF should match

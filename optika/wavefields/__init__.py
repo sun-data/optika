@@ -8,7 +8,7 @@ from ._wavefield_functions import (
     WavefieldFunctionArray,
 )
 from ._propagation import rayleigh_sommerfeld
-from ._metrics import encircled_energy_radius, ensquared_energy, fwhm
+from ._metrics import encircled_energy_radius, ensquared_energy, fwhm, mtf
 
 __all__ = [
     "AbstractWavefieldVectorArray",
@@ -19,4 +19,5 @@ __all__ = [
     "encircled_energy_radius",
     "ensquared_energy",
     "fwhm",
+    "mtf",
 ]

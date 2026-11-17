@@ -8,6 +8,7 @@ __all__ = [
     "encircled_energy_radius",
     "ensquared_energy",
     "fwhm",
+    "mtf",
 ]
 
 
@@ -188,3 +189,137 @@ def fwhm(
         )
 
     return result
+
+
+def mtf(
+    intensity: na.AbstractScalar,
+    position: na.AbstractCartesian2dVectorArray | na.AbstractCartesian3dVectorArray,
+    axis: tuple[str, str],
+) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
+    r"""
+    The modulation transfer function of a sampled point-spread function.
+
+    This is the modulus of the two-dimensional Fourier transform of the
+    intensity, normalized to one at zero frequency, on a grid of spatial
+    frequencies centered on zero.
+
+    The samples must be on a regular grid, with :math:`x` changing only along
+    the first of `axis` and :math:`y` only along the second, like the grid of
+    :meth:`optika.systems.SequentialSystem.psf`.
+    The frequencies are spaced by one over the width of the grid and reach
+    one over twice the spacing of the samples, so the grid must be wide
+    enough to hold nearly all of the light, and fine enough to resolve the
+    point-spread function.
+
+    A point-spread function from :meth:`~optika.systems.SequentialSystem.psf`
+    also holds a faint speckle-like floor from the random samples of each
+    surface, and the wider the grid, the more of it the MTF picks up, so
+    check that the MTF has converged by increasing the number of samples.
+
+    Parameters
+    ----------
+    intensity
+        The intensity of the point-spread function at each sample.
+    position
+        The position of each sample.
+    axis
+        The two logical axes of the grid of samples.
+        The frequencies are along the same two axes.
+
+    Raises
+    ------
+    ValueError
+        If the samples are not on a regular grid along `axis`.
+
+    Examples
+    --------
+    The MTF of a Gaussian point-spread function with a standard deviation
+    :math:`\sigma` is :math:`\exp(-2 \pi^2 \sigma^2 f^2)`.
+
+    .. jupyter-execute::
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import astropy.units as u
+        import astropy.visualization
+        import named_arrays as na
+        import optika
+
+        sigma = 5 * u.um
+        num = 201
+        position = na.Cartesian2dVectorLinearSpace(
+            start=-40 * u.um,
+            stop=40 * u.um,
+            axis=na.Cartesian2dVectorArray("x", "y"),
+            num=num,
+        ).explicit
+        intensity = np.exp(-np.square(position.length / sigma) / 2)
+
+        mtf = optika.wavefields.mtf(
+            intensity=intensity,
+            position=position,
+            axis=("x", "y"),
+        )
+
+        cut = mtf[dict(y=num // 2)]
+        frequency = cut.inputs.x.to(1 / u.mm)
+        expected = np.exp(-2 * np.square(np.pi * sigma * frequency))
+
+        with astropy.visualization.quantity_support():
+            fig, ax = plt.subplots(constrained_layout=True)
+            na.plt.plot(frequency, cut.outputs, ax=ax, label="mtf()")
+            na.plt.plot(frequency, expected, ax=ax, linestyle="--", label="exact")
+            ax.set_xlim(0, 100)
+            ax.set_xlabel(f"spatial frequency ({ax.get_xlabel()})")
+            ax.set_ylabel("MTF")
+            ax.legend()
+    """
+    if isinstance(position, na.AbstractCartesian3dVectorArray):
+        position = position.xy
+
+    shape = na.shape_broadcasted(intensity, position.x, position.y)
+    for ax in axis:
+        if shape.get(ax, 0) < 2:
+            raise ValueError(
+                f"the samples must make a grid of at least two along each of "
+                f"{axis}, but their shape is {shape}."
+            )
+    num_x = shape[axis[0]]
+    num_y = shape[axis[1]]
+
+    x = na.broadcast_to(position.x, shape)
+    y = na.broadcast_to(position.y, shape)
+    origin = {axis[0]: 0, axis[1]: 0}
+    spacing_x = x[{axis[0]: 1, axis[1]: 0}] - x[origin]
+    spacing_y = y[{axis[0]: 0, axis[1]: 1}] - y[origin]
+    grid_x = x[origin] + spacing_x * na.arange(0, num_x, axis=axis[0])
+    grid_y = y[origin] + spacing_y * na.arange(0, num_y, axis=axis[1])
+    tolerance = 1e-6
+    regular_x = np.all(np.abs(x - grid_x) <= tolerance * np.abs(spacing_x))
+    regular_y = np.all(np.abs(y - grid_y) <= tolerance * np.abs(spacing_y))
+    if not (regular_x and regular_y):
+        raise ValueError(
+            f"the samples must be on a regular grid, with x changing only "
+            f"along {axis[0]!r} and y only along {axis[1]!r}."
+        )
+
+    intensity = na.broadcast_to(intensity, shape)
+    intensity = intensity / intensity.sum(axis)
+    if na.unit(intensity) is not None:
+        intensity = intensity.to(u.dimensionless_unscaled).value
+
+    spectrum = np.fft.fftn(intensity, axes={axis[0]: axis[0], axis[1]: axis[1]})
+    modulus = np.abs(spectrum)
+    modulus = np.roll(modulus, num_x // 2, axis=axis[0])
+    modulus = np.roll(modulus, num_y // 2, axis=axis[1])
+
+    index_x = na.arange(0, num_x, axis=axis[0]) - num_x // 2
+    index_y = na.arange(0, num_y, axis=axis[1]) - num_y // 2
+
+    return na.FunctionArray(
+        inputs=na.Cartesian2dVectorArray(
+            x=index_x / (num_x * spacing_x),
+            y=index_y / (num_y * spacing_y),
+        ),
+        outputs=modulus,
+    )

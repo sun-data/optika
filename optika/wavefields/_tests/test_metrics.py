@@ -1,5 +1,6 @@
 """Tests of the point-spread-function metrics against an analytic Gaussian."""
 
+import pytest
 import numpy as np
 import astropy.units as u
 import named_arrays as na
@@ -162,3 +163,96 @@ def test_fwhm():
     expected = 2 * sigma * np.sqrt(2 * np.log(2))
     assert u.isclose(result.x, expected, rtol=2e-2)
     assert u.isclose(result.y, expected, rtol=2e-2)
+
+
+@pytest.mark.parametrize(
+    argnames="sigma",
+    argvalues=[
+        5 * u.um,
+        na.ScalarArray(np.array([3, 6]) * u.um, axes="field"),
+    ],
+)
+@pytest.mark.parametrize(
+    argnames="unit",
+    argvalues=[
+        u.dimensionless_unscaled,
+        u.W / u.m**2,
+    ],
+)
+def test_mtf(
+    sigma: u.Quantity | na.AbstractScalar,
+    unit: u.UnitBase,
+) -> None:
+    """
+    The MTF of a Gaussian is :math:`\\exp(-2 \\pi^2 \\sigma^2 f^2)`, on a grid
+    of frequencies centered on zero and spaced by one over the width of the
+    grid, whatever the unit of the intensity, and for each of a grid of
+    point-spread functions.
+    """
+    width = 80 * u.um
+    num = 401
+    intensity, position = _gaussian_psf(width=width, num=num)
+    r2 = np.square(position.x - 1 * u.um) + np.square(position.y - 1 * u.um)
+    intensity = np.exp(-r2 / (2 * np.square(sigma))) * unit
+
+    result = optika.wavefields.mtf(
+        intensity=intensity,
+        position=position,
+        axis=("psf_x", "psf_y"),
+    )
+
+    spacing = width / (num - 1)
+    frequency_x = (na.arange(0, num, axis="psf_x") - num // 2) / (num * spacing)
+    frequency_y = (na.arange(0, num, axis="psf_y") - num // 2) / (num * spacing)
+    assert np.allclose(result.inputs.x, frequency_x, rtol=1e-12, atol=0 / u.um)
+    assert np.allclose(result.inputs.y, frequency_y, rtol=1e-12, atol=0 / u.um)
+
+    frequency = np.square(frequency_x) + np.square(frequency_y)
+    expected = np.exp(-2 * np.square(np.pi * sigma) * frequency)
+    assert np.allclose(result.outputs, expected, rtol=0, atol=1e-9)
+
+
+def test_mtf_position_3d() -> None:
+    """The MTF of samples with 3D positions is that of their 2D projection."""
+    intensity, position = _gaussian_psf()
+    position_3d = na.Cartesian3dVectorArray(position.x, position.y, 1 * u.um)
+    axis = ("psf_x", "psf_y")
+
+    result = optika.wavefields.mtf(intensity, position_3d, axis)
+    expected = optika.wavefields.mtf(intensity, position, axis)
+
+    assert np.all(result.inputs == expected.inputs)
+    assert np.all(result.outputs == expected.outputs)
+
+
+@pytest.mark.parametrize(
+    argnames="component",
+    argvalues=["x", "y"],
+)
+def test_mtf_irregular(component: str) -> None:
+    """A point-spread function off a regular grid has no MTF."""
+    num = 11
+    intensity, position = _gaussian_psf(num=num)
+    index_x = na.arange(0, num, axis="psf_x")
+    index_y = na.arange(0, num, axis="psf_y")
+    bump = ((index_x == 3) & (index_y == 4)) * 0.01 * u.um
+    if component == "x":
+        position = na.Cartesian2dVectorArray(position.x + bump, position.y)
+    else:
+        position = na.Cartesian2dVectorArray(position.x, position.y + bump)
+
+    with pytest.raises(ValueError, match="regular grid"):
+        optika.wavefields.mtf(intensity, position, ("psf_x", "psf_y"))
+
+
+def test_mtf_single() -> None:
+    """A grid must have at least two samples along each axis."""
+    intensity, position = _gaussian_psf(num=11)
+    index = dict(psf_y=slice(0, 1))
+
+    with pytest.raises(ValueError, match="at least two"):
+        optika.wavefields.mtf(
+            intensity[index],
+            position[index],
+            ("psf_x", "psf_y"),
+        )
