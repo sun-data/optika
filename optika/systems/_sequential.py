@@ -2718,13 +2718,17 @@ class AbstractSequentialSystem(
             A boolean flag indicating whether the `field` parameter is given
             in normalized or physical units.
         """
-        surfaces = self.surfaces_all
+        # surfaces_all holds copies of the surfaces, with the transformation
+        # of the system composed onto them, so find the surface among the
+        # originals and use its copy
+        surfaces = [self.object, *self.surfaces, self.sensor]
         index = [i for i, s in enumerate(surfaces) if s is surface]
         if not index:
             raise ValueError(
                 f"surface {surface.name!r} is not an element of this system."
             )
         index = index[0]
+        surface = self.surfaces_all[index]
 
         axis = "_footprint"
         pupil = na.Cartesian2dVectorLinearSpace(

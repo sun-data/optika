@@ -497,12 +497,22 @@ def test_wavefield_samples_decentered_aperture():
     assert y.max() > +0.9 * half_width
 
 
-def test_footprint():
+@pytest.mark.parametrize(
+    argnames="transformation",
+    argvalues=[
+        None,
+        na.transformations.Cartesian3dRotationY(0.25 * u.deg),
+    ],
+)
+def test_footprint(
+    transformation: None | na.transformations.AbstractTransformation,
+):
     """
     The beam footprint on the primary of the test telescope must fill its
-    aperture, and the footprint must be expressed in local coordinates.
+    aperture, and the footprint must be expressed in local coordinates,
+    even if the telescope is tilted by a transformation of its own.
     """
-    system = _telescope()
+    system = dataclasses.replace(_telescope(), transformation=transformation)
     primary = system.surfaces[0]
 
     position, where = system.footprint(
