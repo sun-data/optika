@@ -295,8 +295,6 @@ class AbstractSurface(
         ).explicit
 
         sag = self.sag
-        if sag is None:
-            sag = optika.sags.NoSag()
 
         position = na.Cartesian3dVectorArray(
             x=grid.x,
@@ -344,12 +342,8 @@ class AbstractSurface(
             point, expressed in system coordinates.
         """
         material = self.material
-        if material is None:
-            material = optika.materials.Vacuum()
 
         sag = self.sag
-        if sag is None:
-            sag = optika.sags.NoSag()
 
         rulings = self.rulings
         transformation = self.transformation
