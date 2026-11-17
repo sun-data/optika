@@ -128,6 +128,13 @@ class ThinFilmFilter(
     mesh: meshes.AbstractMesh = dataclasses.MISSING
     """The mesh backing supporting this thin-film filter."""
 
+    num_interpolation: None | int = None
+    """
+    The number of nodes used to interpolate the response of this stack over
+    the angle of incidence, or :obj:`None` to solve it for every ray.
+    See :attr:`~optika.materials.AbstractMultilayerMaterial.num_interpolation`.
+    """
+
     @property
     def shape(self) -> dict[str, int]:
         return na.broadcast_shapes(

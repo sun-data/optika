@@ -11,6 +11,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class RoughnessParameters(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Shaped,
 ):
     """The parameters needed to compute the roughness of an optical surface."""

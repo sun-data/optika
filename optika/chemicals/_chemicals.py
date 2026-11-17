@@ -16,6 +16,7 @@ __all__ = [
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractChemical(
     optika.mixins.Printable,
+    optika.mixins.Replaceable,
     optika.mixins.Shaped,
 ):
     """

@@ -44,6 +44,39 @@ def test_coefficients_invalid_axis():
     )
     with pytest.raises(ValueError):
         sag(na.Cartesian3dVectorArray() * u.mm)
+    with pytest.raises(ValueError):
+        sag.shape
+
+
+def test_normal_vertical_base():
+    """
+    Where the base profile is vertical, its normal has no `z` component, and
+    the perturbed normal should reduce to the base normal instead of dividing
+    by zero.
+    """
+    radius = 50 * u.mm
+    base = optika.sags.SphericalSag(radius=radius)
+    sag = optika.sags.ZernikeSag(
+        base=base,
+        coefficients=[0, 0, 0, 100] * u.nm,
+        radius=radius,
+    )
+
+    position = na.Cartesian3dVectorArray(
+        x=na.ScalarArray([0, 25, 49.9, 50] * u.mm, axes="x"),
+        y=0 * u.mm,
+        z=0 * u.mm,
+    )
+
+    result = sag.normal(position)
+
+    assert np.all(np.isfinite(result.x))
+    assert np.all(np.isfinite(result.z))
+    assert np.allclose(result.length, 1)
+    assert np.allclose(
+        result[dict(x=~0)],
+        base.normal(position)[dict(x=~0)],
+    )
 
 
 def test_defocus_closed_form():

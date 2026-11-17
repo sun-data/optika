@@ -1,6 +1,9 @@
+import dataclasses
 import pytest
 import numpy as np
 import matplotlib.axes
+import matplotlib.pyplot as plt
+import mpl_toolkits.mplot3d.art3d
 import astropy.units as u
 import named_arrays as na
 import optika
@@ -14,8 +17,8 @@ active_parameterization = [
 ]
 
 inverted_parameterization = [
-    True,
     False,
+    True,
     na.linspace(-1, 1, "inverted", 4) >= 0,
 ]
 
@@ -25,19 +28,38 @@ transform_parameterization = [
 ]
 
 
-def _nominal(x: na.AbstractScalar) -> na.AbstractScalar:
-    if isinstance(x, na.AbstractUncertainScalarArray):
-        return x.nominal
-    return x
+def _spanning_parameters(**parameters: list) -> list[dict]:
+    """
+    Generate a list of parameter dictionaries in which every value of every
+    parameter appears at least once, by varying one parameter at a time from
+    a base combination, instead of taking the full Cartesian product.
+    """
+    base = {name: values[0] for name, values in parameters.items()}
+    result = [base]
+    for name, values in parameters.items():
+        for value in values[1:]:
+            result.append(base | {name: value})
+    return result
 
 
 class AbstractTestAbstractAperture(
     test_mixins.AbstractTestDxfWritable,
     test_mixins.AbstractTestPrintable,
+    test_mixins.AbstractTestReplaceable,
     test_mixins.AbstractTestPlottable,
     test_mixins.AbstractTestTransformable,
     test_mixins.AbstractTestShaped,
 ):
+    star_shaped: bool = True
+    """
+    Whether every point of this aperture can be joined to the centroid of its
+    wire by a straight line which stays inside the aperture.
+
+    True for every simply-connected aperture, and so the default, but false
+    for an aperture with a hole in it: the centroid of a complete annulus
+    lies at the centre of the hole, outside the aperture.
+    """
+
     def test_samples_wire(self, a: optika.apertures.AbstractAperture):
         assert isinstance(a.samples_wire, int)
         assert a.samples_wire > 0
@@ -50,6 +72,22 @@ class AbstractTestAbstractAperture(
         assert isinstance(a.inverted, (bool, na.AbstractScalar))
         assert np.issubdtype(na.get_dtype(a.inverted), bool)
 
+    def test_axis_compound(self, a: optika.apertures.AbstractAperture):
+        axis = a.axis_compound
+        if axis is not None:
+            assert isinstance(axis, str)
+            assert axis not in a.shape
+            assert axis not in na.shape(a.bound_lower)
+            assert axis not in na.shape(a.bound_upper)
+            assert axis in na.shape(a.wire())
+            position = na.Cartesian3dVectorLinearSpace(
+                start=a.bound_lower,
+                stop=a.bound_upper,
+                axis=na.Cartesian3dVectorArray("x", "y", "z"),
+                num=na.Cartesian3dVectorArray(5, 5, 1),
+            )
+            assert axis not in na.shape(a(position))
+
     def test__call__(self, a: optika.apertures.AbstractAperture):
         position = na.Cartesian3dVectorLinearSpace(
             start=a.bound_lower,
@@ -61,18 +99,18 @@ class AbstractTestAbstractAperture(
         result = a(position)
         assert np.issubdtype(na.get_dtype(result), bool)
 
-        assert np.all(result[~na.as_named_array(a.active)])
+        # every point passes where nothing is active, which for the pieces
+        # along a compound axis is where none of them is
+        active = na.as_named_array(a.active)
+        if a.axis_compound in na.shape(active):
+            active = active.any(a.axis_compound)
+        assert np.all(result[~active])
 
         # the centroid of the wire must be inside an active, non-inverted
-        # aperture (every aperture here is star-shaped about its centroid)
-        if (a.active is True) and (a.inverted is False):
+        # aperture, provided the aperture is star-shaped about its centroid
+        if self.star_shaped and (a.active is True) and (a.inverted is False):
             centroid = a.wire().mean("wire")
-            centroid = na.Cartesian3dVectorArray(
-                x=_nominal(centroid.x),
-                y=_nominal(centroid.y),
-                z=_nominal(centroid.z),
-            )
-            assert np.all(_nominal(na.as_named_array(a(centroid))))
+            assert np.all(na.as_named_array(a(centroid)))
 
     @pytest.mark.parametrize("rays", optika.rays._tests.test_ray_vectors.rays)
     def test_clip_rays(
@@ -94,37 +132,89 @@ class AbstractTestAbstractAperture(
     def test_bound_lower(self, a: optika.apertures.AbstractAperture):
         result = a.bound_lower
         assert isinstance(result, na.AbstractCartesian3dVectorArray)
-        # compare nominal values only, since uncertain parameters may be
-        # redrawn between independent evaluations of the geometry
-        wire = a.wire()
+        # a densely-sampled wire approaches the true extent from the inside,
+        # and the extent of the pieces along a compound axis is that of the
+        # piece which reaches farthest
+        wire = a.wire(num=10001)
+        wire = wire.broadcast_to(wire.shape)
+        axis = tuple(ax for ax in ("wire", a.axis_compound) if ax is not None)
         for component in ("x", "y"):
-            bound = _nominal(getattr(result, component))
-            edge = _nominal(getattr(wire, component).min("wire"))
-            tolerance = 1e-9 * (np.abs(bound) + np.abs(edge))
-            assert np.all(bound <= edge + tolerance)
+            bound = getattr(result, component)
+            edge = getattr(wire, component).min(axis)
+            scale = np.abs(getattr(a.bound_upper, component) - bound)
+            # the bound must enclose the wire ...
+            assert np.all(bound <= edge + 1e-9 * scale)
+            # ... and be tight: it must not undershoot the true extent
+            assert np.all(np.abs(bound - edge) < 1e-6 * scale)
 
     def test_bound_upper(self, a: optika.apertures.AbstractAperture):
         result = a.bound_upper
         assert isinstance(result, na.AbstractCartesian3dVectorArray)
         assert np.all(result.x != a.bound_lower.x)
         assert np.all(result.y != a.bound_lower.y)
-        wire = a.wire()
+        # a densely-sampled wire approaches the true extent from the inside,
+        # and the extent of the pieces along a compound axis is that of the
+        # piece which reaches farthest
+        wire = a.wire(num=10001)
+        wire = wire.broadcast_to(wire.shape)
+        axis = tuple(ax for ax in ("wire", a.axis_compound) if ax is not None)
         for component in ("x", "y"):
-            bound = _nominal(getattr(result, component))
-            edge = _nominal(getattr(wire, component).max("wire"))
-            tolerance = 1e-9 * (np.abs(bound) + np.abs(edge))
-            assert np.all(bound >= edge - tolerance)
-
-    def test_vertices(self, a: optika.apertures.AbstractAperture):
-        if a.vertices is not None:
-            assert isinstance(a.vertices, na.AbstractCartesian3dVectorArray)
-            assert "vertex" in a.vertices.shape
+            bound = getattr(result, component)
+            edge = getattr(wire, component).max(axis)
+            scale = np.abs(bound - getattr(a.bound_lower, component))
+            # the bound must enclose the wire ...
+            assert np.all(bound >= edge - 1e-9 * scale)
+            # ... and be tight: it must not overshoot the true extent
+            assert np.all(np.abs(bound - edge) < 1e-6 * scale)
 
     def test_wire(self, a: optika.apertures.AbstractAperture):
         wire = a.wire()
         assert isinstance(wire, na.AbstractCartesian3dVectorArray)
         assert "wire" in wire.shape
         assert wire.shape["wire"] == a.samples_wire
+
+    def test_rings(self, a: optika.apertures.AbstractAperture):
+        outer, inner = a.rings()
+        for ring in (outer, inner):
+            assert isinstance(ring, na.AbstractCartesian3dVectorArray)
+            assert ring.shape["wire"] == a.samples_wire
+        assert outer.shape == inner.shape
+
+        if (a.active is not True) or (a.inverted is not False):
+            return
+
+        # The segment joining a pair of points lies inside the aperture, so
+        # its midpoint does; for a ring with no hole that is halfway to the
+        # center, and for one with a hole it is halfway across the annulus.
+        # The first and last pairs of a sector lie along its edges, so only
+        # the pairs between them are checked.
+        midpoint = (outer + inner) / 2
+        midpoint = midpoint[dict(wire=slice(1, -1))]
+
+        # Each piece along a compound axis has rings of its own, and the
+        # pieces of an opening are a union, so the midpoints of every piece
+        # pass the aperture as a whole.  An aperture may not be called with
+        # points which vary along its compound axis, so the pieces are laid
+        # end to end along the rings.
+        axis = a.axis_compound
+        if axis in na.shape(midpoint):
+            midpoint = midpoint.combine_axes(axes=(axis, "wire"), axis_new="wire")
+
+        assert np.all(na.as_named_array(a(midpoint)))
+
+    @pytest.mark.parametrize("num", [None, 21, 7, 3])
+    def test_wire_is_closed(
+        self,
+        a: optika.apertures.AbstractAperture,
+        num: None | int,
+    ):
+        # the last sample is the first again, which
+        # `SequentialSystem.field_stop_polygon` relies on to average over
+        # the edge of the pupil stop without counting a ray twice, at the
+        # few samples the stops are solved at as much as at the default
+        wire = a.wire(num=num)
+        num = wire.shape["wire"]
+        assert np.allclose(wire[dict(wire=num - 1)], wire[dict(wire=0)])
 
     class TestPlot(
         test_mixins.AbstractTestPlottable.TestPlot,
@@ -155,18 +245,20 @@ radius_parameterization = [
     argnames="a",
     argvalues=[
         optika.apertures.CircularAperture(
-            radius=radius,
+            radius=p["radius"],
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in radius_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            radius=radius_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestCircularAperture(
@@ -181,18 +273,20 @@ class TestCircularAperture(
     argnames="a",
     argvalues=[
         optika.apertures.CircularSectorAperture(
-            radius=radius,
+            radius=p["radius"],
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in radius_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            radius=radius_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestCircularSectorAperture(
@@ -225,28 +319,115 @@ def test_circular_sector_wire_samples_radial_arms():
     assert np.any(on_arm)
 
 
-class AbstractTestAbstractPolygonalAperture(
-    AbstractTestAbstractAperture,
-):
-    pass
-
-
 @pytest.mark.parametrize(
     argnames="a",
     argvalues=[
-        optika.apertures.EllipticalAperture(
-            radius=radius,
+        optika.apertures.AnnularAperture(
+            radius_inner=radius_inner,
+            radius_outer=radius_outer,
+            angle_start=angle_start,
+            angle_stop=angle_stop,
             samples_wire=21,
             active=active,
             inverted=inverted,
             transformation=transformation,
             kwargs_plot=kwargs_plot,
         )
-        for radius in [na.Cartesian2dVectorArray(50, 100) * u.mm]
+        for radius_inner, radius_outer in [
+            (50 * u.mm, 100 * u.mm),
+            (na.linspace(20, 40, axis="radius", num=4) * u.mm, 100 * u.mm),
+        ]
+        for angle_start, angle_stop in [
+            (0 * u.deg, 360 * u.deg),
+            (30 * u.deg, 120 * u.deg),
+        ]
         for active in active_parameterization
         for inverted in inverted_parameterization
         for transformation in transform_parameterization
         for kwargs_plot in test_mixins.kwargs_plot_parameterization
+    ],
+)
+class TestAnnularAperture(
+    AbstractTestAbstractAperture,
+):
+    star_shaped = False
+
+    def test_radius_inner(self, a: optika.apertures.AnnularAperture):
+        assert isinstance(a.radius_inner, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius_inner >= 0)
+
+    def test_radius_outer(self, a: optika.apertures.AnnularAperture):
+        assert isinstance(a.radius_outer, (float, u.Quantity, na.AbstractScalar))
+        assert np.all(a.radius_outer >= a.radius_inner)
+
+    def test_angle_start(self, a: optika.apertures.AnnularAperture):
+        assert na.unit_normalized(a.angle_start).is_equivalent(u.deg)
+
+    def test_angle_stop(self, a: optika.apertures.AnnularAperture):
+        assert na.unit_normalized(a.angle_stop).is_equivalent(u.deg)
+        assert np.all(a.angle_stop >= a.angle_start)
+
+    def test_vertices(self, a: optika.apertures.AnnularAperture):
+        """An annulus is bounded by arcs, so it has no vertices."""
+        assert a.vertices is None
+
+    def test_hole(self, a: optika.apertures.AnnularAperture):
+        """
+        The replacement for the star-shaped centroid check: a point halfway
+        across the annulus is inside it and the centre of the hole is not.
+        This pins both edges, which the centroid check would not do even for
+        an annulus narrow enough to contain its own centroid.
+        """
+        if (a.active is not True) or (a.inverted is not False):
+            return
+
+        radius = (a.radius_inner + a.radius_outer) / 2
+        angle = (a.angle_start + a.angle_stop) / 2
+
+        inside = na.Cartesian3dVectorArray(
+            x=radius * np.cos(angle),
+            y=radius * np.sin(angle),
+            z=0 * radius,
+        )
+        outside = na.Cartesian3dVectorArray(
+            x=0 * radius,
+            y=0 * radius,
+            z=0 * radius,
+        )
+        if a.transformation is not None:
+            inside = a.transformation(inside)
+            outside = a.transformation(outside)
+
+        assert np.all(na.as_named_array(a(inside)))
+        assert not np.any(na.as_named_array(a(outside)))
+
+
+class AbstractTestAbstractPolygonalAperture(
+    AbstractTestAbstractAperture,
+):
+    def test_vertices(self, a: optika.apertures.AbstractAperture):
+        if a.vertices is not None:
+            assert isinstance(a.vertices, na.AbstractCartesian3dVectorArray)
+            assert "vertex" in a.vertices.shape
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        optika.apertures.EllipticalAperture(
+            radius=na.Cartesian2dVectorArray(50, 100) * u.mm,
+            samples_wire=21,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
+        )
+        for p in _spanning_parameters(
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestEllipticalAperture(
@@ -267,15 +448,17 @@ class TestEllipticalAperture(
                 z=0 * u.mm,
             ),
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestPolygonalAperture(
@@ -297,18 +480,20 @@ half_width_parameterization = [
     argnames="a",
     argvalues=[
         optika.apertures.RectangularAperture(
-            half_width=half_width,
+            half_width=p["half_width"],
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for half_width in half_width_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            half_width=half_width_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestRectangularAperture(
@@ -323,6 +508,37 @@ class TestRectangularAperture(
         )
         assert isinstance(a.half_width, types_valid)
         assert np.all(a.half_width >= 0)
+
+    def test_decentered(self, a: optika.apertures.RectangularAperture):
+        """
+        A rectangular aperture decentered by more than its width must accept
+        the center of the translated rectangle and reject the center of the
+        untranslated one.
+
+        Regression test: ``RectangularAperture.__call__`` used to express the
+        rectangle in terms of :attr:`bound_lower`/:attr:`bound_upper` while
+        also inverse-transforming the position, applying the internal
+        transformation twice.
+        """
+        if (a.active is not True) or (a.inverted is not False):
+            return
+        half_width = a.half_width
+        if isinstance(half_width, na.AbstractCartesian2dVectorArray):
+            half_width = half_width.x
+        decenter = 3 * half_width
+        zero = 0 * decenter
+        b = dataclasses.replace(
+            a,
+            transformation=na.transformations.Cartesian3dTranslation(
+                x=decenter,
+                y=zero,
+                z=zero,
+            ),
+        )
+        point_inside = na.Cartesian3dVectorArray(x=decenter, y=zero, z=zero)
+        point_outside = na.Cartesian3dVectorArray(x=zero, y=zero, z=zero)
+        assert np.all(b(point_inside))
+        assert not np.any(b(point_outside))
 
 
 class AbstractTestAbstractRegularPolygonalAperture(
@@ -339,19 +555,21 @@ class AbstractTestAbstractRegularPolygonalAperture(
     argnames="a",
     argvalues=[
         optika.apertures.RegularPolygonalAperture(
-            radius=radius,
+            radius=p["radius"],
             num_vertices=6,
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in radius_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            radius=radius_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestRegularPolygonalAperture(
@@ -370,18 +588,20 @@ class AbstractTestAbstractOctagonalAperture(
     argnames="a",
     argvalues=[
         optika.apertures.OctagonalAperture(
-            radius=radius,
+            radius=p["radius"],
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for radius in radius_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            radius=radius_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestOctagonalAperture(
@@ -413,20 +633,22 @@ x_left_parameterization = [
     argnames="a",
     argvalues=[
         optika.apertures.IsoscelesTrapezoidalAperture(
-            x_left=x_left,
+            x_left=p["x_left"],
             x_right=50 * u.mm,
             angle=45 * u.deg,
             samples_wire=21,
-            active=active,
-            inverted=inverted,
-            transformation=transformation,
-            kwargs_plot=kwargs_plot,
+            active=p["active"],
+            inverted=p["inverted"],
+            transformation=p["transformation"],
+            kwargs_plot=p["kwargs_plot"],
         )
-        for x_left in x_left_parameterization
-        for active in active_parameterization
-        for inverted in inverted_parameterization
-        for transformation in transform_parameterization
-        for kwargs_plot in test_mixins.kwargs_plot_parameterization
+        for p in _spanning_parameters(
+            x_left=x_left_parameterization,
+            active=active_parameterization,
+            inverted=inverted_parameterization,
+            transformation=transform_parameterization,
+            kwargs_plot=test_mixins.kwargs_plot_parameterization,
+        )
     ],
 )
 class TestIsoscelesTrapezoidalAperture(
@@ -435,65 +657,318 @@ class TestIsoscelesTrapezoidalAperture(
     pass
 
 
-def test_rectangular_aperture_decentered():
+def _extent_plotted(
+    aperture: optika.apertures.AbstractAperture,
+    unit: None | u.UnitBase,
+) -> float:
     """
-    A rectangular aperture decentered by its internal transformation must
-    accept points inside the translated rectangle and reject points inside
-    the untranslated one.
+    How far from the origin the aperture is drawn.
 
-    Regression test: ``RectangularAperture.__call__`` used to express the
-    rectangle in terms of :attr:`bound_lower`/:attr:`bound_upper` while
-    also inverse-transforming the position, applying the internal
-    transformation twice.
+    The bare magnitude handed to matplotlib, which is what sets the scale it is
+    drawn at on an axes which does not understand units.
     """
-    half_width = 5 * u.mm
-    decenter = 12 * u.mm
-    a = optika.apertures.RectangularAperture(
-        half_width=half_width,
-        transformation=na.transformations.Cartesian3dTranslation(x=decenter),
+    fig, ax = plt.subplots()
+    try:
+        aperture.plot(ax=ax, components=("x", "y"), unit=unit)
+        x = np.concatenate(
+            [
+                np.asarray(getattr(line.get_xdata(), "value", line.get_xdata()))
+                for line in ax.lines
+            ]
+        )
+        return float(np.max(np.abs(x)))
+    finally:
+        plt.close(fig)
+
+
+def test_plot_unit():
+    """
+    Asking for a unit draws every aperture to one scale.
+
+    Matplotlib is told about units by
+    :func:`astropy.visualization.quantity_support`, but that reconciles them
+    only on a 2D axes. On a 3D axes an aperture measured in microns is drawn a
+    thousand times larger than the same aperture measured in millimeters, and
+    the instrument around it collapses to a speck.
+    """
+    millimeters = optika.apertures.RectangularAperture(1 * u.mm)
+    micrometers = optika.apertures.RectangularAperture(1000 * u.um)
+
+    # the same aperture, described in two different units
+    assert _extent_plotted(millimeters, None) == pytest.approx(1)
+    assert _extent_plotted(micrometers, None) == pytest.approx(1000)
+
+    # which are drawn to one scale when a unit is asked for
+    assert _extent_plotted(millimeters, u.mm) == pytest.approx(1)
+    assert _extent_plotted(micrometers, u.mm) == pytest.approx(1)
+
+    # and converted, not merely relabelled
+    assert _extent_plotted(millimeters, u.um) == pytest.approx(1000)
+
+
+def test_plot_3d_is_filled():
+    """
+    On a 3D axes an aperture is drawn filled rather than as a closed line.
+
+    An outline cannot hide what is behind the surface, and a fill drawn as a
+    separate artist from its own outline is sorted apart from it, matplotlib
+    ordering a 3D axes by one depth per artist.
+    """
+    aperture = optika.apertures.RectangularAperture(1 * u.mm)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    aperture.plot(ax=ax, components=("x", "y", "z"))
+
+    assert len(ax.collections) == 1
+    assert isinstance(
+        ax.collections[0],
+        mpl_toolkits.mplot3d.art3d.Poly3DCollection,
     )
-    point_inside = na.Cartesian3dVectorArray(12, 0, 0) * u.mm
-    point_outside = na.Cartesian3dVectorArray(0, 0, 0) * u.mm
-    assert np.all(na.as_named_array(a(point_inside)))
-    assert not np.any(na.as_named_array(a(point_outside)))
+    assert not ax.lines
+    plt.close(fig)
 
 
-def test_elliptical_aperture_bounds_analytic():
+def test_plot_2d_is_a_line():
+    """On a 2D axes an aperture is still drawn as a line."""
+    aperture = optika.apertures.RectangularAperture(1 * u.mm)
+
+    fig, ax = plt.subplots()
+    aperture.plot(ax=ax, components=("x", "y"))
+
+    assert len(ax.lines) == 1
+    assert not ax.collections
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("num_vertices", [5, 8, 24, 32])
+@pytest.mark.parametrize("num", [7, 21, 101])
+def test_polygon_wire_is_closed_with_fewer_samples_than_sides(
+    num_vertices: int,
+    num: int,
+):
     """
-    The bounding box of a rotated, decentered elliptical aperture is computed
-    analytically and must match the true extent of the ellipse.
+    A polygon's wire closes on itself, and has as many samples as asked for,
+    even when there are fewer samples than sides.
 
-    Regression test: the bounds used to be sampled from a coarse
-    :meth:`wire`, which underestimates the extent between samples whenever the
-    transformation rotates the ellipse off the coordinate axes.
+    With fewer samples than sides some sides get one sample or none, and the
+    single sample left for the last side used to be the corner it starts
+    from rather than the point which closes the wire.
     """
-    a = optika.apertures.EllipticalAperture(
-        radius=na.Cartesian2dVectorArray(100, 50) * u.mm,
-        transformation=(
-            na.transformations.Cartesian3dRotationZ(30 * u.deg)
-            @ na.transformations.Cartesian3dTranslation(x=5 * u.mm, y=-2 * u.mm)
+    aperture = optika.apertures.RegularPolygonalAperture(
+        radius=1 * u.mm,
+        num_vertices=num_vertices,
+    )
+    wire = aperture.wire(num=num)
+    assert wire.shape["wire"] == num
+    assert np.allclose(wire[dict(wire=num - 1)], wire[dict(wire=0)])
+
+
+@pytest.mark.parametrize("num_vertices", [4, 8])
+@pytest.mark.parametrize("extra", [1, 2, 73])
+def test_polygon_wire_has_every_corner_with_more_samples_than_sides(
+    num_vertices: int,
+    extra: int,
+):
+    """
+    With more samples than sides, every corner of a polygon is on its wire,
+    so the outline the wire traces is the polygon itself.
+    """
+    aperture = optika.apertures.RegularPolygonalAperture(
+        radius=1 * u.mm,
+        num_vertices=num_vertices,
+    )
+    wire = aperture.wire(num=num_vertices + extra)
+    distance = (wire - aperture.vertices).length.min("wire")
+    assert np.all(distance < 1e-12 * u.mm)
+
+
+_blockages = optika.apertures.RectangularAperture(
+    half_width=5 * u.mm,
+    inverted=True,
+    transformation=na.transformations.Cartesian3dTranslation(
+        x=na.linspace(-40, 40, axis="blockage", num=5) * u.mm,
+    ),
+    axis_compound="blockage",
+)
+"""A row of square obscurations which a ray has to clear all of."""
+
+_circles = optika.apertures.CircularAperture(
+    radius=na.ScalarArray([50, 40] * u.mm, axes="circle"),
+    transformation=na.transformations.Cartesian3dTranslation(
+        x=na.ScalarArray([0, 50] * u.mm, axes="circle"),
+    ),
+    axis_compound="circle",
+)
+"""Two overlapping circular openings which a ray has to be inside one of."""
+
+_annulus = optika.apertures.CircularAperture(
+    radius=na.ScalarArray([50, 10] * u.mm, axes="piece"),
+    inverted=na.ScalarArray(np.array([False, True]), axes="piece"),
+    axis_compound="piece",
+)
+"""A circular opening with a circular obscuration in its center."""
+
+
+@pytest.mark.parametrize(
+    argnames="a",
+    argvalues=[
+        dataclasses.replace(_blockages, samples_wire=21),
+        dataclasses.replace(
+            _blockages,
+            samples_wire=21,
+            active=na.ScalarArray(
+                np.array([True, False, True, False, True]),
+                axes="blockage",
+            ),
         ),
+        dataclasses.replace(_circles, samples_wire=21, active=False),
+        dataclasses.replace(
+            _circles,
+            samples_wire=21,
+            kwargs_plot=dict(color="black"),
+        ),
+        dataclasses.replace(
+            _annulus,
+            samples_wire=21,
+            active=na.linspace(-1, 1, "active", 3) >= 0,
+            transformation=na.transformations.Cartesian3dRotationZ(30 * u.deg),
+        ),
+        optika.apertures.CircularSectorAperture(
+            radius=50 * u.mm,
+            angle_start=na.ScalarArray([0, 120, 240] * u.deg, axes="sector"),
+            angle_stop=na.ScalarArray([120, 240, 360] * u.deg, axes="sector"),
+            samples_wire=21,
+            axis_compound="sector",
+        ),
+        optika.apertures.IsoscelesTrapezoidalAperture(
+            x_left=10 * u.mm,
+            x_right=40 * u.mm,
+            angle=45 * u.deg,
+            samples_wire=21,
+            transformation=na.transformations.Cartesian3dRotationZ(
+                na.linspace(0, 360, axis="roll", num=8, endpoint=False) * u.deg,
+            ),
+            axis_compound="roll",
+        ),
+    ],
+)
+class TestAxisCompound(
+    AbstractTestAbstractAperture,
+):
+    """The suite every aperture passes, run on apertures with a compound axis."""
+
+    # The centroid of each piece's wire varies along the compound axis, which
+    # the points an aperture is called on may not.
+    star_shaped = False
+
+
+def _points(x: list[float], y: list[float]) -> na.Cartesian3dVectorArray:
+    """Points in the plane of an aperture, along an axis named ``point``."""
+    return na.Cartesian3dVectorArray(
+        x=na.ScalarArray(np.array(x) * u.mm, axes="point"),
+        y=na.ScalarArray(np.array(y) * u.mm, axes="point"),
+        z=0 * u.mm,
     )
 
-    bound_lower = a.bound_lower
-    bound_upper = a.bound_upper
 
-    # a densely-sampled wire approaches the true extent from the inside
-    wire = a.wire(num=100001)
-    for component in ("x", "y"):
-        lower = getattr(bound_lower, component)
-        upper = getattr(bound_upper, component)
-        edge_lower = getattr(wire, component).min("wire")
-        edge_upper = getattr(wire, component).max("wire")
-        scale = np.abs(upper - lower)
+def _passes(passes: list[bool]) -> na.ScalarArray:
+    """Whether each point given by :func:`_points` passes, along ``point``."""
+    return na.ScalarArray(np.array(passes), axes="point")
 
-        # the analytic bound encloses the dense wire ...
-        assert np.all(lower <= edge_lower + 1e-9 * scale)
-        assert np.all(upper >= edge_upper - 1e-9 * scale)
-        # ... and is tight: it does not overshoot it
-        assert np.all(np.abs(lower - edge_lower) < 1e-6 * scale)
-        assert np.all(np.abs(upper - edge_upper) < 1e-6 * scale)
 
-    # an in-plane rotation leaves the aperture flat in z
-    assert np.all(bound_lower.z == 0 * u.mm)
-    assert np.all(bound_upper.z == 0 * u.mm)
+def test_axis_compound_obscurations_must_all_be_cleared():
+    """A ray passes a row of obscurations only if it clears every one."""
+    position = _points(x=[-40, -30, -20, 0, 20, 27, 40, 60], y=[0] * 8)
+    result = _blockages(position)
+    assert result.shape == dict(point=8)
+    expected = _passes([False, True, False, False, False, True, False, True])
+    assert np.all(result == expected)
+
+
+def test_axis_compound_openings_are_a_union():
+    """A ray passes a set of openings if it is inside any one of them."""
+    position = _points(x=[0, 85, 95, -49, 0, 60], y=[0, 0, 0, 0, 49, 35])
+    expected = _passes([True, True, False, True, True, True])
+    assert np.all(_circles(position) == expected)
+
+
+def test_axis_compound_opening_with_obscuration():
+    """
+    An opening with an obscuration in it passes what is inside the opening
+    and outside the obscuration, as an annulus does.
+    """
+    annulus = optika.apertures.AnnularAperture(
+        radius_inner=10 * u.mm,
+        radius_outer=50 * u.mm,
+    )
+    position = na.Cartesian3dVectorLinearSpace(
+        start=-60 * u.mm,
+        stop=60 * u.mm,
+        axis=na.Cartesian3dVectorArray("x", "y", "z"),
+        num=na.Cartesian3dVectorArray(41, 41, 1),
+    )
+    assert np.all(_annulus(position) == annulus(position))
+
+
+def test_axis_compound_inactive_pieces_are_ignored():
+    """An inactive piece neither opens nor blocks anything."""
+    aperture = optika.apertures.CircularAperture(
+        radius=na.ScalarArray([10, 50, 5] * u.mm, axes="piece"),
+        active=na.ScalarArray(np.array([True, False, False]), axes="piece"),
+        inverted=na.ScalarArray(np.array([False, False, True]), axes="piece"),
+        axis_compound="piece",
+    )
+    position = _points(x=[0, 20], y=[0, 0])
+    assert np.all(aperture(position) == _passes([True, False]))
+
+
+def test_axis_compound_none_is_an_array_of_apertures():
+    """
+    Without a compound axis, each piece clips only the points it is
+    broadcast against, so the axis reaches the result.
+    """
+    aperture = dataclasses.replace(_blockages, axis_compound=None)
+    position = _points(x=[-40, -30], y=[0, 0])
+    result = aperture(position)
+    assert "blockage" in aperture.shape
+    assert result.shape == dict(point=2, blockage=5)
+    assert np.all(result[dict(point=1)])
+    assert not np.all(result[dict(point=0)])
+
+
+def test_axis_compound_bounds():
+    """The bounds of a row of pieces enclose the outermost of them."""
+    assert np.allclose(_blockages.bound_lower.x, -45 * u.mm)
+    assert np.allclose(_blockages.bound_upper.x, +45 * u.mm)
+    assert np.allclose(_blockages.bound_lower.y, -5 * u.mm)
+    assert np.allclose(_blockages.bound_upper.y, +5 * u.mm)
+
+
+def test_axis_compound_must_be_an_axis_of_the_parameters():
+    """
+    A compound axis which none of the parameters vary along is refused,
+    rather than reducing over an axis of the points with the same name.
+    """
+    aperture = optika.apertures.CircularAperture(
+        radius=20 * u.mm,
+        axis_compound="point",
+    )
+    with pytest.raises(ValueError, match="not one of the axes"):
+        aperture.shape
+    with pytest.raises(ValueError, match="not one of the axes"):
+        aperture(_points(x=[0, 30], y=[0, 0]))
+
+
+def test_axis_compound_points_may_not_vary_along_it():
+    """
+    Points which vary along the compound axis are refused, since each would
+    be tested against only the piece with the same index.
+    """
+    position = na.Cartesian3dVectorArray(
+        x=na.ScalarArray([30, 60] * u.mm, axes="piece"),
+        y=0 * u.mm,
+        z=0 * u.mm,
+    )
+    with pytest.raises(ValueError, match="vary along the compound axis"):
+        _annulus(position)
