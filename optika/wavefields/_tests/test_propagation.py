@@ -147,10 +147,13 @@ def test_energy_conservation():
             + 0j
         )
 
+    # The random samples of the source leave a speckle-like noise floor on
+    # the detector, which adds energy to it: about 3% with 151 samples along
+    # each axis, and 0.2% with 301.
     wavefield = _aperture_wavefield(
         half_width=3 * waist,
         wavelength=wavelength,
-        num=151,
+        num=301,
         amplitude_function=amplitude,
         seed=7,
     )
@@ -165,7 +168,8 @@ def test_energy_conservation():
         axis=na.Cartesian2dVectorArray("dx", "dy"),
         num=num_detector,
     ).explicit
-    area_detector = np.square(2 * half_width_detector / num_detector)
+    # the detector's samples include both ends of its width
+    area_detector = np.square(2 * half_width_detector / (num_detector - 1))
 
     amplitude_detector = optika.wavefields.rayleigh_sommerfeld(
         wavefield=wavefield,
