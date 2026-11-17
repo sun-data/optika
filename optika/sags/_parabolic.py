@@ -117,8 +117,10 @@ class ParabolicSag(
             q &= -\frac{B + \operatorname{sgn}(B) \sqrt{B^2 - 4 A C}}{2} \\
             d &= \frac{q}{A}, \quad \frac{C}{q},
 
-        of which the intercept is the root with the smaller :math:`|d|`, the
-        crossing nearest the ray's current position.
+        with :math:`\operatorname{sgn}(0) = 1`, so that :math:`q` vanishes only
+        where both :math:`B` and the discriminant do.
+        The intercept is the root with the smaller :math:`|d|`, the crossing
+        nearest the ray's current position.
         The textbook form, :math:`(-B \pm \sqrt{B^2 - 4 A C}) / 2 A`,
         subtracts two nearly equal numbers to find the nearer root of a ray
         travelling nearly parallel to the axis, where :math:`A` is close to
@@ -168,14 +170,15 @@ class ParabolicSag(
         # `root_q` is infinite or not-a-number for a ray parallel to the axis
         # (`a == 0`), and `root_c` is not-a-number for a ray which starts on
         # the surface tangent to it (`q == c == 0`), so each is taken only
-        # where the other is not-a-number or farther away.
+        # where the other is not-a-number or farther away.  The comparison is
+        # the same as in `AbstractConicSag.intercept`.
         #
         # Both roots are built into one `numexpr` expression on purpose:
         # evaluating them separately and combining them afterwards measures
         # about 50% slower.
         position = na.numexpr.evaluate(
             "o + u * where("
-            f"   (abs({root_q}) < abs({root_c})) | ({root_c} != {root_c}),"
+            f"   (abs({root_q}) <= abs({root_c})) | ({root_c} != {root_c}),"
             f"   {root_q},"
             f"   {root_c},"
             ")"

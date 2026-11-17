@@ -126,12 +126,21 @@ class AbstractConicSag(
         its axis, where :math:`A` is close to zero.
         The stable form also needs no special case for :math:`A = 0`,
         where :math:`C / q` reduces to the root of the linear equation.
+        Here :math:`\operatorname{sgn}(0) = 1`, so that :math:`q` vanishes
+        only where both :math:`B` and the discriminant do.
 
         Of the (up to two) real roots, the intercept is the one on the same
-        sheet of the conic as the vertex (identified by
-        :math:`z \, (c (x^2 + y^2) - z) \geq 0`) that is nearest the ray's
-        starting point.  An iterative solver, by contrast, can converge to the
-        far or wrong-sheet root on the steep flank of a grazing conic.
+        sheet of the conic as the vertex that is nearest the ray's starting
+        point.
+        On the conic, :math:`z \, (c (x^2 + y^2) - z) = z^2 (1 - (1 + k) c z)`,
+        which is not negative on the vertex sheet, so the vertex sheet is
+        where :math:`(1 + k) c z \leq 1`.
+        That is the form evaluated here.
+        Near the vertex, the form on the left is the difference of two nearly
+        equal numbers, and on the axis it is :math:`-z^2`, which rejects the
+        root wherever :math:`z` does not round to exactly zero.
+        An iterative solver, by contrast, can converge to the far or
+        wrong-sheet root on the steep flank of a grazing conic.
         """
         transformation = self.transformation
         if transformation is not None:
@@ -155,9 +164,8 @@ class AbstractConicSag(
         q = -(b + np.where(b >= 0, 1, -1) * sqrt_discriminant) / 2
 
         def root(t: na.AbstractScalar) -> na.AbstractScalar:
-            position = o + u * t
-            r2 = np.square(position.x) + np.square(position.y)
-            on_vertex_sheet = (position.z * (c * r2 - position.z)) >= 0
+            z = o.z + u.z * t
+            on_vertex_sheet = kp1 * c * z <= 1
             valid = real & on_vertex_sheet & np.isfinite(t)
             return np.where(valid, t, np.inf * na.unit_normalized(t))
 
@@ -165,8 +173,9 @@ class AbstractConicSag(
         # ray's current position.  This selects the physical intercept and avoids
         # the far / wrong-sheet root that an iterative solver can land on along
         # the steep flank of a grazing conic.  A root is infinite or
-        # not-a-number where `A` or `q` vanishes, which `root()` rejects.
-        with np.errstate(divide="ignore", invalid="ignore"):
+        # not-a-number where `A` or `q` vanishes, which `root()` rejects, and
+        # `q / A` overflows to infinity where `A` is subnormal.
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
             t_a = root(q / a)
             t_b = root(cc / q)
             t = np.where(np.abs(t_a) <= np.abs(t_b), t_a, t_b)
