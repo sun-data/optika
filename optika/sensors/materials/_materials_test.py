@@ -1422,6 +1422,80 @@ class AbstractTestAbstractSensorMaterial(
     @pytest.mark.parametrize(
         argnames="wavelength",
         argvalues=[
+            304 * u.AA,
+            550 * u.nm,
+        ],
+    )
+    @pytest.mark.parametrize(
+        argnames="direction",
+        argvalues=[
+            1,
+            0.5,
+        ],
+    )
+    def test_mtf(
+        self,
+        a: optika.sensors.materials.AbstractSensorMaterial,
+        wavelength: u.Quantity | na.AbstractScalar,
+        direction: float | na.AbstractScalar,
+    ) -> None:
+        """
+        The MTF is one at zero frequency, and the transform of the kernel is
+        the MTF times the transfer function of a pixel twice, once for the
+        pixel the charge is collected in and once for the position of the
+        photon within its own, summed over the frequencies the pixels fold
+        onto each other.
+
+        The charge which does not spread, if any, has an MTF of one at every
+        frequency, so its share of the sum, which converges slowly, is added
+        whole, as the MTF at a frequency far beyond any of the others.
+        """
+        width_pixel = 15 * u.um
+        result = a.mtf(
+            wavelength,
+            na.Cartesian2dVectorArray(0, 0) / u.mm,
+            direction=direction,
+        )
+        assert np.allclose(result, 1, rtol=1e-12)
+
+        kernel = a.kernel(
+            wavelength,
+            "kernel_x",
+            "kernel_y",
+            direction=direction,
+            width_pixel=width_pixel,
+        )
+        line = kernel.outputs.sum("kernel_y") / kernel.outputs.sum(
+            ("kernel_x", "kernel_y")
+        )
+
+        frequency = na.linspace(0, 50, axis="f", num=6) / u.mm
+        phase = -2 * np.pi * frequency * kernel.inputs.x * width_pixel
+        phase = phase.to(u.dimensionless_unscaled).value
+        result = (line * np.exp(1j * phase)).sum("kernel_x")
+
+        fold = frequency + na.arange(-200, 201, axis="fold") / width_pixel
+        x = (fold * width_pixel).to(u.dimensionless_unscaled).value
+        sinc = np.sin(np.pi * x) / (np.pi * np.where(x == 0, 1, x))
+        sinc = np.where(x == 0, 1, sinc)
+        weight = np.square(sinc)
+        mtf = a.mtf(
+            wavelength,
+            na.Cartesian2dVectorArray(fold, 0 / u.mm),
+            direction=direction,
+        )
+        sharp = a.mtf(
+            wavelength,
+            na.Cartesian2dVectorArray(1e9, 0) / u.mm,
+            direction=direction,
+        )
+        expected = (weight * mtf).sum("fold") + (1 - weight.sum("fold")) * sharp
+
+        assert np.allclose(result, expected, rtol=0, atol=2e-6)
+
+    @pytest.mark.parametrize(
+        argnames="wavelength",
+        argvalues=[
             100 * u.AA,
         ],
     )

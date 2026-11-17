@@ -2012,6 +2012,76 @@ def _kernel_signal(
     )
 
 
+def _mtf_signal(
+    frequency: na.AbstractCartesian2dVectorArray,
+    absorption: u.Quantity | na.AbstractScalar,
+    thickness_implant: u.Quantity | na.AbstractScalar,
+    thickness_substrate: u.Quantity | na.AbstractScalar,
+    diffusion: None | AbstractDiffusionModel,
+    cce_backsurface: u.Quantity | na.AbstractScalar,
+) -> na.AbstractScalar:
+    r"""
+    The modulation transfer function of the kernel of :func:`kernel_signal`
+    before the pixels integrate it.
+
+    The kernel of the signal weights the charge cloud created at each depth
+    :math:`z` by the fraction :math:`\eta(z)` of it which survives the
+    implant layer, so its transform, normalized to one at zero frequency, is
+
+    .. math::
+
+        \frac{\left\langle \eta(z) \, M(z, f) \right\rangle}
+        {\left\langle \eta(z) \right\rangle},
+
+    where :math:`M(z, f)` is the
+    :meth:`~optika.sensors.diffusion.AbstractDiffusionModel.mtf`
+    of `diffusion` at that depth, and the averages are split where the
+    implant ends, as in :func:`kernel_signal`.
+
+    Parameters
+    ----------
+    frequency
+        The spatial frequencies along each axis, in cycles per unit length.
+    absorption
+        The absorption coefficient of the light-sensitive region,
+        per unit perpendicular depth.
+    thickness_implant
+        The thickness of the implant layer.
+    thickness_substrate
+        The thickness of the entire light-sensitive region of the device.
+    diffusion
+        A model of the lateral diffusion of charge in the sensor,
+        or :obj:`None` if charge does not diffuse.
+    cce_backsurface
+        The differential charge collection efficiency on the back surface
+        of the sensor.
+    """
+    if diffusion is None:
+        shape = na.shape_broadcasted(frequency, absorption)
+        return na.broadcast_to(na.ScalarArray(1.0), shape)
+
+    def eta(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+        return _cce_differential(
+            depth=depth,
+            absorption=absorption,
+            thickness_implant=thickness_implant,
+            cce_backsurface=cce_backsurface,
+        )
+
+    def integrand(depth: u.Quantity | na.AbstractScalar) -> na.AbstractScalar:
+        mtf = diffusion.mtf(depth, thickness_substrate, frequency)
+        return eta(depth) * mtf
+
+    kwargs = dict(
+        absorption=absorption,
+        thickness_substrate=thickness_substrate,
+        depth_break=thickness_implant,
+    )
+    return diffusion.average_depth(integrand, **kwargs) / diffusion.average_depth(
+        eta, **kwargs
+    )
+
+
 def covariance_signal(
     wavelength: u.Quantity | na.ScalarArray,
     *,
@@ -2705,6 +2775,33 @@ class AbstractSensorMaterial(
         """
 
     @abc.abstractmethod
+    def mtf(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        frequency: na.AbstractCartesian2dVectorArray,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        """
+        The modulation transfer function of the charge diffusion of this
+        material: the Fourier transform of the charge each absorbed photon
+        leaves to be measured, normalized to one at zero frequency,
+        before the pixels integrate it.
+
+        This is the transform of the kernel of :meth:`kernel`, without the
+        pixels, so it is one everywhere if charge does not diffuse.
+
+        Parameters
+        ----------
+        wavelength
+            The vacuum wavelength of the absorbed photons.
+        frequency
+            The spatial frequencies along each axis, in cycles per unit length.
+        direction
+            The cosine of the refracted angle inside the light-sensitive region,
+            as produced by :meth:`direction_refracted`.
+        """
+
+    @abc.abstractmethod
     def kernel_covariance(
         self,
         wavelength: u.Quantity | na.AbstractScalar,
@@ -2964,6 +3061,16 @@ class IdealSensorMaterial(
             inputs=inputs,
             outputs=center * u.electron / u.photon,
         )
+
+    def mtf(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        frequency: na.AbstractCartesian2dVectorArray,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        # the charge of an ideal sensor does not diffuse
+        shape = na.shape_broadcasted(frequency, wavelength)
+        return na.broadcast_to(na.ScalarArray(1.0), shape)
 
     def kernel_covariance(
         self,
@@ -3607,6 +3714,34 @@ class AbstractBackIlluminatedSiliconSensorMaterial(
             cce_backsurface=self.cce_backsurface,
             temperature=self.temperature,
             num=num,
+        )
+
+    def mtf(
+        self,
+        wavelength: u.Quantity | na.AbstractScalar,
+        frequency: na.AbstractCartesian2dVectorArray,
+        direction: float | na.AbstractScalar = 1,
+    ) -> na.AbstractScalar:
+        # `direction` is inside the substrate, as in `kernel`, so the absorption
+        # is found the same way `kernel_signal` finds it there
+        n_substrate = self._chemical.n(wavelength)
+        direction_substrate = optika.materials.snells_law_scalar(
+            cos_incidence=direction,
+            index_refraction=n_substrate,
+            index_refraction_new=n_substrate,
+        )
+        absorption = absorption_effective(
+            wavelength=wavelength,
+            n_substrate=n_substrate,
+            direction_substrate=direction_substrate,
+        )
+        return _mtf_signal(
+            frequency=frequency,
+            absorption=absorption,
+            thickness_implant=self.thickness_implant,
+            thickness_substrate=self.thickness_substrate,
+            diffusion=self.diffusion,
+            cce_backsurface=self.cce_backsurface,
         )
 
     def kernel_covariance(

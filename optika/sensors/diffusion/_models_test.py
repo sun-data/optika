@@ -359,6 +359,133 @@ class AbstractTestAbstractDiffusionModel(
         with pytest.raises(ValueError, match="odd"):
             a.kernel_average(absorption, s, width_pixel, "x", "y", num=2)
 
+    def test_mtf(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+    ) -> None:
+        """
+        The MTF of the charge cloud created at each depth is one at zero
+        frequency, falls with frequency the same way in every direction, and
+        curves away from one by the variance of the cloud, the square of
+        :meth:`width`.
+        """
+        s = _thickness_substrate
+        depth = na.linspace(0, 14, axis="depth", num=8) * u.um
+        frequency = na.Cartesian2dVectorArray(
+            x=na.linspace(0, 100, axis="f", num=11) / u.mm,
+            y=0 / u.mm,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = a.mtf(depth, s, frequency)
+
+        assert np.allclose(result[dict(f=0)], 1, rtol=1e-12)
+        assert np.all(result > 0)
+        assert np.all(result <= 1 + 1e-12)
+        later = result[dict(f=slice(1, None))]
+        earlier = result[dict(f=slice(None, ~0))]
+        assert np.all(later <= earlier * (1 + 1e-12))
+
+        diagonal = na.Cartesian2dVectorArray(
+            x=frequency.x / np.sqrt(2),
+            y=frequency.x / np.sqrt(2),
+        )
+        assert np.allclose(a.mtf(depth, s, diagonal), result, rtol=1e-12)
+
+        f = 0.1 / u.mm
+        small = a.mtf(depth, s, na.Cartesian2dVectorArray(f, 0 / u.mm))
+        variance = (1 - small) / (2 * np.square(np.pi) * np.square(f))
+        assert np.allclose(
+            variance,
+            np.square(a.width(depth, s)),
+            rtol=1e-3,
+            atol=1e-8 * u.um**2,
+        )
+
+    @pytest.mark.parametrize("width_pixel", _width_pixel)
+    def test_mtf_kernel(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        width_pixel: u.Quantity | na.AbstractCartesian2dVectorArray,
+    ) -> None:
+        """
+        The transform of the kernel at a depth is the MTF of the charge cloud
+        times the transfer function of a pixel twice, once for the pixel the
+        charge is collected in and once for the position of the photon within
+        its own, summed over the frequencies the pixels fold onto each other.
+
+        A cloud much narrower than a pixel, as in a sensor depleted to its
+        back surface, needs many folded frequencies before its MTF vanishes,
+        and the charge which does not spread at all, if any, has an MTF of one
+        at every frequency, so its share of the sum, which converges slowly,
+        is added whole, as the MTF at a frequency far beyond any of the others.
+        """
+        s = _thickness_substrate
+        depth = 0 * u.um
+        if isinstance(width_pixel, na.AbstractCartesian2dVectorArray):
+            width_x = width_pixel.x
+        else:
+            width_x = width_pixel
+
+        kernel = a.kernel(depth, s, width_pixel, "x", "y")
+        line = kernel.outputs.sum("y")
+
+        frequency = na.linspace(0, 50, axis="f", num=6) / u.mm
+        phase = -2 * np.pi * frequency * kernel.inputs.x * width_x
+        phase = phase.to(u.dimensionless_unscaled).value
+        result = (line * np.exp(1j * phase)).sum("x")
+
+        fold = frequency + na.arange(-200, 201, axis="fold") / width_x
+        x = (fold * width_x).to(u.dimensionless_unscaled).value
+        sinc = np.sin(np.pi * x) / (np.pi * np.where(x == 0, 1, x))
+        sinc = np.where(x == 0, 1, sinc)
+        weight = np.square(sinc)
+        mtf = a.mtf(depth, s, na.Cartesian2dVectorArray(fold, 0 / u.mm))
+        sharp = a.mtf(depth, s, na.Cartesian2dVectorArray(1e9, 0) / u.mm)
+        expected = (weight * mtf).sum("fold") + (1 - weight.sum("fold")) * sharp
+
+        assert np.allclose(result, expected, rtol=0, atol=2e-6)
+
+    @pytest.mark.parametrize(
+        argnames="absorption",
+        argvalues=[
+            0.01 / u.um,
+            0.3 / u.um,
+            10 / u.um,
+        ],
+    )
+    def test_mtf_average(
+        self,
+        a: optika.sensors.diffusion.AbstractDiffusionModel,
+        absorption: u.Quantity | na.AbstractScalar,
+    ) -> None:
+        """
+        The average MTF is the MTF averaged over the depth at which the
+        photons are absorbed, so it is one at zero frequency and curves away
+        from one by the square of :meth:`width_average`.
+        """
+        s = _thickness_substrate
+        frequency = na.Cartesian2dVectorArray(
+            x=na.linspace(0, 100, axis="f", num=5) / u.mm,
+            y=0 / u.mm,
+        )
+        result = a.mtf_average(absorption, s, frequency)
+
+        axis = "depth"
+        num = 100000
+        depth = (na.arange(0, num, axis=axis) + 0.5) * s / num
+        weight = np.exp(-absorption * depth)
+        mtf = a.mtf(depth, s, frequency)
+        expected = (mtf * weight).sum(axis) / weight.sum(axis)
+        assert np.allclose(result, expected, rtol=1e-5)
+        assert np.allclose(result[dict(f=0)], 1, rtol=1e-12)
+
+        f = 0.1 / u.mm
+        small = a.mtf_average(absorption, s, na.Cartesian2dVectorArray(f, 0 / u.mm))
+        variance = (1 - small) / (2 * np.square(np.pi) * np.square(f))
+        width = a.width_average(absorption, s)
+        assert np.allclose(variance, np.square(width), rtol=1e-3)
+
     @pytest.mark.parametrize("width_pixel", _width_pixel)
     def test_mean_charge_capture(
         self,
