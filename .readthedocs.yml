@@ -9,7 +9,7 @@ build:
   jobs:
     build:
       html:
-        - python -c "[print(chr(120) * 130, i) for i in range(2300)]"
+        - python -c "import time; [print(chr(120) * 130, i, flush=True) or time.sleep(0.25) for i in range(2300)]"
         - mkdir -p $READTHEDOCS_OUTPUT/html
         - echo "diagnostic build" > $READTHEDOCS_OUTPUT/html/index.html
 
