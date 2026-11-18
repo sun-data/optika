@@ -6,6 +6,14 @@ build:
     python: "3.12"
   apt_packages:
     - graphviz
+  jobs:
+    build:
+      html:
+        - nproc
+        - python -c "import os; print(os.cpu_count(), len(os.sched_getaffinity(0)))"
+        - cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.high || true
+        - head -n 3 /proc/meminfo
+        - OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 NUMBA_NUM_THREADS=2 python -m sphinx -T -b html -d _build/doctrees -D language=en docs $READTHEDOCS_OUTPUT/html
 
 sphinx:
   configuration: docs/conf.py
