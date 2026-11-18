@@ -7,6 +7,11 @@ of its output with the elapsed time, and reports the memory and CPU of the
 build once a minute. If Sphinx is still running at the deadline, it dumps the
 stacks of every Python process the build started and stops the build, so that
 Read the Docs keeps the output.
+
+The first version of this script printed as it went, and it never reached its
+deadline either, as if writing to the output of the build blocked. So this
+version writes its report to a file and prints it only at the end, cut to fit
+in a pipe buffer.
 """
 
 import collections
@@ -40,10 +45,30 @@ T0 = time.monotonic()
 TICK = os.sysconf("SC_CLK_TCK")
 """Clock ticks per second, the unit of the CPU times in ``/proc``."""
 
+LOG = pathlib.Path(tempfile.mkdtemp(prefix="docs-hang-log-")) / "report.log"
+"""The file this script writes its report to while the build runs."""
+
+LIMIT = 60_000
+"""The most bytes to print at the end, less than a pipe buffer of 64 KiB."""
+
+LOCK = threading.Lock()
+"""Keeps the lines that two threads write to the report whole."""
+
 
 def say(message: str) -> None:
-    """Print a message prefixed with the seconds since this script started."""
-    print(f"{time.monotonic() - T0:7.1f} {message}", flush=True)
+    """Write a line to the report, prefixed with the seconds since the start."""
+    with LOCK, LOG.open("a", encoding="utf-8", errors="replace") as f:
+        f.write(f"{time.monotonic() - T0:7.1f} {message}\n")
+
+
+def publish() -> None:
+    """Print the report, or its start and end if it is longer than the limit."""
+    data = LOG.read_bytes()
+    if len(data) > LIMIT:
+        head = LIMIT // 5
+        data = data[:head] + b"\n[...]\n" + data[-(LIMIT - head) :]
+    sys.stdout.write(data.decode("utf-8", errors="ignore"))
+    sys.stdout.flush()
 
 
 def read(path: str | pathlib.Path) -> str:
@@ -183,10 +208,11 @@ def echo(stream: typing.IO[str]) -> None:
         say(line.rstrip("\n"))
 
 
-def main() -> None:
+def main() -> int:
     """Run Sphinx on the docs, and dump its stacks if it outlives the deadline.
 
     Any arguments replace the Sphinx command, which tests this script.
+    Return the exit code of the build.
     """
     root = pathlib.Path(__file__).resolve().parents[2]
     here = pathlib.Path(__file__).resolve().parent
@@ -258,8 +284,12 @@ def main() -> None:
     reader.join(timeout=10)
     report()
     say(f"EXIT {sphinx.returncode}")
-    sys.exit(1 if hung else sphinx.returncode)
+    return 1 if hung else sphinx.returncode
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        code = main()
+    finally:
+        publish()
+    sys.exit(code)

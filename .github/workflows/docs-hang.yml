@@ -20,6 +20,13 @@ jobs:
         env:
           DOCS_HANG_HEARTBEAT: "2"
         run: python .github/docs-hang/rtd_build.py python -c "import time; time.sleep(5); print('done')"
+      - name: A command that prints more than a pipe buffer
+        run: |
+          python .github/docs-hang/rtd_build.py python -c "[print('x' * 60, i) for i in range(5000)]" > report.txt
+          wc -c report.txt
+          head -n 8 report.txt
+          grep -n -A 2 -F "[...]" report.txt
+          tail -n 4 report.txt
       - name: A command that hangs
         env:
           DOCS_HANG_DEADLINE: "10"
