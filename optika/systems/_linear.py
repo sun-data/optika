@@ -39,35 +39,6 @@ def _radiance_to_unit(
     return (radiance * energy_per_photon).to(unit)
 
 
-def _check_chunk_size(chunk_size: None | int) -> None:
-    """
-    Raise a :class:`ValueError` unless `chunk_size` is :obj:`None` or a
-    positive integer.
-    """
-    if chunk_size is None:
-        return
-    is_integer = isinstance(chunk_size, (int, np.integer))
-    if isinstance(chunk_size, bool) or not is_integer or chunk_size < 1:
-        raise ValueError(
-            f"`chunk_size` must be `None` or a positive integer, got {chunk_size!r}."
-        )
-
-
-def _chunks(num: int, chunk_size: None | int) -> list[tuple[int, int]]:
-    """
-    The first bin and one past the last bin of each chunk when `num` bins are
-    split into chunks of `chunk_size` bins.
-
-    If `chunk_size` is :obj:`None`, every bin is in one chunk.
-    A grid with no bins gives one empty chunk, so that it goes through the
-    same path as any other grid.
-    """
-    if chunk_size is None:
-        chunk_size = max(num, 1)
-    result = [(i, min(i + chunk_size, num)) for i in range(0, num, chunk_size)]
-    return result or [(0, 0)]
-
-
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractLinearSystem(
     AbstractSystem,
@@ -234,25 +205,6 @@ class AbstractLinearSystem(
         """
         return None
 
-    def _distort(
-        self,
-        coordinates: na.SpectralPositionalVectorArray,
-    ) -> na.AbstractCartesian2dVectorArray:
-        """
-        The position on the sensor of each point in `coordinates`, with every
-        axis of `coordinates`.
-
-        A term of the distortion which is zero at every point, such as the
-        dispersion of a scene whose every wavelength is the reference
-        wavelength of the model, is dropped by :mod:`named_arrays` along with
-        the axes it would have been broadcast along. The regridding needs the
-        positions to have every axis of the scene, so they are broadcast
-        against `coordinates`.
-        """
-        position = self.distortion.distort(coordinates).position
-        shape = na.broadcast_shapes(position.shape, coordinates.shape)
-        return position.broadcast_to(shape)
-
     def weights(
         self,
         coordinates: na.SpectralPositionalVectorArray,
@@ -282,7 +234,7 @@ class AbstractLinearSystem(
 
         coordinates = coordinates.cell_centers(axis_wavelength)
 
-        position_sensor = self._distort(coordinates)
+        position_sensor = self.distortion.distort(coordinates).position
 
         # the conservative-regridding weights apply per input *cell*, but
         # `coordinates` are the cell vertices, so evaluate the radiometric
@@ -348,7 +300,7 @@ class AbstractLinearSystem(
 
         coordinates = coordinates.cell_centers(axis_wavelength)
 
-        position_sensor = self._distort(coordinates)
+        position_sensor = self.distortion.distort(coordinates).position
 
         # the conservative-regridding weights apply per input *cell*, but
         # `coordinates` are the cell vertices, so evaluate the radiometric
@@ -644,7 +596,6 @@ class AbstractLinearSystem(
         noise: bool = True,
         uncertainty: bool = False,
         device: None | str = None,
-        chunk_size: None | int = None,
         **kwargs: Any,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
@@ -652,12 +603,6 @@ class AbstractLinearSystem(
 
         Maps the spectral radiance of a scene to the electrons measured by the
         sensor.
-
-        The weights built by :meth:`weights` take memory in proportion to the
-        number of cells in the scene, which can exceed the memory of the host
-        for a large scene.
-        Setting `chunk_size` images the scene a few wavelength bins at a time
-        instead, so that only the weights of one chunk are held at once.
 
         Parameters
         ----------
@@ -693,24 +638,11 @@ class AbstractLinearSystem(
         device
             The device on which to build and apply the weights, see
             :meth:`weights`. If :obj:`None` (the default), the host is used.
-        chunk_size
-            The number of wavelength bins of `scene` to image at once.
-            Each chunk is imaged on its own and the electrons are summed over
-            the chunks (or joined along `axis_wavelength` if `integrate` is
-            :obj:`False`).
-            The shot, Fano, and charge-diffusion noise is independent from one
-            wavelength to the next and the read noise is added once, to the
-            sum of the chunks, so the result does not depend on `chunk_size`
-            if `noise` is :obj:`False`, and has the same distribution if it is
-            :obj:`True`.
-            If :obj:`None` (the default), the whole scene is imaged at once.
         kwargs
             Additional keyword arguments passed to the sensor's
             :meth:`~optika.sensors.AbstractImagingSensor.expose` method, such
             as `timedelta`.
         """
-
-        _check_chunk_size(chunk_size)
 
         scene = scene.explicit
         coordinates = scene.inputs
@@ -729,145 +661,25 @@ class AbstractLinearSystem(
                 )
             (axis_wavelength,) = axis
 
-        return self._image_chunked(
+        # `weights` folds in the effective area, vignetting, and field stop and
+        # is the expensive part of the forward model; `image_from_weights`
+        # reuses it to integrate the radiance, regrid, and expose the sensor.
+        weights = self.weights(
+            coordinates=coordinates,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            device=device,
+        )
+
+        return self.image_from_weights(
+            weights,
             scene,
             axis_wavelength=axis_wavelength,
             axis_field=axis_field,
-            integrate=integrate,
             noise=noise,
             uncertainty=uncertainty,
-            device=device,
-            chunk_size=chunk_size,
+            integrate=integrate,
             **kwargs,
-        )
-
-    def _image_chunked(
-        self,
-        scene: na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar],
-        *,
-        axis_wavelength: str,
-        axis_field: tuple[str, str],
-        integrate: bool,
-        noise: bool,
-        uncertainty: bool,
-        device: None | str,
-        chunk_size: None | int,
-        **kwargs: Any,
-    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
-        """
-        Image an explicit `scene` `chunk_size` wavelength bins at a time, or
-        all at once if `chunk_size` is :obj:`None`.
-
-        Every call to :meth:`image` comes through here, so that the chunks are
-        read out the same way whether there is one of them or many.
-        See :meth:`image` for the meaning of each parameter.
-        """
-
-        coordinates = scene.inputs
-        radiance = scene.outputs
-
-        # the coordinates are the vertices of the wavelength bins
-        num_wavelength = na.shape(coordinates.wavelength)[axis_wavelength] - 1
-
-        # a radiance which does not vary with wavelength broadcasts against
-        # every chunk, so only one with a value for each bin is cut up
-        varies = na.shape(radiance).get(axis_wavelength, 1) != 1
-
-        electrons_total = None
-        variance_total = None
-        electrons_chunks = []
-
-        for start, stop in _chunks(num_wavelength, chunk_size):
-
-            # a chunk of bins has one more vertex than it has bins
-            item = {axis_wavelength: slice(start, stop)}
-            item_vertices = {axis_wavelength: slice(start, stop + 1)}
-            scene_chunk = na.FunctionArray(
-                inputs=coordinates[item_vertices],
-                outputs=radiance[item] if varies else radiance,
-            )
-
-            weights = self.weights(
-                coordinates=scene_chunk.inputs,
-                axis_wavelength=axis_wavelength,
-                axis_field=axis_field,
-                device=device,
-            )
-
-            # the read noise is left out here and added once below, to the sum
-            # of every chunk, since the sensor is read out only once
-            image = self.image_from_weights(
-                weights,
-                scene_chunk,
-                axis_wavelength=axis_wavelength,
-                axis_field=axis_field,
-                integrate=False,
-                noise=noise,
-                uncertainty=uncertainty,
-                **kwargs,
-            )
-
-            # the weights of this chunk are released before those of the next
-            # one are built, so that only one chunk is held at a time
-            del weights
-
-            electrons = image.outputs
-
-            if not integrate:
-                electrons_chunks.append(electrons)
-                continue
-
-            if uncertainty:
-                variance = np.square(electrons.width).sum(axis_wavelength)
-                if variance_total is None:
-                    variance_total = variance
-                else:
-                    variance_total = variance_total + variance
-                electrons = electrons.nominal
-
-            electrons = electrons.sum(axis_wavelength)
-            if electrons_total is None:
-                electrons_total = electrons
-            else:
-                electrons_total = electrons_total + electrons
-
-        inputs = na.SpectralPositionalVectorArray(
-            wavelength=coordinates.wavelength,
-            position=self.coordinates_sensor,
-        )
-
-        sensor = self.sensor
-
-        if integrate:
-            inputs = sensor._collapse_wavelength(inputs, axis_wavelength)
-            outputs = sensor._readout(electrons_total, noise)
-            if uncertainty:
-                outputs = na.NormalUncertainScalarArray(
-                    nominal=outputs,
-                    width=sensor._readout_width(variance_total),
-                )
-        elif len(electrons_chunks) == 1:
-            (outputs,) = electrons_chunks
-        elif uncertainty:
-            outputs = na.NormalUncertainScalarArray(
-                nominal=na.concatenate(
-                    arrays=[e.nominal for e in electrons_chunks],
-                    axis=axis_wavelength,
-                ),
-                width=na.concatenate(
-                    arrays=[e.width for e in electrons_chunks],
-                    axis=axis_wavelength,
-                ),
-            )
-        else:
-            outputs = na.concatenate(
-                arrays=electrons_chunks,
-                axis=axis_wavelength,
-            )
-
-        return na.FunctionArray(
-            inputs=inputs,
-            outputs=outputs,
         )
 
     def backproject(
@@ -883,7 +695,6 @@ class AbstractLinearSystem(
         integrate: bool = True,
         unit: None | u.UnitBase = None,
         weights: None | tuple[na.AbstractScalar, dict[str, int], dict[str, int]] = None,
-        chunk_size: None | int = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Transpose of the linear forward model, :meth:`image`.
@@ -895,10 +706,6 @@ class AbstractLinearSystem(
         have contributed to it. This is the transpose of :meth:`image`, not its
         inverse (the geometric spreading is not undone, and the sensor noise is
         not recovered).
-
-        As in :meth:`image`, setting `chunk_size` backprojects onto a few
-        wavelength bins of `coordinates` at a time, so that only the weights of
-        one chunk are held at once.
 
         Parameters
         ----------
@@ -935,24 +742,7 @@ class AbstractLinearSystem(
             If :obj:`None` (the default), they are computed from `coordinates`.
             Supplying a precomputed value (for example one already built for
             :meth:`image`) avoids rebuilding the expensive regridding operator.
-            They are the weights of every wavelength bin, so they cannot be
-            combined with `chunk_size`.
-        chunk_size
-            The number of wavelength bins of `coordinates` to backproject onto
-            at once.
-            The backprojection onto each chunk is computed on its own and the
-            chunks are joined along `axis_wavelength`, so the result does not
-            depend on `chunk_size`.
-            If :obj:`None` (the default), the whole grid is backprojected onto
-            at once.
         """
-
-        _check_chunk_size(chunk_size)
-        if weights is not None and chunk_size is not None:
-            raise ValueError(
-                "`weights` holds the weights of every wavelength bin, so it "
-                "cannot be combined with `chunk_size`."
-            )
 
         coordinates = coordinates.explicit
 
@@ -970,87 +760,30 @@ class AbstractLinearSystem(
                 )
             (axis_wavelength,) = axis
 
-        # the coordinates are the vertices of the wavelength bins
-        num_wavelength = na.shape(coordinates.wavelength)[axis_wavelength] - 1
-
-        # a readout integrated over wavelength is spread across the bins of the
-        # whole grid once, here, so that each chunk can then be inverted on its
-        # own as if its bins had been read out separately
-        if integrate:
-            image = image.replace(
-                inputs=image.inputs.replace(
-                    wavelength=coordinates.spectral_positional.wavelength,
-                ),
-                outputs=self.sensor._spread_readout(image.outputs, num_wavelength),
-            )
-
-        electrons = image.outputs
-
-        # electrons which do not vary with wavelength, such as a spread
-        # readout, broadcast against every chunk
-        varies = na.shape(electrons).get(axis_wavelength, 1) != 1
-
-        radiance_chunks = []
-
-        for start, stop in _chunks(num_wavelength, chunk_size):
-
-            # a chunk of bins has one more vertex than it has bins
-            item = {axis_wavelength: slice(start, stop)}
-            item_vertices = {axis_wavelength: slice(start, stop + 1)}
-            coordinates_chunk = coordinates[item_vertices]
-            image_chunk = na.FunctionArray(
-                inputs=image.inputs[item_vertices],
-                outputs=electrons[item] if varies else electrons,
-            )
-
-            # `weights_transposed` is the expensive transposed operator;
-            # `backproject_from_weights` reuses it to invert the sensor
-            # response, regrid onto the object plane, and recover the spectral
-            # radiance.
-            if weights is None:
-                weights_chunk = self.weights(
-                    coordinates=coordinates_chunk,
-                    axis_wavelength=axis_wavelength,
-                    axis_field=axis_field,
-                )
-            else:
-                weights_chunk = weights
-            weights_transposed = self.weights_transposed(
-                weights=weights_chunk,
-                coordinates=coordinates_chunk,
+        # `weights_transposed` is the expensive transposed operator;
+        # `backproject_from_weights` reuses it to invert the sensor response,
+        # regrid onto the object plane, and recover the spectral radiance.
+        if weights is None:
+            weights = self.weights(
+                coordinates=coordinates,
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
             )
+        weights_transposed = self.weights_transposed(
+            weights=weights,
+            coordinates=coordinates,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+        )
 
-            # the weights of this chunk are released before those of the next
-            # one are built, so that only one chunk is held at a time
-            del weights_chunk
-
-            radiance = self.backproject_from_weights(
-                weights_transposed,
-                image_chunk,
-                coordinates=coordinates_chunk,
-                axis_wavelength=axis_wavelength,
-                axis_field=axis_field,
-                integrate=False,
-                unit=unit,
-            )
-
-            del weights_transposed
-
-            radiance_chunks.append(radiance.outputs)
-
-        if len(radiance_chunks) == 1:
-            (outputs,) = radiance_chunks
-        else:
-            outputs = na.concatenate(
-                arrays=radiance_chunks,
-                axis=axis_wavelength,
-            )
-
-        return na.FunctionArray(
-            inputs=coordinates,
-            outputs=outputs,
+        return self.backproject_from_weights(
+            weights_transposed,
+            image,
+            coordinates=coordinates,
+            axis_wavelength=axis_wavelength,
+            axis_field=axis_field,
+            integrate=integrate,
+            unit=unit,
         )
 
 
