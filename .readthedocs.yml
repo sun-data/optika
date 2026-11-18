@@ -6,6 +6,14 @@ build:
     python: "3.12"
   apt_packages:
     - graphviz
+  jobs:
+    build:
+      html:
+        # Read the Docs stalls a command that writes its output a little at a
+        # time for several minutes, so write the output of Sphinx to a file
+        # and print it all at once when Sphinx is done.
+        - python -m sphinx -T -b html -d _build/doctrees -D language=en docs $READTHEDOCS_OUTPUT/html > sphinx.log 2>&1 || (cat sphinx.log && exit 1)
+        - cat sphinx.log
 
 sphinx:
   configuration: docs/conf.py
