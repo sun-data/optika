@@ -11,10 +11,10 @@ build:
     - graphviz
   jobs:
     post_checkout:
-      - date +%s > $HOME/build-start
+      - date +%s > build-start.txt
     build:
       html:
-        - LEFT=$(( 830 - $(date +%s) + $(cat $HOME/build-start) )); echo "timeout $LEFT s"; (while sleep 60 > /dev/null 2>&1; do echo "=== $(date -u +%T)"; done) & CLOCK=$!; date -u; cd docs && timeout $LEFT python -m sphinx -T -b html -d _build/doctrees -D language=en . $READTHEDOCS_OUTPUT/html; STATUS=$?; kill $CLOCK; date -u; echo "sphinx exit $STATUS"; exit $STATUS
+        - LEFT=$(( 830 - $(date +%s) + $(cat build-start.txt) )); echo "timeout $LEFT s"; (while sleep 60 > /dev/null 2>&1; do echo "=== $(date -u +%T)"; done) & CLOCK=$!; date -u; cd docs && timeout $LEFT python -m sphinx -T -b html -d _build/doctrees -D language=en . $READTHEDOCS_OUTPUT/html; STATUS=$?; kill $CLOCK; date -u; echo "sphinx exit $STATUS"; exit $STATUS
 
 sphinx:
   configuration: docs/conf.py
