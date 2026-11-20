@@ -1,18 +1,16 @@
 version: 2
 
+# Diagnostic: does a command that runs for a long time hang on Read the Docs,
+# with no project code and nothing installed? Each command prints the time when
+# it finishes; the output of a finished command is kept even if a later one is
+# killed.
 build:
   os: ubuntu-lts-latest
   tools:
     python: "3.12"
-  apt_packages:
-    - graphviz
-
-sphinx:
-  configuration: docs/conf.py
-
-python:
-  install:
-    - method: pip
-      path: .
-      extra_requirements:
-        - doc
+  commands:
+    - date -u
+    - sleep 300 && date -u
+    - sleep 600 && date -u
+    - mkdir -p $READTHEDOCS_OUTPUT/html
+    - echo "diagnostic build" > $READTHEDOCS_OUTPUT/html/index.html
