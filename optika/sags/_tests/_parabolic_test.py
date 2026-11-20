@@ -125,3 +125,46 @@ def test_intercept_matches_the_conic_intercept(focal_length: u.Quantity):
     result_expected = sag_conic.intercept(rays)
 
     assert np.allclose(result.position, result_expected.position)
+
+
+@pytest.mark.parametrize("angle", [0, 1e-160, 1e-9, 1e-7, 1e-5, 1e-3, 1e-2] * u.rad)
+@pytest.mark.parametrize("distance", [1000, 1234.567, 100_000] * u.mm)
+def test_intercept_of_nearly_axial_rays(
+    angle: u.Quantity,
+    distance: u.Quantity,
+) -> None:
+    """
+    The intercept of a ray travelling nearly parallel to the axis must lie on
+    the paraboloid to within the precision of a double.
+
+    The textbook form of the quadratic formula finds the nearer root of such
+    a ray by subtracting two nearly equal numbers, which left intercepts
+    nanometers to micrometers from the surface, and switching to the linear
+    equation below a threshold on the slope of the ray did no better.
+    Errors that small are invisible in a spot diagram but are a large
+    fraction of a wavelength in the optical path of an EUV instrument.
+    The rays start at several distances and are aimed at the aperture at
+    :math:`z = 0`.
+    """
+    sag = optika.sags.ParabolicSag(focal_length=1000 * u.mm)
+
+    radius = na.linspace(-50, 50, axis="radius", num=21) * u.mm
+    direction = na.Cartesian3dVectorArray(
+        x=np.sin(angle),
+        y=0.5 * np.sin(angle),
+        z=np.cos(angle),
+    )
+    direction = direction / direction.length
+    target = na.Cartesian3dVectorArray(x=radius, y=0.3 * radius, z=0 * u.mm)
+    rays = optika.rays.RayVectorArray(
+        wavelength=63 * u.nm,
+        position=target - direction * distance / direction.z,
+        direction=direction,
+    )
+
+    position = sag.intercept(rays).position
+
+    atol = 1e-14 * distance
+    assert np.all(np.isfinite(position))
+    assert np.allclose(sag(position), position.z, rtol=0, atol=atol)
+    assert np.all(np.abs(position.z) < 10 * u.mm)

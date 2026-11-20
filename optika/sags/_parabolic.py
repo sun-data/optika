@@ -101,24 +101,32 @@ class ParabolicSag(
 
             o_z + d u_z = \frac{(o_x + d u_x)^2 + (o_y + d u_y)^2}{4 f},
 
-        which can then be solved for :math:`d` using the quadratic equation,
+        which is the quadratic equation :math:`A d^2 + B d + C = 0`, with
 
         .. math::
 
-            d = \frac{-o_x u_x - o_y u_y + 2 f u_z
-                      \mp \sqrt{-o_y^2 u_x^2 - o_x^2 u_y^2 + 2 o_y u_y (o_x u_x - 2 f u_z)
-                              + 4 f (o_z (u_x^2 + u_y^2) - o_x u_x u_z + f u_z^2}
-                      }{u_x^2 + u_y^2},
+            A &= u_x^2 + u_y^2 \\
+            B &= 2 (o_x u_x + o_y u_y - 2 f u_z) \\
+            C &= o_x^2 + o_y^2 - 4 f o_z.
 
-        of which the intercept is the root with the smaller :math:`|d|`, the
-        crossing nearest the ray's current position.
-
-        If the line is parallel to the :math:`z` axis, then the above equation
-        is singular and we need to solve the corresponding linear equation to find
+        Its roots are computed with the numerically stable form of the
+        quadratic formula,
 
         .. math::
 
-            d = \frac{o_x^2 + o_y^2 - 4 f o_z}{4 f u_z}.
+            q &= -\frac{B + \operatorname{sgn}(B) \sqrt{B^2 - 4 A C}}{2} \\
+            d &= \frac{q}{A}, \quad \frac{C}{q},
+
+        with :math:`\operatorname{sgn}(0) = 1`, so that :math:`q` vanishes only
+        where both :math:`B` and the discriminant do.
+        The intercept is the root with the smaller :math:`|d|`, the crossing
+        nearest the ray's current position.
+        The textbook form, :math:`(-B \pm \sqrt{B^2 - 4 A C}) / 2 A`,
+        subtracts two nearly equal numbers to find the nearer root of a ray
+        travelling nearly parallel to the axis, where :math:`A` is close to
+        zero, and the stable form also needs no special case for a ray
+        parallel to the axis, where :math:`A = 0` and :math:`C / q` reduces to
+        the root of the linear equation.
         """
 
         if self.transformation is not None:
@@ -142,18 +150,14 @@ class ParabolicSag(
         uy = u.y  # noqa: F841
         uz = u.z  # noqa: F841
 
-        # The two halves of the quadratic formula.  `midpoint` lies halfway
-        # between the roots and `halfwidth` is half the distance between them,
-        # so the roots are `midpoint - halfwidth` and `midpoint + halfwidth`.
-        midpoint = "(-ox * ux - oy * uy + 2 * f * uz)"
-        halfwidth = (
-            "sqrt("
-            "   -(oy * ux)**2 - (ox * uy)**2 + 2 * oy * uy * (ox * ux - 2 * f * uz)"
-            "   + 4 * f * (oz * (ux**2 + uy**2) - ox * ux * uz + f * uz**2)"
-            ")"
-        )
-        near = f"{midpoint} - {halfwidth}"
-        far = f"{midpoint} + {halfwidth}"
+        # The coefficients of the quadratic equation and the stable form of
+        # the quadratic formula, see the notes above.
+        a = "(ux**2 + uy**2)"
+        b = "(2 * (ox * ux + oy * uy - 2 * f * uz))"
+        c = "(ox**2 + oy**2 - 4 * f * oz)"
+        q = f"(-({b} + where({b} >= 0, 1.0, -1.0) * sqrt({b}**2 - 4 * {a} * {c})) / 2)"
+        root_q = f"({q} / {a})"
+        root_c = f"({c} / {q})"
 
         # Take the root nearest the ray's current position, as
         # `AbstractConicSag.intercept` does for every other conic.  Selecting
@@ -163,15 +167,20 @@ class ParabolicSag(
         # when it propagates the solved stop rays back through the surface they
         # were launched from.
         #
+        # `root_q` is infinite or not-a-number for a ray parallel to the axis
+        # (`a == 0`), and `root_c` is not-a-number for a ray which starts on
+        # the surface tangent to it (`q == c == 0`), so each is taken only
+        # where the other is not-a-number or farther away.  The comparison is
+        # the same as in `AbstractConicSag.intercept`.
+        #
         # Both roots are built into one `numexpr` expression on purpose:
-        # evaluating the two halves separately and combining them afterwards
-        # measures about 50% slower.
+        # evaluating them separately and combining them afterwards measures
+        # about 50% slower.
         position = na.numexpr.evaluate(
             "o + u * where("
-            "   (ux**2 + uy**2) > 1e-10,"
-            f"   where(abs({near}) <= abs({far}), {near}, {far})"
-            "   / (ux**2 + uy**2),"
-            "   (ox**2 + oy**2 - 4 * f * oz) / (4 * f * uz),"
+            f"   (abs({root_q}) <= abs({root_c})) | ({root_c} != {root_c}),"
+            f"   {root_q},"
+            f"   {root_c},"
             ")"
         )
 
