@@ -273,6 +273,9 @@ def test_chunk_size_terms() -> None:
         tracemalloc.stop()
         return result, result_peak
 
+    # The first call compiles the expression, which is not part of the peak.
+    peak(4 * num_terms)
+
     result_chunked, peak_chunked = peak(4 * num_terms)
     result_whole, peak_whole = peak(10**9)
 
