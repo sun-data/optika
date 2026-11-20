@@ -12,6 +12,17 @@ __all__ = [
 ]
 
 
+def _quadrature_chord() -> tuple[np.ndarray, np.ndarray]:
+    """
+    The nodes and weights of the 32-point Gauss-Legendre quadrature on the
+    interval from zero to one, with which
+    :meth:`AbstractRulingSpacing.count` integrates along the chord from the
+    origin.
+    """
+    nodes, weights = np.polynomial.legendre.leggauss(32)
+    return (nodes + 1) / 2, weights / 2
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractRulingSpacing(
     optika.mixins.Printable,
@@ -79,12 +90,8 @@ class AbstractRulingSpacing(
         or less in the position, and subclasses with a closed form override
         it.
         """
-        nodes, weights = np.polynomial.legendre.leggauss(32)
-        nodes = (nodes + 1) / 2
-        weights = weights / 2
-
         result = 0
-        for node, weight in zip(nodes, weights):
+        for node, weight in zip(*_quadrature_chord()):
             d = self(node * position, normal)
             result = result + weight * (position @ d) / np.square(d.length)
 
@@ -226,15 +233,11 @@ class Polynomial1dRulingSpacing(
             The unit vector perpendicular to the surface at the given position.
             Ignored, since the spacing does not depend on it.
         """
-        nodes, weights = np.polynomial.legendre.leggauss(32)
-        nodes = (nodes + 1) / 2
-        weights = weights / 2
-
         x_0 = self._coordinate(na.Cartesian3dVectorArray() * u.mm)
         x_1 = self._coordinate(position)
 
         result = 0
-        for node, weight in zip(nodes, weights):
+        for node, weight in zip(*_quadrature_chord()):
             result = result + weight / self._spacing(x_0 + node * (x_1 - x_0))
 
         result = result * (position @ self.normal)
