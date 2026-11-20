@@ -1,12 +1,12 @@
 version: 2
 
-# Diagnostic: build the docs on Python 3.14, and stop Sphinx at 830 s after the
+# Diagnostic: build the docs on Python 3.12, and stop Sphinx at 830 s after the
 # checkout, before the 15-minute limit of Read the Docs, so that its output is
 # kept and shows how far it got. A line with the time is printed every minute.
 build:
   os: ubuntu-lts-latest
   tools:
-    python: "3.14"
+    python: "3.12"
   apt_packages:
     - graphviz
   jobs:
