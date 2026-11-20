@@ -148,14 +148,16 @@ class AbstractSag(
         self,
         rays: optika.rays.AbstractRayVectorArray,
         efficiency: bool = True,
+        optical_path: bool = False,
     ) -> optika.rays.AbstractRayVectorArray:
 
         result = self.intercept(rays)
 
         displacement = result.position - rays.position
 
-        distance = displacement @ rays.direction
-        result.optical_path = rays.optical_path + rays.index_refraction * distance
+        if optical_path:
+            distance = displacement @ rays.direction
+            result.optical_path = rays.optical_path + rays.index_refraction * distance
 
         if efficiency:
             f = np.exp(-result.attenuation * displacement.length)

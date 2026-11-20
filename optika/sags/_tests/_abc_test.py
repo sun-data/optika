@@ -135,9 +135,13 @@ class AbstractTestAbstractSag(
     ) -> None:
         """
         The optical path of a ray grows by the distance to its intercept,
-        times the index of refraction of the medium it travels through.
+        times the index of refraction of the medium it travels through, if
+        it is asked for, and is left alone otherwise.
         """
-        result = a.propagate_rays(rays)
+        result = a.propagate_rays(rays, optical_path=True)
         distance = (result.position - rays.position) @ rays.direction
         result_expected = rays.optical_path + rays.index_refraction * distance
         assert np.allclose(result.optical_path, result_expected)
+
+        result = a.propagate_rays(rays)
+        assert np.all(result.optical_path == rays.optical_path)

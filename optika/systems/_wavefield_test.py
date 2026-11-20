@@ -604,6 +604,7 @@ def test_raytrace_optical_path_focus() -> None:
     rays = system.raytrace(
         field=na.Cartesian2dVectorArray(0, 0),
         pupil=pupil,
+        optical_path=True,
     ).outputs[{system.axis_surface: ~0}]
 
     where = rays.unvignetted

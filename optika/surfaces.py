@@ -126,6 +126,7 @@ class AbstractSurface(
         self,
         rays: optika.rays.RayVectorArray,
         efficiency: bool = True,
+        optical_path: bool = False,
     ) -> optika.rays.RayVectorArray:
         r"""
         Refract, reflect, and/or diffract the given rays off of this surface
@@ -142,6 +143,15 @@ class AbstractSurface(
             the geometry is unchanged and much cheaper to compute, since the
             efficiency of a multilayer coating usually costs far more than
             the raytrace it belongs to.
+        optical_path
+            A boolean flag indicating whether to accumulate the optical path
+            length to and through this surface into
+            :attr:`~optika.rays.AbstractRayVectorArray.optical_path`,
+            including the phase of the rulings and the height of the sag
+            from :meth:`~optika.sags.AbstractSag.height_phase`.
+            If :obj:`False` (the default), the optical path of the result is
+            meaningless, but the rest of the result is unchanged and, for
+            rulings with a variable spacing, much cheaper to compute.
         """
         sag = self.sag
         material = self.material
@@ -152,7 +162,11 @@ class AbstractSurface(
         if transformation is not None:
             rays = transformation.inverse(rays)
 
-        rays_1 = sag.propagate_rays(rays, efficiency=efficiency)
+        rays_1 = sag.propagate_rays(
+            rays,
+            efficiency=efficiency,
+            optical_path=optical_path,
+        )
 
         position_1 = rays_1.position
 
@@ -205,16 +219,17 @@ class AbstractSurface(
         # path of the incident ray by `n1 h a_z` and shortens that of the
         # outgoing ray by `n2 h b_z`.
         optical_path_2 = rays_incident.optical_path
-        if rulings is not None:
-            optical_path_2 = optical_path_2 + rulings.optical_path(
-                rays=rays_incident,
-                normal=normal,
+        if optical_path:
+            if rulings is not None:
+                optical_path_2 = optical_path_2 + rulings.optical_path(
+                    rays=rays_incident,
+                    normal=normal,
+                )
+            height = sag.height_phase(position_1)
+            direction_incident = rays_incident.direction
+            optical_path_2 = optical_path_2 + height * (
+                n1 * direction_incident.z - n2 * b.z
             )
-        height = sag.height_phase(position_1)
-        direction_incident = rays_incident.direction
-        optical_path_2 = optical_path_2 + height * (
-            n1 * direction_incident.z - n2 * b.z
-        )
 
         rays_2 = dataclasses.replace(
             rays_1,

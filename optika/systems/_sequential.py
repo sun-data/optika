@@ -2251,6 +2251,7 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         accumulate: bool = True,
         efficiency: bool = True,
+        optical_path: bool = False,
     ) -> optika.rays.RayFunctionArray:
         """
         Given the wavelength, field position, and pupil position of some input
@@ -2292,6 +2293,13 @@ class AbstractSequentialSystem(
             the geometry and
             :attr:`~optika.rays.AbstractRayVectorArray.unvignetted` are
             unchanged and much cheaper to compute.
+        optical_path
+            A boolean flag indicating whether to accumulate the optical path
+            length of the rays through each surface into
+            :attr:`~optika.rays.AbstractRayVectorArray.optical_path`.
+            If :obj:`False` (the default), the optical path of the result is
+            meaningless, but the rest of the result is unchanged and, through
+            rulings with a variable spacing, much cheaper to compute.
 
         See Also
         --------
@@ -2309,6 +2317,7 @@ class AbstractSequentialSystem(
             normalized_pupil=normalized_pupil,
             accumulate=accumulate,
             efficiency=efficiency,
+            optical_path=optical_path,
         )
 
     def _raytrace(
@@ -2323,6 +2332,7 @@ class AbstractSequentialSystem(
         normalized_pupil: bool = True,
         accumulate: bool = True,
         efficiency: bool = True,
+        optical_path: bool = False,
     ) -> optika.rays.RayFunctionArray:
         """
         :meth:`raytrace` through the given sequence of surfaces rather than
@@ -2369,12 +2379,14 @@ class AbstractSequentialSystem(
                 rays=rays,
                 axis=axis,
                 efficiency=efficiency,
+                optical_path=optical_path,
             )
         else:
             result.outputs = optika.propagators.propagate_rays(
                 propagators=surfaces,
                 rays=rays,
                 efficiency=efficiency,
+                optical_path=optical_path,
             )
 
         return result
@@ -2912,6 +2924,7 @@ class AbstractSequentialSystem(
             axis=axis_surface,
             normalized_field=False,
             normalized_pupil=False,
+            optical_path=True,
         )
         rays = raytrace.outputs
 

@@ -91,6 +91,11 @@ class AbstractRayVectorArray(
 
         The phase of the light at the ray's position is :math:`2 \\pi`
         times this length divided by the vacuum wavelength.
+
+        It is only accumulated by a raytrace which asks for it, such as
+        :meth:`optika.systems.SequentialSystem.raytrace` with
+        ``optical_path=True``, since it can cost more than the rest of the
+        raytrace.
         """
 
     @property
