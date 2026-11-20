@@ -2,6 +2,7 @@ from typing import Sequence, Callable, Any, ClassVar, Literal, NamedTuple
 import abc
 import dataclasses
 import functools
+import itertools
 from ezdxf.addons.r12writer import R12FastStreamWriter
 import astropy.units as u
 import astropy.visualization
@@ -14,6 +15,7 @@ import named_arrays as na
 import optika
 from . import AbstractSystem
 from . import LinearSystem
+from ._linear import _check_chunk_size, _chunks
 
 PupilFit = (
     tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
@@ -54,6 +56,79 @@ def _described(surface: optika.surfaces.AbstractSurface) -> str:
     if surface.name is not None:
         return repr(surface.name)
     return f"an unnamed {type(surface).__name__}"
+
+
+def _normalize_chunk_size(
+    chunk_size: None | int | dict[str, None | int],
+    axis_wavelength: str,
+    axes: tuple[str, ...],
+) -> dict[str, int]:
+    """
+    The number of cells in each chunk along each axis which is cut into
+    chunks, the others left out.
+
+    An integer is the number of wavelength bins in each chunk, as in
+    :meth:`optika.systems.LinearSystem.image`.
+
+    Parameters
+    ----------
+    chunk_size
+        The `chunk_size` argument of :meth:`SequentialSystem.image`.
+    axis_wavelength
+        The logical axis of the wavelength grid.
+    axes
+        The logical axes of the wavelength, field, and pupil grids, the only
+        ones which can be cut into chunks.
+    """
+    if chunk_size is None:
+        return dict()
+    if not isinstance(chunk_size, dict):
+        _check_chunk_size(chunk_size)
+        return {axis_wavelength: chunk_size}
+    for axis, size in chunk_size.items():
+        if axis not in axes:
+            raise ValueError(
+                f"`chunk_size` can only cut the wavelength, field, and pupil "
+                f"axes {axes} into chunks, got {axis!r}."
+            )
+        _check_chunk_size(size)
+    return {axis: size for axis, size in chunk_size.items() if size is not None}
+
+
+def _chunk(
+    a: Any,
+    item: dict[str, tuple[int, int]],
+    cells: bool = False,
+) -> Any:
+    """
+    The part of a grid, or of a quantity defined on its cells, which belongs to
+    one chunk.
+
+    A chunk of cells has one more vertex than it has cells.
+    An axis along which `a` doesn't vary broadcasts against every chunk, so
+    `a` is only cut along the axes where it has a value for each cell or
+    vertex.
+
+    Parameters
+    ----------
+    a
+        The vertices of a grid, or a quantity defined on its cells.
+    item
+        The first cell and one past the last cell of the chunk along each
+        axis which is cut into chunks.
+    cells
+        Whether `a` is defined on the cells of the grid instead of on its
+        vertices.
+    """
+    shape = na.shape(a)
+    index = {
+        axis: slice(start, stop if cells else stop + 1)
+        for axis, (start, stop) in item.items()
+        if shape.get(axis, 1) != 1
+    }
+    if not index:
+        return a
+    return a[index]
 
 
 class _Sampling(NamedTuple):
@@ -2923,10 +2998,16 @@ class AbstractSequentialSystem(
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         axis_pupil: None | tuple[str, str] = None,
         seed: None | int = None,
+        chunk_size: None | int | dict[str, None | int] = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Forward model of the optical system.
         Maps the given spectral radiance of a scene to detector counts.
+
+        Every ray of the wavelength, field, and pupil grids is traced at once,
+        so the memory taken grows with the number of cells in all three.
+        Setting `chunk_size` traces them a few cells at a time instead, so that
+        a scene can be sampled with more rays than fit in memory at once.
 
         Parameters
         ----------
@@ -2966,6 +3047,34 @@ class AbstractSequentialSystem(
             each cell of the wavelength, field, and pupil grids, or :obj:`None`
             to draw different positions every time.
             The noise is not seeded.
+        chunk_size
+            The number of cells to trace at once along some of the axes of the
+            wavelength, field, and pupil grids.
+            An integer is the number of wavelength bins of `scene` in each
+            chunk, as in :meth:`optika.systems.LinearSystem.image`.
+            A dictionary maps any of `axis_wavelength`, `axis_field`, and
+            `axis_pupil` to the number of cells along it in each chunk, and
+            :obj:`None` leaves that axis whole, so that, for example,
+            ``{"field_x": 10}`` traces ten columns of the field at a time.
+            If :obj:`None` (the default), the whole scene is traced at once.
+
+            Within each wavelength chunk, the photons collected on the sensor
+            from every chunk of the field and pupil are summed before the
+            sensor converts them to electrons, so the shot, Fano, and
+            charge-diffusion noise are drawn once from the sum, as they are
+            without chunking.
+            As in :meth:`optika.systems.LinearSystem.image`, the electrons are
+            then summed over the wavelength chunks (or joined along
+            `axis_wavelength` if `integrate` is :obj:`False`) and the read
+            noise is added once, to the sum.
+
+            Each chunk draws the positions of its rays from its own seed,
+            derived from `seed`, so a seeded image is reproducible for a
+            given `chunk_size`, but chunking it differently draws other
+            positions, which differ from the unchunked image by the sampling
+            noise of the grid.
+            A chunk which covers the whole grid draws the same positions as
+            no chunking at all.
         """
 
         scene = scene.explicit
@@ -3010,7 +3119,13 @@ class AbstractSequentialSystem(
         )
         (axis_wavelength,) = axis_wavelength
 
-        rayfunction = self._rayfunction_from_vertices(
+        chunk_size = _normalize_chunk_size(
+            chunk_size=chunk_size,
+            axis_wavelength=axis_wavelength,
+            axes=(axis_wavelength,) + axis_field + axis_pupil,
+        )
+
+        return self._image_chunked(
             radiance=scene.outputs,
             wavelength=wavelength,
             field=field,
@@ -3020,16 +3135,173 @@ class AbstractSequentialSystem(
             axis_pupil=axis_pupil,
             normalized_field=normalized_field,
             normalized_pupil=normalized_pupil,
+            integrate=integrate,
+            noise=noise,
             seed=seed,
+            chunk_size=chunk_size,
         )
 
-        return self.sensor.measure(
-            rays=rayfunction.outputs,
+    def _image_chunked(
+        self,
+        radiance: na.AbstractScalar,
+        wavelength: na.AbstractScalar,
+        field: na.AbstractCartesian2dVectorArray,
+        pupil: na.AbstractCartesian2dVectorArray,
+        axis_wavelength: str,
+        axis_field: tuple[str, str],
+        axis_pupil: tuple[str, str],
+        normalized_field: bool,
+        normalized_pupil: bool,
+        integrate: bool,
+        noise: bool,
+        seed: None | int,
+        chunk_size: dict[str, int],
+    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+        """
+        Image the cells of the wavelength, field, and pupil grids `chunk_size`
+        at a time, or all at once if `chunk_size` is empty.
+
+        Every call to :meth:`image` comes through here, so that the chunks are
+        read out the same way whether there is one of them or many.
+        See :meth:`image` for the meaning of each parameter.
+        """
+        sensor = self.sensor
+        axis = (axis_wavelength,) + axis_field + axis_pupil
+
+        # the number of vertices along each axis of the grids
+        shape = na.broadcast_shapes(
+            na.shape(wavelength),
+            na.shape(field),
+            na.shape(pupil),
+        )
+
+        # the chunks of wavelength bins, each read out on its own, and the
+        # chunks of every other axis, whose photons are summed within a
+        # wavelength chunk before they are read out
+        chunks_wavelength = _chunks(
+            shape[axis_wavelength] - 1,
+            chunk_size.get(axis_wavelength),
+        )
+        chunks_other = list(
+            itertools.product(
+                *[
+                    [{a: chunk} for chunk in _chunks(shape[a] - 1, chunk_size[a])]
+                    for a in chunk_size
+                    if a != axis_wavelength
+                ]
+            )
+        )
+
+        # a single chunk draws its rays from `seed` itself, so that it gives
+        # the same image as no chunking at all
+        num_chunks = len(chunks_wavelength) * len(chunks_other)
+        if num_chunks == 1 or seed is None:
+            seeds = iter([seed] * num_chunks)
+        else:
+            seeds = np.random.SeedSequence(seed).generate_state(num_chunks)
+            seeds = iter(int(s) for s in seeds)
+
+        electrons_total = None
+        results = []
+
+        for chunk_wavelength in chunks_wavelength:
+
+            item_wavelength = {axis_wavelength: chunk_wavelength}
+
+            photons = None
+            moment = None
+
+            for chunk_other in chunks_other:
+
+                item = item_wavelength | {
+                    a: c for chunk in chunk_other for a, c in chunk.items()
+                }
+
+                rayfunction = self._rayfunction_from_vertices(
+                    radiance=_chunk(radiance, item, cells=True),
+                    wavelength=_chunk(wavelength, item),
+                    field=_chunk(field, item),
+                    pupil=_chunk(pupil, item),
+                    axis_wavelength=axis_wavelength,
+                    axis_field=axis_field,
+                    axis_pupil=axis_pupil,
+                    normalized_field=normalized_field,
+                    normalized_pupil=normalized_pupil,
+                    seed=next(seeds),
+                )
+
+                image, direction = sensor.collect(
+                    rays=rayfunction.outputs,
+                    wavelength=_chunk(wavelength, item),
+                    axis=axis,
+                )
+
+                # the rays of this chunk are released before those of the
+                # next one are traced, so that only one chunk is held at a time
+                del rayfunction
+
+                # the photons of each chunk are summed, and the refracted
+                # cosine, a mean weighted by the photons, through its moment
+                if photons is None:
+                    photons = image.outputs
+                    moment = image.outputs * direction
+                else:
+                    photons = photons + image.outputs
+                    moment = moment + image.outputs * direction
+
+            if len(chunks_other) > 1:
+                nonempty = photons > 0
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    direction = np.where(nonempty, moment / photons, 1)
+                image = na.FunctionArray(
+                    inputs=na.SpectralPositionalVectorArray(
+                        wavelength=_chunk(wavelength, item_wavelength),
+                        position=image.inputs.position,
+                    ),
+                    outputs=photons,
+                )
+
+            # the read noise is left out here and added once below, to the sum
+            # of every chunk, since the sensor is read out only once
+            result = sensor.expose(
+                image,
+                direction=direction,
+                axis_wavelength=axis_wavelength,
+                noise=noise,
+                integrate=False,
+            )
+
+            if not integrate:
+                results.append(result)
+                continue
+
+            electrons = result.outputs.sum(axis_wavelength)
+            if electrons_total is None:
+                electrons_total = electrons
+            else:
+                electrons_total = electrons_total + electrons
+
+        if not integrate and len(results) == 1:
+            (result,) = results
+            return result
+
+        inputs = na.SpectralPositionalVectorArray(
             wavelength=wavelength,
-            axis=(axis_wavelength,) + axis_field + axis_pupil,
-            axis_wavelength=axis_wavelength,
-            noise=noise,
-            integrate=integrate,
+            position=result.inputs.position,
+        )
+
+        if integrate:
+            return na.FunctionArray(
+                inputs=sensor._collapse_wavelength(inputs, axis_wavelength),
+                outputs=sensor._readout(electrons_total, noise),
+            )
+
+        return na.FunctionArray(
+            inputs=inputs,
+            outputs=na.concatenate(
+                arrays=[r.outputs for r in results],
+                axis=axis_wavelength,
+            ),
         )
 
     def backproject(
