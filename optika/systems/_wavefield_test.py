@@ -481,6 +481,7 @@ def test_wavefield_default_field() -> None:
 
     assert isinstance(wavefield, optika.wavefields.WavefieldFunctionArray)
     assert wavefield.type_explicit is optika.wavefields.WavefieldFunctionArray
+    assert type(wavefield.inputs) is optika.vectors.SceneVectorArray
     assert wavefield.outputs.amplitude.shape == dict(
         field_x=5,
         field_y=5,
@@ -635,6 +636,139 @@ def test_wavefield_energy() -> None:
 
     ratio = (power / power_expected).to(u.dimensionless_unscaled)
     assert 0.98 < ratio < 1.001
+
+
+@pytest.mark.parametrize("radius", [1.2 * u.mm, 0.4 * u.mm])
+def test_wavefield_energy_narrow_beam(radius: u.Quantity) -> None:
+    """
+    An aperture in front of the telescope, smaller than its pupil stop, limits
+    the beam to a small part of the pupil, and the grid of rays still covers
+    all of it, even when only one ray of the coarser trace gets through.
+    """
+    system = _telescope()
+    front = optika.surfaces.Surface(
+        name="front",
+        aperture=optika.apertures.CircularAperture(radius),
+        transformation=na.transformations.Cartesian3dTranslation(z=100 * u.mm),
+    )
+    system = dataclasses.replace(system, surfaces=[front, *system.surfaces])
+
+    wavefield = system.wavefield(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        width_sensor=2 * u.mm,
+        num_pupil=101,
+        num_sensor=101,
+    )
+    outputs = wavefield.outputs
+    power = (np.square(np.abs(outputs.amplitude)) * outputs.area).sum()
+    power_expected = np.pi * np.square(radius)
+
+    ratio = (power / power_expected).to(u.dimensionless_unscaled)
+    assert 0.97 < ratio < 1.01
+
+
+def test_psf_vignetted_field() -> None:
+    """
+    The PSF of a field from which no ray reaches the last surface before the
+    sensor is zero, and leaves the PSF of the other fields as they are.
+    """
+    system = _telescope()
+    stop = optika.surfaces.Surface(
+        name="stop",
+        aperture=optika.apertures.CircularAperture(2 * u.mm),
+        transformation=na.transformations.Cartesian3dTranslation(z=10 * u.mm),
+    )
+    system = dataclasses.replace(system, surfaces=[*system.surfaces, stop])
+    field = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(np.array([0, 1]), axes="field") * u.deg,
+        y=0 * u.deg,
+    )
+    kwargs = dict(
+        normalized_field=False,
+        width_sensor=0.02 * u.mm,
+        num_pupil=31,
+        num_sensor=11,
+    )
+
+    psf = system.psf(field=field, **kwargs)
+    psf_center = system.psf(field=field[dict(field=0)], **kwargs)
+
+    assert np.all(np.isfinite(psf.outputs))
+    assert np.all(psf.outputs[dict(field=1)] == 0)
+    assert np.allclose(psf.outputs[dict(field=0)], psf_center.outputs)
+
+
+def test_wavefield_line_cut() -> None:
+    """
+    A grid of sensor positions with one position along one of its axes is a
+    line, which has no area.
+    """
+    system = _telescope()
+    position_sensor = na.Cartesian2dVectorLinearSpace(
+        start=na.Cartesian2dVectorArray(-2, 0) * u.um,
+        stop=na.Cartesian2dVectorArray(2, 0) * u.um,
+        axis=na.Cartesian2dVectorArray("wavefield_x", "wavefield_y"),
+        num=na.Cartesian2dVectorArray(5, 1),
+    ).explicit
+
+    wavefield = system.wavefield(
+        field=na.Cartesian2dVectorArray(0, 0),
+        position_sensor=position_sensor,
+        num_pupil=31,
+    )
+
+    assert wavefield.outputs.area == 0 * u.mm**2
+    assert np.all(np.isfinite(wavefield.outputs.amplitude))
+
+
+def test_wavefield_rays_missing_sensor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    A ray which is vignetted before the sensor, and so has no position on it,
+    such as one which misses a curved surface, does not change the wavefield
+    or the grid of sensor positions centered on the image.
+    """
+    system = _telescope()
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0),
+        width_sensor=0.02 * u.mm,
+        num_pupil=31,
+        num_sensor=11,
+    )
+    wavefield_expected = system.wavefield(**kwargs)
+
+    raytrace = optika.systems.SequentialSystem.raytrace
+
+    def raytrace_missing(
+        self: optika.systems.SequentialSystem,
+        *args,
+        **kwargs,
+    ) -> optika.rays.RayFunctionArray:
+        """Put the rays vignetted before the sensor nowhere on it."""
+        result = raytrace(self, *args, **kwargs)
+        axis = kwargs["axis"]
+        rays = result.outputs
+        num = rays.shape[axis]
+        index = na.arange(0, num, axis=axis)
+        missing = (index == num - 1) & ~rays.unvignetted[{axis: ~1}]
+        nan = na.Cartesian3dVectorArray(np.nan, np.nan, np.nan) * u.mm
+        rays.position = np.where(missing, nan, rays.position)
+        return result
+
+    monkeypatch.setattr(
+        optika.systems.SequentialSystem,
+        "raytrace",
+        raytrace_missing,
+    )
+
+    wavefield = system.wavefield(**kwargs)
+
+    assert np.all(np.isfinite(wavefield.outputs.amplitude))
+    assert np.allclose(wavefield.outputs.position, wavefield_expected.outputs.position)
+    assert np.allclose(
+        wavefield.outputs.amplitude,
+        wavefield_expected.outputs.amplitude,
+    )
 
 
 def test_wavefield_figure_error_tilt() -> None:

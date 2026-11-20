@@ -28,7 +28,7 @@ class AbstractWavefieldFunctionArray(
 class WavefieldFunctionArray(
     AbstractWavefieldFunctionArray,
     na.FunctionArray[
-        optika.vectors.ObjectVectorArray,
+        optika.vectors.SceneVectorArray,
         WavefieldVectorArray,
     ],
 ):

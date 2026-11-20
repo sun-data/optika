@@ -63,7 +63,10 @@ class AbstractWavefieldVectorArray(
     def unvignetted(self) -> na.AbstractScalar:
         """
         A boolean mask where :obj:`False` indicates the sample point was
-        blocked by an aperture (the amplitude is also zero there).
+        blocked by an aperture, or is not part of the wavefield.
+
+        :func:`optika.wavefields.rayleigh_sommerfeld` leaves out the samples
+        where it is :obj:`False`.
         """
 
     @property
@@ -209,7 +212,10 @@ class WavefieldVectorArray(
     unvignetted: UnvignettedT = True
     """
     A boolean mask where :obj:`False` indicates the sample point was blocked
-    by an aperture.
+    by an aperture, or is not part of the wavefield.
+
+    :func:`optika.wavefields.rayleigh_sommerfeld` leaves out the samples where
+    it is :obj:`False`.
     """
 
     @classmethod

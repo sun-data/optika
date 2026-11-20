@@ -15,7 +15,7 @@ def rayleigh_sommerfeld(
     wavefield: optika.wavefields.AbstractWavefieldVectorArray,
     position: na.AbstractCartesian3dVectorArray,
     axis: str | Sequence[str],
-    chunk_size: int = 1024,
+    chunk_size: int = 2**24,
 ) -> na.AbstractScalar:
     r"""
     Evaluate the Rayleigh-Sommerfeld diffraction integral of the first kind
@@ -27,18 +27,23 @@ def rayleigh_sommerfeld(
     wavefield
         The source wavefield, sampled at a discrete set of points on a
         surface, expressed in the same coordinate system as `position`.
+        The samples where its
+        :attr:`~optika.wavefields.AbstractWavefieldVectorArray.unvignetted`
+        is :obj:`False` are left out.
     position
         The destination points at which to evaluate the diffracted wavefield.
     axis
         The one or more logical axes of the source wavefield over which the
         integral is evaluated.
     chunk_size
-        The maximum number of destination points to consider simultaneously.
-        The peak memory usage of this function is approximately
-        :math:`16 \, N_\text{chunk} N_\text{source} N_\text{broadcast}`
-        bytes, where :math:`N_\text{broadcast}` is the number of elements
-        along the axes shared by `wavefield` and `position`
-        (wavelength, field angle, etc.).
+        The maximum number of terms of the discrete sum to evaluate at once,
+        the product of the number of source points, the number of
+        destination points, and the number of elements along the other axes
+        of `wavefield` and `position` (wavelength, field angle, etc.).
+        The destination points are split into chunks small enough to keep to
+        it, but each chunk has at least one point, so the peak memory usage
+        of this function is about :math:`16` bytes times the larger of
+        `chunk_size` and the number of terms for one destination point.
 
     Notes
     -----
@@ -60,8 +65,14 @@ def rayleigh_sommerfeld(
 
     The integral is evaluated as a discrete sum over the source samples.
     To bound memory usage, the destination points are split into chunks of at
-    most `chunk_size` points, and the outer product of source and destination
+    most `chunk_size` terms, and the outer product of source and destination
     points is never materialized in full.
+
+    The normal at a source point may point either way, so the sign of the
+    obliquity factor is chosen once, from the area-weighted mean of
+    :math:`(\mathbf{r}_2 - \mathbf{r}_1) \cdot \hat{\mathbf{n}}` over the
+    samples which are not vignetted, with :math:`\mathbf{r}_2` the centroid
+    of the destination points.
     """
     if isinstance(axis, str):
         axis = (axis,)
@@ -91,19 +102,24 @@ def rayleigh_sommerfeld(
 
     k = 2 * np.pi * index_refraction / wavelength
 
-    amp = wavefield.amplitude * wavefield.area.to(unit**2).value
+    area = np.where(wavefield.unvignetted, wavefield.area, 0 * unit**2)
+    area = area.to(unit**2).value
+    mask = area > 0
+    amp = np.where(mask, wavefield.amplitude * area, 0)
 
     # The sampling convention for surface normals allows them to point away
     # from the destination surface (e.g. after a reflection), so compute the
     # orientation of the obliquity factor once for the whole integral using
-    # the centroid of the destination points.
+    # the centroid of the destination points, weighted by the area of the
+    # samples so that those which are not part of the wavefield are left out.
     axis_dst = tuple(ax for ax in position.shape if ax not in shape_src)
     centroid_dst = position.mean(axis_dst) if axis_dst else position
-    dot = (centroid_dst - wavefield.position) @ normal
-    axis_mean = tuple(ax for ax in axis if ax in na.shape(dot))
-    if axis_mean:
-        dot = dot.mean(axis_mean)
-    sign = np.sign(na.as_named_array(dot).value)
+    dot = ((centroid_dst - wavefield.position) @ normal).to(unit).value
+    dot = na.as_named_array(np.where(mask, dot * area, 0))
+    axis_sum = tuple(ax for ax in axis if ax in dot.shape)
+    if axis_sum:
+        dot = dot.sum(axis_sum)
+    sign = np.sign(dot)
 
     position_dst = position.to(unit).value
 
@@ -112,16 +128,20 @@ def rayleigh_sommerfeld(
     shape_src_broadcast = {ax: num for ax, num in shape_src.items() if ax not in axis}
     shape_result = na.broadcast_shapes(shape_src_broadcast, position.shape)
 
+    # The number of terms of the sum for each destination point.
+    shape_other = {ax: num for ax, num in position.shape.items() if ax not in axis_dst}
+    num_terms = int(np.prod(list(na.broadcast_shapes(shape_src, shape_other).values())))
+
     result = na.ScalarArray(
         ndarray=np.empty(tuple(shape_result.values()), dtype=complex),
         axes=tuple(shape_result),
     )
 
     # Greedily choose a chunk length along each destination axis (starting
-    # from the last) so that the total number of destination points per chunk
-    # is at most `chunk_size`.
+    # from the last) so that the total number of terms per chunk is at most
+    # `chunk_size`.
     chunks = dict()
-    budget = max(chunk_size, 1)
+    budget = max(chunk_size // num_terms, 1)
     for ax in reversed(tuple(shape_dst)):
         chunks[ax] = min(shape_dst[ax], budget)
         budget = max(budget // shape_dst[ax], 1)
@@ -130,11 +150,18 @@ def rayleigh_sommerfeld(
         *[range(0, shape_dst[ax], chunks[ax]) for ax in shape_dst]
     )
 
+    # The samples which are left out are selected away rather than multiplied
+    # by zero, so that their positions and normals do not matter.
+    # The mask is given to numexpr as a number, one or zero.
     expression = (
-        "amp"
+        "where("
+        "mask > 0.5,"
+        " amp"
         " * ((xd - xs) * nx + (yd - ys) * ny + (zd - zs) * nz)"
         " * exp(1j * k * sqrt((xd - xs)**2 + (yd - ys)**2 + (zd - zs)**2))"
-        " / ((xd - xs)**2 + (yd - ys)**2 + (zd - zs)**2)"
+        " / ((xd - xs)**2 + (yd - ys)**2 + (zd - zs)**2),"
+        " 0j"
+        ")"
     )
 
     for start in starts:
@@ -145,6 +172,7 @@ def rayleigh_sommerfeld(
         term = na.numexpr.evaluate(
             ex=expression,
             local_dict=dict(
+                mask=np.where(mask, 1.0, 0.0),
                 amp=amp,
                 xs=xs,
                 ys=ys,

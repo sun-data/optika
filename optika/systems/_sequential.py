@@ -2742,7 +2742,7 @@ class AbstractSequentialSystem(
         num_pupil: int = 151,
         num_sensor: int = 101,
         axis: tuple[str, str] = ("wavefield_x", "wavefield_y"),
-        chunk_size: int = 1024,
+        chunk_size: int = 2**24,
         normalized_field: bool = True,
     ) -> optika.wavefields.WavefieldFunctionArray:
         r"""
@@ -2773,7 +2773,10 @@ class AbstractSequentialSystem(
             The sensor-local positions at which to evaluate the wavefield.
             If :obj:`None` (the default), a grid of `num_sensor` positions
             along each axis, spanning `width_sensor` and centered on the
-            centroid of the rays on the sensor, will be used.
+            centroid on the sensor of the rays which reach the last surface
+            before it, will be used.
+            The grid is centered on the origin of the sensor for a field from
+            which no ray reaches that surface.
         width_sensor
             The width of the automatic grid of sensor positions.
             Only used if `position_sensor` is :obj:`None`.
@@ -2786,10 +2789,10 @@ class AbstractSequentialSystem(
         axis
             The two logical axes of the grid of sensor positions.
         chunk_size
-            The maximum number of destination points considered
-            simultaneously by the diffraction integral.
-            See :func:`optika.wavefields.rayleigh_sommerfeld` for a
-            description of how this parameter bounds the memory usage.
+            The maximum number of terms of the diffraction integral to
+            evaluate at once, which bounds its memory usage to about 16 bytes
+            per term.
+            See :func:`optika.wavefields.rayleigh_sommerfeld`.
         normalized_field
             A boolean flag indicating whether the `field` parameter is given
             in normalized or physical units.
@@ -2797,8 +2800,10 @@ class AbstractSequentialSystem(
         Notes
         -----
         The grid of rays is regular in the physical pupil coordinates of the
-        rays, across a box around the rays which pass through the system,
-        found with a coarser trace.
+        rays, across a box around the rays which reach the last surface
+        before the sensor, found with a coarser trace.
+        If no ray of the coarser trace reaches that surface, the wavefield of
+        that field is zero.
         On the last surface before the sensor, each ray which is not
         vignetted stands for a patch of the wavefield with the complex
         amplitude
@@ -2878,8 +2883,14 @@ class AbstractSequentialSystem(
         surface = surfaces[~1]
         sensor = surfaces[~0]
 
-        # A box in the physical pupil coordinates around the rays which pass
-        # through the system, from a coarse trace of the normalized pupil.
+        # A box in the physical pupil coordinates around the rays which reach
+        # the last surface before the sensor, from a coarse trace of the
+        # normalized pupil.
+        # The edge of the beam is somewhere between the last coarse ray which
+        # passes and the first which does not, so the box is padded by the
+        # spacing of the coarse rays.
+        # If no coarse ray passes, the box is the whole coarse grid, whose
+        # rays are all vignetted, and the wavefield is zero.
         num_coarse = 41
         raytrace = self.raytrace(
             wavelength=wavelength,
@@ -2895,21 +2906,42 @@ class AbstractSequentialSystem(
             normalized_field=False,
             efficiency=False,
         )
-        where = raytrace.outputs.unvignetted[{axis_surface: ~0}]
+        rays_coarse = raytrace.outputs[{axis_surface: ~1}]
+        where = rays_coarse.unvignetted & np.isfinite(rays_coarse.position.length)
+        passes = where.sum(axis_pupil) > 0
         pupil = raytrace.inputs.pupil
+        pupil = na.Cartesian2dVectorArray(
+            x=na.broadcast_to(pupil.x, where.shape),
+            y=na.broadcast_to(pupil.y, where.shape),
+        )
         inf_x = np.inf * na.unit_normalized(pupil.x)
         inf_y = np.inf * na.unit_normalized(pupil.y)
+        spacing_x = pupil.x.ptp(axis_pupil) / (num_coarse - 1)
+        spacing_y = pupil.y.ptp(axis_pupil) / (num_coarse - 1)
         lower = na.Cartesian2dVectorArray(
-            x=np.where(where, pupil.x, inf_x).min(axis_pupil),
-            y=np.where(where, pupil.y, inf_y).min(axis_pupil),
+            x=np.where(
+                passes,
+                np.where(where, pupil.x, inf_x).min(axis_pupil) - spacing_x,
+                pupil.x.min(axis_pupil),
+            ),
+            y=np.where(
+                passes,
+                np.where(where, pupil.y, inf_y).min(axis_pupil) - spacing_y,
+                pupil.y.min(axis_pupil),
+            ),
         )
         upper = na.Cartesian2dVectorArray(
-            x=np.where(where, pupil.x, -inf_x).max(axis_pupil),
-            y=np.where(where, pupil.y, -inf_y).max(axis_pupil),
+            x=np.where(
+                passes,
+                np.where(where, pupil.x, -inf_x).max(axis_pupil) + spacing_x,
+                pupil.x.max(axis_pupil),
+            ),
+            y=np.where(
+                passes,
+                np.where(where, pupil.y, -inf_y).max(axis_pupil) + spacing_y,
+                pupil.y.max(axis_pupil),
+            ),
         )
-        padding = (upper - lower) / 20
-        lower = lower - padding
-        upper = upper + padding
 
         raytrace = self.raytrace(
             wavelength=wavelength,
@@ -2957,10 +2989,16 @@ class AbstractSequentialSystem(
         normal = surface.sag.normal(rays_local.position)
         cos_theta = np.abs(rays_local.direction @ normal)
 
-        where = rays_surface.unvignetted & np.isfinite(area) & np.isfinite(cos_theta)
+        where = (
+            rays_surface.unvignetted
+            & np.isfinite(area)
+            & np.isfinite(cos_theta)
+            & np.isfinite(rays_surface.optical_path)
+        )
+        num_where = where.sum(axis_pupil)
 
         optical_path = np.where(where, rays_surface.optical_path, 0 * u.mm)
-        optical_path_mean = optical_path.sum(axis_pupil) / where.sum(axis_pupil)
+        optical_path_mean = optical_path.sum(axis_pupil) / np.maximum(num_where, 1)
         phase = (optical_path - optical_path_mean) / wavelength
         phase = phase.to(u.dimensionless_unscaled).value
 
@@ -2968,11 +3006,16 @@ class AbstractSequentialSystem(
         magnitude = np.sqrt(np.where(where, magnitude, 0 * unit_0).to(unit_0).value)
 
         # The index of the medium after the last surface is the same for every
-        # ray, but it may still be broadcast along the axes of the grid.
-        index_refraction = na.as_named_array(np.abs(rays_surface.index_refraction))
-        axis_index = tuple(a for a in axis_pupil if a in index_refraction.shape)
-        if axis_index:
-            index_refraction = index_refraction.mean(axis_index)
+        # ray, but it may be broadcast along the axes of the grid, and it is
+        # one where no ray reaches the surface.
+        index_refraction = np.abs(rays_surface.index_refraction)
+        index_refraction = na.broadcast_to(index_refraction, where.shape)
+        index_refraction = np.where(where, index_refraction, 0).sum(axis_pupil)
+        index_refraction = np.where(
+            num_where > 0,
+            index_refraction / np.maximum(num_where, 1),
+            1,
+        )
 
         origin = na.Cartesian3dVectorArray(0, 0, 0) * u.mm
 
@@ -2983,17 +3026,36 @@ class AbstractSequentialSystem(
             normal=np.where(where, normal, na.Cartesian3dVectorArray(0, 0, 1)),
             area=np.where(where, area, 0 * u.mm**2),
             index_refraction=index_refraction,
+            unvignetted=where,
         )
         if surface.transformation is not None:
             wavefield = surface.transformation(wavefield)
 
         if position_sensor is None:
+            # The centroid on the sensor of the rays which reach the last
+            # surface before it, whether or not they land inside the aperture
+            # of the sensor, or the origin of the sensor if none do.
             rays_sensor = rays[{axis_surface: ~0}]
             if sensor.transformation is not None:
                 rays_sensor = sensor.transformation.inverse(rays_sensor)
-            weight = rays_sensor.unvignetted * rays_sensor.intensity
-            centroid = (rays_sensor.position.xy * weight).sum(axis_pupil)
-            centroid = centroid / weight.sum(axis_pupil)
+            position_rays = rays_sensor.position.xy
+            where_sensor = (
+                where & np.isfinite(position_rays.x) & np.isfinite(position_rays.y)
+            )
+            intensity = rays_sensor.intensity
+            weight = np.where(
+                where_sensor,
+                intensity,
+                0 * na.unit_normalized(intensity),
+            )
+            weight_total = weight.sum(axis_pupil)
+            position_rays = np.where(
+                where_sensor,
+                position_rays,
+                0 * na.unit_normalized(position_rays),
+            )
+            centroid = (position_rays * weight).sum(axis_pupil)
+            centroid = centroid / np.where(weight_total > 0, weight_total, 1)
             position_sensor = na.Cartesian2dVectorLinearSpace(
                 start=centroid - width_sensor / 2,
                 stop=centroid + width_sensor / 2,
@@ -3025,9 +3087,9 @@ class AbstractSequentialSystem(
             amplitude = amplitude * sensor.aperture(position)
 
         shape_sensor = na.shape(position_sensor)
-        if (axis[0] in shape_sensor) and (axis[1] in shape_sensor):
-            num_x = shape_sensor[axis[0]]
-            num_y = shape_sensor[axis[1]]
+        num_x = shape_sensor.get(axis[0], 1)
+        num_y = shape_sensor.get(axis[1], 1)
+        if (num_x > 1) and (num_y > 1):
             area_sensor = position_sensor.x.ptp(axis[0]) / (num_x - 1)
             area_sensor = area_sensor * position_sensor.y.ptp(axis[1]) / (num_y - 1)
         else:
@@ -3043,10 +3105,9 @@ class AbstractSequentialSystem(
         )
 
         return optika.wavefields.WavefieldFunctionArray(
-            inputs=optika.vectors.ObjectVectorArray(
+            inputs=optika.vectors.SceneVectorArray(
                 wavelength=wavelength,
                 field=field,
-                pupil=position_sensor,
             ),
             outputs=outputs,
         )
@@ -3061,6 +3122,9 @@ class AbstractSequentialSystem(
         intensity of the wavefield computed by :meth:`wavefield` on a grid of
         sensor positions.
 
+        The intensity sums to one over the grid, or is zero everywhere for a
+        field whose wavefield is zero on the grid.
+
         Parameters
         ----------
         axis
@@ -3071,7 +3135,8 @@ class AbstractSequentialSystem(
         wavefield = self.wavefield(axis=axis, **kwargs)
 
         intensity = np.square(np.abs(wavefield.outputs.amplitude))
-        intensity = intensity / intensity.sum(axis)
+        total = intensity.sum(axis)
+        intensity = intensity / np.where(total > 0, total, 1)
 
         return na.FunctionArray(
             inputs=na.SpectralPositionalVectorArray(
