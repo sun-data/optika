@@ -165,6 +165,31 @@ def test_fwhm():
     assert u.isclose(result.y, expected, rtol=2e-2)
 
 
+def test_fwhm_outside() -> None:
+    """
+    The full width at half maximum of a point-spread function whose cut does
+    not fall below half of its peak within the samples is not-a-number, and
+    the width of the others along the same axes is unchanged.
+    """
+    sigma = na.ScalarArray(np.array([5, 200]) * u.um, axes="field")
+    _, position = _gaussian_psf()
+    r2 = np.square(position.x - 1 * u.um) + np.square(position.y - 1 * u.um)
+    intensity = np.exp(-r2 / (2 * np.square(sigma)))
+
+    result = optika.wavefields.fwhm(
+        intensity=intensity,
+        position=position,
+        axis=("psf_x", "psf_y"),
+    )
+
+    assert result.shape == dict(field=2)
+    expected = 2 * sigma[dict(field=0)] * np.sqrt(2 * np.log(2))
+    assert np.abs(result.x[dict(field=0)] - expected) < 2e-2 * expected
+    assert np.abs(result.y[dict(field=0)] - expected) < 2e-2 * expected
+    assert np.isnan(result.x[dict(field=1)])
+    assert np.isnan(result.y[dict(field=1)])
+
+
 @pytest.mark.parametrize(
     argnames="sigma",
     argvalues=[

@@ -47,27 +47,22 @@ def encircled_energy_radius(
     radius = (position - centroid).length
 
     shape = na.shape_broadcasted(intensity, radius)
-    intensity = na.broadcast_to(intensity, shape)
-    radius = na.broadcast_to(radius, shape)
+    axis_flat = f"_{axis[0]}_{axis[1]}"
+    radius = na.broadcast_to(radius, shape).combine_axes(axis, axis_flat)
+    intensity = na.broadcast_to(intensity, shape).combine_axes(axis, axis_flat)
 
-    shape_outer = {ax: n for ax, n in shape.items() if ax not in axis}
-    unit = na.unit(radius)
-    result = na.ScalarArray(
-        ndarray=np.empty(tuple(shape_outer.values())),
-        axes=tuple(shape_outer),
-    )
-    if unit is not None:
-        result = result * unit
+    order = np.argsort(radius, axis=axis_flat)
+    radius = radius[order]
+    energy = np.cumsum(intensity[order], axis=axis_flat)
+    energy = energy / energy[{axis_flat: ~0}]
+    if na.unit(energy) is not None:
+        energy = energy.to(u.dimensionless_unscaled).value
 
-    for index in na.ndindex(shape_outer):
-        r = radius[index].ndarray.ravel()
-        w = intensity[index].ndarray.ravel()
-        order = np.argsort(r)
-        energy = np.cumsum(w[order])
-        energy = energy / energy[~0]
-        result[index] = r[order][np.searchsorted(energy, fraction)]
+    index = na.searchsorted(energy, fraction, axis=axis_flat)
+    index = np.minimum(index, radius.shape[axis_flat] - 1)
+    result = radius[{axis_flat: index}]
 
-    if not shape_outer:
+    if not result.shape:
         result = result.ndarray
 
     return result
@@ -118,6 +113,12 @@ def fwhm(
     The full width at half maximum of a sampled point-spread function along
     each axis, measured from the cuts through the brightest sample.
 
+    On each side of the peak, the cut is followed outward to the first sample
+    below half of the peak, and the position of half of the peak is
+    interpolated linearly between it and the sample before it.
+    The width is not-a-number if the cut does not fall below half of the peak
+    on both sides within the samples.
+
     Parameters
     ----------
     intensity
@@ -135,60 +136,94 @@ def fwhm(
     x = na.broadcast_to(position.x, shape)
     y = na.broadcast_to(position.y, shape)
 
-    shape_outer = {ax: n for ax, n in shape.items() if ax not in axis}
-    unit = na.unit(x)
+    index_peak = np.argmax(intensity, axis=axis)
+    index_x = {axis[1]: index_peak[axis[1]]}
+    index_y = {axis[0]: index_peak[axis[0]]}
 
     result = na.Cartesian2dVectorArray(
-        x=na.ScalarArray(
-            ndarray=np.empty(tuple(shape_outer.values())),
-            axes=tuple(shape_outer),
+        x=_fwhm_of_cut(
+            cut=intensity[index_x],
+            coordinate=x[index_x],
+            index_peak=index_peak[axis[0]],
+            axis=axis[0],
         ),
-        y=na.ScalarArray(
-            ndarray=np.empty(tuple(shape_outer.values())),
-            axes=tuple(shape_outer),
+        y=_fwhm_of_cut(
+            cut=intensity[index_y],
+            coordinate=y[index_y],
+            index_peak=index_peak[axis[1]],
+            axis=axis[1],
         ),
     )
-    if unit is not None:
-        result = result * unit
 
-    def _fwhm_of_cut(cut: np.ndarray, coordinate: np.ndarray) -> float:
-        index_peak = int(np.argmax(cut))
-        half = cut[index_peak] / 2
-        left = np.interp(
-            half,
-            cut[: index_peak + 1],
-            coordinate[: index_peak + 1],
-        )
-        right = np.interp(
-            half,
-            cut[index_peak:][::-1],
-            coordinate[index_peak:][::-1],
-        )
-        return right - left
-
-    for index in na.ndindex(shape_outer):
-        cut = intensity[index]
-        index_peak = np.unravel_index(
-            np.argmax(cut.ndarray),
-            cut.ndarray.shape,
-        )
-        index_peak = dict(zip(cut.axes, index_peak))
-
-        cut_x = cut[{axis[1]: index_peak[axis[1]]}].ndarray
-        coordinate_x = x[index][{axis[1]: index_peak[axis[1]]}].ndarray
-        cut_y = cut[{axis[0]: index_peak[axis[0]]}].ndarray
-        coordinate_y = y[index][{axis[0]: index_peak[axis[0]]}].ndarray
-
-        result.x[index] = _fwhm_of_cut(cut_x, coordinate_x)
-        result.y[index] = _fwhm_of_cut(cut_y, coordinate_y)
-
-    if not shape_outer:
+    if not result.shape:
         result = na.Cartesian2dVectorArray(
             x=result.x.ndarray,
             y=result.y.ndarray,
         )
 
     return result
+
+
+def _fwhm_of_cut(
+    cut: na.AbstractScalar,
+    coordinate: na.AbstractScalar,
+    index_peak: na.AbstractScalar,
+    axis: str,
+) -> na.AbstractScalar:
+    """
+    The full width at half maximum of one-dimensional cuts through a peak.
+
+    Parameters
+    ----------
+    cut
+        The intensity along each cut.
+    coordinate
+        The position of each sample along each cut.
+    index_peak
+        The index of the peak of each cut along `axis`.
+    axis
+        The logical axis along each cut.
+    """
+    num = cut.shape[axis]
+    index = na.arange(0, num, axis=axis)
+    half = cut[{axis: index_peak}] / 2
+    below = cut < half
+
+    index_right = np.where(below & (index > index_peak), index, num).min(axis)
+    index_left = np.where(below & (index < index_peak), index, -1).max(axis)
+    found = (index_right < num) & (index_left >= 0)
+    index_right = np.minimum(index_right, num - 1)
+    index_left = np.maximum(index_left, 0)
+
+    def crossing(
+        index_inside: na.AbstractScalar,
+        index_outside: na.AbstractScalar,
+    ) -> na.AbstractScalar:
+        """
+        The position of half of the peak, interpolated between a sample
+        above it and the next sample outward, below it.
+
+        Parameters
+        ----------
+        index_inside
+            The index of the sample above half of the peak.
+        index_outside
+            The index of the sample below half of the peak.
+        """
+        cut_inside = cut[{axis: index_inside}]
+        cut_outside = cut[{axis: index_outside}]
+        coordinate_inside = coordinate[{axis: index_inside}]
+        coordinate_outside = coordinate[{axis: index_outside}]
+        step = cut_outside - cut_inside
+        step = np.where(step != 0, step, 1 * na.unit_normalized(step))
+        fraction = (half - cut_inside) / step
+        return coordinate_inside + fraction * (coordinate_outside - coordinate_inside)
+
+    right = crossing(np.maximum(index_right - 1, 0), index_right)
+    left = crossing(np.minimum(index_left + 1, num - 1), index_left)
+
+    nan = np.nan * na.unit_normalized(coordinate)
+    return np.where(found, right - left, nan)
 
 
 def mtf(
