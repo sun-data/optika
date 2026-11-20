@@ -698,6 +698,9 @@ def test_psf_vignetted_field() -> None:
     assert np.all(psf.outputs[dict(field=1)] == 0)
     assert np.allclose(psf.outputs[dict(field=0)], psf_center.outputs)
 
+    assert type(psf.inputs) is optika.vectors.ImageVectorArray
+    assert np.all(psf.inputs.field == field)
+
 
 def test_wavefield_line_cut() -> None:
     """

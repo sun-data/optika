@@ -3116,12 +3116,14 @@ class AbstractSequentialSystem(
         self,
         axis: tuple[str, str] = ("wavefield_x", "wavefield_y"),
         **kwargs,
-    ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
+    ) -> na.FunctionArray[optika.vectors.ImageVectorArray, na.AbstractScalar]:
         r"""
         The Huygens point-spread function of this system: the normalized
         intensity of the wavefield computed by :meth:`wavefield` on a grid of
         sensor positions.
 
+        Its inputs are the wavelength and the field of each point of the
+        scene, and the positions on the sensor.
         The intensity sums to one over the grid, or is zero everywhere for a
         field whose wavefield is zero on the grid.
 
@@ -3139,8 +3141,9 @@ class AbstractSequentialSystem(
         intensity = intensity / np.where(total > 0, total, 1)
 
         return na.FunctionArray(
-            inputs=na.SpectralPositionalVectorArray(
+            inputs=optika.vectors.ImageVectorArray(
                 wavelength=wavefield.inputs.wavelength,
+                field=wavefield.inputs.field,
                 position=wavefield.outputs.position.xy,
             ),
             outputs=intensity,
