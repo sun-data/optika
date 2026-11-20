@@ -2835,6 +2835,8 @@ class AbstractSequentialSystem(
         So diffraction by those apertures is left out, which is accurate as
         long as the image of the source is far from their edges, as it is
         away from the edges of a field stop.
+        The wavefield is zero at the positions outside the aperture of the
+        sensor.
 
         The rays sample the wavefield on the last surface at an interval
         :math:`\Delta`, so the integral aliases the image at a distance of
@@ -3126,6 +3128,9 @@ class AbstractSequentialSystem(
         scene, and the positions on the sensor.
         The intensity sums to one over the grid, or is zero everywhere for a
         field whose wavefield is zero on the grid.
+        Positions outside the aperture of the sensor have no intensity, so
+        near the edge of the sensor the point-spread function is the part of
+        it which lands on the sensor.
 
         Parameters
         ----------
@@ -3133,6 +3138,88 @@ class AbstractSequentialSystem(
             The two logical axes of the grid of sensor positions.
         kwargs
             Additional keyword arguments passed to :meth:`wavefield`.
+
+        Examples
+        --------
+        The point-spread function at the center of the field of a parabolic
+        mirror is an Airy pattern, whose first dark ring has a radius of
+        :math:`1.22 \lambda N`, where :math:`N` is the focal length over the
+        diameter of the mirror.
+        See the :doc:`prime focus tutorial </tutorials/prime_focus>` for
+        point-spread functions across the field, with their encircled energy
+        and MTF.
+
+        .. jupyter-execute::
+
+            import matplotlib.pyplot as plt
+            import matplotlib.colors
+            import astropy.units as u
+            import astropy.visualization
+            import named_arrays as na
+            import optika
+
+            wavelength = 500 * u.nm
+            focal_length = 200 * u.mm
+            diameter = 40 * u.mm
+
+            system = optika.systems.SequentialSystem(
+                surfaces=[
+                    optika.surfaces.Surface(
+                        name="primary",
+                        sag=optika.sags.ParabolicSag(-focal_length),
+                        material=optika.materials.Mirror(),
+                        aperture=optika.apertures.CircularAperture(diameter / 2),
+                        is_pupil_stop=True,
+                        transformation=na.transformations.Cartesian3dTranslation(
+                            z=focal_length,
+                        ),
+                    ),
+                ],
+                sensor=optika.sensors.ImagingSensor(
+                    name="sensor",
+                    width_pixel=20 * u.um,
+                    axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+                    num_pixel=na.Cartesian2dVectorArray(128, 128),
+                    is_field_stop=True,
+                ),
+                grid_input=optika.vectors.ObjectVectorArray(
+                    wavelength=wavelength,
+                    field=0,
+                    pupil=0,
+                ),
+            )
+
+            psf = system.psf(width_sensor=20 * u.um, num_sensor=101)
+
+            radius_airy = 1.22 * wavelength * focal_length / diameter
+
+            with astropy.visualization.quantity_support():
+                fig, ax = plt.subplots(constrained_layout=True)
+                mappable = na.plt.pcolormesh(
+                    psf.inputs.position.to(u.um),
+                    C=psf.outputs / psf.outputs.max(),
+                    ax=ax,
+                    norm=matplotlib.colors.LogNorm(vmin=1e-4, vmax=1),
+                )
+                ax.add_patch(
+                    plt.Circle(
+                        xy=(0, 0),
+                        radius=radius_airy.to_value(u.um),
+                        fill=False,
+                        color="white",
+                        linestyle="--",
+                        label="first dark ring of the Airy pattern",
+                    )
+                )
+                ax.set_aspect("equal")
+                ax.set_xlabel("$x$ (μm)")
+                ax.set_ylabel("$y$ (μm)")
+                ax.legend()
+                fig.colorbar(
+                    mappable=mappable.ndarray.item(),
+                    ax=ax,
+                    label="intensity relative to the peak",
+                )
         """
         wavefield = self.wavefield(axis=axis, **kwargs)
 
