@@ -10,6 +10,7 @@ from . import zernikes
 from . import vectors
 from . import targets
 from . import rays
+from . import wavefields
 from . import propagators
 from . import metrology
 from . import sags
@@ -34,6 +35,7 @@ __all__ = [
     "vectors",
     "targets",
     "rays",
+    "wavefields",
     "propagators",
     "metrology",
     "sags",
