@@ -171,6 +171,122 @@ class AbstractTestAbstractSequentialSystem(
         assert np.all(a.image(scene, noise=False, seed=0).outputs == expected)
         assert np.any(a.image(scene, noise=False, seed=1).outputs != expected)
 
+    @staticmethod
+    def _scene_chunk(
+        radiance: u.Quantity = 100 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm,
+    ) -> na.FunctionArray:
+        """A scene of two wavelength bins and 10 x 10 field cells to cut up."""
+        return na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.linspace(
+                    530 * u.nm, 531 * u.nm, axis="wavelength", num=3
+                ),
+                position=na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=+1,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=11,
+                ),
+            ),
+            outputs=radiance,
+        )
+
+    @pytest.mark.parametrize(
+        argnames="chunk_size",
+        argvalues=[
+            2,
+            {"wavelength": 5, "field_x": 10},
+            {"field_x": None, "field_y": 100},
+        ],
+    )
+    @pytest.mark.parametrize("integrate", [True, False])
+    def test_image_chunk_size_whole(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        chunk_size: int | dict,
+        integrate: bool,
+    ) -> None:
+        # a chunk which covers the whole grid draws its rays from the seed
+        # itself, so it gives exactly the image of no chunking at all
+        scene = self._scene_chunk()
+        kwargs = dict(noise=False, integrate=integrate, seed=0)
+        result = a.image(scene, chunk_size=chunk_size, **kwargs)
+        expected = a.image(scene, **kwargs)
+        assert np.all(result.inputs == expected.inputs)
+        assert np.all(result.outputs == expected.outputs)
+
+    @pytest.mark.parametrize(
+        argnames="chunk_size",
+        argvalues=[
+            1,
+            {"field_x": 3},
+            {"pupil_x": 4},
+            {"wavelength": 1, "field_x": 2, "field_y": 5},
+        ],
+    )
+    @pytest.mark.parametrize("integrate", [True, False])
+    def test_image_chunk_size(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        chunk_size: int | dict,
+        integrate: bool,
+    ) -> None:
+        # each chunk draws its own rays, so the image differs from the
+        # unchunked one by the sampling noise of the grid, but it has the
+        # same coordinates, it is reproducible for a given seed, and it
+        # collects the same light to within that noise.  With 10 x 10 pupil
+        # cells, the light collected scatters by about half a percent from
+        # one seed to the next, where a single pupil cell scatters by several
+        scene = self._scene_chunk()
+        pupil = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+            num=11,
+        )
+        kwargs = dict(noise=False, integrate=integrate, seed=0, pupil=pupil)
+        result = a.image(scene, chunk_size=chunk_size, **kwargs)
+        again = a.image(scene, chunk_size=chunk_size, **kwargs)
+        expected = a.image(scene, **kwargs)
+
+        assert isinstance(result, na.FunctionArray)
+        assert np.all(result.inputs == expected.inputs)
+        assert result.outputs.shape == expected.outputs.shape
+        assert np.all(result.outputs == again.outputs)
+
+        total = result.outputs.sum()
+        total_expected = expected.outputs.sum()
+        assert np.isclose(total, total_expected, rtol=0.03)
+
+    @pytest.mark.parametrize("chunk_size", [None, {"field_x": 1}])
+    def test_image_chunk_size_read_noise(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        chunk_size: None | dict,
+    ) -> None:
+        # the read noise is added once, to the sum of the chunks, so a dark
+        # scene imaged one column of the field at a time has the read noise
+        # of one readout, not of one readout per chunk
+        read_noise = 10 * u.electron
+        sensor = dataclasses.replace(a.sensor, read_noise=read_noise)
+        b = dataclasses.replace(a, sensor=sensor)
+        scene = self._scene_chunk(0 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm)
+        result = b.image(scene, chunk_size=chunk_size)
+        std = np.std(result.outputs.ndarray)
+        assert np.isclose(std, read_noise, rtol=0.15)
+
+    @pytest.mark.parametrize(
+        argnames="chunk_size",
+        argvalues=[0, -1, 2.0, True, {"field_x": 0}, {"slit": 1}],
+    )
+    def test_image_chunk_size_invalid(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        chunk_size: object,
+    ) -> None:
+        with pytest.raises(ValueError, match="chunk_size"):
+            a.image(self._scene_chunk(), chunk_size=chunk_size)
+
     def test_surfaces(self, a: optika.systems.AbstractSequentialSystem):
         for surface in a.surfaces:
             assert isinstance(surface, optika.surfaces.AbstractSurface)
