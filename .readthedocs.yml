@@ -1,16 +1,27 @@
 version: 2
 
-# Diagnostic: does a command that runs for a long time hang on Read the Docs,
-# with no project code and nothing installed? Each command prints the time when
-# it finishes; the output of a finished command is kept even if a later one is
-# killed.
+# Diagnostic: build the docs on Python 3.14, and stop Sphinx at 830 s after the
+# checkout, before the 15-minute limit of Read the Docs, so that its output is
+# kept and shows how far it got. A line with the time is printed every minute.
 build:
   os: ubuntu-lts-latest
   tools:
-    python: "3.12"
-  commands:
-    - date -u
-    - sleep 300 && date -u
-    - sleep 600 && date -u
-    - mkdir -p $READTHEDOCS_OUTPUT/html
-    - echo "diagnostic build" > $READTHEDOCS_OUTPUT/html/index.html
+    python: "3.14"
+  apt_packages:
+    - graphviz
+  jobs:
+    post_checkout:
+      - date +%s > $HOME/build-start
+    build:
+      html:
+        - LEFT=$(( 830 - $(date +%s) + $(cat $HOME/build-start) )); echo "timeout $LEFT s"; (while sleep 60 > /dev/null 2>&1; do echo "=== $(date -u +%T)"; done) & CLOCK=$!; date -u; cd docs && timeout $LEFT python -m sphinx -T -b html -d _build/doctrees -D language=en . $READTHEDOCS_OUTPUT/html; STATUS=$?; kill $CLOCK; date -u; echo "sphinx exit $STATUS"; exit $STATUS
+
+sphinx:
+  configuration: docs/conf.py
+
+python:
+  install:
+    - method: pip
+      path: .
+      extra_requirements:
+        - doc
