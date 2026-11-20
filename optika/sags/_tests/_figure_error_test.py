@@ -195,6 +195,37 @@ class TestFigureErrorSag(
         assert np.allclose(result, result_expected)
 
 
+def test_height_phase_nested() -> None:
+    """
+    The height which shifts the phase of the light of a figure error on a
+    base which has a figure error of its own is the sum of the two, while the
+    height of the surface counts each of them once.
+    """
+    sag_inner = _sag_channel
+    sag = optika.sags.FigureErrorSag(
+        base=sag_inner,
+        figure_error=na.FunctionArray(_grid, 2 * _height(_grid)),
+        axis=("map_x", "map_y"),
+        transformation=na.transformations.Cartesian3dTranslation(y=3 * u.mm),
+    )
+    position = na.Cartesian3dVectorArray(
+        x=na.random.uniform(-40, 40, shape_random=dict(point=11), seed=0) * u.mm,
+        y=na.random.uniform(-40, 40, shape_random=dict(point=11), seed=1) * u.mm,
+        z=0 * u.mm,
+    )
+
+    result = sag.height_phase(position)
+
+    position_inner = sag.transformation.inverse(position)
+    position_base = sag_inner.transformation.inverse(position_inner)
+    height_outer = 2 * _height(position_inner.xy)
+    height_inner = _channel * _height(position_base.xy)
+    assert np.allclose(result, height_inner + height_outer)
+
+    height = sag(position) - sag_inner(position_inner)
+    assert np.allclose(height, height_outer)
+
+
 @pytest.mark.parametrize(
     argnames="sag,scale,offset",
     argvalues=[
