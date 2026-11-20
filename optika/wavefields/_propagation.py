@@ -109,9 +109,7 @@ def rayleigh_sommerfeld(
 
     shape_dst = {ax: position.shape[ax] for ax in axis_dst}
 
-    shape_src_broadcast = {
-        ax: num for ax, num in shape_src.items() if ax not in axis
-    }
+    shape_src_broadcast = {ax: num for ax, num in shape_src.items() if ax not in axis}
     shape_result = na.broadcast_shapes(shape_src_broadcast, position.shape)
 
     result = na.ScalarArray(
@@ -140,10 +138,7 @@ def rayleigh_sommerfeld(
     )
 
     for start in starts:
-        index = {
-            ax: slice(i, i + chunks[ax])
-            for ax, i in zip(shape_dst, start)
-        }
+        index = {ax: slice(i, i + chunks[ax]) for ax, i in zip(shape_dst, start)}
 
         chunk = position_dst[index]
 
