@@ -13,6 +13,7 @@ import matplotlib.cm
 import matplotlib.pyplot as plt
 import named_arrays as na
 import optika
+from optika.sensors._sensors import _collapse_wavelength
 from . import AbstractSystem
 from . import LinearSystem
 from ._linear import _check_cells, _check_chunk_size, _chunks
@@ -3983,8 +3984,8 @@ class AbstractSequentialSystem(
 
         if integrate:
             return na.FunctionArray(
-                inputs=sensor._collapse_wavelength(inputs, axis_wavelength),
-                outputs=sensor._readout(electrons_total, noise),
+                inputs=_collapse_wavelength(inputs, axis_wavelength),
+                outputs=sensor.readout(electrons_total, noise),
             )
 
         return na.FunctionArray(

@@ -205,6 +205,105 @@ class AbstractTestAbstractImagingSensor(
         assert "wavelength" in na.shape(result.outputs)
         assert np.all(result.outputs >= 0 * u.electron)
 
+    def test_readout(self, a: optika.sensors.AbstractImagingSensor):
+        shape = {a.axis_pixel.x: 64, a.axis_pixel.y: 64}
+        electrons = na.random.uniform(0, 1000, shape_random=shape) * u.electron
+
+        # without noise, the readout is the electrons themselves
+        assert np.all(a.readout(electrons, noise=False) == electrons)
+
+        # the read noise of 64 by 64 pixels measures its width to about 1
+        # percent
+        noise = a.readout(electrons) - electrons
+        assert np.isclose(noise.std(), a.read_noise, rtol=0.1)
+
+        # the read noise is added in quadrature to the width of an uncertain
+        # readout
+        width = 3 * u.electron
+        uncertain = na.NormalUncertainScalarArray(nominal=electrons, width=width)
+        result = a.readout(uncertain, noise=False)
+        assert isinstance(result, na.NormalUncertainScalarArray)
+        assert np.all(result.nominal == electrons)
+        assert np.allclose(result.width, np.sqrt(width**2 + a.read_noise**2))
+
+    def test_spread_readout(self, a: optika.sensors.AbstractImagingSensor):
+        # each wavelength bin gets an equal share of the readout, so the bins
+        # sum back to it
+        shape = {a.axis_pixel.x: 5, a.axis_pixel.y: 5}
+        electrons = na.random.uniform(0, 1000, shape_random=shape) * u.electron
+        result = a.spread_readout(electrons, num_wavelength=3)
+        assert np.allclose(3 * result, electrons)
+
+    @pytest.mark.parametrize("uncertainty", [False, True])
+    def test_expose_readout(
+        self,
+        a: optika.sensors.AbstractImagingSensor,
+        monkeypatch: pytest.MonkeyPatch,
+        uncertainty: bool,
+    ):
+        # an exposure integrated over wavelength is read out by `readout`, so
+        # a sensor which overrides it changes the readout of every exposure
+        image = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
+                position=na.Cartesian2dVectorArray(
+                    x=na.arange(0, 5, axis=a.axis_pixel.x) * u.pix,
+                    y=na.arange(0, 5, axis=a.axis_pixel.y) * u.pix,
+                ),
+            ),
+            outputs=na.random.uniform(
+                low=0,
+                high=100,
+                shape_random={"wavelength": 3, a.axis_pixel.x: 5, a.axis_pixel.y: 5},
+            )
+            * u.photon
+            / u.s,
+        )
+        kwargs = dict(noise=False, uncertainty=uncertainty)
+        expected = a.expose(image, **kwargs)
+        _double_readout(monkeypatch, a)
+        result = a.expose(image, **kwargs)
+        _assert_doubled(result.outputs, expected.outputs)
+
+
+def _double_readout(
+    monkeypatch: pytest.MonkeyPatch,
+    sensor: optika.sensors.AbstractImagingSensor,
+) -> None:
+    """
+    Patch the class of `sensor` so that its :meth:`readout` has a gain of two,
+    to check that an exposure is read out through it.
+    """
+    readout = type(sensor).readout
+
+    def doubled(
+        self: optika.sensors.AbstractImagingSensor,
+        electrons: na.AbstractScalar,
+        noise: bool = True,
+    ) -> na.AbstractScalar:
+        result = readout(self, electrons, noise)
+        if isinstance(result, na.NormalUncertainScalarArray):
+            return na.NormalUncertainScalarArray(
+                nominal=2 * result.nominal,
+                width=2 * result.width,
+            )
+        return 2 * result
+
+    monkeypatch.setattr(type(sensor), "readout", doubled)
+
+
+def _assert_doubled(
+    result: na.AbstractScalar,
+    expected: na.AbstractScalar,
+) -> None:
+    """Assert that `result` is twice `expected`, and so is its width."""
+    if isinstance(expected, na.NormalUncertainScalarArray):
+        assert isinstance(result, na.NormalUncertainScalarArray)
+        assert np.allclose(result.nominal, 2 * expected.nominal)
+        assert np.allclose(result.width, 2 * expected.width)
+    else:
+        assert np.allclose(result, 2 * expected)
+
 
 def _sensor(clip_rays: bool = True) -> optika.sensors.ImagingSensor:
     """A small sensor, 2048 by 1024 pixels of 15 microns."""

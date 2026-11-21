@@ -5,6 +5,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from optika.sensors._sensors_test import _double_readout, _assert_doubled
 from ._systems_test import AbstractTestAbstractSystem
 
 
@@ -457,6 +458,24 @@ class AbstractTestAbstractLinearSystem(
         # for each of the 3 bins would give sqrt(3) times the read noise
         std = np.std(result.outputs.ndarray)
         assert np.isclose(std, read_noise, rtol=0.15)
+
+    @pytest.mark.parametrize("chunk_size", [None, 1])
+    @pytest.mark.parametrize("uncertainty", [False, True])
+    def test_image_readout(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        monkeypatch: pytest.MonkeyPatch,
+        chunk_size: None | int,
+        uncertainty: bool,
+    ) -> None:
+        # the chunks are read out once by the `readout` of the sensor, so a
+        # sensor which overrides it changes the image
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        kwargs = dict(noise=False, uncertainty=uncertainty, chunk_size=chunk_size)
+        expected = a.image(scene, **kwargs)
+        _double_readout(monkeypatch, a.sensor)
+        result = a.image(scene, **kwargs)
+        _assert_doubled(result.outputs, expected.outputs)
 
     def test_weights_reference_wavelength(
         self,

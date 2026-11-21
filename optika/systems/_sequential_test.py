@@ -9,6 +9,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from optika.sensors._sensors_test import _double_readout, _assert_doubled
 from .._tests import test_mixins
 from ._systems_test import AbstractTestAbstractSystem
 
@@ -313,6 +314,20 @@ class AbstractTestAbstractSequentialSystem(
             chunk_size={"wavelength": 1, "field_x": 5},
         )
         assert len(calls) == 2
+
+    def test_image_readout(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # the chunks are read out once by the `readout` of the sensor, so a
+        # sensor which overrides it changes the image
+        scene = self._scene_chunk()
+        kwargs = dict(noise=False, seed=0, chunk_size={"wavelength": 1, "field_x": 5})
+        expected = a.image(scene, **kwargs)
+        _double_readout(monkeypatch, a.sensor)
+        result = a.image(scene, **kwargs)
+        _assert_doubled(result.outputs, expected.outputs)
 
     @pytest.mark.parametrize(
         argnames="axis,chunk_size",

@@ -6,6 +6,7 @@ import astropy.units as u
 import astropy.constants
 import named_arrays as na
 import optika
+from optika.sensors._sensors import _collapse_wavelength
 from . import AbstractSystem
 
 __all__ = [
@@ -883,13 +884,13 @@ class AbstractLinearSystem(
         sensor = self.sensor
 
         if integrate:
-            inputs = sensor._collapse_wavelength(inputs, axis_wavelength)
-            outputs = sensor._readout(electrons_total, noise)
+            inputs = _collapse_wavelength(inputs, axis_wavelength)
             if uncertainty:
-                outputs = na.NormalUncertainScalarArray(
-                    nominal=outputs,
-                    width=sensor._readout_width(variance_total),
+                electrons_total = na.NormalUncertainScalarArray(
+                    nominal=electrons_total,
+                    width=np.sqrt(variance_total),
                 )
+            outputs = sensor.readout(electrons_total, noise)
         elif len(electrons_chunks) == 1:
             (outputs,) = electrons_chunks
         elif uncertainty:
@@ -1025,7 +1026,7 @@ class AbstractLinearSystem(
                 inputs=image.inputs.replace(
                     wavelength=coordinates.spectral_positional.wavelength,
                 ),
-                outputs=self.sensor._spread_readout(image.outputs, num_wavelength),
+                outputs=self.sensor.spread_readout(image.outputs, num_wavelength),
             )
 
         electrons = image.outputs
