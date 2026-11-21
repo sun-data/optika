@@ -1,0 +1,360 @@
+import tracemalloc
+import pytest
+import numpy as np
+import astropy.units as u
+import named_arrays as na
+import optika
+
+
+def _aperture_wavefield(
+    half_width: u.Quantity,
+    wavelength: u.Quantity,
+    num: int,
+    amplitude_function,
+    seed: int = 42,
+) -> optika.wavefields.WavefieldVectorArray:
+    """A flat, square aperture at the origin with the given amplitude function."""
+    grid = na.Cartesian2dVectorStratifiedRandomSpace(
+        start=-half_width,
+        stop=half_width,
+        axis=na.Cartesian2dVectorArray("sx", "sy"),
+        num=num,
+        seed=seed,
+    ).explicit
+
+    return optika.wavefields.WavefieldVectorArray(
+        wavelength=wavelength,
+        position=na.Cartesian3dVectorArray(grid.x, grid.y, 0 * half_width),
+        amplitude=amplitude_function(grid),
+        normal=na.Cartesian3dVectorArray(0, 0, -1),
+        area=np.square(2 * half_width / num),
+    )
+
+
+def _focusing_phase(
+    grid: na.AbstractCartesian2dVectorArray,
+    wavelength: u.Quantity,
+    focal_length: u.Quantity,
+) -> na.AbstractScalar:
+    """The complex phase of a perfect lens with the given focal length."""
+    distance = np.sqrt(np.square(grid.length) + np.square(focal_length))
+    phase = (distance / wavelength).to_value(u.dimensionless_unscaled)
+    return np.exp(-2j * np.pi * phase)
+
+
+def test_airy_pattern():
+    """
+    A uniformly-illuminated circular aperture with a perfect focusing phase
+    should produce an Airy pattern with its first intensity zero at a radius
+    of :math:`1.22 \\lambda f / D`.
+    """
+    wavelength = 500 * u.nm
+    radius = 5 * u.mm
+    focal_length = 1000 * u.mm
+
+    def amplitude(grid: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+        phase = _focusing_phase(grid, wavelength, focal_length)
+        return np.where(grid.length <= radius, phase, 0)
+
+    wavefield = _aperture_wavefield(
+        half_width=radius,
+        wavelength=wavelength,
+        num=101,
+        amplitude_function=amplitude,
+    )
+
+    radius_airy = (1.22 * wavelength * focal_length / (2 * radius)).to(u.mm)
+
+    x = na.linspace(0, 2 * radius_airy, axis="dx", num=121)
+    position = na.Cartesian3dVectorArray(x, 0 * u.mm, focal_length)
+
+    amplitude_detector = optika.wavefields.rayleigh_sommerfeld(
+        wavefield=wavefield,
+        position=position,
+        axis=("sx", "sy"),
+    )
+
+    intensity = np.square(np.abs(amplitude_detector))
+    intensity = (intensity / intensity.max()).ndarray
+
+    minima = [
+        i
+        for i in range(1, len(intensity) - 1)
+        if intensity[i] < intensity[i - 1] and intensity[i] < intensity[i + 1]
+    ]
+    assert minima
+
+    radius_zero = x.ndarray[minima[0]]
+    assert np.abs(radius_zero - radius_airy) < 0.02 * radius_airy
+
+    # The first zero should be dark and the peak should be on axis.
+    assert intensity[minima[0]] < 1e-3
+    assert np.argmax(intensity) == 0
+
+
+def test_gaussian_apodization():
+    """
+    A Gaussian-apodized aperture with waist :math:`w` and a perfect focusing
+    phase should produce a Gaussian point-spread function with standard
+    deviation :math:`\\sigma = \\lambda f / (2 \\pi w)`.
+    """
+    wavelength = 500 * u.nm
+    waist = 1 * u.mm
+    focal_length = 1000 * u.mm
+
+    def amplitude(grid: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+        apodization = np.exp(
+            -np.square(grid.length / waist).to_value(u.dimensionless_unscaled)
+        )
+        return apodization * _focusing_phase(grid, wavelength, focal_length)
+
+    wavefield = _aperture_wavefield(
+        half_width=3 * waist,
+        wavelength=wavelength,
+        num=101,
+        amplitude_function=amplitude,
+    )
+
+    sigma = (wavelength * focal_length / (2 * np.pi * waist)).to(u.mm)
+
+    x = na.linspace(-4 * sigma, 4 * sigma, axis="dx", num=161)
+    position = na.Cartesian3dVectorArray(x, 0 * u.mm, focal_length)
+
+    amplitude_detector = optika.wavefields.rayleigh_sommerfeld(
+        wavefield=wavefield,
+        position=position,
+        axis=("sx", "sy"),
+    )
+
+    intensity = np.square(np.abs(amplitude_detector))
+
+    sigma_measured = np.sqrt((intensity * np.square(x)).sum() / intensity.sum())
+
+    assert np.abs(sigma_measured - sigma) < 0.03 * sigma
+
+
+def test_energy_conservation():
+    """
+    The total energy on a detector plane that captures essentially all of
+    the diffracted light should equal the total energy of the source.
+    """
+    wavelength = 500 * u.nm
+    waist = 1 * u.mm
+    distance = 2000 * u.mm
+
+    def amplitude(grid: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+        return (
+            np.exp(-np.square(grid.length / waist).to_value(u.dimensionless_unscaled))
+            + 0j
+        )
+
+    # The random samples of the source leave a speckle-like noise floor on
+    # the detector, which adds energy to it: about 3% with 151 samples along
+    # each axis, and 0.2% with 301.
+    wavefield = _aperture_wavefield(
+        half_width=3 * waist,
+        wavelength=wavelength,
+        num=301,
+        amplitude_function=amplitude,
+        seed=7,
+    )
+
+    energy_source = (np.square(np.abs(wavefield.amplitude)) * wavefield.area).sum()
+
+    half_width_detector = 6 * u.mm
+    num_detector = 151
+    grid_detector = na.Cartesian2dVectorLinearSpace(
+        start=-half_width_detector,
+        stop=half_width_detector,
+        axis=na.Cartesian2dVectorArray("dx", "dy"),
+        num=num_detector,
+    ).explicit
+    # the detector's samples include both ends of its width
+    area_detector = np.square(2 * half_width_detector / (num_detector - 1))
+
+    amplitude_detector = optika.wavefields.rayleigh_sommerfeld(
+        wavefield=wavefield,
+        position=na.Cartesian3dVectorArray(
+            x=grid_detector.x,
+            y=grid_detector.y,
+            z=distance,
+        ),
+        axis=("sx", "sy"),
+    )
+
+    energy_detector = (np.square(np.abs(amplitude_detector)) * area_detector).sum()
+
+    assert np.abs(energy_detector / energy_source - 1) < 0.01
+
+
+def test_chunk_invariance():
+    """The result should not depend on the chunk size."""
+    wavelength = 500 * u.nm
+    radius = 1 * u.mm
+
+    def amplitude(grid: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+        return np.where(grid.length <= radius, 1 + 0j, 0)
+
+    wavefield = _aperture_wavefield(
+        half_width=radius,
+        wavelength=wavelength,
+        num=21,
+        amplitude_function=amplitude,
+    )
+
+    position = na.Cartesian3dVectorLinearSpace(
+        start=na.Cartesian3dVectorArray(-1, -1, 99) * u.mm,
+        stop=na.Cartesian3dVectorArray(1, 1, 101) * u.mm,
+        axis=na.Cartesian3dVectorArray("dx", "dy", "dz"),
+        num=na.Cartesian3dVectorArray(7, 6, 5),
+    ).explicit
+
+    # One destination point at a time, 17 at a time, and all of them at once.
+    num_source = 21**2
+    results = [
+        optika.wavefields.rayleigh_sommerfeld(
+            wavefield=wavefield,
+            position=position,
+            axis=("sx", "sy"),
+            chunk_size=chunk_size,
+        )
+        for chunk_size in (1, 17 * num_source, 10**8)
+    ]
+
+    assert np.allclose(results[0], results[1], rtol=1e-9)
+    assert np.allclose(results[0], results[2], rtol=1e-9)
+
+
+def test_chunk_size_terms() -> None:
+    """
+    The chunk size bounds the number of terms evaluated at once, counting the
+    source points and the axes shared with the destination points, and not
+    only the destination points, and so it bounds the memory usage.
+    """
+    wavelength = na.linspace(400, 600, axis="wavelength", num=3) * u.nm
+    radius = 1 * u.mm
+
+    def amplitude(grid: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+        return np.where(grid.length <= radius, 1 + 0j, 0)
+
+    wavefield = _aperture_wavefield(
+        half_width=radius,
+        wavelength=wavelength,
+        num=21,
+        amplitude_function=amplitude,
+    )
+    position = na.Cartesian3dVectorLinearSpace(
+        start=na.Cartesian3dVectorArray(-1, -1, 100) * u.mm,
+        stop=na.Cartesian3dVectorArray(1, 1, 100) * u.mm,
+        axis=na.Cartesian3dVectorArray("dx", "dy", "dz"),
+        num=na.Cartesian3dVectorArray(20, 20, 1),
+    ).explicit
+
+    # The number of terms for each destination point.
+    num_terms = 21**2 * 3
+
+    def peak(chunk_size: int) -> tuple[na.AbstractScalar, int]:
+        """
+        The result for the given chunk size, and the peak memory it used.
+
+        Parameters
+        ----------
+        chunk_size
+            The maximum number of terms to evaluate at once.
+        """
+        tracemalloc.start()
+        result = optika.wavefields.rayleigh_sommerfeld(
+            wavefield=wavefield,
+            position=position,
+            axis=("sx", "sy"),
+            chunk_size=chunk_size,
+        )
+        _, result_peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return result, result_peak
+
+    # The first call compiles the expression, which is not part of the peak.
+    peak(4 * num_terms)
+
+    result_chunked, peak_chunked = peak(4 * num_terms)
+    result_whole, peak_whole = peak(10**9)
+
+    assert result_chunked.shape == dict(wavelength=3, dx=20, dy=20, dz=1)
+    assert np.allclose(result_chunked, result_whole, rtol=1e-9)
+    assert peak_chunked < peak_whole / 10
+
+
+def test_unvignetted() -> None:
+    """
+    The samples which are vignetted are left out, whatever their amplitude,
+    position and normal, even when they are most of the samples and their
+    normals point the other way.
+    """
+    wavelength = 500 * u.nm
+    half_width = 1 * u.mm
+    radius = 0.4 * u.mm
+    focal_length = 100 * u.mm
+
+    def amplitude(grid: na.AbstractCartesian2dVectorArray) -> na.AbstractScalar:
+        return _focusing_phase(grid, wavelength, focal_length)
+
+    wavefield = _aperture_wavefield(
+        half_width=half_width,
+        wavelength=wavelength,
+        num=31,
+        amplitude_function=amplitude,
+    )
+    inside = np.sqrt(np.square(wavefield.position.x) + np.square(wavefield.position.y))
+    inside = inside <= radius
+    assert inside.sum() < (~inside).sum()
+
+    wavefield_expected = optika.wavefields.WavefieldVectorArray(
+        wavelength=wavelength,
+        position=wavefield.position,
+        amplitude=np.where(inside, wavefield.amplitude, 0),
+        normal=wavefield.normal,
+        area=wavefield.area,
+    )
+    wavefield_vignetted = optika.wavefields.WavefieldVectorArray(
+        wavelength=wavelength,
+        position=np.where(
+            inside,
+            wavefield.position,
+            na.Cartesian3dVectorArray(np.nan, np.nan, np.nan) * u.mm,
+        ),
+        amplitude=np.where(inside, wavefield.amplitude, 1000),
+        normal=np.where(inside, wavefield.normal, -wavefield.normal),
+        area=wavefield.area,
+        unvignetted=inside,
+    )
+
+    position = na.Cartesian3dVectorArray(
+        x=na.linspace(-0.1, 0.1, axis="dx", num=11) * u.mm,
+        y=0 * u.mm,
+        z=focal_length,
+    )
+    kwargs = dict(position=position, axis=("sx", "sy"))
+
+    result = optika.wavefields.rayleigh_sommerfeld(wavefield_vignetted, **kwargs)
+    result_expected = optika.wavefields.rayleigh_sommerfeld(
+        wavefield_expected,
+        **kwargs,
+    )
+
+    assert np.all(np.isfinite(result))
+    assert np.allclose(result, result_expected, rtol=1e-12, atol=0)
+
+
+def test_invalid_axis():
+    wavefield = optika.wavefields.WavefieldVectorArray(
+        wavelength=500 * u.nm,
+        position=na.Cartesian3dVectorArray(0, 0, 0) * u.mm,
+        normal=na.Cartesian3dVectorArray(0, 0, -1),
+        area=1 * u.mm**2,
+    )
+    with pytest.raises(ValueError):
+        optika.wavefields.rayleigh_sommerfeld(
+            wavefield=wavefield,
+            position=na.Cartesian3dVectorArray(0, 0, 1) * u.mm,
+            axis="missing",
+        )

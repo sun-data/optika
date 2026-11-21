@@ -20,6 +20,10 @@ from ._vectors_object import (
     AbstractObjectVectorArray,
     ObjectVectorArray,
 )
+from ._vectors_image import (
+    AbstractImageVectorArray,
+    ImageVectorArray,
+)
 
 __all__ = [
     "AbstractPolarizationVectorArray",
@@ -32,4 +36,6 @@ __all__ = [
     "SceneVectorArray",
     "AbstractObjectVectorArray",
     "ObjectVectorArray",
+    "AbstractImageVectorArray",
+    "ImageVectorArray",
 ]

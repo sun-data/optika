@@ -1,6 +1,7 @@
 from typing import Sequence
 import dataclasses
 import numpy as np
+import astropy.units as u
 import named_arrays as na
 import optika
 from ._abc import AbstractSag
@@ -180,19 +181,63 @@ class FigureErrorSag(
         if self.transformation is not None:
             position = self.transformation.inverse(position)
 
-        result = self.base_(position)
+        return self.base_(position) + self._height_figure_error(position)
 
+    def height_phase(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> u.Quantity | na.AbstractScalar:
+        """
+        The height of :attr:`figure_error` at the given position, plus the
+        :meth:`~optika.sags.AbstractSag.height_phase` of :attr:`base`, which
+        :meth:`intercept` and :meth:`normal` leave out.
+
+        :meth:`optika.surfaces.AbstractSurface.propagate_rays` adds it to the
+        :attr:`~optika.rays.AbstractRayVectorArray.optical_path` of the rays
+        as a thin phase screen instead.
+        Pixels which were not measured have no height.
+        The height of :attr:`base` is the figure error of its own if it is a
+        :class:`FigureErrorSag` too, and zero otherwise.
+
+        Parameters
+        ----------
+        position
+            The points at which to evaluate the height.
+            The :math:`z` coordinate is ignored.
+        """
+        if self.transformation is not None:
+            position = self.transformation.inverse(position)
+
+        height_base = self.base_.height_phase(position)
+
+        return height_base + self._height_figure_error(position)
+
+    def _height_figure_error(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> u.Quantity | na.AbstractScalar:
+        """
+        The height of :attr:`figure_error` alone at the given position, in
+        the coordinates of :attr:`base`.
+
+        Parameters
+        ----------
+        position
+            The points at which to evaluate the height, after
+            :attr:`transformation`.
+            The :math:`z` coordinate is ignored.
+        """
         figure_error = self.figure_error
-        if figure_error is not None:
-            height = figure_error.outputs
-            figure_error = dataclasses.replace(
-                figure_error,
-                outputs=np.where(np.isfinite(height), height, 0),
-            )
-            figure_error = figure_error(position.xy, axis=self.axis_)
-            result = result + figure_error.outputs
+        if figure_error is None:
+            return 0 * u.mm
 
-        return result
+        height = figure_error.outputs
+        figure_error = dataclasses.replace(
+            figure_error,
+            outputs=np.where(np.isfinite(height), height, 0),
+        )
+
+        return figure_error(position.xy, axis=self.axis_).outputs
 
     def intercept(
         self,

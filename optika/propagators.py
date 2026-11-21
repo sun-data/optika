@@ -20,6 +20,7 @@ def propagate_rays(
     propagators: AbstractRayPropagator | Sequence[AbstractRayPropagator],
     rays: optika.rays.RayVectorArray,
     efficiency: bool = True,
+    optical_path: bool = False,
 ) -> optika.rays.RayVectorArray:
     """
     Iterate through a sequence of ray propagators, calling
@@ -38,12 +39,23 @@ def propagate_rays(
         :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
         If :obj:`False`, the intensity of the result is meaningless, but the
         geometry is unchanged and much cheaper to compute.
+    optical_path
+        A boolean flag indicating whether to accumulate the optical path
+        length of each propagator into
+        :attr:`~optika.rays.AbstractRayVectorArray.optical_path`.
+        If :obj:`False` (the default), the optical path of the result is
+        meaningless, but the rest of the result is unchanged and, for rulings
+        with a variable spacing, much cheaper to compute.
     """
     if isinstance(propagators, AbstractRayPropagator):
         propagators = [propagators]
 
     for propagator in propagators:
-        rays = propagator.propagate_rays(rays, efficiency=efficiency)
+        rays = propagator.propagate_rays(
+            rays,
+            efficiency=efficiency,
+            optical_path=optical_path,
+        )
 
     return rays
 
@@ -53,6 +65,7 @@ def accumulate_rays(
     rays: optika.rays.RayVectorArray,
     axis: str,
     efficiency: bool = True,
+    optical_path: bool = False,
 ) -> optika.rays.RayVectorArray:
     """
     Iterate through a sequence of ray propagators, calling
@@ -73,13 +86,24 @@ def accumulate_rays(
         :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
         If :obj:`False`, the intensity of the result is meaningless, but the
         geometry is unchanged and much cheaper to compute.
+    optical_path
+        A boolean flag indicating whether to accumulate the optical path
+        length of each propagator into
+        :attr:`~optika.rays.AbstractRayVectorArray.optical_path`.
+        If :obj:`False` (the default), the optical path of the result is
+        meaningless, but the rest of the result is unchanged and, for rulings
+        with a variable spacing, much cheaper to compute.
     """
     if isinstance(propagators, AbstractRayPropagator):
         propagators = [propagators]
 
     result = []
     for propagator in propagators:
-        rays = propagator.propagate_rays(rays, efficiency=efficiency)
+        rays = propagator.propagate_rays(
+            rays,
+            efficiency=efficiency,
+            optical_path=optical_path,
+        )
         result.append(rays)
 
     result = na.stack(result, axis=axis)
@@ -105,6 +129,7 @@ class AbstractRayPropagator(
         self,
         rays: optika.rays.AbstractRayVectorArray,
         efficiency: bool = True,
+        optical_path: bool = False,
     ) -> optika.rays.AbstractRayVectorArray:
         """
         For the given input rays, calculate new rays based off of their
@@ -120,6 +145,12 @@ class AbstractRayPropagator(
             :attr:`~optika.rays.AbstractRayVectorArray.intensity`.
             If :obj:`False`, the intensity of the result is meaningless, but
             the geometry is unchanged and much cheaper to compute.
+        optical_path
+            A boolean flag indicating whether to accumulate the optical path
+            length through this object into
+            :attr:`~optika.rays.AbstractRayVectorArray.optical_path`.
+            If :obj:`False` (the default), the optical path of the result is
+            meaningless, but the rest of the result is unchanged.
         """
 
 
