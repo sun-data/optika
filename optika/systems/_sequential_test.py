@@ -1,6 +1,7 @@
 from typing import Any
 import dataclasses
 import types
+import unittest.mock
 import warnings
 import matplotlib.lines
 import matplotlib.pyplot as plt
@@ -414,10 +415,10 @@ class AbstractTestAbstractSequentialSystem(
         scene = self._scene_chunk()
         scene = scene.replace(inputs=scene.inputs.replace(position=field))
 
-        def unsolved(*args: Any, **kwargs: Any) -> None:
-            raise AssertionError("the stops were solved for a physical grid")
-
-        monkeypatch.setattr(type(a), "_stops_and_pupil_fit", unsolved)
+        solve = unittest.mock.Mock(
+            side_effect=AssertionError("the stops were solved for a physical grid"),
+        )
+        monkeypatch.setattr(type(a), "_stops_and_pupil_fit", solve)
 
         kwargs = dict(noise=False, seed=0, pupil=pupil)
         expected = a.image(scene, **kwargs)
@@ -428,6 +429,7 @@ class AbstractTestAbstractSequentialSystem(
         assert np.all(whole.outputs == expected.outputs)
         assert np.all(chunked.inputs == expected.inputs)
         assert chunked.outputs.shape == expected.outputs.shape
+        solve.assert_not_called()
 
     def test_surfaces(self, a: optika.systems.AbstractSequentialSystem):
         for surface in a.surfaces:
