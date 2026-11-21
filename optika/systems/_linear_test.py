@@ -513,6 +513,26 @@ class AbstractTestAbstractLinearSystem(
         with pytest.raises(ValueError, match="chunk_size"):
             a.backproject(image, scene.inputs, chunk_size=chunk_size)
 
+    @pytest.mark.parametrize("chunk_size", [None, 1])
+    def test_cells_invalid(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        chunk_size: None | int,
+    ) -> None:
+        # a radiance with a value for each wavelength vertex, or an image with
+        # more wavelength bins than the grid it is backprojected onto, is
+        # rejected rather than cut to fit the chunks
+        unit = u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm
+        radiance = na.linspace(1e3, 2e3, axis="wavelength", num=4) * unit
+        with pytest.raises(ValueError, match="cells"):
+            a.image(_scene(radiance), chunk_size=chunk_size)
+
+        scene = _scene(1e3 * unit)
+        image = a.image(scene, noise=False, integrate=False)
+        coordinates = scene.inputs[dict(wavelength=slice(0, 3))]
+        with pytest.raises(ValueError, match="cells"):
+            a.backproject(image, coordinates, integrate=False, chunk_size=chunk_size)
+
     def test_backproject_weights(
         self,
         a: optika.systems.AbstractLinearSystem,

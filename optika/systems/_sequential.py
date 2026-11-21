@@ -15,7 +15,7 @@ import named_arrays as na
 import optika
 from . import AbstractSystem
 from . import LinearSystem
-from ._linear import _check_chunk_size, _chunks
+from ._linear import _check_cells, _check_chunk_size, _chunks
 
 PupilFit = (
     tuple[na.PolynomialFitFunctionArray, na.PolynomialFitFunctionArray]
@@ -3284,6 +3284,13 @@ class AbstractSequentialSystem(
             na.shape(wavelength),
             na.shape(field),
             na.shape(pupil),
+        )
+
+        _check_cells(
+            a=radiance,
+            shape=shape,
+            axes=axis,
+            name="The radiance of `scene`",
         )
 
         # the chunks of wavelength bins, each read out on its own, and the

@@ -315,6 +315,28 @@ class AbstractTestAbstractSequentialSystem(
         assert len(calls) == 2
 
     @pytest.mark.parametrize(
+        argnames="axis,chunk_size",
+        argvalues=[
+            ("wavelength", None),
+            ("wavelength", 1),
+            ("field_x", {"field_x": 5}),
+        ],
+    )
+    def test_image_radiance_vertices(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        axis: str,
+        chunk_size: None | int | dict,
+    ) -> None:
+        # a radiance with a value for each vertex of the grid, instead of each
+        # cell, is rejected rather than cut to fit the chunks
+        scene = self._scene_chunk()
+        num = scene.inputs.shape[axis]
+        radiance = na.linspace(1, 2, axis=axis, num=num) * scene.outputs
+        with pytest.raises(ValueError, match="cells"):
+            a.image(scene.replace(outputs=radiance), chunk_size=chunk_size)
+
+    @pytest.mark.parametrize(
         argnames="chunk_size",
         argvalues=[0, -1, 2.0, True, {"field_x": 0}, {"slit": 1}],
     )
