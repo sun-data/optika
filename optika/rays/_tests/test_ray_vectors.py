@@ -98,6 +98,11 @@ class AbstractTestAbstractRayVectorArray(
     def test_unvignetted(self, array: optika.rays.AbstractRayVectorArray):
         assert isinstance(na.as_named_array(array.unvignetted), na.AbstractScalar)
 
+    def test_optical_path(self, array: optika.rays.AbstractRayVectorArray) -> None:
+        result = array.optical_path
+        assert isinstance(na.as_named_array(result), na.AbstractScalar)
+        assert na.unit_normalized(result).is_equivalent(u.mm)
+
     @pytest.mark.xfail(raises=NotImplementedError)
     def test_matrix(self, array):
         return super().test_matrix(array=array)

@@ -74,6 +74,29 @@ class AbstractSag(
             The location on the surface to evaluate the normal vector
         """
 
+    def height_phase(
+        self,
+        position: na.AbstractCartesian3dVectorArray,
+    ) -> u.Quantity | na.AbstractScalar:
+        """
+        The height of this sag above the surface described by
+        :meth:`intercept` and :meth:`normal`, which shifts the phase of the
+        light without deflecting it.
+
+        :meth:`optika.surfaces.AbstractSurface.propagate_rays` adds this
+        height to the :attr:`~optika.rays.AbstractRayVectorArray.optical_path`
+        of the rays as a thin phase screen.
+        It is zero for every sag except :class:`optika.sags.FigureErrorSag`,
+        whose figure error is left out of its intercepts and normals.
+
+        Parameters
+        ----------
+        position
+            The points at which to evaluate the height.
+            The :math:`z` coordinate is ignored.
+        """
+        return 0 * u.mm
+
     def intercept(
         self,
         rays: optika.rays.AbstractRayVectorArray,
@@ -125,13 +148,18 @@ class AbstractSag(
         self,
         rays: optika.rays.AbstractRayVectorArray,
         efficiency: bool = True,
+        optical_path: bool = False,
     ) -> optika.rays.AbstractRayVectorArray:
 
         result = self.intercept(rays)
 
-        if efficiency:
-            displacement = result.position - rays.position
+        displacement = result.position - rays.position
 
+        if optical_path:
+            distance = displacement @ rays.direction
+            result.optical_path = rays.optical_path + rays.index_refraction * distance
+
+        if efficiency:
             f = np.exp(-result.attenuation * displacement.length)
 
             result.intensity = f * result.intensity

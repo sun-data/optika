@@ -41,6 +41,9 @@ Features
 * Sequential raytrace modeling of an optical system
 * Stratified random sampling of input rays for faster convergence
 * Image simulation of a given scene using an optical system
+* Huygens point-spread functions, from a raytrace and the Rayleigh-Sommerfeld
+  diffraction integral, with their encircled energy, full width at half
+  maximum, and MTF
 * Fast linear forward model approximating a raytraced system, for imaging many
   scenes without raytracing each one
 * Spherical, conical, and toroidal surface sag profiles
@@ -65,8 +68,10 @@ Limitations
 
 * **Polarization**. Different polarization states are not propagated through the
   system.
-* **Physical Optics**. Only geometric optics is supported right now, but adding
-  a Fourier optics propagator is a longstanding goal of the project.
+* **Physical Optics**. Diffraction is only computed from the last surface to
+  the sensor, by :meth:`~optika.systems.SequentialSystem.psf`.
+  Apertures before the last surface vignette the rays, but do not diffract
+  them.
 * **Glass Catalog**. :mod:`optika` has a wide array of optical
   constants from sources such as :cite:t:`Palik1997` and :cite:t:`Henke1993`,
   and the :class:`~optika.materials.Glass` material provides Sellmeier dispersion

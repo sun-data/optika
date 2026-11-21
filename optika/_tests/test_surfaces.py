@@ -390,3 +390,121 @@ def test_propagate_rays_multilayer_grating():
 
     assert np.allclose(result.intensity, reflectivity(cos_effective))
     assert result.intensity > 10 * reflectivity(cos_incidence)
+
+
+def test_propagate_rays_optical_path_figure_error() -> None:
+    """
+    A figure error of uniform height :math:`h` on a flat mirror lengthens the
+    optical path of a ray reflected at an angle :math:`\\theta` by
+    :math:`2 h \\cos \\theta`, as if the mirror were moved back by
+    :math:`h`, without moving the point where the ray is reflected.
+    """
+    height = 10 * u.nm
+    angle = 20 * u.deg
+    grid = na.Cartesian2dVectorLinearSpace(
+        start=-60 * u.mm,
+        stop=60 * u.mm,
+        axis=na.Cartesian2dVectorArray("map_x", "map_y"),
+        num=11,
+    ).explicit
+    sag = optika.sags.FigureErrorSag(
+        figure_error=na.FunctionArray(grid, height + 0 * grid.x),
+        axis=("map_x", "map_y"),
+    )
+    rays = optika.rays.RayVectorArray(
+        wavelength=500 * u.nm,
+        position=na.Cartesian3dVectorArray(
+            x=na.linspace(-50, 50, axis="ray", num=5) * u.mm,
+            y=0 * u.mm,
+            z=-100 * u.mm,
+        ),
+        direction=na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle)),
+    )
+    surface = optika.surfaces.Surface(sag=sag, material=optika.materials.Mirror())
+    surface_flat = optika.surfaces.Surface(material=optika.materials.Mirror())
+
+    result = surface.propagate_rays(rays, optical_path=True)
+    result_flat = surface_flat.propagate_rays(rays, optical_path=True)
+
+    assert np.all(result.position == result_flat.position)
+    assert np.all(result.direction == result_flat.direction)
+    assert np.allclose(
+        result.optical_path - result_flat.optical_path,
+        2 * height * np.cos(angle),
+    )
+
+
+def test_propagate_rays_optical_path_grating() -> None:
+    """
+    A grating of constant spacing diffracts a plane wave into another plane
+    wave, so the optical path of the diffracted rays, less the projection of
+    their position onto their direction, is the same for every ray.
+    """
+    angle = 10 * u.deg
+    direction = na.Cartesian3dVectorArray(np.sin(angle), 0, np.cos(angle))
+    position = na.Cartesian3dVectorArray(
+        x=na.linspace(-5, 5, axis="ray_x", num=5) * u.mm,
+        y=na.linspace(-5, 5, axis="ray_y", num=5) * u.mm,
+        z=-100 * u.mm,
+    )
+    rays = optika.rays.RayVectorArray(
+        wavelength=500 * u.nm,
+        position=position,
+        direction=direction,
+        optical_path=direction @ position,
+    )
+    surface = optika.surfaces.Surface(
+        material=optika.materials.Mirror(),
+        rulings=optika.rulings.Rulings(
+            spacing=2 * u.um,
+            diffraction_order=1,
+        ),
+    )
+
+    result = surface.propagate_rays(rays, optical_path=True)
+
+    phase = result.optical_path - result.direction @ result.position
+    assert np.allclose(phase, phase[dict(ray_x=0, ray_y=0)], rtol=0, atol=1e-9 * u.mm)
+    assert not np.allclose(result.direction, rays.direction)
+
+
+def test_propagate_rays_optical_path_untracked() -> None:
+    """
+    Unless it is asked for, the optical path is left as it was, including the
+    phase of the rulings and the height of a figure error.
+    """
+    rays = optika.rays.RayVectorArray(
+        wavelength=500 * u.nm,
+        position=na.Cartesian3dVectorArray(
+            x=na.linspace(-5, 5, axis="ray", num=5) * u.mm,
+            y=0 * u.mm,
+            z=-100 * u.mm,
+        ),
+        direction=na.Cartesian3dVectorArray(0, 0, 1),
+        optical_path=7 * u.mm,
+    )
+    grid = na.Cartesian2dVectorLinearSpace(
+        start=-10 * u.mm,
+        stop=10 * u.mm,
+        axis=na.Cartesian2dVectorArray("map_x", "map_y"),
+        num=11,
+    ).explicit
+    surface = optika.surfaces.Surface(
+        sag=optika.sags.FigureErrorSag(
+            figure_error=na.FunctionArray(grid, 10 * u.nm + 0 * grid.x),
+            axis=("map_x", "map_y"),
+        ),
+        material=optika.materials.Mirror(),
+        rulings=optika.rulings.Rulings(
+            spacing=2 * u.um,
+            diffraction_order=1,
+        ),
+    )
+
+    result = surface.propagate_rays(rays)
+    result_tracked = surface.propagate_rays(rays, optical_path=True)
+
+    assert np.all(result.optical_path == rays.optical_path)
+    assert np.all(result.position == result_tracked.position)
+    assert np.all(result.direction == result_tracked.direction)
+    assert not np.allclose(result_tracked.optical_path, rays.optical_path)
