@@ -252,9 +252,9 @@ class AbstractImagingSensor(
         This is the one readout of every exposure: :meth:`expose` and
         :meth:`uncertainty` call it when they integrate over wavelength, and
         an optical system which exposes the sensor a few wavelengths at a
-        time, such as :meth:`optika.systems.LinearSystem.image` with a
-        `chunk_size`, sums the electrons of every chunk and reads them out once
-        with it.
+        time, such as :meth:`optika.systems.LinearSystem.image` or
+        :meth:`optika.systems.SequentialSystem.image` with a `chunk_size`, sums
+        the electrons of every chunk and reads them out once with it.
         A sensor which models more of its readout, such as a gain or an
         analog-to-digital converter, does so by overriding this method, and
         :meth:`spread_readout`, which undoes it.
@@ -263,13 +263,21 @@ class AbstractImagingSensor(
         ----------
         electrons
             The electrons collected in each pixel, summed over wavelength.
-            If it is a :class:`~named_arrays.NormalUncertainScalarArray`, the
-            read noise is also added in quadrature to its width.
+            If it is uncertain, the read noise is also added to its
+            uncertainty: in quadrature to the width of a
+            :class:`~named_arrays.NormalUncertainScalarArray`, and as a draw
+            of its own to each sample of any other distribution.
         noise
             Whether to add a draw of the Gaussian read noise,
             :attr:`read_noise`, to the electrons.
         """
-        uncertain = isinstance(electrons, na.NormalUncertainScalarArray)
+        uncertain = isinstance(electrons, na.AbstractUncertainScalarArray)
+        normal = isinstance(electrons, na.NormalUncertainScalarArray)
+
+        if uncertain and not normal:
+            # an implicit distribution is drawn once, so that its nominal
+            # value and its samples come from the same draw
+            electrons = electrons.explicit
 
         nominal = electrons.nominal if uncertain else electrons
         if noise:
@@ -278,9 +286,21 @@ class AbstractImagingSensor(
         if not uncertain:
             return nominal
 
-        return na.NormalUncertainScalarArray(
+        if normal:
+            return dataclasses.replace(
+                electrons,
+                nominal=nominal,
+                width=np.sqrt(np.square(electrons.width) + np.square(self.read_noise)),
+            )
+
+        # any other distribution moves with the draw added to its nominal
+        # value, and each of its samples takes a draw of its own on top, which
+        # widens it by the read noise
+        distribution = electrons.distribution + (nominal - electrons.nominal)
+        return dataclasses.replace(
+            electrons,
             nominal=nominal,
-            width=np.sqrt(np.square(electrons.width) + np.square(self.read_noise)),
+            distribution=na.random.normal(loc=distribution, scale=self.read_noise),
         )
 
     def spread_readout(
@@ -587,12 +607,20 @@ class AbstractImagingSensor(
 
         if integrate:
             # sum the per-wavelength variances, and read out the sum, which
-            # adds the read noise once
-            variance = np.square(uncertainty).sum(axis_wavelength)
+            # adds the read noise once.  The electrons, or their uncertainty,
+            # need not vary along `axis_wavelength` if they are the same in
+            # every bin, so both are broadcast against every bin first.
+            shape = na.broadcast_shapes(
+                na.shape(image.outputs),
+                na.shape(uncertainty),
+                {axis_wavelength: image.inputs.wavelength.shape[axis_wavelength] - 1},
+            )
+            electrons = na.broadcast_to(image.outputs, shape)
+            variance = na.broadcast_to(np.square(uncertainty), shape)
             readout = self.readout(
                 na.NormalUncertainScalarArray(
-                    nominal=image.outputs.sum(axis_wavelength),
-                    width=np.sqrt(variance),
+                    nominal=electrons.sum(axis_wavelength),
+                    width=np.sqrt(variance.sum(axis_wavelength)),
                 ),
                 noise=False,
             )

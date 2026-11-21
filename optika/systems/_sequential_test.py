@@ -1,5 +1,6 @@
 from typing import Any
 import dataclasses
+import types
 import warnings
 import matplotlib.lines
 import matplotlib.pyplot as plt
@@ -362,6 +363,71 @@ class AbstractTestAbstractSequentialSystem(
     ) -> None:
         with pytest.raises(ValueError, match="chunk_size"):
             a.image(self._scene_chunk(), chunk_size=chunk_size)
+
+    def test_image_chunk_size_mapping(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ) -> None:
+        # any mapping gives the chunk size along each axis, and a bad size
+        # names the axis it was given for
+        scene = self._scene_chunk()
+        kwargs = dict(noise=False, seed=0)
+        chunk_size = types.MappingProxyType({"field_x": 5})
+        result = a.image(scene, chunk_size=chunk_size, **kwargs)
+        expected = a.image(scene, chunk_size={"field_x": 5}, **kwargs)
+        assert np.all(result.outputs == expected.outputs)
+
+        chunk_size = types.MappingProxyType({"field_x": 0})
+        with pytest.raises(ValueError, match=r"`chunk_size\['field_x'\]`"):
+            a.image(scene, chunk_size=chunk_size)
+
+    def test_image_axis_field_missing(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ) -> None:
+        # an axis of the field which the grid does not vary along has no
+        # cells to image
+        with pytest.raises(ValueError, match="no axis 'field_z'"):
+            a.image(self._scene_chunk(), axis_field=("field_x", "field_z"))
+
+    def test_image_physical(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # a grid whose field and pupil are both physical needs no stops, so it
+        # is imaged without solving them, whether it is chunked or not
+        axis_field = na.Cartesian2dVectorArray("field_x", "field_y")
+        axis_pupil = na.Cartesian2dVectorArray("pupil_x", "pupil_y")
+        field = na.Cartesian2dVectorLinearSpace(
+            start=a.field_min,
+            stop=a.field_max,
+            axis=axis_field,
+            num=11,
+        )
+        pupil = na.Cartesian2dVectorLinearSpace(
+            start=a.pupil_min,
+            stop=a.pupil_max,
+            axis=axis_pupil,
+            num=11,
+        )
+        scene = self._scene_chunk()
+        scene = scene.replace(inputs=scene.inputs.replace(position=field))
+
+        def unsolved(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("the stops were solved for a physical grid")
+
+        monkeypatch.setattr(type(a), "_stops_and_pupil_fit", unsolved)
+
+        kwargs = dict(noise=False, seed=0, pupil=pupil)
+        expected = a.image(scene, **kwargs)
+        whole = a.image(scene, chunk_size={"field_x": 10}, **kwargs)
+        chunked = a.image(scene, chunk_size={"field_x": 5}, **kwargs)
+
+        assert np.sum(expected.outputs) > 0 * u.electron
+        assert np.all(whole.outputs == expected.outputs)
+        assert np.all(chunked.inputs == expected.inputs)
+        assert chunked.outputs.shape == expected.outputs.shape
 
     def test_surfaces(self, a: optika.systems.AbstractSequentialSystem):
         for surface in a.surfaces:

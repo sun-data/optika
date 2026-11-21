@@ -40,17 +40,24 @@ def _radiance_to_unit(
     return (radiance * energy_per_photon).to(unit)
 
 
-def _check_chunk_size(chunk_size: None | int) -> None:
+def _check_chunk_size(chunk_size: None | int, name: str = "`chunk_size`") -> None:
     """
     Raise a :class:`ValueError` unless `chunk_size` is :obj:`None` or a
     positive integer.
+
+    Parameters
+    ----------
+    chunk_size
+        The number of cells in each chunk.
+    name
+        What `chunk_size` is, for the error message.
     """
     if chunk_size is None:
         return
     is_integer = isinstance(chunk_size, (int, np.integer))
     if isinstance(chunk_size, bool) or not is_integer or chunk_size < 1:
         raise ValueError(
-            f"`chunk_size` must be `None` or a positive integer, got {chunk_size!r}."
+            f"{name} must be `None` or a positive integer, got {chunk_size!r}."
         )
 
 
@@ -97,6 +104,11 @@ def _check_cells(
     """
     shape_a = na.shape(a)
     for axis in axes:
+        if axis not in shape:
+            raise ValueError(
+                f"The grid has no axis {axis!r} to divide into cells, "
+                f"its shape is {shape}."
+            )
         num_cells = shape[axis] - 1
         num = shape_a.get(axis, 1)
         if num not in (1, num_cells):

@@ -317,6 +317,11 @@ Two things keep it honest:
 * If the fit is singular, which a field stop degenerate in one component makes
   it, the whole calibration returns :obj:`None` and every field point takes
   the shared box. This is never worse than not having the fit at all.
+  The fit is made at every wavelength at once, so one wavelength at which it
+  is singular sends all of them to the shared box. An image traced a few
+  wavelengths at a time, with the ``chunk_size`` of
+  :meth:`~optika.systems.SequentialSystem.image`, makes this choice for each
+  chunk on its own.
 
 The fit is in the field alone; the wavelength rides along as a broadcast axis,
 since the fit is only ever evaluated at the wavelengths it was made at. It is

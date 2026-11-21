@@ -218,13 +218,87 @@ class AbstractTestAbstractImagingSensor(
         assert np.isclose(noise.std(), a.read_noise, rtol=0.1)
 
         # the read noise is added in quadrature to the width of an uncertain
-        # readout
+        # readout, which keeps its number of samples and their seed
         width = 3 * u.electron
-        uncertain = na.NormalUncertainScalarArray(nominal=electrons, width=width)
+        uncertain = na.NormalUncertainScalarArray(
+            nominal=electrons,
+            width=width,
+            num_distribution=7,
+            seed=3,
+        )
         result = a.readout(uncertain, noise=False)
         assert isinstance(result, na.NormalUncertainScalarArray)
         assert np.all(result.nominal == electrons)
         assert np.allclose(result.width, np.sqrt(width**2 + a.read_noise**2))
+        assert result.num_distribution == 7
+        assert result.seed == 3
+
+    @pytest.mark.parametrize("noise", [False, True])
+    def test_readout_distribution(
+        self,
+        a: optika.sensors.AbstractImagingSensor,
+        noise: bool,
+    ):
+        # an uncertain readout which is not normal, such as a sum of normal
+        # ones, keeps its own samples, which move with the draw added to its
+        # nominal value and are each widened by the read noise
+        shape = {a.axis_pixel.x: 64, a.axis_pixel.y: 64}
+        electrons = na.random.uniform(0, 1000, shape_random=shape) * u.electron
+        width = 3 * u.electron
+        axis = na.UncertainScalarArray.axis_distribution
+        samples = na.random.normal(
+            loc=0 * u.electron,
+            scale=width,
+            shape_random=shape | {axis: 100},
+        )
+        uncertain = na.UncertainScalarArray(
+            nominal=electrons,
+            distribution=electrons + samples,
+        )
+        result = a.readout(uncertain, noise=noise)
+
+        assert isinstance(result, na.UncertainScalarArray)
+        if noise:
+            draw = result.nominal - electrons
+            assert np.isclose(draw.std(), a.read_noise, rtol=0.1)
+        else:
+            assert np.all(result.nominal == electrons)
+
+        # 64 by 64 pixels of 100 samples measure the spread to about 0.1
+        # percent, and its center to about 0.02 electrons
+        spread = result.distribution - result.nominal
+        assert np.isclose(spread.std(), np.sqrt(width**2 + a.read_noise**2), rtol=0.01)
+        assert np.abs(spread.mean()) < 0.1 * u.electron
+
+    @pytest.mark.parametrize(
+        argnames="material",
+        argvalues=[None, optika.sensors.materials.e2v_ccd97()],
+    )
+    def test_uncertainty_constant_wavelength(
+        self,
+        a: optika.sensors.AbstractImagingSensor,
+        material: None | optika.sensors.materials.AbstractSensorMaterial,
+    ):
+        # electrons which are the same in every wavelength bin need not vary
+        # along the wavelength axis, and have the uncertainty of every bin
+        if material is not None:
+            a = dataclasses.replace(a, material=material)
+        shape = {a.axis_pixel.x: 5, a.axis_pixel.y: 5}
+        electrons = na.random.uniform(0, 1000, shape_random=shape) * u.electron
+        image = na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.linspace(500, 600, axis="wavelength", num=4) * u.nm,
+                position=na.Cartesian2dVectorArray(
+                    x=na.arange(0, 5, axis=a.axis_pixel.x) * u.pix,
+                    y=na.arange(0, 5, axis=a.axis_pixel.y) * u.pix,
+                ),
+            ),
+            outputs=electrons,
+        )
+        broadcast = na.broadcast_to(electrons, shape | {"wavelength": 3})
+        result = a.uncertainty(image)
+        expected = a.uncertainty(image.replace(outputs=broadcast))
+        assert np.allclose(result.outputs, expected.outputs)
 
     def test_spread_readout(self, a: optika.sensors.AbstractImagingSensor):
         # each wavelength bin gets an equal share of the readout, so the bins

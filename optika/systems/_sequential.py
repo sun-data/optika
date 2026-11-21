@@ -1,5 +1,6 @@
 from typing import Sequence, Callable, Any, ClassVar, Literal, NamedTuple
 import abc
+import collections.abc
 import dataclasses
 import functools
 import itertools
@@ -60,7 +61,7 @@ def _described(surface: optika.surfaces.AbstractSurface) -> str:
 
 
 def _normalize_chunk_size(
-    chunk_size: None | int | dict[str, None | int],
+    chunk_size: None | int | collections.abc.Mapping[str, None | int],
     axis_wavelength: str,
     axes: tuple[str, ...],
 ) -> dict[str, int]:
@@ -86,7 +87,7 @@ def _normalize_chunk_size(
     """
     if chunk_size is None:
         return dict()
-    if not isinstance(chunk_size, dict):
+    if not isinstance(chunk_size, collections.abc.Mapping):
         _check_chunk_size(chunk_size)
         return {axis_wavelength: chunk_size}
     for axis, size in chunk_size.items():
@@ -95,7 +96,7 @@ def _normalize_chunk_size(
                 f"`chunk_size` can only cut the wavelength, field, and pupil "
                 f"axes {axes} into chunks, got {axis!r}."
             )
-        _check_chunk_size(size)
+        _check_chunk_size(size, name=f"`chunk_size[{axis!r}]`")
     sizes = {axis: chunk_size.get(axis) for axis in axes}
     return {axis: size for axis, size in sizes.items() if size is not None}
 
@@ -3669,7 +3670,7 @@ class AbstractSequentialSystem(
         pupil: None | na.AbstractCartesian2dVectorArray = None,
         axis_pupil: None | tuple[str, str] = None,
         seed: None | int = None,
-        chunk_size: None | int | dict[str, None | int] = None,
+        chunk_size: None | int | collections.abc.Mapping[str, None | int] = None,
     ) -> na.FunctionArray[na.SpectralPositionalVectorArray, na.AbstractScalar]:
         """
         Forward model of the optical system.
@@ -3746,6 +3747,15 @@ class AbstractSequentialSystem(
             noise of the grid.
             A chunk which covers the whole grid draws the same positions as
             no chunking at all.
+
+            The stops, and the fit of the entrance pupil to the field, are
+            solved for each wavelength chunk on its own.
+            A fit which is singular at any of the wavelengths it is solved at
+            falls back to the pupil shared by every field point at all of them
+            (see :doc:`/stop_finding`), so if the fit is singular at some
+            wavelengths and not others, an image chunked along
+            `axis_wavelength` can fall back in some chunks only, where the
+            unchunked image falls back at every wavelength.
         """
 
         scene = scene.explicit
@@ -3853,9 +3863,9 @@ class AbstractSequentialSystem(
             name="The radiance of `scene`",
         )
 
-        # the chunks of wavelength bins, each read out on its own, and the
+        # the chunks of wavelength bins, each exposed on its own, and the
         # chunks of every other axis, whose photons are summed within a
-        # wavelength chunk before they are read out
+        # wavelength chunk before it is exposed
         chunks_wavelength = _chunks(
             shape[axis_wavelength] - 1,
             chunk_size.get(axis_wavelength),

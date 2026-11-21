@@ -552,6 +552,18 @@ class AbstractTestAbstractLinearSystem(
         with pytest.raises(ValueError, match="cells"):
             a.backproject(image, coordinates, integrate=False, chunk_size=chunk_size)
 
+    @pytest.mark.parametrize("chunk_size", [None, 1])
+    def test_image_axis_field_missing(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        chunk_size: None | int,
+    ) -> None:
+        # an axis of the field which the grid does not vary along has no
+        # cells to image
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        with pytest.raises(ValueError, match="no axis 'field_z'"):
+            a.image(scene, axis_field=("field_x", "field_z"), chunk_size=chunk_size)
+
     def test_backproject_weights(
         self,
         a: optika.systems.AbstractLinearSystem,
