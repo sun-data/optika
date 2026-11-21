@@ -69,6 +69,9 @@ def _normalize_chunk_size(
 
     An integer is the number of wavelength bins in each chunk, as in
     :meth:`optika.systems.LinearSystem.image`.
+    The axes are put in the order of `axes`, so that the order of the chunks,
+    and so the seed each one draws from, doesn't depend on the order of a
+    dictionary.
 
     Parameters
     ----------
@@ -92,7 +95,8 @@ def _normalize_chunk_size(
                 f"axes {axes} into chunks, got {axis!r}."
             )
         _check_chunk_size(size)
-    return {axis: size for axis, size in chunk_size.items() if size is not None}
+    sizes = {axis: chunk_size.get(axis) for axis in axes}
+    return {axis: size for axis, size in sizes.items() if size is not None}
 
 
 def _chunk(
@@ -129,6 +133,57 @@ def _chunk(
     if not index:
         return a
     return a[index]
+
+
+def _seeds_polar(seed: None | int) -> tuple[int, int, int]:
+    """
+    The seeds of the draws which place the wavelength, field, and pupil
+    positions of the rays traced through a normalized polar pupil, all derived
+    from `seed`.
+
+    The wavelengths are drawn by
+    :meth:`AbstractSequentialSystem._solve_stops`, once for every chunk of the
+    field and pupil within a chunk of wavelength, and the field and pupil
+    positions by
+    :meth:`AbstractSequentialSystem._rayfunction_from_vertices_polar`, in each
+    chunk.
+
+    Parameters
+    ----------
+    seed
+        The seed of the trace, or :obj:`None` to draw different positions
+        every time.
+    """
+    seeds = np.random.SeedSequence(seed).generate_state(3)
+    seed_wavelength, seed_field, seed_pupil = (int(s) for s in seeds)
+    return seed_wavelength, seed_field, seed_pupil
+
+
+class _SolvedStops(NamedTuple):
+    """
+    The stops of a system solved for one chunk of the wavelength grid of
+    :meth:`AbstractSequentialSystem.image`, which every chunk of the field and
+    pupil within it shares, since the stops depend only on the wavelength.
+
+    See :meth:`AbstractSequentialSystem._solve_stops`.
+    """
+
+    wavelength: None | na.AbstractScalar
+    """
+    The wavelength drawn in each wavelength cell, at which the stops were
+    solved and which every ray of the cell takes, for a normalized polar
+    pupil, or :obj:`None` for any other grid, whose stops are solved at the
+    vertices of the wavelength grid.
+    """
+
+    rayfunction_stops: None | optika.rays.RayFunctionArray
+    """
+    The stop rays, or :obj:`None` if neither the field nor the pupil is
+    normalized.
+    """
+
+    pupil_fit: None | PupilFit
+    """The entrance-pupil fit, or :obj:`None` if the pupil isn't normalized."""
 
 
 class _Sampling(NamedTuple):
@@ -2752,6 +2807,56 @@ class AbstractSequentialSystem(
         """
         return self.rayfunction()
 
+    def _solve_stops(
+        self,
+        wavelength: na.AbstractScalar,
+        axis_wavelength: str,
+        normalized_field: bool,
+        normalized_pupil: bool,
+        seed: None | int,
+    ) -> _SolvedStops:
+        """
+        Solve the stops for one chunk of the wavelength grid of :meth:`image`,
+        once for every chunk of the field and pupil within it, since the stops
+        depend only on the wavelength.
+
+        Parameters
+        ----------
+        wavelength
+            The vertices of the wavelength grid of the chunk.
+        axis_wavelength
+            The logical axis corresponding to changing wavelength.
+        normalized_field
+            A boolean flag indicating if the field grid is in normalized units.
+        normalized_pupil
+            A boolean flag indicating if the pupil grid is in normalized units.
+        seed
+            The seed of the draw which places a wavelength at a random
+            position inside each wavelength cell, for a normalized polar
+            pupil, or :obj:`None` to draw a different one every time.
+        """
+        if normalized_pupil and self._pupil_is_polar:
+            # a polar pupil is solved at a wavelength drawn in each cell,
+            # which every ray of the cell then takes
+            seed_wavelength, _, _ = _seeds_polar(seed)
+            wavelength = wavelength.broadcast_to(
+                na.broadcast_shapes(self.shape, wavelength.shape),
+            ).cell_centers(axis=axis_wavelength, random=True, seed=seed_wavelength)
+            rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
+                wavelength,
+                normalized_pupil=True,
+            )
+            return _SolvedStops(wavelength, rayfunction_stops, pupil_fit)
+
+        if (not normalized_field) and (not normalized_pupil):
+            return _SolvedStops(None, None, None)
+
+        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
+            wavelength,
+            normalized_pupil,
+        )
+        return _SolvedStops(None, rayfunction_stops, pupil_fit)
+
     def _rayfunction_from_vertices(
         self,
         radiance: na.AbstractScalar,
@@ -2761,6 +2866,7 @@ class AbstractSequentialSystem(
         axis_wavelength: str,
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
+        stops: _SolvedStops,
         normalized_field: bool = True,
         normalized_pupil: bool = True,
         seed: None | int = None,
@@ -2796,6 +2902,8 @@ class AbstractSequentialSystem(
         axis_pupil
             The two logical axes corresponding to changing pupil positions.
             These axes should only be present in the `pupil` parameter.
+        stops
+            The stops solved by :meth:`_solve_stops` for the wavelength grid.
         normalized_field
             A boolean flag indicating if the `field` parameter is in normalized
             units.
@@ -2820,15 +2928,19 @@ class AbstractSequentialSystem(
                 axis_wavelength=axis_wavelength,
                 axis_field=axis_field,
                 axis_pupil=axis_pupil,
+                stops=stops,
                 normalized_field=normalized_field,
                 seed=seed,
             )
 
-        grid = self._denormalize_grid(
-            grid=grid,
-            normalized_field=normalized_field,
-            normalized_pupil=normalized_pupil,
-        )
+        if normalized_field or normalized_pupil:
+            grid = self._denormalize_grid_from_rays(
+                grid=grid,
+                rayfunction_stops=stops.rayfunction_stops,
+                pupil_fit=stops.pupil_fit,
+                normalized_field=normalized_field,
+                normalized_pupil=normalized_pupil,
+            )
 
         shape = na.broadcast_shapes(self.shape, grid.shape)
         grid_centered = grid.broadcast_to(shape).cell_centers(
@@ -2861,6 +2973,7 @@ class AbstractSequentialSystem(
         axis_wavelength: str,
         axis_field: tuple[str, str],
         axis_pupil: tuple[str, str],
+        stops: _SolvedStops,
         normalized_field: bool,
         seed: None | int,
     ) -> optika.rays.RayFunctionArray:
@@ -2874,7 +2987,8 @@ class AbstractSequentialSystem(
         instead drawn in normalized coordinates and made physical one by one,
         as :meth:`area_effective` draws them, and the area of each pupil cell
         is integrated around the ring at the field position of its own ray.
-        The stops are solved once, at the wavelength of each ray.
+        The stops are solved once by :meth:`_solve_stops`, at the wavelength
+        drawn in each wavelength cell, which every ray of the cell takes.
 
         Parameters
         ----------
@@ -2889,25 +3003,22 @@ class AbstractSequentialSystem(
             The two logical axes corresponding to changing field positions.
         axis_pupil
             The two logical axes corresponding to changing pupil positions.
+        stops
+            The stops solved by :meth:`_solve_stops` for the wavelength grid
+            of `grid`, and the wavelength drawn in each of its cells.
         normalized_field
             Whether the field of `grid` is normalized.
         seed
-            The seed of the random position of each ray within its cell.
+            The seed of the random position of each ray within its field and
+            pupil cells.
         """
-        seeds = np.random.SeedSequence(seed).generate_state(3)
-        seed_wavelength, seed_field, seed_pupil = (int(s) for s in seeds)
+        _, seed_field, seed_pupil = _seeds_polar(seed)
 
-        # the width of each wavelength cell, and a wavelength drawn in it
-        wavelength = grid.wavelength
-        area_wavelength = wavelength.volume_cell(axis_wavelength)
-        wavelength = wavelength.broadcast_to(
-            na.broadcast_shapes(self.shape, wavelength.shape),
-        ).cell_centers(axis=axis_wavelength, random=True, seed=seed_wavelength)
-
-        rayfunction_stops, pupil_fit = self._stops_and_pupil_fit(
-            wavelength,
-            normalized_pupil=True,
-        )
+        # the width of each wavelength cell, and the wavelength drawn in it
+        area_wavelength = grid.wavelength.volume_cell(axis_wavelength)
+        wavelength = stops.wavelength
+        rayfunction_stops = stops.rayfunction_stops
+        pupil_fit = stops.pupil_fit
 
         # the field vertices at the wavelength of each ray, made physical
         field = grid.field
@@ -3194,24 +3305,37 @@ class AbstractSequentialSystem(
 
         # a single chunk draws its rays from `seed` itself, so that it gives
         # the same image as no chunking at all
-        num_chunks = len(chunks_wavelength) * len(chunks_other)
+        num_other = len(chunks_other)
+        num_chunks = len(chunks_wavelength) * num_other
         if num_chunks == 1 or seed is None:
-            seeds = iter([seed] * num_chunks)
+            seeds = [seed] * num_chunks
         else:
             seeds = np.random.SeedSequence(seed).generate_state(num_chunks)
-            seeds = iter(int(s) for s in seeds)
+            seeds = [int(s) for s in seeds]
 
         electrons_total = None
         results = []
 
-        for chunk_wavelength in chunks_wavelength:
+        for i, chunk_wavelength in enumerate(chunks_wavelength):
 
             item_wavelength = {axis_wavelength: chunk_wavelength}
+            seeds_wavelength = seeds[i * num_other : (i + 1) * num_other]
+
+            # the stops depend only on the wavelength, so they are solved once
+            # for every chunk of the field and pupil within this one, at the
+            # wavelengths drawn from the seed of its first chunk
+            stops = self._solve_stops(
+                wavelength=_chunk(wavelength, item_wavelength),
+                axis_wavelength=axis_wavelength,
+                normalized_field=normalized_field,
+                normalized_pupil=normalized_pupil,
+                seed=seeds_wavelength[0],
+            )
 
             photons = None
             moment = None
 
-            for chunk_other in chunks_other:
+            for chunk_other, seed_chunk in zip(chunks_other, seeds_wavelength):
 
                 item = item_wavelength | {
                     a: c for chunk in chunk_other for a, c in chunk.items()
@@ -3225,9 +3349,10 @@ class AbstractSequentialSystem(
                     axis_wavelength=axis_wavelength,
                     axis_field=axis_field,
                     axis_pupil=axis_pupil,
+                    stops=stops,
                     normalized_field=normalized_field,
                     normalized_pupil=normalized_pupil,
-                    seed=next(seeds),
+                    seed=seed_chunk,
                 )
 
                 image, direction = sensor.collect(

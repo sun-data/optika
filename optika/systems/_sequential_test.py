@@ -275,6 +275,45 @@ class AbstractTestAbstractSequentialSystem(
         std = np.std(result.outputs.ndarray)
         assert np.isclose(std, read_noise, rtol=0.15)
 
+    def test_image_chunk_size_order(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ) -> None:
+        # the chunks, and so the seed each one draws from, follow the order of
+        # the axes of the grids, not the order of the dictionary
+        scene = self._scene_chunk()
+        kwargs = dict(noise=False, seed=0)
+        result = a.image(scene, chunk_size={"field_x": 5, "field_y": 5}, **kwargs)
+        expected = a.image(scene, chunk_size={"field_y": 5, "field_x": 5}, **kwargs)
+        assert np.all(result.outputs == expected.outputs)
+
+    def test_image_chunk_size_stops(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # the stops depend only on the wavelength, so they are solved once for
+        # each chunk of wavelength, not again for each chunk of the field
+        solve = type(a)._stops_and_pupil_fit
+        calls = []
+
+        def counted(
+            self: optika.systems.AbstractSequentialSystem,
+            *args: Any,
+            **kwargs: Any,
+        ) -> tuple[optika.rays.RayFunctionArray, Any]:
+            calls.append(args)
+            return solve(self, *args, **kwargs)
+
+        monkeypatch.setattr(type(a), "_stops_and_pupil_fit", counted)
+        a.image(
+            self._scene_chunk(),
+            noise=False,
+            seed=0,
+            chunk_size={"wavelength": 1, "field_x": 5},
+        )
+        assert len(calls) == 2
+
     @pytest.mark.parametrize(
         argnames="chunk_size",
         argvalues=[0, -1, 2.0, True, {"field_x": 0}, {"slit": 1}],
