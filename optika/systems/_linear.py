@@ -6,6 +6,7 @@ import astropy.units as u
 import astropy.constants
 import named_arrays as na
 import optika
+from optika.sensors._sensors import _collapse_wavelength
 from . import AbstractSystem
 
 __all__ = [
@@ -39,17 +40,24 @@ def _radiance_to_unit(
     return (radiance * energy_per_photon).to(unit)
 
 
-def _check_chunk_size(chunk_size: None | int) -> None:
+def _check_chunk_size(chunk_size: None | int, name: str = "`chunk_size`") -> None:
     """
     Raise a :class:`ValueError` unless `chunk_size` is :obj:`None` or a
     positive integer.
+
+    Parameters
+    ----------
+    chunk_size
+        The number of cells in each chunk.
+    name
+        What `chunk_size` is, for the error message.
     """
     if chunk_size is None:
         return
     is_integer = isinstance(chunk_size, (int, np.integer))
     if isinstance(chunk_size, bool) or not is_integer or chunk_size < 1:
         raise ValueError(
-            f"`chunk_size` must be `None` or a positive integer, got {chunk_size!r}."
+            f"{name} must be `None` or a positive integer, got {chunk_size!r}."
         )
 
 
@@ -66,6 +74,48 @@ def _chunks(num: int, chunk_size: None | int) -> list[tuple[int, int]]:
         chunk_size = max(num, 1)
     result = [(i, min(i + chunk_size, num)) for i in range(0, num, chunk_size)]
     return result or [(0, 0)]
+
+
+def _check_cells(
+    a: na.AbstractArray,
+    shape: dict[str, int],
+    axes: tuple[str, ...],
+    name: str,
+) -> None:
+    """
+    Raise a :class:`ValueError` unless `a` has one value for each cell of a
+    grid along each of `axes`, or a single value which broadcasts against all
+    of them.
+
+    Each chunk takes its cells of `a` by index, so a value for each vertex
+    would otherwise be cut to fit, dropping the last one and shifting the rest
+    by half a cell.
+
+    Parameters
+    ----------
+    a
+        The quantity defined on the cells of the grid.
+    shape
+        The number of vertices of the grid along each axis.
+    axes
+        The logical axes along which `a` is checked.
+    name
+        What `a` is, for the error message.
+    """
+    shape_a = na.shape(a)
+    for axis in axes:
+        if axis not in shape:
+            raise ValueError(
+                f"The grid has no axis {axis!r} to divide into cells, "
+                f"its shape is {shape}."
+            )
+        num_cells = shape[axis] - 1
+        num = shape_a.get(axis, 1)
+        if num not in (1, num_cells):
+            raise ValueError(
+                f"{name} must have a value for each of the {num_cells} cells "
+                f"of the grid along {axis!r}, or a single value, got {num}."
+            )
 
 
 @dataclasses.dataclass(eq=False, repr=False)
@@ -766,6 +816,13 @@ class AbstractLinearSystem(
         coordinates = scene.inputs
         radiance = scene.outputs
 
+        _check_cells(
+            a=radiance,
+            shape=na.shape(coordinates),
+            axes=(axis_wavelength,) + tuple(axis_field),
+            name="The radiance of `scene`",
+        )
+
         # the coordinates are the vertices of the wavelength bins
         num_wavelength = na.shape(coordinates.wavelength)[axis_wavelength] - 1
 
@@ -839,13 +896,13 @@ class AbstractLinearSystem(
         sensor = self.sensor
 
         if integrate:
-            inputs = sensor._collapse_wavelength(inputs, axis_wavelength)
-            outputs = sensor._readout(electrons_total, noise)
+            inputs = _collapse_wavelength(inputs, axis_wavelength)
             if uncertainty:
-                outputs = na.NormalUncertainScalarArray(
-                    nominal=outputs,
-                    width=sensor._readout_width(variance_total),
+                electrons_total = na.NormalUncertainScalarArray(
+                    nominal=electrons_total,
+                    width=np.sqrt(variance_total),
                 )
+            outputs = sensor.readout(electrons_total, noise)
         elif len(electrons_chunks) == 1:
             (outputs,) = electrons_chunks
         elif uncertainty:
@@ -981,10 +1038,17 @@ class AbstractLinearSystem(
                 inputs=image.inputs.replace(
                     wavelength=coordinates.spectral_positional.wavelength,
                 ),
-                outputs=self.sensor._spread_readout(image.outputs, num_wavelength),
+                outputs=self.sensor.spread_readout(image.outputs, num_wavelength),
             )
 
         electrons = image.outputs
+
+        _check_cells(
+            a=electrons,
+            shape=na.shape(coordinates.wavelength),
+            axes=(axis_wavelength,),
+            name="The electrons of `image`",
+        )
 
         # electrons which do not vary with wavelength, such as a spread
         # readout, broadcast against every chunk

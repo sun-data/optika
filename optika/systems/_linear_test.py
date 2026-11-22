@@ -5,6 +5,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from optika.sensors._sensors_test import _double_readout, _assert_doubled
 from ._systems_test import AbstractTestAbstractSystem
 
 
@@ -458,6 +459,24 @@ class AbstractTestAbstractLinearSystem(
         std = np.std(result.outputs.ndarray)
         assert np.isclose(std, read_noise, rtol=0.15)
 
+    @pytest.mark.parametrize("chunk_size", [None, 1])
+    @pytest.mark.parametrize("uncertainty", [False, True])
+    def test_image_readout(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        monkeypatch: pytest.MonkeyPatch,
+        chunk_size: None | int,
+        uncertainty: bool,
+    ) -> None:
+        # the chunks are read out once by the `readout` of the sensor, so a
+        # sensor which overrides it changes the image
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        kwargs = dict(noise=False, uncertainty=uncertainty, chunk_size=chunk_size)
+        expected = a.image(scene, **kwargs)
+        _double_readout(monkeypatch, a.sensor)
+        result = a.image(scene, **kwargs)
+        _assert_doubled(result.outputs, expected.outputs)
+
     def test_weights_reference_wavelength(
         self,
         a: optika.systems.AbstractLinearSystem,
@@ -512,6 +531,38 @@ class AbstractTestAbstractLinearSystem(
         image = a.image(scene, noise=False)
         with pytest.raises(ValueError, match="chunk_size"):
             a.backproject(image, scene.inputs, chunk_size=chunk_size)
+
+    @pytest.mark.parametrize("chunk_size", [None, 1])
+    def test_cells_invalid(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        chunk_size: None | int,
+    ) -> None:
+        # a radiance with a value for each wavelength vertex, or an image with
+        # more wavelength bins than the grid it is backprojected onto, is
+        # rejected rather than cut to fit the chunks
+        unit = u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm
+        radiance = na.linspace(1e3, 2e3, axis="wavelength", num=4) * unit
+        with pytest.raises(ValueError, match="cells"):
+            a.image(_scene(radiance), chunk_size=chunk_size)
+
+        scene = _scene(1e3 * unit)
+        image = a.image(scene, noise=False, integrate=False)
+        coordinates = scene.inputs[dict(wavelength=slice(0, 3))]
+        with pytest.raises(ValueError, match="cells"):
+            a.backproject(image, coordinates, integrate=False, chunk_size=chunk_size)
+
+    @pytest.mark.parametrize("chunk_size", [None, 1])
+    def test_image_axis_field_missing(
+        self,
+        a: optika.systems.AbstractLinearSystem,
+        chunk_size: None | int,
+    ) -> None:
+        # an axis of the field which the grid does not vary along has no
+        # cells to image
+        scene = _scene(1e3 * u.photon / u.s / u.cm**2 / u.arcsec**2 / u.nm)
+        with pytest.raises(ValueError, match="no axis 'field_z'"):
+            a.image(scene, axis_field=("field_x", "field_z"), chunk_size=chunk_size)
 
     def test_backproject_weights(
         self,

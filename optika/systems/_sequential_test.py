@@ -1,5 +1,7 @@
 from typing import Any
 import dataclasses
+import types
+import unittest.mock
 import warnings
 import matplotlib.lines
 import matplotlib.pyplot as plt
@@ -9,6 +11,7 @@ import numpy as np
 import astropy.units as u
 import named_arrays as na
 import optika
+from optika.sensors._sensors_test import _double_readout, _assert_doubled
 from .._tests import test_mixins
 from ._systems_test import AbstractTestAbstractSystem
 
@@ -170,6 +173,263 @@ class AbstractTestAbstractSequentialSystem(
         expected = a.image(scene, noise=False, seed=0).outputs
         assert np.all(a.image(scene, noise=False, seed=0).outputs == expected)
         assert np.any(a.image(scene, noise=False, seed=1).outputs != expected)
+
+    @staticmethod
+    def _scene_chunk(
+        radiance: u.Quantity = 100 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm,
+    ) -> na.FunctionArray:
+        """A scene of two wavelength bins and 10 x 10 field cells to cut up."""
+        return na.FunctionArray(
+            inputs=na.SpectralPositionalVectorArray(
+                wavelength=na.linspace(
+                    530 * u.nm, 531 * u.nm, axis="wavelength", num=3
+                ),
+                position=na.Cartesian2dVectorLinearSpace(
+                    start=-1,
+                    stop=+1,
+                    axis=na.Cartesian2dVectorArray("field_x", "field_y"),
+                    num=11,
+                ),
+            ),
+            outputs=radiance,
+        )
+
+    @pytest.mark.parametrize(
+        argnames="chunk_size",
+        argvalues=[
+            2,
+            {"wavelength": 5, "field_x": 10},
+            {"field_x": None, "field_y": 100},
+        ],
+    )
+    @pytest.mark.parametrize("integrate", [True, False])
+    def test_image_chunk_size_whole(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        chunk_size: int | dict,
+        integrate: bool,
+    ) -> None:
+        # a chunk which covers the whole grid draws its rays from the seed
+        # itself, so it gives exactly the image of no chunking at all
+        scene = self._scene_chunk()
+        kwargs = dict(noise=False, integrate=integrate, seed=0)
+        result = a.image(scene, chunk_size=chunk_size, **kwargs)
+        expected = a.image(scene, **kwargs)
+        assert np.all(result.inputs == expected.inputs)
+        assert np.all(result.outputs == expected.outputs)
+
+    @pytest.mark.parametrize(
+        argnames="chunk_size",
+        argvalues=[
+            1,
+            {"field_x": 3},
+            {"pupil_x": 4},
+            {"wavelength": 1, "field_x": 2, "field_y": 5},
+        ],
+    )
+    @pytest.mark.parametrize("integrate", [True, False])
+    def test_image_chunk_size(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        chunk_size: int | dict,
+        integrate: bool,
+    ) -> None:
+        # each chunk draws its own rays, so the image differs from the
+        # unchunked one by the sampling noise of the grid, but it has the
+        # same coordinates, it is reproducible for a given seed, and it
+        # collects the same light to within that noise.  With 10 x 10 pupil
+        # cells, the light collected scatters by about half a percent from
+        # one seed to the next, where a single pupil cell scatters by several
+        scene = self._scene_chunk()
+        pupil = na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+            num=11,
+        )
+        kwargs = dict(noise=False, integrate=integrate, seed=0, pupil=pupil)
+        result = a.image(scene, chunk_size=chunk_size, **kwargs)
+        again = a.image(scene, chunk_size=chunk_size, **kwargs)
+        expected = a.image(scene, **kwargs)
+
+        assert isinstance(result, na.FunctionArray)
+        assert np.all(result.inputs == expected.inputs)
+        assert result.outputs.shape == expected.outputs.shape
+        assert np.all(result.outputs == again.outputs)
+
+        total = result.outputs.sum()
+        total_expected = expected.outputs.sum()
+        assert np.isclose(total, total_expected, rtol=0.03)
+
+    @pytest.mark.parametrize("chunk_size", [None, {"field_x": 1}])
+    def test_image_chunk_size_read_noise(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        chunk_size: None | dict,
+    ) -> None:
+        # the read noise is added once, to the sum of the chunks, so a dark
+        # scene imaged one column of the field at a time has the read noise
+        # of one readout, not of one readout per chunk
+        read_noise = 10 * u.electron
+        sensor = dataclasses.replace(a.sensor, read_noise=read_noise)
+        b = dataclasses.replace(a, sensor=sensor)
+        scene = self._scene_chunk(0 * u.photon / u.cm**2 / u.arcsec**2 / u.s / u.nm)
+        result = b.image(scene, chunk_size=chunk_size)
+        std = np.std(result.outputs.ndarray)
+        assert np.isclose(std, read_noise, rtol=0.15)
+
+    def test_image_chunk_size_order(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ) -> None:
+        # the chunks, and so the seed each one draws from, follow the order of
+        # the axes of the grids, not the order of the dictionary
+        scene = self._scene_chunk()
+        kwargs = dict(noise=False, seed=0)
+        result = a.image(scene, chunk_size={"field_x": 5, "field_y": 5}, **kwargs)
+        expected = a.image(scene, chunk_size={"field_y": 5, "field_x": 5}, **kwargs)
+        assert np.all(result.outputs == expected.outputs)
+
+    def test_image_chunk_size_stops(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # the stops depend only on the wavelength, so they are solved once for
+        # each chunk of wavelength, not again for each chunk of the field
+        solve = type(a)._stops_and_pupil_fit
+        calls = []
+
+        def counted(
+            self: optika.systems.AbstractSequentialSystem,
+            *args: Any,
+            **kwargs: Any,
+        ) -> tuple[optika.rays.RayFunctionArray, Any]:
+            calls.append(args)
+            return solve(self, *args, **kwargs)
+
+        monkeypatch.setattr(type(a), "_stops_and_pupil_fit", counted)
+        a.image(
+            self._scene_chunk(),
+            noise=False,
+            seed=0,
+            chunk_size={"wavelength": 1, "field_x": 5},
+        )
+        assert len(calls) == 2
+
+    def test_image_readout(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # the chunks are read out once by the `readout` of the sensor, so a
+        # sensor which overrides it changes the image
+        scene = self._scene_chunk()
+        kwargs = dict(noise=False, seed=0, chunk_size={"wavelength": 1, "field_x": 5})
+        expected = a.image(scene, **kwargs)
+        _double_readout(monkeypatch, a.sensor)
+        result = a.image(scene, **kwargs)
+        _assert_doubled(result.outputs, expected.outputs)
+
+    @pytest.mark.parametrize(
+        argnames="axis,chunk_size",
+        argvalues=[
+            ("wavelength", None),
+            ("wavelength", 1),
+            ("field_x", {"field_x": 5}),
+        ],
+    )
+    def test_image_radiance_vertices(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        axis: str,
+        chunk_size: None | int | dict,
+    ) -> None:
+        # a radiance with a value for each vertex of the grid, instead of each
+        # cell, is rejected rather than cut to fit the chunks
+        scene = self._scene_chunk()
+        num = scene.inputs.shape[axis]
+        radiance = na.linspace(1, 2, axis=axis, num=num) * scene.outputs
+        with pytest.raises(ValueError, match="cells"):
+            a.image(scene.replace(outputs=radiance), chunk_size=chunk_size)
+
+    @pytest.mark.parametrize(
+        argnames="chunk_size",
+        argvalues=[0, -1, 2.0, True, {"field_x": 0}, {"slit": 1}],
+    )
+    def test_image_chunk_size_invalid(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        chunk_size: object,
+    ) -> None:
+        with pytest.raises(ValueError, match="chunk_size"):
+            a.image(self._scene_chunk(), chunk_size=chunk_size)
+
+    def test_image_chunk_size_mapping(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ) -> None:
+        # any mapping gives the chunk size along each axis, and a bad size
+        # names the axis it was given for
+        scene = self._scene_chunk()
+        kwargs = dict(noise=False, seed=0)
+        chunk_size = types.MappingProxyType({"field_x": 5})
+        result = a.image(scene, chunk_size=chunk_size, **kwargs)
+        expected = a.image(scene, chunk_size={"field_x": 5}, **kwargs)
+        assert np.all(result.outputs == expected.outputs)
+
+        chunk_size = types.MappingProxyType({"field_x": 0})
+        with pytest.raises(ValueError, match=r"`chunk_size\['field_x'\]`"):
+            a.image(scene, chunk_size=chunk_size)
+
+    def test_image_axis_field_missing(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+    ) -> None:
+        # an axis of the field which the grid does not vary along has no
+        # cells to image
+        with pytest.raises(ValueError, match="no axis 'field_z'"):
+            a.image(self._scene_chunk(), axis_field=("field_x", "field_z"))
+
+    def test_image_physical(
+        self,
+        a: optika.systems.AbstractSequentialSystem,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # a grid whose field and pupil are both physical needs no stops, so it
+        # is imaged without solving them, whether it is chunked or not
+        axis_field = na.Cartesian2dVectorArray("field_x", "field_y")
+        axis_pupil = na.Cartesian2dVectorArray("pupil_x", "pupil_y")
+        field = na.Cartesian2dVectorLinearSpace(
+            start=a.field_min,
+            stop=a.field_max,
+            axis=axis_field,
+            num=11,
+        )
+        pupil = na.Cartesian2dVectorLinearSpace(
+            start=a.pupil_min,
+            stop=a.pupil_max,
+            axis=axis_pupil,
+            num=11,
+        )
+        scene = self._scene_chunk()
+        scene = scene.replace(inputs=scene.inputs.replace(position=field))
+
+        solve = unittest.mock.Mock(
+            side_effect=AssertionError("the stops were solved for a physical grid"),
+        )
+        monkeypatch.setattr(type(a), "_stops_and_pupil_fit", solve)
+
+        kwargs = dict(noise=False, seed=0, pupil=pupil)
+        expected = a.image(scene, **kwargs)
+        whole = a.image(scene, chunk_size={"field_x": 10}, **kwargs)
+        chunked = a.image(scene, chunk_size={"field_x": 5}, **kwargs)
+
+        assert np.sum(expected.outputs) > 0 * u.electron
+        assert np.all(whole.outputs == expected.outputs)
+        assert np.all(chunked.inputs == expected.inputs)
+        assert chunked.outputs.shape == expected.outputs.shape
+        solve.assert_not_called()
 
     def test_surfaces(self, a: optika.systems.AbstractSequentialSystem):
         for surface in a.surfaces:

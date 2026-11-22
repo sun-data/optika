@@ -20,6 +20,34 @@ __all__ = [
 MaterialT = TypeVar("MaterialT", bound=AbstractSensorMaterial)
 
 
+def _collapse_wavelength(
+    inputs: na.SpectralPositionalVectorArray,
+    axis_wavelength: str,
+) -> na.SpectralPositionalVectorArray:
+    """
+    Replace the edges of the wavelength bins of `inputs` with the two edges of
+    the whole band, the wavelength coordinates of a readout summed over
+    wavelength.
+
+    Parameters
+    ----------
+    inputs
+        The coordinates of an image, with the edges of its wavelength bins.
+    axis_wavelength
+        The logical axis of the wavelength bins.
+    """
+    wavelength = inputs.wavelength
+    return inputs.replace(
+        wavelength=na.stack(
+            arrays=[
+                wavelength.min(axis_wavelength),
+                wavelength.max(axis_wavelength),
+            ],
+            axis=axis_wavelength,
+        )
+    )
+
+
 @dataclasses.dataclass(eq=False, repr=False)
 class AbstractImagingSensor(
     optika.surfaces.AbstractSurface[
@@ -209,58 +237,95 @@ class AbstractImagingSensor(
 
         return image, direction
 
-    @staticmethod
-    def _collapse_wavelength(
-        inputs: na.SpectralPositionalVectorArray,
-        axis_wavelength: str,
-    ) -> na.SpectralPositionalVectorArray:
-        """Collapse a wavelength axis to its two band edges."""
-        wavelength = inputs.wavelength
-        return inputs.replace(
-            wavelength=na.stack(
-                arrays=[
-                    wavelength.min(axis_wavelength),
-                    wavelength.max(axis_wavelength),
-                ],
-                axis=axis_wavelength,
-            )
-        )
-
-    def _readout(
+    def readout(
         self,
         electrons: na.AbstractScalar,
-        noise: bool,
+        noise: bool = True,
     ) -> na.AbstractScalar:
         """
-        Read out electrons which have already been summed over wavelength,
-        adding the read noise once if `noise` is :obj:`True`.
-        """
-        if noise:
-            # add zero-mean Gaussian read noise once per readout
-            electrons = na.random.normal(loc=electrons, scale=self.read_noise)
-        return electrons
+        Read out the electrons collected in each pixel during an exposure.
 
-    def _spread_readout(
+        A real imaging sensor reads out the electrons of every wavelength at
+        once, so `electrons` is already summed over wavelength, and the read
+        noise is added once.
+
+        This is the one readout of every exposure: :meth:`expose` and
+        :meth:`uncertainty` call it when they integrate over wavelength, and
+        an optical system which exposes the sensor a few wavelengths at a
+        time, such as :meth:`optika.systems.LinearSystem.image` or
+        :meth:`optika.systems.SequentialSystem.image` with a `chunk_size`, sums
+        the electrons of every chunk and reads them out once with it.
+        A sensor which models more of its readout, such as a gain or an
+        analog-to-digital converter, does so by overriding this method, and
+        :meth:`spread_readout`, which undoes it.
+
+        Parameters
+        ----------
+        electrons
+            The electrons collected in each pixel, summed over wavelength.
+            If it is uncertain, the read noise is also added to its
+            uncertainty: in quadrature to the width of a
+            :class:`~named_arrays.NormalUncertainScalarArray`, and as a draw
+            of its own to each sample of any other distribution.
+        noise
+            Whether to add a draw of the Gaussian read noise,
+            :attr:`read_noise`, to the electrons.
+        """
+        uncertain = isinstance(electrons, na.AbstractUncertainScalarArray)
+        normal = isinstance(electrons, na.NormalUncertainScalarArray)
+
+        if uncertain and not normal:
+            # an implicit distribution is drawn once, so that its nominal
+            # value and its samples come from the same draw
+            electrons = electrons.explicit
+
+        nominal = electrons.nominal if uncertain else electrons
+        if noise:
+            nominal = na.random.normal(loc=nominal, scale=self.read_noise)
+
+        if not uncertain:
+            return nominal
+
+        if normal:
+            return dataclasses.replace(
+                electrons,
+                nominal=nominal,
+                width=np.sqrt(np.square(electrons.width) + np.square(self.read_noise)),
+            )
+
+        # any other distribution moves with the draw added to its nominal
+        # value, and each of its samples takes a draw of its own on top, which
+        # widens it by the read noise
+        distribution = electrons.distribution + (nominal - electrons.nominal)
+        return dataclasses.replace(
+            electrons,
+            nominal=nominal,
+            distribution=na.random.normal(loc=distribution, scale=self.read_noise),
+        )
+
+    def spread_readout(
         self,
         electrons: na.AbstractScalar,
         num_wavelength: int,
     ) -> na.AbstractScalar:
         """
-        Spread electrons read out once, summed over wavelength, uniformly
-        across `num_wavelength` wavelength bins, the transpose of the sum over
-        wavelength which precedes :meth:`_readout`.
+        Spread the electrons read out of each pixel evenly across
+        `num_wavelength` wavelength bins, undoing the sum over wavelength of
+        :meth:`readout`, though not its noise.
+
+        The bins sum back to the readout.
+        :meth:`photons_absorbed` uses it to invert an exposure integrated over
+        wavelength, and :meth:`optika.systems.LinearSystem.backproject` to
+        backproject one.
+
+        Parameters
+        ----------
+        electrons
+            The electrons read out of each pixel, summed over wavelength.
+        num_wavelength
+            The number of wavelength bins to spread them across.
         """
         return electrons / num_wavelength
-
-    def _readout_width(
-        self,
-        variance: na.AbstractScalar,
-    ) -> na.AbstractScalar:
-        """
-        The standard deviation of a readout whose signal, summed over
-        wavelength, has the given variance, adding the read noise once.
-        """
-        return np.sqrt(variance + np.square(self.read_noise))
 
     def _integrate(
         self,
@@ -275,8 +340,8 @@ class AbstractImagingSensor(
         na.AbstractScalar,
     ]:
         """Sum electrons over wavelength into one readout, adding read noise."""
-        electrons = self._readout(image.outputs.sum(axis_wavelength), noise)
-        inputs = self._collapse_wavelength(image.inputs, axis_wavelength)
+        electrons = self.readout(image.outputs.sum(axis_wavelength), noise)
+        inputs = _collapse_wavelength(image.inputs, axis_wavelength)
         return dataclasses.replace(image, inputs=inputs, outputs=electrons)
 
     def expose(
@@ -308,8 +373,8 @@ class AbstractImagingSensor(
         :meth:`~optika.sensors.materials.AbstractSensorMaterial.signal`, which
         applies the quantum efficiency and the shot, Fano, and charge-diffusion
         noise per wavelength. If `integrate` is :obj:`True`, the electrons are
-        then summed over wavelength into a single readout and the sensor's
-        :attr:`read_noise` is added once.
+        then summed over wavelength into a single :meth:`readout`, which adds
+        the sensor's :attr:`read_noise` once.
 
         Parameters
         ----------
@@ -444,9 +509,10 @@ class AbstractImagingSensor(
         integrate
             Whether `image` is a single wavelength-integrated readout (as
             produced by :meth:`expose` with ``integrate=True``).
-            If :obj:`True` (the default), the readout is spread uniformly across
-            the wavelength bins before the per-wavelength inverse, mirroring the
-            integration performed by :meth:`expose`.
+            If :obj:`True` (the default), the readout is spread evenly across
+            the wavelength bins with :meth:`spread_readout` before the
+            per-wavelength inverse, mirroring the integration performed by
+            :meth:`expose`.
         """
         if axis_wavelength is None:
             shape_wavelength = na.shape(image.inputs.wavelength)
@@ -465,7 +531,7 @@ class AbstractImagingSensor(
         if integrate:
             # spread the integrated readout uniformly across the wavelength bins
             num_wavelength = na.shape(image.inputs.wavelength)[axis_wavelength] - 1
-            electrons = self._spread_readout(electrons, num_wavelength)
+            electrons = self.spread_readout(electrons, num_wavelength)
 
         photons = self.material.photons_absorbed(
             electrons=electrons,
@@ -540,10 +606,26 @@ class AbstractImagingSensor(
         inputs = image.inputs
 
         if integrate:
-            # sum the per-wavelength variances and add the read noise once
-            variance = np.square(uncertainty).sum(axis_wavelength)
-            uncertainty = self._readout_width(variance)
-            inputs = self._collapse_wavelength(inputs, axis_wavelength)
+            # sum the per-wavelength variances, and read out the sum, which
+            # adds the read noise once.  The electrons, or their uncertainty,
+            # need not vary along `axis_wavelength` if they are the same in
+            # every bin, so both are broadcast against every bin first.
+            shape = na.broadcast_shapes(
+                na.shape(image.outputs),
+                na.shape(uncertainty),
+                {axis_wavelength: image.inputs.wavelength.shape[axis_wavelength] - 1},
+            )
+            electrons = na.broadcast_to(image.outputs, shape)
+            variance = na.broadcast_to(np.square(uncertainty), shape)
+            readout = self.readout(
+                na.NormalUncertainScalarArray(
+                    nominal=electrons.sum(axis_wavelength),
+                    width=np.sqrt(variance.sum(axis_wavelength)),
+                ),
+                noise=False,
+            )
+            uncertainty = readout.width
+            inputs = _collapse_wavelength(inputs, axis_wavelength)
 
         return dataclasses.replace(image, inputs=inputs, outputs=uncertainty)
 
