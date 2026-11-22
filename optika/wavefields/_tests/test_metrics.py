@@ -428,3 +428,26 @@ def test_ensquared_energy_normalize() -> None:
     expected = np.square(scipy.special.erf(arg))
     assert na.unit(result) is None
     assert np.allclose(result, expected, rtol=2e-2)
+
+
+def test_encircled_energy_radius_unitless() -> None:
+    """
+    For positions without a unit, the radius has no unit either, and it is
+    not a number for a fraction which is never reached.
+    """
+    position = na.Cartesian2dVectorLinearSpace(
+        start=-40,
+        stop=40,
+        axis=na.Cartesian2dVectorArray("x", "y"),
+        num=81,
+    ).explicit
+    intensity = np.exp(-np.square(position.length / 5) / 2)
+    kwargs = dict(intensity=intensity, position=position, axis=("x", "y"))
+
+    result = optika.wavefields.encircled_energy_radius(fraction=0.5, **kwargs)
+    assert na.unit(result) is None
+    assert np.isclose(result, 5 * np.sqrt(2 * np.log(2)), rtol=2e-2)
+
+    result = optika.wavefields.encircled_energy_radius(fraction=1.5, **kwargs)
+    assert na.unit(result) is None
+    assert np.isnan(result)

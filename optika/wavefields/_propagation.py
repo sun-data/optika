@@ -74,6 +74,62 @@ def rayleigh_sommerfeld(
     samples which are not vignetted, with :math:`\mathbf{r}_2` the centroid
     of the destination points.
     """
+    result, _ = _rayleigh_sommerfeld(
+        wavefield=wavefield,
+        position=position,
+        axis=axis,
+        chunk_size=chunk_size,
+    )
+    return result
+
+
+def _rayleigh_sommerfeld(
+    wavefield: optika.wavefields.AbstractWavefieldVectorArray,
+    position: na.AbstractCartesian3dVectorArray,
+    axis: str | Sequence[str],
+    chunk_size: int = 2**24,
+    normal_destination: None | na.AbstractCartesian3dVectorArray = None,
+) -> tuple[na.AbstractScalar, None | na.AbstractScalar]:
+    r"""
+    The diffraction integral of :func:`rayleigh_sommerfeld`, and the same
+    integral with each term weighted by the cosine between the direction from
+    the source point to the destination point and the given normal at the
+    destination point, from which the flux of the wavefield through a surface
+    with that normal follows.
+
+    The gradient of the field at the destination point is :math:`i k` times
+    the second integral, :math:`F`, to leading order in
+    :math:`1 / (k r_{12})`, so the flux of the field through the surface is
+    the real part of :math:`E^* F`, in the units of :math:`|E|^2`.
+
+    Parameters
+    ----------
+    wavefield
+        The source wavefield, as in :func:`rayleigh_sommerfeld`.
+    position
+        The destination points, as in :func:`rayleigh_sommerfeld`.
+    axis
+        The logical axes of the source wavefield to integrate over.
+    chunk_size
+        The maximum number of terms of each sum to evaluate at once, as in
+        :func:`rayleigh_sommerfeld`.
+        With a normal, each term takes twice the memory, so the chunks hold
+        half as many terms.
+    normal_destination
+        The unit normal of the destination surface at each destination point,
+        or :obj:`None` to leave out the second integral.
+        Its orientation does not matter: the second integral is signed so
+        that the flux of the light which travels from the source to the
+        destination is positive, from the area-weighted mean of
+        :math:`(\mathbf{r}_2 - \mathbf{r}_1) \cdot \hat{\mathbf{m}}`, with
+        :math:`\mathbf{r}_2` the centroid of the destination points and
+        :math:`\hat{\mathbf{m}}` the mean normal.
+
+    Returns
+    -------
+    The two integrals, the second :obj:`None` if `normal_destination` is
+    :obj:`None`.
+    """
     if isinstance(axis, str):
         axis = (axis,)
     axis = tuple(axis)
@@ -112,7 +168,11 @@ def rayleigh_sommerfeld(
     # orientation of the obliquity factor once for the whole integral using
     # the centroid of the destination points, weighted by the area of the
     # samples so that those which are not part of the wavefield are left out.
-    axis_dst = tuple(ax for ax in position.shape if ax not in shape_src)
+    shape_position = position.shape
+    if normal_destination is not None:
+        shape_position = na.broadcast_shapes(shape_position, normal_destination.shape)
+
+    axis_dst = tuple(ax for ax in shape_position if ax not in shape_src)
     centroid_dst = position.mean(axis_dst) if axis_dst else position
     dot = ((centroid_dst - wavefield.position) @ normal).to(unit).value
     dot = na.as_named_array(np.where(mask, dot * area, 0))
@@ -121,27 +181,45 @@ def rayleigh_sommerfeld(
         dot = dot.sum(axis_sum)
     sign = np.sign(dot)
 
+    # The orientation of the normal of the destination surface, from the mean
+    # normal in the same way.
+    if normal_destination is not None:
+        normal_mean = normal_destination
+        if axis_dst:
+            normal_mean = normal_destination.mean(axis_dst)
+        dot = ((centroid_dst - wavefield.position) @ normal_mean).to(unit).value
+        dot = na.as_named_array(np.where(mask, dot * area, 0))
+        if axis_sum:
+            dot = dot.sum(axis_sum)
+        sign_normal = np.sign(dot)
+
     position_dst = position.to(unit).value
 
-    shape_dst = {ax: position.shape[ax] for ax in axis_dst}
+    shape_dst = {ax: shape_position[ax] for ax in axis_dst}
 
     shape_src_broadcast = {ax: num for ax, num in shape_src.items() if ax not in axis}
-    shape_result = na.broadcast_shapes(shape_src_broadcast, position.shape)
+    shape_result = na.broadcast_shapes(shape_src_broadcast, shape_position)
 
     # The number of terms of the sum for each destination point.
-    shape_other = {ax: num for ax, num in position.shape.items() if ax not in axis_dst}
+    shape_other = {ax: num for ax, num in shape_position.items() if ax not in axis_dst}
     num_terms = int(np.prod(list(na.broadcast_shapes(shape_src, shape_other).values())))
 
     result = na.ScalarArray(
         ndarray=np.empty(tuple(shape_result.values()), dtype=complex),
         axes=tuple(shape_result),
     )
+    result_normal = None
+    if normal_destination is not None:
+        result_normal = na.ScalarArray(
+            ndarray=np.empty(tuple(shape_result.values()), dtype=complex),
+            axes=tuple(shape_result),
+        )
 
     # Greedily choose a chunk length along each destination axis (starting
     # from the last) so that the total number of terms per chunk is at most
     # `chunk_size`.
     chunks = dict()
-    budget = max(chunk_size // num_terms, 1)
+    budget = max(chunk_size // num_terms // (1 if normal_destination is None else 2), 1)
     for ax in reversed(tuple(shape_dst)):
         chunks[ax] = min(shape_dst[ax], budget)
         budget = max(budget // shape_dst[ax], 1)
@@ -160,6 +238,18 @@ def rayleigh_sommerfeld(
         " * ((xd - xs) * nx + (yd - ys) * ny + (zd - zs) * nz)"
         " * exp(1j * k * sqrt((xd - xs)**2 + (yd - ys)**2 + (zd - zs)**2))"
         " / ((xd - xs)**2 + (yd - ys)**2 + (zd - zs)**2),"
+        " 0j"
+        ")"
+    )
+
+    # Each term of the second integral is a term of the first times the
+    # cosine between the direction to the destination point and its normal.
+    expression_normal = (
+        "where("
+        "mask > 0.5,"
+        " term"
+        " * ((xd - xs) * mx + (yd - ys) * my + (zd - zs) * mz)"
+        " / sqrt((xd - xs)**2 + (yd - ys)**2 + (zd - zs)**2),"
         " 0j"
         ")"
     )
@@ -189,4 +279,28 @@ def rayleigh_sommerfeld(
 
         result[index] = term.sum(axis)
 
-    return result * sign * index_refraction / (1j * wavelength)
+        if normal_destination is not None:
+            chunk_normal = normal_destination[index]
+            term = na.numexpr.evaluate(
+                ex=expression_normal,
+                local_dict=dict(
+                    mask=np.where(mask, 1.0, 0.0),
+                    term=term,
+                    xs=xs,
+                    ys=ys,
+                    zs=zs,
+                    mx=chunk_normal.x,
+                    my=chunk_normal.y,
+                    mz=chunk_normal.z,
+                    xd=chunk.x,
+                    yd=chunk.y,
+                    zd=chunk.z,
+                ),
+            )
+            result_normal[index] = term.sum(axis)
+
+    factor = index_refraction / (1j * wavelength)
+    result = result * sign * factor
+    if result_normal is not None:
+        result_normal = result_normal * sign * sign_normal * factor
+    return result, result_normal

@@ -233,16 +233,22 @@ class _Wavefield(NamedTuple):
 
     power: na.AbstractScalar
     r"""
-    The power of the beam leaving the last surface before the sensor, as the
-    area of a beam with :math:`|E|^2 = 1` which carries the same power.
+    The power of the beam leaving the last surface before the sensor, in the
+    units of :math:`|E|^2` times area, so that :math:`|E|^2` divided by it is
+    the irradiance per unit power.
+    For an object at infinity, it is the area of a beam with
+    :math:`|E|^2 = 1` which carries the same power.
+    For an object at a finite distance, :math:`|E|^2` is the irradiance per
+    unit radiant intensity of the source, and this is the power per unit
+    radiant intensity: the solid angle of the beam, in steradians, weighted
+    by the transmission of the system.
     """
 
-    cosine: na.AbstractScalar
-    """
-    The harmonic mean, weighted by the power of each ray, of the cosine of
-    the angle between the rays and the normal to the sensor where they reach
-    it, so that the integral of :math:`|E|^2` over the sensor times it is the
-    power of the beam.
+    flux: None | na.AbstractScalar
+    r"""
+    The flux of the wavefield through the sensor at each position of the
+    wavefield, in the units of :math:`|E|^2`, or :obj:`None` if it was not
+    asked for.
     """
 
 
@@ -3077,13 +3083,20 @@ class AbstractSequentialSystem(
         axis: tuple[str, str] = ("wavefield_x", "wavefield_y"),
         chunk_size: int = 2**24,
         normalized_field: bool = True,
+        flux: bool = False,
     ) -> _Wavefield:
         """
-        The wavefield of :meth:`wavefield`, with the power of the beam and the
-        mean cosine of its rays on the sensor, which :meth:`psf` needs to find
-        the irradiance on the sensor per unit power.
+        The wavefield of :meth:`wavefield`, with the power of the beam and,
+        optionally, the flux of the wavefield through the sensor, which
+        :meth:`psf` needs to find the irradiance on the sensor per unit power.
 
-        The parameters and their defaults are those of :meth:`wavefield`.
+        The other parameters and their defaults are those of :meth:`wavefield`.
+
+        Parameters
+        ----------
+        flux
+            Whether to find the flux of the wavefield through the sensor,
+            which takes a second diffraction integral.
         """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
@@ -3252,30 +3265,6 @@ class AbstractSequentialSystem(
         power = rays_surface.intensity * area_0 / unit_0
         power = np.where(where, power, 0 * u.mm**2).to(u.mm**2)
 
-        rays_sensor = rays[{axis_surface: ~0}]
-        if sensor.transformation is not None:
-            rays_sensor = sensor.transformation.inverse(rays_sensor)
-
-        # The cosine between the rays and the normal to the sensor which turns
-        # |E|^2 across the beam into the irradiance on the sensor.
-        # Each ray spreads its power over an area of the sensor larger than
-        # its patch across the beam by one over its own cosine, so the integral
-        # of |E|^2 over the sensor is the sum of the power of each ray over its
-        # cosine, and the cosine is the harmonic mean weighted by the power.
-        cosine = np.abs(rays_sensor.direction @ sensor.sag.normal(rays_sensor.position))
-        finite = np.isfinite(cosine)
-        cosine = np.where(finite, cosine, 0)
-        valid = cosine > 0
-        weight = np.where(valid, power, 0 * u.mm**2)
-        weight_total = weight.sum(axis_pupil)
-        secant = (weight / np.where(valid, cosine, 1)).sum(axis_pupil)
-        cosine = np.where(
-            secant > 0,
-            weight_total / np.where(secant > 0, secant, 1 * u.mm**2),
-            1,
-        )
-        cosine = cosine.to(u.dimensionless_unscaled).value
-
         # The index of the medium after the last surface is the same for every
         # ray, but it may be broadcast along the axes of the grid, and it is
         # one where no ray reaches the surface.
@@ -3306,6 +3295,9 @@ class AbstractSequentialSystem(
             # The centroid on the sensor of the rays which reach the last
             # surface before it, whether or not they land inside the aperture
             # of the sensor, or the origin of the sensor if none do.
+            rays_sensor = rays[{axis_surface: ~0}]
+            if sensor.transformation is not None:
+                rays_sensor = sensor.transformation.inverse(rays_sensor)
             position_rays = rays_sensor.position.xy
             where_sensor = (
                 where & np.isfinite(position_rays.x) & np.isfinite(position_rays.y)
@@ -3344,15 +3336,37 @@ class AbstractSequentialSystem(
         if sensor.transformation is not None:
             position_global = sensor.transformation(position)
 
-        amplitude = optika.wavefields.rayleigh_sommerfeld(
-            wavefield=wavefield,
-            position=position_global,
-            axis=axis_pupil,
-            chunk_size=chunk_size,
+        # The normal to the sensor at each position, in global coordinates,
+        # through which the flux of the wavefield is found.
+        normal_global = None
+        if flux:
+            normal_global = sag_sensor.normal(position)
+            if sensor.transformation is not None:
+                tip = sensor.transformation(position + normal_global * u.mm)
+                normal_global = (tip - position_global) / u.mm
+                normal_global = normal_global.to(u.dimensionless_unscaled)
+
+        amplitude, amplitude_normal = (
+            optika.wavefields._propagation._rayleigh_sommerfeld(
+                wavefield=wavefield,
+                position=position_global,
+                axis=axis_pupil,
+                chunk_size=chunk_size,
+                normal_destination=normal_global,
+            )
         )
 
+        # The flux through the sensor is the real part of E^* F, where i k F
+        # is the derivative of the field along the normal to the sensor.
+        result_flux = None
+        if flux:
+            result_flux = np.real(np.conj(amplitude) * amplitude_normal)
+
         if sensor.aperture is not None:
-            amplitude = amplitude * sensor.aperture(position)
+            inside = sensor.aperture(position)
+            amplitude = amplitude * inside
+            if flux:
+                result_flux = result_flux * inside
 
         shape_sensor = na.shape(position_sensor)
         num_x = shape_sensor.get(axis[0], 1)
@@ -3383,7 +3397,7 @@ class AbstractSequentialSystem(
         return _Wavefield(
             wavefield=result,
             power=power.sum(axis_pupil),
-            cosine=cosine,
+            flux=result_flux,
         )
 
     def psf(
@@ -3411,13 +3425,17 @@ class AbstractSequentialSystem(
         the light on the grid by default, or count the light which lands off
         the grid against the image with ``normalize=False``.
 
-        The irradiance is :math:`|E|^2` times the cosine of the angle between
-        the beam and the normal to the sensor, since :math:`|E|^2` is the
-        irradiance across the beam.
-        Each ray spreads its power over an area of the sensor larger than its
-        patch across the beam by one over its own cosine, so the cosine is the
-        harmonic mean of the cosines of the rays, weighted by their power,
-        which makes the integral over the whole sensor one.
+        The irradiance is the flux of the wavefield through the sensor,
+        :math:`\text{Re} [E^* (\partial E / \partial n) / (i k)]`,
+        where :math:`\partial / \partial n` is the derivative along the
+        normal to the sensor and :math:`k` the wavenumber.
+        Where the light arrives along the normal it is :math:`|E|^2`, the
+        irradiance across the beam, and where it arrives at an angle it is
+        smaller by the cosine of the angle, so it is the irradiance on a
+        tilted or curved sensor, and on a sensor out of focus, whose every
+        position is lit from a different direction.
+        It takes a second diffraction integral, so this method is two to three
+        times slower than :meth:`wavefield`.
         It is zero everywhere for a field from which no ray reaches the last
         surface before the sensor.
         Positions outside the aperture of the sensor have no intensity, so
@@ -3513,12 +3531,11 @@ class AbstractSequentialSystem(
                     label="intensity relative to the peak",
                 )
         """
-        result = self._wavefield(axis=axis, **kwargs)
+        result = self._wavefield(axis=axis, flux=True, **kwargs)
         wavefield = result.wavefield
         power = result.power
 
-        intensity = np.square(np.abs(wavefield.outputs.amplitude)) * result.cosine
-        intensity = intensity / np.where(power > 0, power, 1 * u.mm**2)
+        intensity = result.flux / np.where(power > 0, power, 1 * u.mm**2)
 
         return na.FunctionArray(
             inputs=optika.vectors.ImageVectorArray(

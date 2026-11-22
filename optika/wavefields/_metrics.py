@@ -122,7 +122,9 @@ def encircled_energy_radius(
 
     The radius is that of the first sample, in order of distance from the
     centroid, at which the enclosed energy reaches `fraction`, or
-    not-a-number if it does not reach it on the grid.
+    not-a-number if it never reaches it: with ``normalize=False`` because
+    too much of the light lands off the grid, and with the default because
+    `fraction` is more than one or a sample of `intensity` is not a number.
 
     Parameters
     ----------
@@ -169,7 +171,8 @@ def encircled_energy_radius(
     reached = index < num
     index = np.minimum(index, num - 1)
     result = radius[{axis_flat: index}]
-    result = np.where(reached, result, np.nan * na.unit_normalized(result))
+    unit = na.unit(result)
+    result = np.where(reached, result, np.nan if unit is None else np.nan * unit)
 
     if not result.shape:
         result = result.ndarray
@@ -374,12 +377,14 @@ def mtf(
     Normalized to one at zero frequency, the MTF is that of the light on the
     grid, so the grid must also be wide enough to hold nearly all of the
     light.
-    Normalized to the power of the whole image, with ``normalize=False``, the
-    light which lands off the grid lowers the MTF at every frequency but
-    zero by the fraction of the power it carries, which is accurate as long
-    as that light is spread over a region much wider than the grid, as the
-    light which the figure errors of the surfaces scatter far from the image
-    is.
+    With ``normalize=False``, the MTF is normalized to the power of the whole
+    image, so the light which lands off the grid lowers it by the fraction of
+    the power it carries at every frequency, including zero, where its value
+    is the fraction of the power on the grid.
+    As long as that light is spread over a region much wider than the grid,
+    as the light which the figure errors of the surfaces scatter far from the
+    image is, this is the true MTF at every frequency the grid resolves but
+    zero, where the true MTF is one.
 
     A point-spread function from :meth:`~optika.systems.SequentialSystem.psf`
     is computed from a finite grid of rays, which aliases it at a distance
