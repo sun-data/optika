@@ -220,6 +220,269 @@ def _derivative(
     )
 
 
+class _MeshDiffraction(NamedTuple):
+    """
+    The mesh which supports a thin-film filter of a system, with where its
+    diffraction orders land on the sensor.
+
+    See :func:`_mesh_diffraction` and :func:`_diffract_mesh`.
+    """
+
+    mesh: optika.materials.meshes.AbstractMesh
+    """The mesh."""
+
+    shift_x: na.AbstractCartesian2dVectorArray
+    """
+    The shift on the sensor, in sensor coordinates, of the image which the
+    mesh diffracts into the first order along its :math:`x` axis.
+    """
+
+    shift_y: na.AbstractCartesian2dVectorArray
+    """
+    The shift on the sensor, in sensor coordinates, of the image which the
+    mesh diffracts into the first order along its :math:`y` axis.
+    """
+
+
+def _mesh_diffraction(
+    surfaces: Sequence[optika.surfaces.AbstractSurface],
+    index: int,
+    rays: optika.rays.RayVectorArray,
+    wavelength: na.AbstractScalar,
+    weight: na.AbstractScalar,
+    axis_pupil: tuple[str, str],
+) -> _MeshDiffraction:
+    """
+    Find where the first diffraction orders of the mesh which supports the
+    thin-film filter on one surface of a system land on its sensor.
+
+    The rays leaving the surface are deflected into the first order along
+    each axis of the mesh, as by a grating whose rulings are the wires
+    across that axis, and traced through the rest of the system to the
+    sensor.
+    The shift of each order is the mean of the shifts of the rays, weighted
+    by their power.
+    The deflections are so small that the shift of the order :math:`(m, n)`
+    is :math:`m` times the shift of the first order along :math:`x` plus
+    :math:`n` times that along :math:`y`.
+
+    Parameters
+    ----------
+    surfaces
+        All the surfaces of the system, ending with the sensor.
+    index
+        The index in `surfaces` of the surface with the thin-film filter.
+    rays
+        The rays leaving that surface, in global coordinates.
+    wavelength
+        The vacuum wavelength of the rays.
+    weight
+        The power of each ray, zero where it is vignetted.
+    axis_pupil
+        The two logical axes of the grid of rays.
+    """
+    surface = surfaces[index]
+    sensor = surfaces[~0]
+    mesh = surface.material.mesh
+    period = (1 / mesh.pitch).to(u.mm)
+    transformation = surface.transformation
+
+    rays_local = rays
+    if transformation is not None:
+        rays_local = transformation.inverse(rays_local)
+    normal = surface.sag.normal(rays_local.position)
+    index_refraction = rays_local.index_refraction
+
+    def land(
+        direction: na.AbstractCartesian3dVectorArray,
+    ) -> na.AbstractCartesian2dVectorArray:
+        """
+        Where the rays leaving the surface in the given directions land on
+        the sensor, in sensor coordinates.
+
+        Parameters
+        ----------
+        direction
+            The direction of each ray leaving the surface, in the coordinates
+            of the surface.
+        """
+        rays_order = rays_local.replace(direction=direction)
+        if transformation is not None:
+            rays_order = transformation(rays_order)
+        rays_order = optika.propagators.propagate_rays(
+            propagators=surfaces[index + 1 :],
+            rays=rays_order,
+            efficiency=False,
+        )
+        if sensor.transformation is not None:
+            rays_order = sensor.transformation.inverse(rays_order)
+        return rays_order.position.xy
+
+    position = land(rays_local.direction)
+    zero = na.Cartesian2dVectorArray(0, 0) * u.mm
+    unit_weight = na.unit(weight)
+
+    shifts = []
+    for normal_rulings in (
+        na.Cartesian3dVectorArray(1, 0, 0),
+        na.Cartesian3dVectorArray(0, 1, 0),
+    ):
+        direction = optika.rulings.incident_effective(
+            wavelength=wavelength,
+            direction=rays_local.direction,
+            index_refraction=index_refraction,
+            normal=normal,
+            diffraction_order=1,
+            spacing_rulings=period,
+            normal_rulings=normal_rulings,
+        )
+        direction = optika.materials.snells_law(
+            direction=direction,
+            index_refraction=index_refraction,
+            index_refraction_new=index_refraction,
+            normal=normal,
+        )
+        shift = land(direction) - position
+        finite = np.isfinite(shift.x) & np.isfinite(shift.y)
+        weight_shift = np.where(finite, weight, 0 * unit_weight)
+        weight_total = weight_shift.sum(axis_pupil)
+        shift = np.where(finite, shift, zero)
+        shift = (shift * weight_shift).sum(axis_pupil)
+        shift = np.where(
+            weight_total > 0,
+            shift / np.where(weight_total > 0, weight_total, 1 * unit_weight),
+            zero,
+        )
+        shifts.append(shift.to(u.mm))
+
+    return _MeshDiffraction(
+        mesh=mesh,
+        shift_x=shifts[0],
+        shift_y=shifts[1],
+    )
+
+
+def _diffract_mesh(
+    intensity: na.AbstractScalar,
+    position: na.AbstractCartesian2dVectorArray,
+    axis: tuple[str, str],
+    diffraction: _MeshDiffraction,
+) -> na.AbstractScalar:
+    """
+    Spread a point-spread function on a regular grid into the diffraction
+    orders of a mesh.
+
+    The result is the sum over the orders :math:`(m, n)` of the
+    point-spread function shifted by :math:`m` times
+    :attr:`_MeshDiffraction.shift_x` plus :math:`n` times
+    :attr:`_MeshDiffraction.shift_y`, weighted by the fraction of the light
+    which passes the mesh that the order carries, from
+    :meth:`~optika.materials.meshes.AbstractMesh.efficiency_order`.
+
+    The shifts are applied in the Fourier domain, on a grid zero-padded to
+    twice the width of the given one, which the point-spread function
+    sampled finely enough to resolve it is band-limited on.
+    The orders shifted by at least the width of the grid along either axis
+    miss it, so they are left out, and their light lands off the grid.
+    The light of the point-spread function which lands off the grid is not
+    diffracted onto it.
+
+    Parameters
+    ----------
+    intensity
+        The point-spread function at each position of the grid.
+    position
+        The positions of the grid on the sensor.
+    axis
+        The two logical axes of the grid.
+    diffraction
+        The mesh, with where its first orders land on the sensor.
+
+    Raises
+    ------
+    ValueError
+        If the positions are not a regular grid along `axis`.
+    """
+    mesh = diffraction.mesh
+    shift_x = diffraction.shift_x
+    shift_y = diffraction.shift_y
+
+    shape = na.shape_broadcasted(intensity, position.x, position.y)
+    try:
+        spacing = optika.wavefields._metrics._spacing(position, shape, axis)
+    except ValueError as error:
+        raise ValueError(
+            "the diffraction by the mesh of a thin-film filter needs a "
+            "regular grid of sensor positions; "
+            "pass `mesh=False` to leave it out."
+        ) from error
+    num_x = shape[axis[0]]
+    num_y = shape[axis[1]]
+    width_x = num_x * np.abs(spacing.x)
+    width_y = num_y * np.abs(spacing.y)
+
+    # The range of orders whose images can overlap the grid, from the
+    # orders which would land on its corners.
+    determinant = shift_x.x * shift_y.y - shift_x.y * shift_y.x
+    valid = np.isfinite(determinant) & (determinant != 0)
+    determinant = np.where(valid, determinant, 1 * na.unit(determinant))
+    num_m = 0
+    num_n = 0
+    for corner_y in (width_y, -width_y):
+        m = (shift_y.y * width_x - shift_y.x * corner_y) / determinant
+        n = (shift_x.x * corner_y - shift_x.y * width_x) / determinant
+        m = np.where(valid, np.abs(m), 0).to(u.dimensionless_unscaled)
+        n = np.where(valid, np.abs(n), 0).to(u.dimensionless_unscaled)
+        num_m = max(num_m, int(np.ceil(m.max().ndarray.value)))
+        num_n = max(num_n, int(np.ceil(n.max().ndarray.value)))
+
+    unit = na.unit(intensity)
+    if unit is not None:
+        intensity = intensity.to(unit).value
+    intensity = na.broadcast_to(intensity, shape)
+
+    axes = {axis[0]: axis[0], axis[1]: axis[1]}
+    num_pad = {axis[0]: 2 * num_x, axis[1]: 2 * num_y}
+    spectrum = np.fft.fftn(intensity, s=num_pad, axes=axes)
+
+    index_x = na.arange(0, num_pad[axis[0]], axis=axis[0])
+    index_y = na.arange(0, num_pad[axis[1]], axis=axis[1])
+    index_x = np.where(index_x < num_x, index_x, index_x - num_pad[axis[0]])
+    index_y = np.where(index_y < num_y, index_y, index_y - num_pad[axis[1]])
+    frequency_x = index_x / (num_pad[axis[0]] * spacing.x)
+    frequency_y = index_y / (num_pad[axis[1]] * spacing.y)
+
+    # The phase, in cycles, of each frequency across the shift of the first
+    # order along each axis of the mesh.
+    phase_x = frequency_x * shift_x.x + frequency_y * shift_x.y
+    phase_y = frequency_x * shift_y.x + frequency_y * shift_y.y
+    phase_x = phase_x.to(u.dimensionless_unscaled).value
+    phase_y = phase_y.to(u.dimensionless_unscaled).value
+    factor_y = np.exp(-2j * np.pi * phase_y)
+
+    transfer = 0
+    for m in range(-num_m, num_m + 1):
+        transfer_m = 0
+        factor_n = np.exp(2j * np.pi * num_n * phase_y)
+        for n in range(-num_n, num_n + 1):
+            shift = m * shift_x + n * shift_y
+            inside = (np.abs(shift.x) < width_x) & (np.abs(shift.y) < width_y)
+            order = na.Cartesian2dVectorArray(m, n)
+            weight = mesh.efficiency_order(order) / mesh.efficiency
+            transfer_m = transfer_m + np.where(inside, weight, 0) * factor_n
+            factor_n = factor_n * factor_y
+        transfer = transfer + np.exp(-2j * np.pi * m * phase_x) * transfer_m
+
+    result = np.fft.ifftn(spectrum * transfer, axes=axes)
+    result = result[{axis[0]: slice(0, num_x), axis[1]: slice(0, num_y)}]
+    result = np.real(result)
+
+    if unit is not None:
+        result = result << unit
+
+    return result
+
+
 class _Wavefield(NamedTuple):
     """
     The wavefield on the sensor of a system, with what is needed to turn it
@@ -249,6 +512,12 @@ class _Wavefield(NamedTuple):
     The flux of the wavefield through the sensor at each position of the
     wavefield, in the units of :math:`|E|^2`, or :obj:`None` if it was not
     asked for.
+    """
+
+    meshes: list[_MeshDiffraction]
+    """
+    The meshes which support the thin-film filters of the system, in order,
+    with where their diffraction orders land on the sensor.
     """
 
 
@@ -3051,6 +3320,9 @@ class AbstractSequentialSystem(
         away from the edges of a field stop.
         The wavefield is zero at the positions outside the aperture of the
         sensor.
+        The diffraction by the meshes which support thin-film filters is left
+        out, since it depends on where their wires cross the beam;
+        :meth:`psf` adds it averaged over the position of the wires.
 
         The rays sample the wavefield on the last surface at an interval
         :math:`\Delta`, so the integral aliases the image at a distance of
@@ -3265,6 +3537,23 @@ class AbstractSequentialSystem(
         power = rays_surface.intensity * area_0 / unit_0
         power = np.where(where, power, 0 * u.mm**2).to(u.mm**2)
 
+        # The meshes which support the thin-film filters of the system, with
+        # where their diffraction orders land on the sensor.
+        meshes = []
+        for index_surface, surface_filter in enumerate(surfaces):
+            material = surface_filter.material
+            if isinstance(material, optika.materials.AbstractThinFilmFilter):
+                meshes.append(
+                    _mesh_diffraction(
+                        surfaces=surfaces,
+                        index=index_surface,
+                        rays=rays[{axis_surface: index_surface}],
+                        wavelength=wavelength,
+                        weight=power,
+                        axis_pupil=axis_pupil,
+                    )
+                )
+
         # The index of the medium after the last surface is the same for every
         # ray, but it may be broadcast along the axes of the grid, and it is
         # one where no ray reaches the surface.
@@ -3398,11 +3687,13 @@ class AbstractSequentialSystem(
             wavefield=result,
             power=power.sum(axis_pupil),
             flux=result_flux,
+            meshes=meshes,
         )
 
     def psf(
         self,
         axis: tuple[str, str] = ("wavefield_x", "wavefield_y"),
+        mesh: bool = True,
         **kwargs,
     ) -> na.FunctionArray[optika.vectors.ImageVectorArray, na.AbstractScalar]:
         r"""
@@ -3442,12 +3733,44 @@ class AbstractSequentialSystem(
         near the edge of the sensor the point-spread function is the part of
         it which lands on the sensor.
 
+        The mesh which supports a thin-film filter
+        (:attr:`optika.materials.AbstractThinFilmFilter.mesh`) diffracts the
+        light like a crossed grating, into orders which land on the sensor as
+        copies of the image, a distance :math:`\lambda z / d` apart along each
+        axis of the mesh, where :math:`d` is the period of the mesh and
+        :math:`z` its distance from the image.
+        The wavefield of :meth:`wavefield` leaves the mesh out, since how the
+        orders interfere depends on where the wires cross the beam, which is
+        not known and changes across the field.
+        Averaged over the position of the wires, the orders add incoherently,
+        so with ``mesh=True`` this method adds up copies of the point-spread
+        function shifted to where each order of
+        :meth:`~optika.materials.meshes.AbstractMesh.efficiency_order` lands,
+        weighted by the fraction of the light it carries.
+        The shifts are found by deflecting the rays which leave the filter
+        into the first order along each axis of the mesh and tracing them to
+        the sensor.
+        The copies are shifted on the grid of sensor positions, which must be
+        regular, so the orders which miss the grid land off it, and the light
+        which lands off the grid is not diffracted onto it.
+
         Parameters
         ----------
         axis
             The two logical axes of the grid of sensor positions.
+        mesh
+            Whether to include the diffraction by the meshes which support the
+            thin-film filters of this system.
+            If :obj:`True` (the default), the sensor positions must be a
+            regular grid.
         kwargs
             Additional keyword arguments passed to :meth:`wavefield`.
+
+        Raises
+        ------
+        ValueError
+            If `mesh` is :obj:`True`, this system has a thin-film filter, and
+            the sensor positions are not a regular grid.
 
         Examples
         --------
@@ -3536,6 +3859,19 @@ class AbstractSequentialSystem(
         power = result.power
 
         intensity = result.flux / np.where(power > 0, power, 1 * u.mm**2)
+
+        if mesh and result.meshes:
+            position = wavefield.outputs.position
+            for diffraction in result.meshes:
+                intensity = _diffract_mesh(
+                    intensity=intensity,
+                    position=position.xy,
+                    axis=axis,
+                    diffraction=diffraction,
+                )
+            aperture = self.sensor.aperture
+            if aperture is not None:
+                intensity = intensity * aperture(position)
 
         return na.FunctionArray(
             inputs=optika.vectors.ImageVectorArray(

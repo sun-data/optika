@@ -1041,3 +1041,261 @@ def test_wavefield_parameters() -> None:
     for name, parameter in public.parameters.items():
         assert private.parameters[name].kind == parameter.kind
         assert private.parameters[name].default == parameter.default
+
+
+_wavelength_mesh = 50 * u.nm
+"""The wavelength of the light through the filter of :func:`_telescope_filter`."""
+
+_distance_mesh = 50 * u.mm
+"""The distance from the filter of :func:`_telescope_filter` to the focus."""
+
+_period_mesh = 0.5 * u.mm
+"""The period of the mesh of the filter of :func:`_telescope_filter`."""
+
+
+def _telescope_filter(roll: u.Quantity) -> optika.systems.SequentialSystem:
+    """
+    An f/25 parabola with a focal length of 200 mm, and a thin-film filter
+    :data:`_distance_mesh` before its focus, whose mesh has a period of
+    :data:`_period_mesh` and an open area of 64%.
+
+    The filter is flipped about its :math:`x` axis to face the light, so the
+    axes of its mesh point along :math:`(\\cos \\phi, -\\sin \\phi)` and
+    :math:`(-\\sin \\phi, -\\cos \\phi)` on the sensor, where :math:`\\phi`
+    is its roll.
+
+    Parameters
+    ----------
+    roll
+        The roll of the filter about the axis of the beam.
+    """
+    primary = optika.surfaces.Surface(
+        name="primary",
+        sag=optika.sags.ParabolicSag(focal_length=-200 * u.mm),
+        aperture=optika.apertures.CircularAperture(4 * u.mm),
+        material=optika.materials.Mirror(),
+        is_pupil_stop=True,
+        transformation=na.transformations.Cartesian3dTranslation(z=200 * u.mm),
+    )
+    material = optika.materials.ThinFilmFilter(
+        layer=optika.materials.Layer(chemical="Al", thickness=100 * u.nm),
+        layer_oxide=optika.materials.Layer(chemical="Al2O3", thickness=2 * u.nm),
+        mesh=optika.materials.meshes.Mesh(
+            chemical="Ni",
+            efficiency=0.64,
+            pitch=1 / _period_mesh,
+        ),
+    )
+    filter_ = optika.surfaces.Surface(
+        name="filter",
+        material=material,
+        aperture=optika.apertures.CircularAperture(10 * u.mm),
+        transformation=na.transformations.TransformationList(
+            [
+                na.transformations.Cartesian3dRotationZ(roll),
+                na.transformations.Cartesian3dRotationX(180 * u.deg),
+                na.transformations.Cartesian3dTranslation(z=_distance_mesh),
+            ]
+        ),
+    )
+    sensor = optika.sensors.ImagingSensor(
+        name="sensor",
+        width_pixel=20 * u.um,
+        axis_pixel=na.Cartesian2dVectorArray("detector_x", "detector_y"),
+        num_pixel=na.Cartesian2dVectorArray(128, 128),
+        timedelta_exposure=1 * u.s,
+        is_field_stop=True,
+    )
+    return optika.systems.SequentialSystem(
+        surfaces=[primary, filter_],
+        sensor=sensor,
+        grid_input=optika.vectors.ObjectVectorArray(
+            wavelength=_wavelength_mesh,
+            field=0,
+            pupil=0,
+        ),
+    )
+
+
+def test_psf_mesh() -> None:
+    """
+    The first orders of the mesh land :math:`\\lambda z / d` from the image,
+    along the axes of the mesh, and the PSF with the mesh is the sum of
+    copies of the PSF without it, shifted to where each order lands and
+    weighted by the fraction of the light which the order carries.
+    """
+    roll = 30 * u.deg
+    axis = ("wavefield_x", "wavefield_y")
+    width = 20 * u.um
+    num = 41
+    system = _telescope_filter(roll)
+    mesh = system.surfaces[1].material.mesh
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        num_pupil=61,
+        axis=axis,
+    )
+    position = na.Cartesian2dVectorLinearSpace(
+        start=-width / 2,
+        stop=width / 2,
+        axis=na.Cartesian2dVectorArray(*axis),
+        num=num,
+    ).explicit
+
+    (diffraction,) = system._wavefield(position_sensor=position, **kwargs).meshes
+    shift = (_wavelength_mesh * _distance_mesh / _period_mesh).to(u.um)
+    shift_x = shift * na.Cartesian2dVectorArray(np.cos(roll), -np.sin(roll))
+    shift_y = shift * na.Cartesian2dVectorArray(-np.sin(roll), -np.cos(roll))
+    for result, expected in (
+        (diffraction.shift_x, shift_x),
+        (diffraction.shift_y, shift_y),
+    ):
+        # The sign of each order does not matter, since the mesh is symmetric.
+        sign = np.sign((result @ expected).ndarray.value)
+        result = (sign * result).to(u.um)
+        assert np.allclose(result.x.ndarray.value, expected.x.value, rtol=1e-3)
+        assert np.allclose(result.y.ndarray.value, expected.y.value, rtol=1e-3)
+
+    # The orders whose images overlap the grid, with the computed shifts.
+    width_grid = num * width / (num - 1)
+    order = na.Cartesian2dVectorArray(
+        x=na.arange(-7, 8, axis="m"),
+        y=na.arange(-7, 8, axis="n"),
+    )
+    shifts = order.x * diffraction.shift_x + order.y * diffraction.shift_y
+    inside = (np.abs(shifts.x) < width_grid) & (np.abs(shifts.y) < width_grid)
+    assert not np.any(inside[dict(m=0)] | inside[dict(m=~0)])
+    assert not np.any(inside[dict(n=0)] | inside[dict(n=~0)])
+    weight = np.where(inside, mesh.efficiency_order(order) / mesh.efficiency, 0)
+
+    result = system.psf(position_sensor=position, **kwargs)
+    psf_shifted = system.psf(position_sensor=position - shifts, mesh=False, **kwargs)
+    expected = (weight * psf_shifted.outputs).sum(("m", "n"))
+    peak = expected.max().ndarray
+    assert np.all(np.abs(result.outputs - expected) <= 1e-4 * peak)
+
+
+def test_psf_mesh_registration() -> None:
+    """
+    Averaged over the position of the wires of a mesh across a converging
+    beam, the intensity at the focus is the sum of copies of the intensity
+    without the mesh, shifted to where each order of the mesh lands and
+    weighted by the fraction of the light which the order carries.
+
+    The mesh is sampled on a grid of points across the beam, five of every
+    twenty-five along each axis on a wire, and moved across the beam by a
+    fifth of a period at a time.
+    """
+    axis_mesh = ("mesh_x", "mesh_y")
+    axis = ("x", "y")
+    num_period = 25
+    spacing = _period_mesh / num_period
+    radius = 1 * u.mm
+    index = na.Cartesian2dVectorArray(
+        x=na.arange(-50, 51, axis=axis_mesh[0]),
+        y=na.arange(-50, 51, axis=axis_mesh[1]),
+    )
+    position_mesh = na.Cartesian3dVectorArray(
+        x=spacing * index.x,
+        y=spacing * index.y,
+        z=0 * u.mm,
+    )
+    unvignetted = position_mesh.xy.length < radius
+    distance = position_mesh - na.Cartesian3dVectorArray(0, 0, 1) * _distance_mesh
+    phase = (distance.length / _wavelength_mesh).to(u.dimensionless_unscaled)
+    amplitude = np.where(unvignetted, np.exp(-2j * np.pi * phase.value), 0)
+
+    # The mesh moved across the beam by a fifth of a period along each axis.
+    num_registration = 5
+    offset = na.Cartesian2dVectorArray(
+        x=na.arange(0, num_registration, axis="registration_x"),
+        y=na.arange(0, num_registration, axis="registration_y"),
+    )
+    offset = offset * (num_period // num_registration)
+    open_x = (index.x + offset.x) % num_period < 20
+    open_y = (index.y + offset.y) % num_period < 20
+    transmission = open_x & open_y
+
+    position = na.Cartesian2dVectorLinearSpace(
+        start=-10 * u.um,
+        stop=10 * u.um,
+        axis=na.Cartesian2dVectorArray(*axis),
+        num=41,
+    ).explicit
+    position_sensor = na.Cartesian3dVectorArray(
+        x=position.x,
+        y=position.y,
+        z=_distance_mesh,
+    )
+
+    def intensity(transmission: bool | na.AbstractScalar) -> na.AbstractScalar:
+        """
+        The intensity at the focus of the beam through the given mesh.
+
+        Parameters
+        ----------
+        transmission
+            The amplitude transmission of the mesh at each point.
+        """
+        wavefield = optika.wavefields.WavefieldVectorArray(
+            wavelength=_wavelength_mesh,
+            position=position_mesh,
+            amplitude=amplitude * transmission,
+            normal=na.Cartesian3dVectorArray(0, 0, 1),
+            area=np.square(spacing),
+            index_refraction=1,
+            unvignetted=unvignetted,
+        )
+        field = optika.wavefields.rayleigh_sommerfeld(
+            wavefield=wavefield,
+            position=position_sensor,
+            axis=axis_mesh,
+        )
+        return np.square(np.abs(field))
+
+    average = intensity(transmission).mean(("registration_x", "registration_y"))
+
+    mesh = optika.materials.meshes.Mesh(
+        chemical="Ni",
+        efficiency=0.64,
+        pitch=1 / _period_mesh,
+    )
+    shift = (_wavelength_mesh * _distance_mesh / _period_mesh).to(u.mm)
+    diffraction = optika.systems._sequential._MeshDiffraction(
+        mesh=mesh,
+        shift_x=na.Cartesian2dVectorArray(shift, 0 * u.mm),
+        shift_y=na.Cartesian2dVectorArray(0 * u.mm, shift),
+    )
+    expected = optika.systems._sequential._diffract_mesh(
+        intensity=intensity(True),
+        position=position,
+        axis=axis,
+        diffraction=diffraction,
+    )
+    expected = mesh.efficiency * expected
+    peak = expected.max().ndarray
+    assert np.all(np.abs(average - expected) <= 2e-3 * peak)
+
+
+def test_psf_mesh_irregular() -> None:
+    """
+    The diffraction by a mesh needs a regular grid of sensor positions, but
+    it can be left out to find the PSF anywhere.
+    """
+    system = _telescope_filter(0 * u.deg)
+    position = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(np.array([0, 1, 3]) * u.um, axes="wavefield_x"),
+        y=na.ScalarArray(np.array([0, 2, 3]) * u.um, axes="wavefield_y"),
+    )
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        position_sensor=position,
+        num_pupil=31,
+    )
+    with pytest.raises(ValueError, match="mesh=False"):
+        system.psf(**kwargs)
+    result = system.psf(mesh=False, **kwargs)
+    assert np.all(result.outputs >= 0 / u.mm**2)
+    assert result.outputs.max() > 0 / u.mm**2
