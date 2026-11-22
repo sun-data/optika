@@ -281,3 +281,150 @@ def test_mtf_single() -> None:
             position[index],
             ("psf_x", "psf_y"),
         )
+
+
+def _gaussian_density(
+    sigma: u.Quantity | na.AbstractScalar,
+    width: u.Quantity,
+    num: int = 401,
+) -> tuple[na.AbstractScalar, na.Cartesian2dVectorArray]:
+    """
+    A Gaussian point-spread function as an intensity per unit area which
+    integrates to one over the whole plane, on a grid which may hold only
+    part of it.
+
+    Parameters
+    ----------
+    sigma
+        The standard deviation of the Gaussian.
+    width
+        The width of the grid.
+    num
+        The number of samples along each axis of the grid.
+    """
+    _, position = _gaussian_psf(width=width, num=num)
+    r2 = np.square(position.x - 1 * u.um) + np.square(position.y - 1 * u.um)
+    variance = np.square(sigma)
+    intensity = np.exp(-r2 / (2 * variance)) / (2 * np.pi * variance)
+    return intensity, position
+
+
+def test_mtf_normalize() -> None:
+    """
+    Normalized to the power of the whole image, the MTF of a Gaussian is
+    :math:`\\exp(-2 \\pi^2 \\sigma^2 f^2)` on a grid which holds all of it,
+    and that times the fraction of the power on a grid which does not,
+    :math:`\\mathrm{erf}^2(w / 2 \\sqrt{2} \\sigma)`.
+    """
+    import scipy.special
+
+    sigma = 5 * u.um
+    width = na.ScalarArray(np.array([80, 15]) * u.um, axes="grid")
+    num = 401
+    intensity, position = _gaussian_density(sigma, width=width, num=num)
+
+    result = optika.wavefields.mtf(
+        intensity=intensity,
+        position=position,
+        axis=("psf_x", "psf_y"),
+        normalize=False,
+    )
+
+    spacing = width / (num - 1)
+    frequency_x = (na.arange(0, num, axis="psf_x") - num // 2) / (num * spacing)
+    frequency_y = (na.arange(0, num, axis="psf_y") - num // 2) / (num * spacing)
+    frequency = np.square(frequency_x) + np.square(frequency_y)
+    expected = np.exp(-2 * np.square(np.pi * sigma) * frequency)
+
+    # each sample stands for a cell of the grid, so the cells reach half of
+    # a spacing past the outermost samples
+    arg = num * spacing / (2 * np.sqrt(2) * sigma)
+    fraction = np.square(scipy.special.erf(arg.to(u.dimensionless_unscaled).value))
+    origin = dict(psf_x=num // 2, psf_y=num // 2)
+    assert np.allclose(result.outputs[origin], fraction, rtol=1e-5)
+
+    wide = dict(grid=0)
+    assert np.allclose(result.outputs[wide], expected[wide], rtol=0, atol=1e-9)
+
+    result_normalized = optika.wavefields.mtf(
+        intensity=intensity,
+        position=position,
+        axis=("psf_x", "psf_y"),
+    )
+    assert np.allclose(
+        result.outputs,
+        result_normalized.outputs * result.outputs[origin],
+        rtol=1e-12,
+    )
+
+
+def test_mtf_normalize_not_density() -> None:
+    """
+    Normalized to the power of the whole image, the intensity must be per
+    unit area, so that its integral over the grid is dimensionless.
+    """
+    intensity, position = _gaussian_psf(num=11)
+
+    with pytest.raises(u.UnitConversionError):
+        optika.wavefields.mtf(
+            intensity=intensity,
+            position=position,
+            axis=("psf_x", "psf_y"),
+            normalize=False,
+        )
+
+
+def test_encircled_energy_radius_normalize() -> None:
+    """
+    Normalized to the power of the whole image, the 50% encircled-energy
+    radius of a Gaussian is :math:`\\sigma \\sqrt{2 \\ln 2}` on a grid which
+    holds that circle but not all of the light, and not-a-number on a grid
+    which holds less than half of the light.
+    """
+    sigma = na.ScalarArray(np.array([5, 20]) * u.um, axes="field")
+    intensity, position = _gaussian_density(sigma, width=16 * u.um)
+    kwargs = dict(
+        intensity=intensity,
+        position=position,
+        axis=("psf_x", "psf_y"),
+        fraction=0.5,
+    )
+
+    result = optika.wavefields.encircled_energy_radius(normalize=False, **kwargs)
+
+    expected = sigma * np.sqrt(2 * np.log(2))
+    expected = np.where(sigma < 10 * u.um, expected, np.nan * u.um)
+    assert np.allclose(result, expected, rtol=1e-2, equal_nan=True)
+
+    # normalized to the light on the grid, the radius is smaller
+    index = dict(field=0)
+    result_normalized = optika.wavefields.encircled_energy_radius(**kwargs)
+    assert result_normalized[index] < 0.9 * expected[index]
+
+
+def test_ensquared_energy_normalize() -> None:
+    """
+    Normalized to the power of the whole image, the energy of a Gaussian
+    inside a centered square of width :math:`w` is
+    :math:`\\mathrm{erf}^2(w / 2 \\sqrt{2} \\sigma)`, however much of the
+    light is outside of the grid.
+    """
+    import scipy.special
+
+    sigma = 5 * u.um
+    width = 10 * u.um
+    width_grid = na.ScalarArray(np.array([80, 16]) * u.um, axes="grid")
+    intensity, position = _gaussian_density(sigma, width=width_grid)
+
+    result = optika.wavefields.ensquared_energy(
+        intensity=intensity,
+        position=position,
+        axis=("psf_x", "psf_y"),
+        width=width,
+        normalize=False,
+    )
+
+    arg = (width / (2 * np.sqrt(2) * sigma)).to_value(u.dimensionless_unscaled)
+    expected = np.square(scipy.special.erf(arg))
+    assert na.unit(result) is None
+    assert np.allclose(result, expected, rtol=2e-2)

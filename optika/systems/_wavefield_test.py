@@ -85,8 +85,6 @@ def test_psf_airy():
 
     intensity = psf.outputs
 
-    assert np.allclose(intensity.sum(), 1)
-
     index_peak = np.unravel_index(
         np.argmax(intensity.ndarray),
         intensity.ndarray.shape,
@@ -228,8 +226,8 @@ def test_psf_zernike_defocus():
     psf_nominal = _telescope(sag_primary=sag).psf(**kwargs)
     psf_shifted = _telescope(sag_primary=sag, z_sensor=z_focus).psf(**kwargs)
 
-    # Both PSFs are normalized to unit total energy over the same window,
-    # so the peak intensity measures the concentration of the light.
+    # Both PSFs are normalized to the power of the same beam, so the peak
+    # intensity measures the concentration of the light.
     peak_nominal = psf_nominal.outputs.max()
     peak_shifted = psf_shifted.outputs.max()
 
@@ -586,7 +584,10 @@ def test_psf_finite_object(moved: None | str, image: u.Quantity) -> None:
     radius_airy = (1.22 * 500 * u.nm * 200 / 40).to(u.mm)
     assert np.abs(centroid.x - centroid_rays.x) < radius_airy / 2
     assert np.abs(centroid.y - centroid_rays.y) < radius_airy / 2
-    assert intensity.max() > 0.1
+
+    # the grid holds nearly all of the power of the beam
+    area = np.square(0.05 * u.mm / 50)
+    assert intensity.sum() * area > 0.95
 
 
 def test_raytrace_optical_path_focus() -> None:
@@ -666,6 +667,83 @@ def test_wavefield_energy_narrow_beam(radius: u.Quantity) -> None:
 
     ratio = (power / power_expected).to(u.dimensionless_unscaled)
     assert 0.97 < ratio < 1.01
+
+
+def test_psf_encircled_energy() -> None:
+    """
+    The Huygens PSF is the irradiance per unit power of the beam, so its
+    integral over the circle of each of the first three dark rings of an
+    Airy pattern is the fraction of the power inside that ring,
+    :math:`1 - J_0^2(v)`, where :math:`v` is a zero of :math:`J_1`.
+    """
+    import scipy.special
+
+    width = 20 * u.um
+    num = 101
+    psf = _telescope().psf(
+        field=na.Cartesian2dVectorArray(0, 0),
+        width_sensor=width,
+        num_pupil=101,
+        num_sensor=num,
+    )
+
+    zero = na.ScalarArray(scipy.special.jn_zeros(1, 3), axes="ring")
+    radius = zero * 500 * u.nm * 200 / 40 / np.pi
+    inside = psf.inputs.position.length < radius
+    area = np.square(width / (num - 1))
+    result = (psf.outputs * inside).sum(("wavefield_x", "wavefield_y")) * area
+
+    expected = 1 - np.square(scipy.special.j0(zero))
+    assert np.allclose(result.to(u.dimensionless_unscaled), expected, atol=2e-3)
+
+
+def test_psf_sensor_tilted() -> None:
+    """
+    A tilted sensor spreads the image over more of its area, so the
+    integral of :math:`|E|^2` over it grows by one over the cosine of the
+    tilt, but the integral of the PSF over a grid which holds nearly all of
+    the image is the same as that of a sensor which is not tilted.
+    """
+    angle = 30 * u.deg
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        width_sensor=50 * u.um,
+        num_pupil=61,
+        num_sensor=101,
+    )
+    area = np.square(50 * u.um / 100)
+    axis = ("wavefield_x", "wavefield_y")
+
+    def integral(tilted: bool) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        """
+        The integrals of the PSF and of :math:`|E|^2` over the grid.
+
+        Parameters
+        ----------
+        tilted
+            Whether the sensor is tilted about the image.
+        """
+        system = _telescope()
+        if tilted:
+            sensor = dataclasses.replace(
+                system.sensor,
+                transformation=na.transformations.Cartesian3dRotationX(angle),
+            )
+            system = dataclasses.replace(system, sensor=sensor)
+        psf = system.psf(**kwargs)
+        wavefield = system.wavefield(**kwargs)
+        irradiance = np.square(np.abs(wavefield.outputs.amplitude))
+        return psf.outputs.sum(axis) * area, irradiance.sum(axis) * area
+
+    psf, irradiance = integral(tilted=False)
+    psf_tilted, irradiance_tilted = integral(tilted=True)
+
+    ratio = (irradiance_tilted / irradiance).to(u.dimensionless_unscaled)
+    assert np.allclose(ratio, 1 / np.cos(angle), rtol=2e-3)
+
+    assert 0.97 < psf.to(u.dimensionless_unscaled) < 1
+    assert np.allclose(psf_tilted, psf, rtol=1e-3)
 
 
 def test_psf_vignetted_field() -> None:

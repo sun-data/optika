@@ -220,6 +220,30 @@ def _derivative(
     )
 
 
+class _Wavefield(NamedTuple):
+    """
+    The wavefield on the sensor of a system, with what is needed to turn it
+    into the irradiance on the sensor per unit power of the beam.
+
+    See :meth:`AbstractSequentialSystem._wavefield`.
+    """
+
+    wavefield: optika.wavefields.WavefieldFunctionArray
+    """The wavefield on the sensor, as returned by ``wavefield()``."""
+
+    power: na.AbstractScalar
+    r"""
+    The power of the beam leaving the last surface before the sensor, as the
+    area of a beam with :math:`|E|^2 = 1` which carries the same power.
+    """
+
+    cosine: na.AbstractScalar
+    """
+    The mean cosine of the angle between the rays and the normal to the
+    sensor, where they reach it, weighted by the power of each ray.
+    """
+
+
 class _Sampling(NamedTuple):
     """
     One stratified trace of a system, and which of its field positions the
@@ -3028,6 +3052,37 @@ class AbstractSequentialSystem(
         region of the sensor of interest, and check that the result has
         converged by increasing it.
         """
+        return self._wavefield(
+            wavelength=wavelength,
+            field=field,
+            position_sensor=position_sensor,
+            width_sensor=width_sensor,
+            num_pupil=num_pupil,
+            num_sensor=num_sensor,
+            axis=axis,
+            chunk_size=chunk_size,
+            normalized_field=normalized_field,
+        ).wavefield
+
+    def _wavefield(
+        self,
+        wavelength: None | u.Quantity | na.AbstractScalar = None,
+        field: None | na.AbstractCartesian2dVectorArray = None,
+        position_sensor: None | na.AbstractCartesian2dVectorArray = None,
+        width_sensor: None | u.Quantity | na.AbstractScalar = None,
+        num_pupil: int = 151,
+        num_sensor: int = 101,
+        axis: tuple[str, str] = ("wavefield_x", "wavefield_y"),
+        chunk_size: int = 2**24,
+        normalized_field: bool = True,
+    ) -> _Wavefield:
+        """
+        The wavefield of :meth:`wavefield`, with the power of the beam and the
+        mean cosine of its rays on the sensor, which :meth:`psf` needs to find
+        the irradiance on the sensor per unit power.
+
+        The parameters and their defaults are those of :meth:`wavefield`.
+        """
         if wavelength is None:
             wavelength = self.grid_input.wavelength
         if field is None:
@@ -3189,6 +3244,30 @@ class AbstractSequentialSystem(
         magnitude = rays_surface.intensity * area_0 / (area * cos_theta)
         magnitude = np.sqrt(np.where(where, magnitude, 0 * unit_0).to(unit_0).value)
 
+        # The power of each ray, as the area of a beam with |E|^2 = 1 which
+        # carries the same power, so that it is in the units of |E|^2 times
+        # the area of the patch of the ray across the beam.
+        power = rays_surface.intensity * area_0 / unit_0
+        power = np.where(where, power, 0 * u.mm**2).to(u.mm**2)
+
+        rays_sensor = rays[{axis_surface: ~0}]
+        if sensor.transformation is not None:
+            rays_sensor = sensor.transformation.inverse(rays_sensor)
+
+        # The mean cosine between the rays and the normal to the sensor, which
+        # turns |E|^2 across the beam into the irradiance on the sensor.
+        cosine = np.abs(rays_sensor.direction @ sensor.sag.normal(rays_sensor.position))
+        finite = np.isfinite(cosine)
+        weight = np.where(finite, power, 0 * u.mm**2)
+        weight_total = weight.sum(axis_pupil)
+        cosine = (np.where(finite, cosine, 0) * weight).sum(axis_pupil)
+        cosine = np.where(
+            weight_total > 0,
+            cosine / np.where(weight_total > 0, weight_total, 1 * u.mm**2),
+            1,
+        )
+        cosine = cosine.to(u.dimensionless_unscaled).value
+
         # The index of the medium after the last surface is the same for every
         # ray, but it may be broadcast along the axes of the grid, and it is
         # one where no ray reaches the surface.
@@ -3219,9 +3298,6 @@ class AbstractSequentialSystem(
             # The centroid on the sensor of the rays which reach the last
             # surface before it, whether or not they land inside the aperture
             # of the sensor, or the origin of the sensor if none do.
-            rays_sensor = rays[{axis_surface: ~0}]
-            if sensor.transformation is not None:
-                rays_sensor = sensor.transformation.inverse(rays_sensor)
             position_rays = rays_sensor.position.xy
             where_sensor = (
                 where & np.isfinite(position_rays.x) & np.isfinite(position_rays.y)
@@ -3288,12 +3364,18 @@ class AbstractSequentialSystem(
             index_refraction=wavefield.index_refraction,
         )
 
-        return optika.wavefields.WavefieldFunctionArray(
+        result = optika.wavefields.WavefieldFunctionArray(
             inputs=optika.vectors.SceneVectorArray(
                 wavelength=wavelength,
                 field=field,
             ),
             outputs=outputs,
+        )
+
+        return _Wavefield(
+            wavefield=result,
+            power=power.sum(axis_pupil),
+            cosine=cosine,
         )
 
     def psf(
@@ -3302,14 +3384,30 @@ class AbstractSequentialSystem(
         **kwargs,
     ) -> na.FunctionArray[optika.vectors.ImageVectorArray, na.AbstractScalar]:
         r"""
-        The Huygens point-spread function of this system: the normalized
-        intensity of the wavefield computed by :meth:`wavefield` on a grid of
-        sensor positions.
+        The Huygens point-spread function of this system: the irradiance on
+        the sensor of the wavefield computed by :meth:`wavefield`, per unit
+        power of the beam, on a grid of sensor positions.
 
         Its inputs are the wavelength and the field of each point of the
         scene, and the positions on the sensor.
-        The intensity sums to one over the grid, or is zero everywhere for a
-        field whose wavefield is zero on the grid.
+        Its outputs are the irradiance per unit area, normalized to the power
+        of the beam which leaves the last surface before the sensor, so the
+        integral of the point-spread function over the whole sensor is one.
+        Its integral over the grid, the sum of the outputs times the area of a
+        cell of the grid, is the fraction of the light which lands on the
+        grid, which is less than one if the grid leaves out the faint wings
+        of the image, or the light which the figure errors of the surfaces
+        scatter far from it.
+        The metrics of :mod:`optika.wavefields`, such as
+        :func:`~optika.wavefields.mtf`, normalize the point-spread function to
+        the light on the grid by default, or count the light which lands off
+        the grid against the image with ``normalize=False``.
+
+        The irradiance is :math:`|E|^2` times the mean cosine of the angle
+        between the rays and the normal to the sensor, weighted by the power
+        of each ray, since :math:`|E|^2` is the irradiance across the beam.
+        It is zero everywhere for a field from which no ray reaches the last
+        surface before the sensor.
         Positions outside the aperture of the sensor have no intensity, so
         near the edge of the sensor the point-spread function is the part of
         it which lands on the sensor.
@@ -3403,11 +3501,12 @@ class AbstractSequentialSystem(
                     label="intensity relative to the peak",
                 )
         """
-        wavefield = self.wavefield(axis=axis, **kwargs)
+        result = self._wavefield(axis=axis, **kwargs)
+        wavefield = result.wavefield
+        power = result.power
 
-        intensity = np.square(np.abs(wavefield.outputs.amplitude))
-        total = intensity.sum(axis)
-        intensity = intensity / np.where(total > 0, total, 1)
+        intensity = np.square(np.abs(wavefield.outputs.amplitude)) * result.cosine
+        intensity = intensity / np.where(power > 0, power, 1 * u.mm**2)
 
         return na.FunctionArray(
             inputs=optika.vectors.ImageVectorArray(
