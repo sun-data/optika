@@ -793,6 +793,26 @@ def test_psf_vignetted_field() -> None:
     assert np.all(psf.inputs.field == field)
 
 
+def test_psf_sensor_untransformed() -> None:
+    """
+    The PSF on a flat sensor without a transformation, whose normal is the
+    same everywhere, is the PSF on the same sensor moved by nothing.
+    """
+    system = _telescope()
+    sensor = dataclasses.replace(system.sensor, transformation=None)
+    system_untransformed = dataclasses.replace(system, sensor=sensor)
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        width_sensor=20 * u.um,
+        num_sensor=21,
+        num_pupil=41,
+    )
+    result = system_untransformed.psf(**kwargs).outputs
+    expected = system.psf(**kwargs).outputs
+    assert np.all(np.abs(result - expected) <= 1e-10 * expected.max().ndarray)
+
+
 def test_wavefield_line_cut() -> None:
     """
     A grid of sensor positions with one position along one of its axes is a

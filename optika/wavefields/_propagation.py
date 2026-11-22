@@ -173,7 +173,8 @@ def _rayleigh_sommerfeld(
         shape_position = na.broadcast_shapes(shape_position, normal_destination.shape)
 
     axis_dst = tuple(ax for ax in shape_position if ax not in shape_src)
-    centroid_dst = position.mean(axis_dst) if axis_dst else position
+    axis_centroid = tuple(ax for ax in axis_dst if ax in position.shape)
+    centroid_dst = position.mean(axis_centroid) if axis_centroid else position
     dot = ((centroid_dst - wavefield.position) @ normal).to(unit).value
     dot = na.as_named_array(np.where(mask, dot * area, 0))
     axis_sum = tuple(ax for ax in axis if ax in dot.shape)
@@ -182,11 +183,12 @@ def _rayleigh_sommerfeld(
     sign = np.sign(dot)
 
     # The orientation of the normal of the destination surface, from the mean
-    # normal in the same way.
+    # normal in the same way, which is constant on a flat surface.
     if normal_destination is not None:
+        axis_mean = tuple(ax for ax in axis_dst if ax in normal_destination.shape)
         normal_mean = normal_destination
-        if axis_dst:
-            normal_mean = normal_destination.mean(axis_dst)
+        if axis_mean:
+            normal_mean = normal_destination.mean(axis_mean)
         dot = ((centroid_dst - wavefield.position) @ normal_mean).to(unit).value
         dot = na.as_named_array(np.where(mask, dot * area, 0))
         if axis_sum:
