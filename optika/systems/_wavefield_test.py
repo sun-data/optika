@@ -700,37 +700,54 @@ def test_psf_encircled_energy() -> None:
 def test_psf_sensor_tilted() -> None:
     """
     A tilted sensor spreads the image over more of its area, so the
-    integral of :math:`|E|^2` over it grows by one over the cosine of the
-    tilt, but the integral of the PSF over a grid which holds nearly all of
-    the image is the same as that of a sensor which is not tilted.
+    integral of :math:`|E|^2` over it grows by about one over the cosine of
+    the tilt, but the integral of the PSF over a grid stretched along the
+    tilt by one over the cosine, which holds the same part of the image, is
+    the same as that of a sensor which is not tilted.
+
+    The rays of the f/5 beam meet the tilted sensor at angles which differ
+    by several degrees, so this also checks that the cosine is their
+    harmonic mean, weighted by their power: their arithmetic mean would make
+    the integral larger by about :math:`8 \\times 10^{-4}`.
     """
     angle = 30 * u.deg
-    kwargs = dict(
-        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
-        normalized_field=False,
-        width_sensor=50 * u.um,
-        num_pupil=61,
-        num_sensor=101,
-    )
-    area = np.square(50 * u.um / 100)
+    width = 50 * u.um
+    num = 101
     axis = ("wavefield_x", "wavefield_y")
 
     def integral(tilted: bool) -> tuple[na.AbstractScalar, na.AbstractScalar]:
         """
-        The integrals of the PSF and of :math:`|E|^2` over the grid.
+        The integrals of the PSF and of :math:`|E|^2` over a grid of sensor
+        positions which is stretched along :math:`y` by one over the cosine
+        of the tilt of the sensor.
 
         Parameters
         ----------
         tilted
             Whether the sensor is tilted about the image.
         """
+        angle_sensor = angle if tilted else 0 * u.deg
+        stretch = 1 / np.cos(angle_sensor)
         system = _telescope()
-        if tilted:
-            sensor = dataclasses.replace(
-                system.sensor,
-                transformation=na.transformations.Cartesian3dRotationX(angle),
-            )
-            system = dataclasses.replace(system, sensor=sensor)
+        sensor = dataclasses.replace(
+            system.sensor,
+            transformation=na.transformations.Cartesian3dRotationX(angle_sensor),
+        )
+        system = dataclasses.replace(system, sensor=sensor)
+        half = na.Cartesian2dVectorArray(width / 2, stretch * width / 2)
+        kwargs = dict(
+            field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+            normalized_field=False,
+            position_sensor=na.Cartesian2dVectorLinearSpace(
+                start=-half,
+                stop=half,
+                axis=na.Cartesian2dVectorArray(*axis),
+                num=num,
+            ).explicit,
+            num_pupil=61,
+            axis=axis,
+        )
+        area = np.square(width / (num - 1)) * stretch
         psf = system.psf(**kwargs)
         wavefield = system.wavefield(**kwargs)
         irradiance = np.square(np.abs(wavefield.outputs.amplitude))
@@ -743,7 +760,7 @@ def test_psf_sensor_tilted() -> None:
     assert np.allclose(ratio, 1 / np.cos(angle), rtol=2e-3)
 
     assert 0.97 < psf.to(u.dimensionless_unscaled) < 1
-    assert np.allclose(psf_tilted, psf, rtol=1e-3)
+    assert np.allclose(psf_tilted, psf, rtol=2e-4)
 
 
 def test_psf_vignetted_field() -> None:

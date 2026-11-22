@@ -239,8 +239,10 @@ class _Wavefield(NamedTuple):
 
     cosine: na.AbstractScalar
     """
-    The mean cosine of the angle between the rays and the normal to the
-    sensor, where they reach it, weighted by the power of each ray.
+    The harmonic mean, weighted by the power of each ray, of the cosine of
+    the angle between the rays and the normal to the sensor where they reach
+    it, so that the integral of :math:`|E|^2` over the sensor times it is the
+    power of the beam.
     """
 
 
@@ -3254,16 +3256,22 @@ class AbstractSequentialSystem(
         if sensor.transformation is not None:
             rays_sensor = sensor.transformation.inverse(rays_sensor)
 
-        # The mean cosine between the rays and the normal to the sensor, which
-        # turns |E|^2 across the beam into the irradiance on the sensor.
+        # The cosine between the rays and the normal to the sensor which turns
+        # |E|^2 across the beam into the irradiance on the sensor.
+        # Each ray spreads its power over an area of the sensor larger than
+        # its patch across the beam by one over its own cosine, so the integral
+        # of |E|^2 over the sensor is the sum of the power of each ray over its
+        # cosine, and the cosine is the harmonic mean weighted by the power.
         cosine = np.abs(rays_sensor.direction @ sensor.sag.normal(rays_sensor.position))
         finite = np.isfinite(cosine)
-        weight = np.where(finite, power, 0 * u.mm**2)
+        cosine = np.where(finite, cosine, 0)
+        valid = cosine > 0
+        weight = np.where(valid, power, 0 * u.mm**2)
         weight_total = weight.sum(axis_pupil)
-        cosine = (np.where(finite, cosine, 0) * weight).sum(axis_pupil)
+        secant = (weight / np.where(valid, cosine, 1)).sum(axis_pupil)
         cosine = np.where(
-            weight_total > 0,
-            cosine / np.where(weight_total > 0, weight_total, 1 * u.mm**2),
+            secant > 0,
+            weight_total / np.where(secant > 0, secant, 1 * u.mm**2),
             1,
         )
         cosine = cosine.to(u.dimensionless_unscaled).value
@@ -3403,9 +3411,13 @@ class AbstractSequentialSystem(
         the light on the grid by default, or count the light which lands off
         the grid against the image with ``normalize=False``.
 
-        The irradiance is :math:`|E|^2` times the mean cosine of the angle
-        between the rays and the normal to the sensor, weighted by the power
-        of each ray, since :math:`|E|^2` is the irradiance across the beam.
+        The irradiance is :math:`|E|^2` times the cosine of the angle between
+        the beam and the normal to the sensor, since :math:`|E|^2` is the
+        irradiance across the beam.
+        Each ray spreads its power over an area of the sensor larger than its
+        patch across the beam by one over its own cosine, so the cosine is the
+        harmonic mean of the cosines of the rays, weighted by their power,
+        which makes the integral over the whole sensor one.
         It is zero everywhere for a field from which no ray reaches the last
         surface before the sensor.
         Positions outside the aperture of the sensor have no intensity, so
