@@ -1053,11 +1053,14 @@ _period_mesh = 0.5 * u.mm
 """The period of the mesh of the filter of :func:`_telescope_filter`."""
 
 
-def _telescope_filter(roll: u.Quantity) -> optika.systems.SequentialSystem:
+def _telescope_filter(
+    roll: u.Quantity,
+    distance: u.Quantity = _distance_mesh,
+) -> optika.systems.SequentialSystem:
     """
     An f/25 parabola with a focal length of 200 mm, and a thin-film filter
-    :data:`_distance_mesh` before its focus, whose mesh has a period of
-    :data:`_period_mesh` and an open area of 64%.
+    before its focus, whose mesh has a period of :data:`_period_mesh` and an
+    open area of 64%.
 
     The filter is flipped about its :math:`x` axis to face the light, so the
     axes of its mesh point along :math:`(\\cos \\phi, -\\sin \\phi)` and
@@ -1068,6 +1071,8 @@ def _telescope_filter(roll: u.Quantity) -> optika.systems.SequentialSystem:
     ----------
     roll
         The roll of the filter about the axis of the beam.
+    distance
+        The distance from the filter to the focus.
     """
     primary = optika.surfaces.Surface(
         name="primary",
@@ -1094,7 +1099,7 @@ def _telescope_filter(roll: u.Quantity) -> optika.systems.SequentialSystem:
             [
                 na.transformations.Cartesian3dRotationZ(roll),
                 na.transformations.Cartesian3dRotationX(180 * u.deg),
-                na.transformations.Cartesian3dTranslation(z=_distance_mesh),
+                na.transformations.Cartesian3dTranslation(z=distance),
             ]
         ),
     )
@@ -1143,7 +1148,8 @@ def test_psf_mesh() -> None:
         num=num,
     ).explicit
 
-    (diffraction,) = system._wavefield(position_sensor=position, **kwargs).meshes
+    result = system._wavefield(position_sensor=position, mesh=True, **kwargs)
+    (diffraction,) = result.meshes
     shift = (_wavelength_mesh * _distance_mesh / _period_mesh).to(u.um)
     shift_x = shift * na.Cartesian2dVectorArray(np.cos(roll), -np.sin(roll))
     shift_y = shift * na.Cartesian2dVectorArray(-np.sin(roll), -np.cos(roll))
@@ -1159,19 +1165,27 @@ def test_psf_mesh() -> None:
 
     # The orders whose images overlap the grid, with the computed shifts.
     width_grid = num * width / (num - 1)
+    num_order = 7
     order = na.Cartesian2dVectorArray(
-        x=na.arange(-7, 8, axis="m"),
-        y=na.arange(-7, 8, axis="n"),
+        x=na.arange(-num_order, num_order + 1, axis="m"),
+        y=na.arange(-num_order, num_order + 1, axis="n"),
     )
     shifts = order.x * diffraction.shift_x + order.y * diffraction.shift_y
     inside = (np.abs(shifts.x) < width_grid) & (np.abs(shifts.y) < width_grid)
     assert not np.any(inside[dict(m=0)] | inside[dict(m=~0)])
     assert not np.any(inside[dict(n=0)] | inside[dict(n=~0)])
-    weight = np.where(inside, mesh.efficiency_order(order) / mesh.efficiency, 0)
+    inside = na.broadcast_to(inside, dict(m=2 * num_order + 1, n=2 * num_order + 1))
+    index_m, index_n = np.nonzero(inside.ndarray)
+    order = na.Cartesian2dVectorArray(
+        x=na.ScalarArray(index_m - num_order, axes="order"),
+        y=na.ScalarArray(index_n - num_order, axes="order"),
+    )
+    shifts = order.x * diffraction.shift_x + order.y * diffraction.shift_y
+    weight = mesh.efficiency_order(order) / mesh.efficiency
 
     result = system.psf(position_sensor=position, **kwargs)
     psf_shifted = system.psf(position_sensor=position - shifts, mesh=False, **kwargs)
-    expected = (weight * psf_shifted.outputs).sum(("m", "n"))
+    expected = (weight * psf_shifted.outputs).sum("order")
     peak = expected.max().ndarray
     assert np.all(np.abs(result.outputs - expected) <= 1e-4 * peak)
 
@@ -1278,24 +1292,269 @@ def test_psf_mesh_registration() -> None:
     assert np.all(np.abs(average - expected) <= 2e-3 * peak)
 
 
-def test_psf_mesh_irregular() -> None:
+def test_psf_mesh_irregular(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    The diffraction by a mesh needs a regular grid of sensor positions, but
-    it can be left out to find the PSF anywhere.
+    The diffraction by a mesh needs a regular grid of sensor positions, which
+    is checked before the diffraction integral, but it can be left out to
+    find the PSF anywhere.
     """
     system = _telescope_filter(0 * u.deg)
-    position = na.Cartesian2dVectorArray(
+    irregular = na.Cartesian2dVectorArray(
         x=na.ScalarArray(np.array([0, 1, 3]) * u.um, axes="wavefield_x"),
         y=na.ScalarArray(np.array([0, 2, 3]) * u.um, axes="wavefield_y"),
+    )
+    line = na.Cartesian2dVectorArray(
+        x=na.linspace(-5, 5, axis="wavefield_x", num=11) * u.um,
+        y=0 * u.um,
     )
     kwargs = dict(
         field=na.Cartesian2dVectorArray(0, 0) * u.deg,
         normalized_field=False,
-        position_sensor=position,
         num_pupil=31,
     )
-    with pytest.raises(ValueError, match="mesh=False"):
-        system.psf(**kwargs)
-    result = system.psf(mesh=False, **kwargs)
-    assert np.all(result.outputs >= 0 / u.mm**2)
-    assert result.outputs.max() > 0 / u.mm**2
+
+    def fail(*args: object, **kwargs: object) -> None:
+        """Fail if the diffraction integral is evaluated."""
+        raise AssertionError("the grid was not checked first")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(optika.systems.SequentialSystem, "_wavefield", fail)
+        for position in (irregular, line):
+            with pytest.raises(ValueError, match="mesh=False"):
+                system.psf(position_sensor=position, **kwargs)
+
+    for position in (irregular, line):
+        result = system.psf(position_sensor=position, mesh=False, **kwargs)
+        assert np.all(result.outputs >= 0 / u.mm**2)
+        assert result.outputs.max() > 0 / u.mm**2
+
+
+def test_wavefield_mesh_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    The diffraction orders of a mesh are traced only for :meth:`psf` with
+    the mesh.
+    """
+    system = _telescope_filter(0 * u.deg)
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        width_sensor=10 * u.um,
+        num_sensor=11,
+        num_pupil=31,
+    )
+
+    def fail(*args: object, **kwargs: object) -> None:
+        """Fail if the diffraction orders are traced."""
+        raise AssertionError("the diffraction orders were traced")
+
+    monkeypatch.setattr(optika.systems._sequential, "_mesh_diffraction", fail)
+    assert np.abs(system.wavefield(**kwargs).outputs.amplitude).max() > 0
+    assert system.psf(mesh=False, **kwargs).outputs.max() > 0 / u.mm**2
+
+
+def test_psf_mesh_sensor_edge() -> None:
+    """
+    The light which a mesh diffracts across the edge of the sensor lands on
+    it, so near the edge the PSF is the PSF far from the edge, cut off at
+    the edge.
+    """
+    axis = ("wavefield_x", "wavefield_y")
+    system = _telescope_filter(0 * u.deg)
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        num_pupil=61,
+        axis=axis,
+    )
+    position = na.Cartesian2dVectorLinearSpace(
+        start=-10 * u.um,
+        stop=10 * u.um,
+        axis=na.Cartesian2dVectorArray(*axis),
+        num=41,
+    ).explicit
+    expected = system.psf(position_sensor=position, **kwargs).outputs
+
+    # Move the sensor so that its edge is just to the right of the image.
+    sensor = system.sensor
+    distance = 1.25 * u.um
+    offset = sensor.num_pixel.x * sensor.width_pixel / 2 + distance
+    offset = na.Cartesian2dVectorArray(offset, 0 * u.mm)
+    sensor = sensor.replace(
+        transformation=na.transformations.Cartesian3dTranslation(x=offset.x),
+    )
+    system = system.replace(sensor=sensor)
+    result = system.psf(position_sensor=position - offset, **kwargs).outputs
+
+    peak = expected.max().ndarray
+    expected = np.where(position.x > distance, expected, 0 / u.mm**2)
+    assert np.all(np.abs(result - expected) <= 1e-4 * peak)
+
+
+def test_psf_mesh_near_sensor() -> None:
+    """
+    A mesh close to the sensor diffracts its orders so close together, 20 nm
+    apart here, that it barely changes the PSF, and thousands of them land
+    on the grid, which are summed in closed form.
+    """
+    system = _telescope_filter(30 * u.deg, distance=0.2 * u.mm)
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        width_sensor=20 * u.um,
+        num_sensor=41,
+        num_pupil=61,
+    )
+    result = system.psf(**kwargs).outputs
+    expected = system.psf(mesh=False, **kwargs).outputs
+    peak = expected.max().ndarray
+    assert np.all(np.abs(result - expected) <= 2e-2 * peak)
+    assert np.abs(result.sum() / expected.sum() - 1) < 1e-3
+
+
+def _gaussian_mesh(
+    shift: u.Quantity,
+    num_order: int,
+) -> tuple[
+    na.AbstractScalar,
+    na.AbstractCartesian2dVectorArray,
+    na.AbstractScalar,
+    optika.systems._sequential._MeshDiffraction,
+]:
+    """
+    A Gaussian point-spread function on a regular grid, with a mesh whose
+    orders land the given distance apart along the axes of the grid, and the
+    sum, one order at a time, of copies of the Gaussian shifted to where each
+    order which overlaps the grid lands.
+
+    Parameters
+    ----------
+    shift
+        The distance between the orders.
+    num_order
+        The highest order along each axis to sum, at least the number of
+        orders which overlap the grid.
+    """
+    axis = ("x", "y")
+    num = 81
+    sigma = 4 * u.um
+    position = na.Cartesian2dVectorLinearSpace(
+        start=-40 * u.um,
+        stop=40 * u.um,
+        axis=na.Cartesian2dVectorArray(*axis),
+        num=num,
+    ).explicit
+    width = num * 1 * u.um
+
+    mesh = optika.materials.meshes.Mesh(
+        chemical="Ni",
+        efficiency=0.64,
+        pitch=1 / _period_mesh,
+    )
+    diffraction = optika.systems._sequential._MeshDiffraction(
+        mesh=mesh,
+        shift_x=na.Cartesian2dVectorArray(shift, 0 * u.um),
+        shift_y=na.Cartesian2dVectorArray(0 * u.um, shift),
+    )
+
+    def gaussian(x: na.AbstractScalar) -> na.AbstractScalar:
+        """
+        A Gaussian along one axis.
+
+        Parameters
+        ----------
+        x
+            The position.
+        """
+        return np.exp(-np.square(x / sigma).value / 2)
+
+    intensity = gaussian(position.x) * gaussian(position.y) / u.mm**2
+
+    # The orders, and the fraction of the light along each axis of the mesh
+    # in each, c_m^2 / a, since the order (m, 0) carries c_m^2 a^2.
+    order = na.arange(-num_order, num_order + 1, axis="order")
+    weight = mesh.efficiency_order(na.Cartesian2dVectorArray(order, 0))
+    weight = weight / mesh.efficiency**1.5
+    inside = np.abs(order * shift) < width
+    weight = np.where(inside, weight, 0)
+    expected_x = (weight * gaussian(position.x - order * shift)).sum("order")
+    expected_y = (weight * gaussian(position.y - order * shift)).sum("order")
+    expected = expected_x * expected_y / u.mm**2
+
+    return intensity, position, expected, diffraction
+
+
+@pytest.mark.parametrize(
+    argnames="num_order_max,tolerance",
+    argvalues=[
+        (1024, 1e-10),
+        (50, 2e-4),
+    ],
+)
+def test_diffract_mesh(num_order_max: int, tolerance: float) -> None:
+    """
+    The diffraction by a mesh is the sum of shifted copies of the
+    point-spread function, whether the orders along each axis of the mesh
+    are summed one at a time or, when there are too many of them, all
+    together in closed form, which aliases the faint orders which miss the
+    padding onto the grid.
+    """
+    intensity, position, expected, diffraction = _gaussian_mesh(
+        shift=0.4 * u.um,
+        num_order=1000,
+    )
+    result = optika.systems._sequential._diffract_mesh(
+        intensity=intensity,
+        position=position,
+        axis=("x", "y"),
+        diffraction=diffraction,
+        num_order_max=num_order_max,
+    )
+    peak = expected.max().ndarray
+    assert np.all(np.abs(result - expected) <= tolerance * peak)
+
+
+def test_diffract_mesh_degenerate() -> None:
+    """
+    A mesh whose orders all land in the same place leaves the point-spread
+    function unchanged, and so does an opaque mesh, which passes no light.
+    """
+    intensity, position, _, diffraction = _gaussian_mesh(
+        shift=0 * u.um,
+        num_order=0,
+    )
+    opaque = diffraction._replace(
+        mesh=diffraction.mesh.replace(efficiency=0),
+        shift_x=na.Cartesian2dVectorArray(2, 0) * u.um,
+        shift_y=na.Cartesian2dVectorArray(0, 2) * u.um,
+    )
+    peak = intensity.max().ndarray
+    for diffraction in (diffraction, opaque):
+        result = optika.systems._sequential._diffract_mesh(
+            intensity=intensity,
+            position=position,
+            axis=("x", "y"),
+            diffraction=diffraction,
+        )
+        assert np.all(np.abs(result - intensity) <= 1e-12 * peak)
+
+
+def test_diffract_mesh_nan() -> None:
+    """
+    A position where the point-spread function is not finite is left out
+    of the diffraction, rather than spread across the grid.
+    """
+    intensity, position, _, diffraction = _gaussian_mesh(
+        shift=2 * u.um,
+        num_order=0,
+    )
+    where = dict(x=50, y=30)
+    nan = intensity.copy()
+    nan[where] = np.nan / u.mm**2
+    zero = intensity.copy()
+    zero[where] = 0 / u.mm**2
+    kwargs = dict(position=position, axis=("x", "y"), diffraction=diffraction)
+    result = optika.systems._sequential._diffract_mesh(intensity=nan, **kwargs)
+    expected = optika.systems._sequential._diffract_mesh(intensity=zero, **kwargs)
+    assert np.isnan(result[where])
+    expected[where] = np.nan / u.mm**2
+    assert np.all((result == expected) | (np.isnan(result) & np.isnan(expected)))

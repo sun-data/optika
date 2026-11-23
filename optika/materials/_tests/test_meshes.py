@@ -43,7 +43,7 @@ class AbstractTestAbstractMesh(
         assert np.allclose(result[dict(m=num, n=num)], np.square(a.efficiency))
 
         reversed_ = result[dict(m=slice(None, None, -1), n=slice(None, None, -1))]
-        assert np.all(reversed_ == result)
+        assert np.all(np.abs(reversed_ - result) <= 1e-12 * result)
 
         separable = (
             result[dict(n=num)] * result[dict(m=num)] / result[dict(m=num, n=num)]

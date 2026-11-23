@@ -32,9 +32,8 @@ def _coefficient(
     fraction
         The fraction :math:`a` of each period over which the wave is one.
     """
-    order = na.as_named_array(order)
-    angle = np.pi * np.where(order == 0, 1, order)
-    return np.where(order == 0, fraction, np.sin(fraction * angle) / angle)
+    result = fraction * optika.rulings._rulings._sinc(order * fraction)
+    return result.to(u.dimensionless_unscaled).value
 
 
 @dataclasses.dataclass(eq=False, repr=False)
