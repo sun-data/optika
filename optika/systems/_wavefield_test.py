@@ -1,6 +1,7 @@
 """Tests of the physical-optics propagation methods of SequentialSystem."""
 
 import dataclasses
+import inspect
 import pytest
 import numpy as np
 import astropy.units as u
@@ -84,8 +85,6 @@ def test_psf_airy():
     )
 
     intensity = psf.outputs
-
-    assert np.allclose(intensity.sum(), 1)
 
     index_peak = np.unravel_index(
         np.argmax(intensity.ndarray),
@@ -228,8 +227,8 @@ def test_psf_zernike_defocus():
     psf_nominal = _telescope(sag_primary=sag).psf(**kwargs)
     psf_shifted = _telescope(sag_primary=sag, z_sensor=z_focus).psf(**kwargs)
 
-    # Both PSFs are normalized to unit total energy over the same window,
-    # so the peak intensity measures the concentration of the light.
+    # Both PSFs are normalized to the power of the same beam, so the peak
+    # intensity measures the concentration of the light.
     peak_nominal = psf_nominal.outputs.max()
     peak_shifted = psf_shifted.outputs.max()
 
@@ -586,7 +585,10 @@ def test_psf_finite_object(moved: None | str, image: u.Quantity) -> None:
     radius_airy = (1.22 * 500 * u.nm * 200 / 40).to(u.mm)
     assert np.abs(centroid.x - centroid_rays.x) < radius_airy / 2
     assert np.abs(centroid.y - centroid_rays.y) < radius_airy / 2
-    assert intensity.max() > 0.1
+
+    # the grid holds nearly all of the power of the beam
+    area = np.square(0.05 * u.mm / 50)
+    assert intensity.sum() * area > 0.95
 
 
 def test_raytrace_optical_path_focus() -> None:
@@ -668,6 +670,95 @@ def test_wavefield_energy_narrow_beam(radius: u.Quantity) -> None:
     assert 0.97 < ratio < 1.01
 
 
+def test_psf_encircled_energy() -> None:
+    """
+    The Huygens PSF is the irradiance per unit power of the beam, so its
+    integral over the circle of each of the first three dark rings of an
+    Airy pattern is the fraction of the power inside that ring,
+    :math:`1 - J_0^2(v)`, where :math:`v` is a zero of :math:`J_1`.
+    """
+    import scipy.special
+
+    width = 20 * u.um
+    num = 101
+    psf = _telescope().psf(
+        field=na.Cartesian2dVectorArray(0, 0),
+        width_sensor=width,
+        num_pupil=101,
+        num_sensor=num,
+    )
+
+    zero = na.ScalarArray(scipy.special.jn_zeros(1, 3), axes="ring")
+    radius = zero * 500 * u.nm * 200 / 40 / np.pi
+    inside = psf.inputs.position.length < radius
+    area = np.square(width / (num - 1))
+    result = (psf.outputs * inside).sum(("wavefield_x", "wavefield_y")) * area
+
+    expected = 1 - np.square(scipy.special.j0(zero))
+    assert np.allclose(result.to(u.dimensionless_unscaled), expected, atol=2e-3)
+
+
+def test_psf_sensor_tilted() -> None:
+    """
+    A tilted sensor spreads the image over more of its area, so the
+    integral of :math:`|E|^2` over it grows by about one over the cosine of
+    the tilt, but the integral of the PSF over a grid stretched along the
+    tilt by one over the cosine, which holds the same part of the image, is
+    the same as that of a sensor which is not tilted.
+    """
+    angle = 30 * u.deg
+    width = 50 * u.um
+    num = 101
+    axis = ("wavefield_x", "wavefield_y")
+
+    def integral(tilted: bool) -> tuple[na.AbstractScalar, na.AbstractScalar]:
+        """
+        The integrals of the PSF and of :math:`|E|^2` over a grid of sensor
+        positions which is stretched along :math:`y` by one over the cosine
+        of the tilt of the sensor.
+
+        Parameters
+        ----------
+        tilted
+            Whether the sensor is tilted about the image.
+        """
+        angle_sensor = angle if tilted else 0 * u.deg
+        stretch = 1 / np.cos(angle_sensor)
+        system = _telescope()
+        sensor = dataclasses.replace(
+            system.sensor,
+            transformation=na.transformations.Cartesian3dRotationX(angle_sensor),
+        )
+        system = dataclasses.replace(system, sensor=sensor)
+        half = na.Cartesian2dVectorArray(width / 2, stretch * width / 2)
+        kwargs = dict(
+            field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+            normalized_field=False,
+            position_sensor=na.Cartesian2dVectorLinearSpace(
+                start=-half,
+                stop=half,
+                axis=na.Cartesian2dVectorArray(*axis),
+                num=num,
+            ).explicit,
+            num_pupil=61,
+            axis=axis,
+        )
+        area = np.square(width / (num - 1)) * stretch
+        psf = system.psf(**kwargs)
+        wavefield = system.wavefield(**kwargs)
+        irradiance = np.square(np.abs(wavefield.outputs.amplitude))
+        return psf.outputs.sum(axis) * area, irradiance.sum(axis) * area
+
+    psf, irradiance = integral(tilted=False)
+    psf_tilted, irradiance_tilted = integral(tilted=True)
+
+    ratio = (irradiance_tilted / irradiance).to(u.dimensionless_unscaled)
+    assert np.allclose(ratio, 1 / np.cos(angle), rtol=2e-3)
+
+    assert 0.97 < psf.to(u.dimensionless_unscaled) < 1
+    assert np.allclose(psf_tilted, psf, rtol=2e-4)
+
+
 def test_psf_vignetted_field() -> None:
     """
     The PSF of a field from which no ray reaches the last surface before the
@@ -700,6 +791,26 @@ def test_psf_vignetted_field() -> None:
 
     assert type(psf.inputs) is optika.vectors.ImageVectorArray
     assert np.all(psf.inputs.field == field)
+
+
+def test_psf_sensor_untransformed() -> None:
+    """
+    The PSF on a flat sensor without a transformation, whose normal is the
+    same everywhere, is the PSF on the same sensor moved by nothing.
+    """
+    system = _telescope()
+    sensor = dataclasses.replace(system.sensor, transformation=None)
+    system_untransformed = dataclasses.replace(system, sensor=sensor)
+    kwargs = dict(
+        field=na.Cartesian2dVectorArray(0, 0) * u.deg,
+        normalized_field=False,
+        width_sensor=20 * u.um,
+        num_sensor=21,
+        num_pupil=41,
+    )
+    result = system_untransformed.psf(**kwargs).outputs
+    expected = system.psf(**kwargs).outputs
+    assert np.all(np.abs(result - expected) <= 1e-10 * expected.max().ndarray)
 
 
 def test_wavefield_line_cut() -> None:
@@ -860,3 +971,73 @@ def test_derivative() -> None:
         axes="i",
     )
     assert np.allclose(result.x, result_expected, equal_nan=True)
+
+
+def test_psf_sensor_tilted_defocused() -> None:
+    """
+    On a sensor which is tilted and out of focus, each position is lit from
+    a different direction, so the light is spread as the flux of the
+    wavefield through the sensor, not as :math:`|E|^2`.
+    The centroid of the PSF is that of the rays, while that of
+    :math:`|E|^2` is about 1.7 um away from it.
+    """
+    angle = 45 * u.deg
+    system = _telescope()
+    sensor = dataclasses.replace(
+        system.sensor,
+        transformation=na.transformations.TransformationList(
+            [
+                na.transformations.Cartesian3dRotationX(angle),
+                na.transformations.Cartesian3dTranslation(z=0.5 * u.mm),
+            ]
+        ),
+    )
+    system = dataclasses.replace(system, sensor=sensor)
+    field = na.Cartesian2dVectorArray(0, 0) * u.deg
+    axis = ("wavefield_x", "wavefield_y")
+
+    width = 200 * u.um
+    half = na.Cartesian2dVectorArray(width / 2, width / 2 / np.cos(angle))
+    position = na.Cartesian2dVectorLinearSpace(
+        start=-half,
+        stop=half,
+        axis=na.Cartesian2dVectorArray(*axis),
+        num=81,
+    ).explicit
+    psf = system.psf(
+        field=field,
+        normalized_field=False,
+        position_sensor=position,
+        num_pupil=151,
+        axis=axis,
+    )
+    y = psf.inputs.position.y
+    centroid = (y * psf.outputs).sum() / psf.outputs.sum()
+
+    rays = system.rayfunction(
+        field=field,
+        normalized_field=False,
+        pupil=na.Cartesian2dVectorLinearSpace(
+            start=-1,
+            stop=1,
+            axis=na.Cartesian2dVectorArray("pupil_x", "pupil_y"),
+            num=301,
+            centers=True,
+        ),
+    ).outputs
+    unvignetted = rays.unvignetted
+    centroid_rays = (rays.position.y * unvignetted).sum() / unvignetted.sum()
+
+    assert np.abs(centroid - centroid_rays) < 0.2 * u.um
+
+
+def test_wavefield_parameters() -> None:
+    """
+    :meth:`psf` passes its keyword arguments to ``_wavefield()``, whose
+    parameters and their defaults must be those of :meth:`wavefield`.
+    """
+    public = inspect.signature(optika.systems.SequentialSystem.wavefield)
+    private = inspect.signature(optika.systems.SequentialSystem._wavefield)
+    for name, parameter in public.parameters.items():
+        assert private.parameters[name].kind == parameter.kind
+        assert private.parameters[name].default == parameter.default

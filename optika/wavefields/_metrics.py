@@ -20,15 +20,111 @@ def _centroid(
     return (position * intensity).sum(axis) / intensity.sum(axis)
 
 
+def _spacing(
+    position: na.AbstractCartesian2dVectorArray,
+    shape: dict[str, int],
+    axis: tuple[str, str],
+) -> na.Cartesian2dVectorArray:
+    """
+    The spacing of a regular grid of samples along each of its two axes.
+
+    Parameters
+    ----------
+    position
+        The position of each sample.
+    shape
+        The shape of the samples, broadcast against their intensity.
+    axis
+        The two logical axes of the grid of samples.
+        :math:`x` must change only along the first and :math:`y` only along
+        the second.
+
+    Raises
+    ------
+    ValueError
+        If the grid does not have at least two samples along each of `axis`,
+        or the samples are not on a regular grid.
+    """
+    for ax in axis:
+        if shape.get(ax, 0) < 2:
+            raise ValueError(
+                f"the samples must make a grid of at least two along each of "
+                f"{axis}, but their shape is {shape}."
+            )
+    num_x = shape[axis[0]]
+    num_y = shape[axis[1]]
+
+    x = na.broadcast_to(position.x, shape)
+    y = na.broadcast_to(position.y, shape)
+    origin = {axis[0]: 0, axis[1]: 0}
+    spacing_x = x[{axis[0]: 1, axis[1]: 0}] - x[origin]
+    spacing_y = y[{axis[0]: 0, axis[1]: 1}] - y[origin]
+    grid_x = x[origin] + spacing_x * na.arange(0, num_x, axis=axis[0])
+    grid_y = y[origin] + spacing_y * na.arange(0, num_y, axis=axis[1])
+    tolerance = 1e-6
+    regular_x = np.all(np.abs(x - grid_x) <= tolerance * np.abs(spacing_x))
+    regular_y = np.all(np.abs(y - grid_y) <= tolerance * np.abs(spacing_y))
+    if not (regular_x and regular_y):
+        raise ValueError(
+            f"the samples must be on a regular grid, with x changing only "
+            f"along {axis[0]!r} and y only along {axis[1]!r}."
+        )
+
+    return na.Cartesian2dVectorArray(spacing_x, spacing_y)
+
+
+def _area_cell(
+    intensity: na.AbstractScalar,
+    position: na.AbstractCartesian2dVectorArray,
+    axis: tuple[str, str],
+) -> na.AbstractScalar:
+    """
+    The area of a cell of a regular grid of samples.
+
+    Parameters
+    ----------
+    intensity
+        The intensity of the point-spread function at each sample.
+    position
+        The position of each sample.
+    axis
+        The two logical axes of the grid of samples.
+    """
+    shape = na.shape_broadcasted(intensity, position.x, position.y)
+    spacing = _spacing(position, shape, axis)
+    return np.abs(spacing.x * spacing.y)
+
+
+def _dimensionless(a: na.AbstractScalar) -> na.AbstractScalar:
+    """
+    Strip the unit of a dimensionless quantity.
+
+    Parameters
+    ----------
+    a
+        A dimensionless quantity, or an array without a unit.
+    """
+    if na.unit(a) is not None:
+        a = a.to(u.dimensionless_unscaled).value
+    return a
+
+
 def encircled_energy_radius(
     intensity: na.AbstractScalar,
     position: na.AbstractCartesian2dVectorArray | na.AbstractCartesian3dVectorArray,
     axis: tuple[str, str],
     fraction: float = 0.5,
+    normalize: bool = True,
 ) -> u.Quantity | na.AbstractScalar:
     """
     The radius from the intensity-weighted centroid which encloses a given
     fraction of the total energy of a sampled point-spread function.
+
+    The radius is that of the first sample, in order of distance from the
+    centroid, at which the enclosed energy reaches `fraction`, or
+    not-a-number if it never reaches it: with ``normalize=False`` because
+    too much of the light lands off the grid, and with the default because
+    `fraction` is more than one or a sample of `intensity` is not a number.
 
     Parameters
     ----------
@@ -40,9 +136,21 @@ def encircled_energy_radius(
         The two logical axes of the grid of samples.
     fraction
         The fraction of the total energy to enclose.
+    normalize
+        If :obj:`True` (the default), the energy is a fraction of the energy
+        on the grid.
+        If :obj:`False`, `intensity` must be the intensity per unit area,
+        normalized to the power of the whole image, like the outputs of
+        :meth:`optika.systems.SequentialSystem.psf`, and the energy is a
+        fraction of the power of the whole image, so the light which lands
+        off the grid counts against it.
+        The samples must then be on a regular grid, like those of
+        :func:`mtf`.
     """
     if isinstance(position, na.AbstractCartesian3dVectorArray):
         position = position.xy
+    if not normalize:
+        intensity = intensity * _area_cell(intensity, position, axis)
     centroid = _centroid(intensity, position, axis)
     radius = (position - centroid).length
 
@@ -54,13 +162,17 @@ def encircled_energy_radius(
     order = np.argsort(radius, axis=axis_flat)
     radius = radius[order]
     energy = np.cumsum(intensity[order], axis=axis_flat)
-    energy = energy / energy[{axis_flat: ~0}]
-    if na.unit(energy) is not None:
-        energy = energy.to(u.dimensionless_unscaled).value
+    if normalize:
+        energy = energy / energy[{axis_flat: ~0}]
+    energy = _dimensionless(energy)
 
+    num = radius.shape[axis_flat]
     index = na.searchsorted(energy, fraction, axis=axis_flat)
-    index = np.minimum(index, radius.shape[axis_flat] - 1)
+    reached = index < num
+    index = np.minimum(index, num - 1)
     result = radius[{axis_flat: index}]
+    unit = na.unit(result)
+    result = np.where(reached, result, np.nan if unit is None else np.nan * unit)
 
     if not result.shape:
         result = result.ndarray
@@ -73,6 +185,7 @@ def ensquared_energy(
     position: na.AbstractCartesian2dVectorArray | na.AbstractCartesian3dVectorArray,
     axis: tuple[str, str],
     width: u.Quantity | na.AbstractScalar,
+    normalize: bool = True,
 ) -> na.AbstractScalar:
     """
     The fraction of the total energy of a sampled point-spread function
@@ -93,6 +206,16 @@ def ensquared_energy(
         The two logical axes of the grid of samples.
     width
         The width of the square.
+    normalize
+        If :obj:`True` (the default), the energy is a fraction of the energy
+        on the grid.
+        If :obj:`False`, `intensity` must be the intensity per unit area,
+        normalized to the power of the whole image, like the outputs of
+        :meth:`optika.systems.SequentialSystem.psf`, and the energy is a
+        fraction of the power of the whole image, so the light which lands
+        off the grid counts against it.
+        The samples must then be on a regular grid, like those of
+        :func:`mtf`.
     """
     if isinstance(position, na.AbstractCartesian3dVectorArray):
         position = position.xy
@@ -101,7 +224,13 @@ def ensquared_energy(
 
     inside = (np.abs(offset.x) < width / 2) & (np.abs(offset.y) < width / 2)
 
-    return (intensity * inside).sum(axis) / intensity.sum(axis)
+    result = (intensity * inside).sum(axis)
+    if normalize:
+        result = result / intensity.sum(axis)
+    else:
+        result = result * _area_cell(intensity, position, axis)
+
+    return _dimensionless(result)
 
 
 def fwhm(
@@ -230,21 +359,32 @@ def mtf(
     intensity: na.AbstractScalar,
     position: na.AbstractCartesian2dVectorArray | na.AbstractCartesian3dVectorArray,
     axis: tuple[str, str],
+    normalize: bool = True,
 ) -> na.FunctionArray[na.Cartesian2dVectorArray, na.AbstractScalar]:
     r"""
     The modulation transfer function of a sampled point-spread function.
 
     This is the modulus of the two-dimensional Fourier transform of the
-    intensity, normalized to one at zero frequency, on a grid of spatial
-    frequencies centered on zero.
+    intensity, normalized to one at zero frequency, or to the power of the
+    whole image, on a grid of spatial frequencies centered on zero.
 
     The samples must be on a regular grid, with :math:`x` changing only along
     the first of `axis` and :math:`y` only along the second, like the grid of
     :meth:`optika.systems.SequentialSystem.psf`.
     The frequencies are spaced by one over the width of the grid and reach
-    one over twice the spacing of the samples, so the grid must be wide
-    enough to hold nearly all of the light, and fine enough to resolve the
-    point-spread function.
+    one over twice the spacing of the samples, so the grid must be fine
+    enough to resolve the point-spread function.
+    Normalized to one at zero frequency, the MTF is that of the light on the
+    grid, so the grid must also be wide enough to hold nearly all of the
+    light.
+    With ``normalize=False``, the MTF is normalized to the power of the whole
+    image, so the light which lands off the grid lowers it by the fraction of
+    the power it carries at every frequency, including zero, where its value
+    is the fraction of the power on the grid.
+    As long as that light is spread over a region much wider than the grid,
+    as the light which the figure errors of the surfaces scatter far from the
+    image is, this is the true MTF at every frequency the grid resolves but
+    zero, where the true MTF is one.
 
     A point-spread function from :meth:`~optika.systems.SequentialSystem.psf`
     is computed from a finite grid of rays, which aliases it at a distance
@@ -261,6 +401,13 @@ def mtf(
     axis
         The two logical axes of the grid of samples.
         The frequencies are along the same two axes.
+    normalize
+        If :obj:`True` (the default), the MTF is normalized to one at zero
+        frequency.
+        If :obj:`False`, `intensity` must be the intensity per unit area,
+        normalized to the power of the whole image, like the outputs of
+        :meth:`optika.systems.SequentialSystem.psf`, and the MTF at zero
+        frequency is the fraction of the power which lands on the grid.
 
     Raises
     ------
@@ -314,35 +461,18 @@ def mtf(
         position = position.xy
 
     shape = na.shape_broadcasted(intensity, position.x, position.y)
-    for ax in axis:
-        if shape.get(ax, 0) < 2:
-            raise ValueError(
-                f"the samples must make a grid of at least two along each of "
-                f"{axis}, but their shape is {shape}."
-            )
+    spacing = _spacing(position, shape, axis)
+    spacing_x = spacing.x
+    spacing_y = spacing.y
     num_x = shape[axis[0]]
     num_y = shape[axis[1]]
 
-    x = na.broadcast_to(position.x, shape)
-    y = na.broadcast_to(position.y, shape)
-    origin = {axis[0]: 0, axis[1]: 0}
-    spacing_x = x[{axis[0]: 1, axis[1]: 0}] - x[origin]
-    spacing_y = y[{axis[0]: 0, axis[1]: 1}] - y[origin]
-    grid_x = x[origin] + spacing_x * na.arange(0, num_x, axis=axis[0])
-    grid_y = y[origin] + spacing_y * na.arange(0, num_y, axis=axis[1])
-    tolerance = 1e-6
-    regular_x = np.all(np.abs(x - grid_x) <= tolerance * np.abs(spacing_x))
-    regular_y = np.all(np.abs(y - grid_y) <= tolerance * np.abs(spacing_y))
-    if not (regular_x and regular_y):
-        raise ValueError(
-            f"the samples must be on a regular grid, with x changing only "
-            f"along {axis[0]!r} and y only along {axis[1]!r}."
-        )
-
     intensity = na.broadcast_to(intensity, shape)
-    intensity = intensity / intensity.sum(axis)
-    if na.unit(intensity) is not None:
-        intensity = intensity.to(u.dimensionless_unscaled).value
+    if normalize:
+        intensity = intensity / intensity.sum(axis)
+    else:
+        intensity = intensity * np.abs(spacing_x * spacing_y)
+    intensity = _dimensionless(intensity)
 
     spectrum = np.fft.fftn(intensity, axes={axis[0]: axis[0], axis[1]: axis[1]})
     modulus = np.abs(spectrum)
