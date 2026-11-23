@@ -2,6 +2,7 @@
 
 import dataclasses
 import inspect
+import unittest.mock
 import pytest
 import numpy as np
 import astropy.units as u
@@ -1313,15 +1314,15 @@ def test_psf_mesh_irregular(monkeypatch: pytest.MonkeyPatch) -> None:
         num_pupil=31,
     )
 
-    def fail(*args: object, **kwargs: object) -> None:
-        """Fail if the diffraction integral is evaluated."""
-        raise AssertionError("the grid was not checked first")
-
+    wavefield = unittest.mock.Mock(
+        side_effect=AssertionError("the grid was not checked first"),
+    )
     with monkeypatch.context() as patch:
-        patch.setattr(optika.systems.SequentialSystem, "_wavefield", fail)
+        patch.setattr(optika.systems.SequentialSystem, "_wavefield", wavefield)
         for position in (irregular, line):
             with pytest.raises(ValueError, match="mesh=False"):
                 system.psf(position_sensor=position, **kwargs)
+    wavefield.assert_not_called()
 
     for position in (irregular, line):
         result = system.psf(position_sensor=position, mesh=False, **kwargs)
@@ -1343,13 +1344,17 @@ def test_wavefield_mesh_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
         num_pupil=31,
     )
 
-    def fail(*args: object, **kwargs: object) -> None:
-        """Fail if the diffraction orders are traced."""
-        raise AssertionError("the diffraction orders were traced")
-
-    monkeypatch.setattr(optika.systems._sequential, "_mesh_diffraction", fail)
+    mesh_diffraction = unittest.mock.Mock(
+        side_effect=AssertionError("the diffraction orders were traced"),
+    )
+    monkeypatch.setattr(
+        optika.systems._sequential,
+        "_mesh_diffraction",
+        mesh_diffraction,
+    )
     assert np.abs(system.wavefield(**kwargs).outputs.amplitude).max() > 0
     assert system.psf(mesh=False, **kwargs).outputs.max() > 0 / u.mm**2
+    mesh_diffraction.assert_not_called()
 
 
 def test_psf_mesh_sensor_edge() -> None:
